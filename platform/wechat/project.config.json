@@ -1,0 +1,22 @@
+{
+  "description": "代号1 · 微信小游戏工程配置。用微信开发者工具直接打开 build/wechat/ 目录",
+  "projectname": "代号1",
+  "appid": "",
+  "compileType": "game",
+  "libVersion": "3.12.1",
+  "setting": {
+    "es6": true,
+    "minified": true,
+    "enhance": true,
+    "urlCheck": false,
+    "uploadWithSourceMap": false,
+    "disableUseStrict": false
+  },
+  "packOptions": {
+    "ignore": [
+      { "type": "file", "value": "project.config.json" },
+      { "type": "file", "value": "project.private.config.json" }
+    ],
+    "include": []
+  }
+}

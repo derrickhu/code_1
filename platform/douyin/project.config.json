@@ -1,0 +1,21 @@
+{
+  "description": "代号1 · 抖音小游戏工程配置。用抖音开发者工具直接打开 build/douyin/ 目录",
+  "projectname": "代号1",
+  "appid": "",
+  "libVersion": "3.19.0",
+  "setting": {
+    "es6": true,
+    "minified": true,
+    "urlCheck": false
+  },
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "condition": {
+    "game": {
+      "current": -1,
+      "list": []
+    }
+  }
+}

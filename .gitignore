@@ -1,0 +1,5 @@
+node_modules/
+.bundle/
+build/
+.DS_Store
+*.log
