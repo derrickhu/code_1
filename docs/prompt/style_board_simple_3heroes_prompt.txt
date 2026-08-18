@@ -1,0 +1,21 @@
+Game character style board, 1 row x 3 columns, equal panels, thin light gutter, pale warm gray backdrop.
+
+Use the reference ONLY for who the three mascots are (fire kid, vine gremlin, tiny tide knight). Do NOT copy the detailed rendering.
+
+Style (MUST be simpler, fewer details):
+- Super-deformed, head almost half the height
+- Goofy dumb faces: 2 big dots or simple shiny ovals for eyes, tiny mouth
+- Fat even comic outline, like a rubber stamp / cheap sticker
+- FLAT candy colors only: 4 colors max per character
+- NO texture, NO cracks, NO scales, NO fabric folds, NO barnacles
+- NO glow, NO rim light, NO painted swirls, NO water droplets, NO soot specks
+- NO armor rivets, NO leaf veins, NO fire particles
+- Weapons are one or two big simple shapes
+- 3/4 view, full body, feet near bottom
+- NO TEXT, no labels, no captions, no letters, no numbers, no watermarks
+
+Panel 1 — Flame kid: round orange flame-hair blob, red tunic, stick + one orange ball as staff, derpy grin
+Panel 2 — Vine kid: round leaf-hair blob, green leaf dress, one simple curly vine whip, tongue-out
+Panel 3 — Tide knight: round teal helmet, tiny body, one big plain blue circle shield with a single white wave mark, proud smile
+
+Same outline weight and camera. Readable silhouette first, cute-stupid, not premium.

@@ -1,0 +1,65 @@
+{
+  "defaults": { "bitrate": "96k", "prompt_influence": 0.62 },
+  "sfx": [
+    {
+      "name": "ui_tap",
+      "text": "single crisp ceramic-glass UI tap, tiny hard tick like a premium phone keyboard, sharp attack under 15ms, dry studio, no reverb, no wood, no frog, no animal, no voice, no music, no rubber",
+      "duration": 0.18,
+      "output": "ui_tap.mp3"
+    },
+    {
+      "name": "hero_land",
+      "text": "one heavy leather boot landing on dry granite flagstone, solid low-mid thud with a short 80ms stone decay, dry studio, no gravel scatter, no voice, no animal, no frog, no music",
+      "duration": 0.32,
+      "output": "hero_land.mp3"
+    },
+    {
+      "name": "atk",
+      "text": "clean fast sword swing through dry air, thin silk whoosh only, no impact, no vocal, no wet, no frog, no animal, no music, no cartoon",
+      "duration": 0.22,
+      "output": "atk.mp3"
+    },
+    {
+      "name": "hit",
+      "text": "dry steel sword striking plate armor, short metallic clang with tight decay, no flesh, no wet slap, no croak, no frog, no animal, no voice, no music, no rubber bounce",
+      "duration": 0.22,
+      "output": "hit.mp3"
+    },
+    {
+      "name": "hit_counter",
+      "text": "bright steel-on-crystal strike, hard clang plus one high clean glass ping, punchy and dry, no shimmer wash, no choir, no frog, no animal, no voice, no music",
+      "duration": 0.28,
+      "output": "hit_counter.mp3"
+    },
+    {
+      "name": "skill",
+      "text": "short clean crystal bell chime, two tight harmonics, dry studio, no choir, no whoosh, no wobble, no frog, no animal, no voice, no music",
+      "duration": 0.4,
+      "output": "skill.mp3"
+    },
+    {
+      "name": "enemy_down",
+      "text": "steel armor plates dropping onto stone once, short dry clatter, no scream, no bone crunch, no frog, no animal, no voice, no music",
+      "duration": 0.35,
+      "output": "enemy_down.mp3"
+    },
+    {
+      "name": "leak",
+      "text": "single deep temple drum hit mixed with a dry stone crack, warning pulse, no glass squeal, no alarm siren, no frog, no animal, no voice, no music",
+      "duration": 0.4,
+      "output": "leak.mp3"
+    },
+    {
+      "name": "win",
+      "text": "short premium brass victory sting, two rising major notes with timpani, clean concert hall very short, instrumental only, no choir lyrics, no voice, no frog, no cheap synth, no music loop",
+      "duration": 1.5,
+      "output": "win.mp3"
+    },
+    {
+      "name": "lose",
+      "text": "short muted low brass and timpani descending two notes, somber and dry, instrumental only, no wah-wah, no trombone joke, no frog, no animal, no voice, no cheap synth",
+      "duration": 1.3,
+      "output": "lose.mp3"
+    }
+  ]
+}

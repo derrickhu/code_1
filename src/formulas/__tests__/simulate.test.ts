@@ -6,30 +6,67 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { MELEE_REACH, ROW_POS, SPAWN_DIST, TOTAL_WAVES } from '../../balance/combat';
+import { MELEE_REACH, RANK, SPAWN_DIST, TOTAL_SLOTS, TOTAL_WAVES } from '../../balance/combat';
 import { ELEMENTS, getCounterMult, getCounteredBy } from '../../balance/counters';
-import { HEROES, MAX_LEVEL } from '../../balance/heroes';
+import { HEROES, MAX_LEVEL, getHero } from '../../balance/heroes';
 import { WAVES } from '../../balance/enemies';
 import { ROLE_ROW } from '../../balance/picker';
+import {
+  applyPick,
+  assignSlot,
+  benchHero,
+  benchOf,
+  createRun,
+  enemyVictim,
+  heroAt,
+  tick,
+  type DeployOptions,
+  type HeroUnit,
+  type RunState,
+} from '../../game/BattleEngine';
 import { armorReduction, computeDamage } from '../damage';
 import { simulateBatch, simulateRun } from '../simulate';
 
 describe('站位语义', () => {
-  // 这几条钉的是一个真实踩过的坑：front/back 曾被写成 14/26，
-  // 而敌人 dist 是递减的，结果后排先接敌、坦克躲在后面挨不到打。
-  // 数值全都「看着正常」，但前排承伤这一层设计其实完全没生效。
-  it('前排必须比后排更靠敌人出生点', () => {
-    expect(ROW_POS.front).toBeGreaterThan(ROW_POS.back);
+  it('前排必须比中排、后排更靠敌阵', () => {
+    expect(RANK.front).toBeGreaterThan(RANK.mid);
+    expect(RANK.mid).toBeGreaterThan(RANK.back);
   });
 
   it('坦克站前排，否则承伤设计不成立', () => {
     expect(ROLE_ROW.guard).toBe('front');
   });
 
-  it('敌人推进时先进入前排近战范围', () => {
-    // dist 递减，先满足的必须是前排的判定阈值
-    expect(ROW_POS.front + MELEE_REACH).toBeGreaterThan(ROW_POS.back + MELEE_REACH);
-    expect(SPAWN_DIST).toBeGreaterThan(ROW_POS.front + MELEE_REACH);
+  it('敌人从最远排走来，先撞上前排近战', () => {
+    expect(RANK.front + MELEE_REACH).toBeGreaterThan(RANK.back + MELEE_REACH);
+    expect(SPAWN_DIST).toBeGreaterThan(RANK.front + MELEE_REACH);
+  });
+
+  it('敌队要走过至少一格才撞上近战，棋盘才有空间', () => {
+    const guard = HEROES.find((h) => h.role === 'guard');
+    if (!guard) throw new Error('guard');
+    const walk = SPAWN_DIST - (RANK.front + guard.range);
+    expect(walk).toBeGreaterThanOrEqual(1);
+    expect(walk / 0.9).toBeLessThanOrEqual(4);
+  });
+
+  it('默认站位时远程必须明显长于近战', () => {
+    const reach = (
+      role: 'guard' | 'striker' | 'splash' | 'support',
+      row: 'front' | 'mid' | 'back',
+    ): number => {
+      const h = HEROES.find((x) => x.role === role);
+      if (!h) throw new Error(role);
+      return RANK[row] + h.range;
+    };
+    const melee = reach('guard', 'front');
+    const support = reach('support', 'back');
+    const splash = reach('splash', 'mid');
+    const striker = reach('striker', 'mid');
+    expect(melee).toBe(RANK.front + MELEE_REACH);
+    expect(support).toBeGreaterThanOrEqual(melee);
+    expect(splash).toBeGreaterThan(melee);
+    expect(striker).toBeGreaterThan(splash);
   });
 });
 
@@ -192,5 +229,285 @@ describe('设计约束回归', () => {
       const next = smart.reachRate[w] ?? 0;
       if (cur > 0.2) expect(next / cur).toBeGreaterThan(0.35);
     }
+  });
+});
+
+describe('玩家接管阵容', () => {
+  // 主体验就落在这里：玩家得能说出「把他挪到前排就顶住了」。
+  // 只要引擎在下一波把人换回去，这句话就不成立，所以这几条比数值更不能破。
+  const OPTS: DeployOptions = { preferCounter: true, shuffle: false };
+
+  function runToWave(s: RunState, wave: number): void {
+    let guard = 0;
+    while (s.wave < wave && s.phase !== 'lost' && s.phase !== 'won') {
+      if (guard++ > 200_000) throw new Error('未收敛');
+      const first = s.pendingOptions[0];
+      if (s.phase === 'picking' && first) applyPick(s, first, OPTS);
+      else tick(s, OPTS);
+      s.events.length = 0;
+    }
+  }
+
+  it('默认由引擎托管，玩家没碰过就自动按克制上场', () => {
+    const s = createRun(7);
+    runToWave(s, 4);
+    expect(s.autoDeploy).toBe(true);
+    expect(s.deployed.length).toBeGreaterThan(0);
+  });
+
+  it('开局三张卡必须是三个不同系，否则第一眼看不出差别', () => {
+    const s = createRun(7);
+    expect(s.pendingOptions).toHaveLength(3);
+    const els = s.pendingOptions.map((o) => {
+      if (o.kind !== 'recruit') throw new Error('开局必须是英雄卡');
+      return getHero(o.heroId).element;
+    });
+    expect(new Set(els).size).toBe(3);
+  });
+
+  it('整局会累计克制与漏怪，结算才能归因', () => {
+    const s = createRun(7);
+    const first = s.pendingOptions[0];
+    applyPick(s, first!, OPTS);
+    let guard = 0;
+    while (s.phase !== 'lost' && s.phase !== 'won' && guard++ < 80_000) {
+      tick(s, OPTS);
+      s.events.length = 0;
+    }
+    expect(s.stats.hits).toBeGreaterThan(0);
+    expect(s.stats.counterHits).toBeGreaterThanOrEqual(0);
+    expect(s.stats.leaks + (s.phase === 'won' ? 1 : 0)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('开局只有一个人时站中间格，不贴左边', () => {
+    const s = createRun(7);
+    const first = s.pendingOptions[0];
+    expect(first).toBeDefined();
+    applyPick(s, first!, OPTS);
+    expect(s.deployed).toHaveLength(1);
+    expect(s.deployed[0]?.slot).toBe(1);
+  });
+
+  it('手动指派后，后续波次不会被引擎换掉', () => {
+    const s = createRun(7);
+    runToWave(s, 6);
+    const bench = benchOf(s);
+    const target = bench[0] ?? s.roster[s.roster.length - 1];
+    expect(target).toBeDefined();
+
+    assignSlot(s, target!.def.id, 'front', 0);
+    expect(s.autoDeploy).toBe(false);
+    expect(heroAt(s, 'front', 0)?.def.id).toBe(target!.def.id);
+
+    runToWave(s, 8);
+    if (s.phase !== 'lost') {
+      expect(heroAt(s, 'front', 0)?.def.id).toBe(target!.def.id);
+    }
+  });
+
+  it('撤下一人后，下一波由引擎补空格而不是推翻重排', () => {
+    const s = createRun(11);
+    runToWave(s, 6);
+    const keep = heroAt(s, 'back', 0);
+    const drop = heroAt(s, 'front', 0);
+    if (!keep || !drop) return;
+
+    benchHero(s, drop.def.id);
+    expect(heroAt(s, 'front', 0)).toBeUndefined();
+
+    runToWave(s, 7);
+    if (s.phase !== 'lost') {
+      expect(heroAt(s, 'back', 0)?.def.id).toBe(keep.def.id);
+      expect(s.deployed.length).toBeLessThanOrEqual(TOTAL_SLOTS);
+    }
+  });
+
+  it('英雄优先打本列敌人，换列才有差别', () => {
+    const s = createRun(7);
+    const first = s.pendingOptions[0];
+    applyPick(s, first!, OPTS);
+    const def = getHero('flame_striker');
+    const hero = {
+      def,
+      level: 1,
+      row: 'mid' as const,
+      slot: 0,
+      hp: def.hp,
+      maxHp: def.hp,
+      shield: 0,
+      cdMs: 0,
+      skillCdMs: 9999,
+      alive: true,
+    };
+    s.roster.push(hero);
+    s.deployed = [hero];
+    const proto = { id: 'grunt', name: '兵卒', hp: 800, atk: 1, def: 0, speed: 0, attackIntervalMs: 9999, isBoss: false };
+    s.enemies = [
+      { id: 1, proto, element: 'flame', hp: 800, maxHp: 800, atk: 1, dist: 2.2, lane: 2, cdMs: 9999, slowMs: 0, slowPct: 0 },
+      { id: 2, proto, element: 'vine', hp: 800, maxHp: 800, atk: 1, dist: 4.2, lane: 0, cdMs: 9999, slowMs: 0, slowPct: 0 },
+    ];
+    s.phase = 'fighting';
+    hero!.cdMs = 0;
+    for (let i = 0; i < 8; i += 1) tick(s, OPTS);
+    const firstHit = s.events.find((e) => e.kind === 'hit');
+    expect(firstHit?.kind === 'hit' && firstHit.enemyId).toBe(2);
+  });
+
+  it('敌人近身挥击会留下敌方命中事件', () => {
+    const s = createRun(7);
+    const first = s.pendingOptions[0];
+    applyPick(s, first!, OPTS);
+    const hero = s.deployed[0];
+    expect(hero).toBeDefined();
+    hero!.row = 'front';
+    hero!.slot = 1;
+    hero!.hp = 4000;
+    hero!.maxHp = 4000;
+    hero!.cdMs = 9999;
+    hero!.skillCdMs = 9999;
+    const proto = {
+      id: 'grunt',
+      name: '兵卒',
+      hp: 8000,
+      atk: 40,
+      def: 0,
+      speed: 0,
+      attackIntervalMs: 400,
+      isBoss: false,
+    };
+    s.enemies = [{
+      id: 9,
+      proto,
+      element: 'flame',
+      hp: 8000,
+      maxHp: 8000,
+      atk: 40,
+      dist: RANK.front + 0.4,
+      lane: 1,
+      cdMs: 0,
+      slowMs: 0,
+      slowPct: 0,
+    }];
+    s.phase = 'fighting';
+    tick(s, OPTS);
+    const ev = s.events.find((e) => e.kind === 'enemyHit');
+    expect(ev?.kind).toBe('enemyHit');
+    if (ev?.kind === 'enemyHit') {
+      expect(ev.heroId).toBe(hero!.def.id);
+      expect(ev.damage).toBeGreaterThan(0);
+    }
+  });
+
+  it('漩涡拉回会带上被拉的敌人，渲染才知道不是怪自己后退', () => {
+    const s = createRun(7);
+    const first = s.pendingOptions[0];
+    applyPick(s, first!, OPTS);
+    const def = getHero('tide_splash');
+    const caster = {
+      def,
+      level: 1,
+      row: 'back' as const,
+      slot: 1,
+      hp: def.hp,
+      maxHp: def.hp,
+      shield: 0,
+      cdMs: 9999,
+      skillCdMs: 0,
+      alive: true,
+    };
+    s.roster.push(caster);
+    s.deployed = [caster];
+    const proto = {
+      id: 'grunt',
+      name: '兵卒',
+      hp: 8000,
+      atk: 1,
+      def: 0,
+      speed: 0,
+      attackIntervalMs: 9999,
+      isBoss: false,
+    };
+    s.enemies = [{
+      id: 3,
+      proto,
+      element: 'flame',
+      hp: 8000,
+      maxHp: 8000,
+      atk: 1,
+      dist: 2.2,
+      lane: 1,
+      cdMs: 9999,
+      slowMs: 0,
+      slowPct: 0,
+    }];
+    s.phase = 'fighting';
+    tick(s, OPTS);
+    const ev = s.events.find((e) => e.kind === 'skill' && e.skillKind === 'vortex');
+    expect(ev?.kind).toBe('skill');
+    if (ev?.kind === 'skill') {
+      expect(ev.pulledIds).toContain(3);
+    }
+    expect(s.enemies[0]?.dist).toBeGreaterThan(2.2);
+  });
+
+  it('有前排时敌人只打前排，不切后排', () => {
+    const tank = getHero('flame_guard');
+    const dps = getHero('flame_striker');
+    const front: HeroUnit = {
+      def: tank, level: 1, row: 'front', slot: 1,
+      hp: 4000, maxHp: 4000, shield: 0, cdMs: 9999, skillCdMs: 9999, alive: true,
+    };
+    const rear: HeroUnit = {
+      def: dps, level: 1, row: 'back', slot: 1,
+      hp: 4000, maxHp: 4000, shield: 0, cdMs: 9999, skillCdMs: 9999, alive: true,
+    };
+    const proto = {
+      id: 'grunt', name: '兵卒', hp: 8000, atk: 40, def: 0, speed: 0,
+      attackIntervalMs: 400, isBoss: false,
+    };
+    const enemy = {
+      id: 4, proto, element: 'flame' as const, hp: 8000, maxHp: 8000, atk: 40,
+      dist: RANK.front + 0.4, lane: 1 as const, cdMs: 0, slowMs: 0, slowPct: 0,
+    };
+    expect(enemyVictim(enemy, [front, rear])?.def.id).toBe(tank.id);
+    front.alive = false;
+    expect(enemyVictim(enemy, [front, rear])).toBeUndefined();
+    enemy.dist = RANK.back + 0.4;
+    expect(enemyVictim(enemy, [front, rear])?.def.id).toBe(dps.id);
+  });
+
+  it('荆棘卫命中后敌人下一次出手变慢', () => {
+    const s = createRun(7);
+    const first = s.pendingOptions[0];
+    applyPick(s, first!, OPTS);
+    const def = getHero('vine_guard');
+    const hero: HeroUnit = {
+      def, level: 1, row: 'front', slot: 1,
+      hp: def.hp, maxHp: def.hp, shield: 0, cdMs: 0, skillCdMs: 9999, alive: true,
+    };
+    s.deployed = [hero];
+    s.roster.push(hero);
+    const proto = {
+      id: 'grunt', name: '兵卒', hp: 8000, atk: 1, def: 0, speed: 0,
+      attackIntervalMs: 1000, isBoss: false,
+    };
+    s.enemies = [{
+      id: 8, proto, element: 'flame', hp: 8000, maxHp: 8000, atk: 1,
+      dist: RANK.front + 0.4, lane: 1, cdMs: 9999, slowMs: 0, slowPct: 0,
+    }];
+    s.phase = 'fighting';
+    tick(s, OPTS);
+    expect(s.enemies[0]?.slowPct).toBe(30);
+    s.enemies[0]!.cdMs = 0;
+    tick(s, OPTS);
+    expect(s.enemies[0]?.cdMs).toBeGreaterThan(1000);
+  });
+
+  it('上场人数永远不超过格子数', () => {
+    const s = createRun(3);
+    runToWave(s, 12);
+    expect(s.deployed.length).toBeLessThanOrEqual(TOTAL_SLOTS);
+    const seen = new Set(s.deployed.map((h) => `${h.row}:${h.slot}`));
+    expect(seen.size).toBe(s.deployed.length);
   });
 });

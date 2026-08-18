@@ -30,6 +30,7 @@ declare namespace WechatMinigame {
     destroy(): void;
     onCanplay(cb: () => void): void;
     onPlay(cb: () => void): void;
+    onEnded(cb: () => void): void;
     onError(cb: (err: unknown) => void): void;
   }
 }

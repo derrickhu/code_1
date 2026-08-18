@@ -16,6 +16,7 @@
  * 即说明没有真取舍，要回来改本文件而不是改数值。
  */
 
+import type { Row } from './combat';
 import type { HeroRole } from './heroes';
 
 /**
@@ -95,13 +96,13 @@ export const PICK_STRATEGIES: readonly PickStrategy[] = [
   'random',
 ];
 
-/** 上场位置上限（前后 2 排 × 3 列） */
+/** 上场人数上限。棋盘 9 格，只上 6 人，空格是站位 */
 export const MAX_TEAM_SIZE = 6;
 
-/** 定位入场优先级：招到新英雄时若阵型有空位，按此决定放前排还是后排 */
-export const ROLE_ROW: Readonly<Record<HeroRole, 'front' | 'back'>> = {
+/** 招到新人时默认站哪一排 */
+export const ROLE_ROW: Readonly<Record<HeroRole, Row>> = {
   guard: 'front',
-  striker: 'back',
-  splash: 'back',
+  striker: 'mid',
+  splash: 'mid',
   support: 'back',
 };

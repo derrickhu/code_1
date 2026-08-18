@@ -25,10 +25,10 @@ export interface EnemyProto {
 }
 
 export const ENEMY_PROTOS: readonly EnemyProto[] = [
-  { id: 'runner', name: '疾行者', hp: 120, atk: 12, def: 0, speed: 4.5, attackIntervalMs: 900, isBoss: false },
-  { id: 'grunt', name: '兵卒', hp: 260, atk: 22, def: 10, speed: 2.6, attackIntervalMs: 1100, isBoss: false },
-  { id: 'brute', name: '重甲', hp: 700, atk: 40, def: 35, speed: 1.6, attackIntervalMs: 1400, isBoss: false },
-  { id: 'boss', name: '统领', hp: 2600, atk: 70, def: 45, speed: 1.8, attackIntervalMs: 1600, isBoss: true },
+  { id: 'runner', name: '疾行者', hp: 120, atk: 12, def: 0, speed: 1.6, attackIntervalMs: 900, isBoss: false },
+  { id: 'grunt', name: '兵卒', hp: 260, atk: 22, def: 10, speed: 0.9, attackIntervalMs: 1100, isBoss: false },
+  { id: 'brute', name: '重甲', hp: 700, atk: 40, def: 35, speed: 0.55, attackIntervalMs: 1400, isBoss: false },
+  { id: 'boss', name: '统领', hp: 2600, atk: 70, def: 45, speed: 0.65, attackIntervalMs: 1600, isBoss: true },
 ];
 
 const PROTO_BY_ID: Readonly<Record<string, EnemyProto>> = Object.fromEntries(
@@ -81,12 +81,12 @@ export const WAVES: readonly WaveDef[] = [
   { wave: 6, spawns: [s('runner', 'tide', 8, 350)], hint: '潮系疾行者，藤系英雄能克它' },
   { wave: 7, spawns: [s('grunt', 'tide', 6), s('brute', 'tide', 2, 800, 5000)], hint: '潮系带重甲' },
   { wave: 8, spawns: [s('boss', 'vine', 1), s('grunt', 'vine', 4, 700, 2000)], hint: '藤系统领，炎系英雄能克它' },
-  { wave: 9, spawns: [s('grunt', 'flame', 5), s('runner', 'tide', 6, 400, 3000)], hint: '炎与潮混编' },
-  { wave: 10, spawns: [s('brute', 'flame', 3, 900), s('grunt', 'vine', 6, 600, 4000)], hint: '炎系重甲配藤系兵卒' },
-  { wave: 11, spawns: [s('runner', 'tide', 10, 300), s('brute', 'flame', 2, 900, 5000)], hint: '潮系冲锋，注意漏怪' },
-  { wave: 12, spawns: [s('grunt', 'vine', 8, 500), s('brute', 'tide', 3, 900, 5000)], hint: '藤系大队配潮系重甲' },
-  { wave: 13, spawns: [s('brute', 'flame', 3, 900), s('runner', 'vine', 8, 350, 4000)], hint: '三系齐来' },
-  { wave: 14, spawns: [s('grunt', 'tide', 8, 450), s('brute', 'vine', 4, 900, 5000)], hint: '潮系大队配藤系重甲' },
+  { wave: 9, spawns: [s('grunt', 'flame', 5), s('runner', 'tide', 6, 400, 3000)], hint: '左路炎、右路潮' },
+  { wave: 10, spawns: [s('brute', 'flame', 3, 900), s('grunt', 'vine', 6, 600, 4000)], hint: '左路炎重甲、中路藤兵' },
+  { wave: 11, spawns: [s('runner', 'tide', 10, 300), s('brute', 'flame', 2, 900, 5000)], hint: '右路潮系冲锋，左路炎重甲' },
+  { wave: 12, spawns: [s('grunt', 'vine', 8, 500), s('brute', 'tide', 3, 900, 5000)], hint: '中路藤兵、右路潮重甲' },
+  { wave: 13, spawns: [s('brute', 'flame', 3, 900), s('runner', 'vine', 8, 350, 4000)], hint: '左炎右藤，对位换人' },
+  { wave: 14, spawns: [s('grunt', 'tide', 8, 450), s('brute', 'vine', 4, 900, 5000)], hint: '右路潮兵、中路藤甲' },
   // 终局刻意不做成数值墙：护卫减到 2 重甲加 4 兵卒，
   // 让「打到第 15 波」的玩家有真实通关概率。终局要的是高潮，不是劝退
   {
@@ -105,17 +105,14 @@ export const WAVES: readonly WaveDef[] = [
  * 因此曲线必须压到「15 波总成长与英雄成长同量级、略高一线」。
  */
 export const WAVE_CURVE = {
-  hpGrowth: 1.235,
+  hpGrowth: 1.21,
   atkGrowth: 1.14,
   /**
    * 第 KNEE 波之后改用这条更平缓的成长。
-   *
-   * 卡关区被设计在 9 到 12 波，因此 13 波之后没有理由继续指数上升 ——
-   * 那只会让「已经打到这里」的玩家撞上纯数值墙，通关率恒为 0。
-   * 放缓之后 13 到 15 波是留给通关者的收尾段，终局是高潮而不是劝退。
+   * 对撞后远程空窗短了，指数成长必须更早收，否则第 12 波会变成硬墙。
    */
-  lateGrowth: 1.1,
-  knee: 12,
+  lateGrowth: 1.0,
+  knee: 10,
 } as const;
 
 function segmented(growth: number, late: number, wave: number): number {

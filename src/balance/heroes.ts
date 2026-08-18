@@ -16,11 +16,34 @@ import type { Element } from './counters';
 export type HeroRole = 'guard' | 'striker' | 'splash' | 'support';
 
 export const ROLE_NAMES: Readonly<Record<HeroRole, string>> = {
-  guard: '前排',
+  guard: '近战',
   striker: '单体',
   splash: '范围',
   support: '辅助',
 };
+
+/** 前排近战挥砍，其余远程弹道。观战层用，不改伤害规则。 */
+export function isMeleeRole(role: HeroRole): boolean {
+  return role === 'guard';
+}
+
+/** 场上常驻的技能短词，说效果不说花名 */
+export function skillTag(skill: HeroSkill): string {
+  switch (skill.kind) {
+    case 'thorns': return '反伤';
+    case 'execute': return '连斩';
+    case 'splash': return '溅射';
+    case 'hasteAura': return '攻速';
+    case 'slowOnHit':
+    case 'slowAura': return '减速';
+    case 'lifesteal': return '吸血';
+    case 'heal': return '治疗';
+    case 'shield': return '护盾';
+    case 'pierce': return '穿透';
+    case 'vortex': return '拉回';
+    case 'critAura': return '暴击';
+  }
+}
 
 /**
  * 技能效果。每一项都必须能在 tick 模拟里量化，否则无法用 tools/sim.ts 回归 ——
@@ -75,12 +98,12 @@ export interface HeroDef {
 const ROLE_BASE: Readonly<
   Record<HeroRole, Pick<HeroDef, 'hp' | 'atk' | 'def' | 'range' | 'attackIntervalMs'>>
 > = {
-  // 前排射程要给够：站位 14 加射程 14 才有约 5 秒的免费输出窗口，
-  // 否则敌人一进射程就已经贴到脸上，前排等于只会挨打不会还手
-  guard: { hp: 900, atk: 40, def: 40, range: 14, attackIntervalMs: 1000 },
-  striker: { hp: 380, atk: 105, def: 10, range: 30, attackIntervalMs: 900 },
-  splash: { hp: 460, atk: 62, def: 15, range: 22, attackIntervalMs: 1200 },
-  support: { hp: 520, atk: 45, def: 20, range: 20, attackIntervalMs: 1100 },
+  // 射程是「能打几排」。近战邻排，远程跨排。
+  // 默认站位：前排近战 2+1=3 < 后排辅助 0+3=3 贴敌前排，中排范围 4、单体 5。
+  guard: { hp: 900, atk: 48, def: 40, range: 1, attackIntervalMs: 1000 },
+  striker: { hp: 380, atk: 105, def: 10, range: 4, attackIntervalMs: 900 },
+  splash: { hp: 460, atk: 62, def: 15, range: 3, attackIntervalMs: 1200 },
+  support: { hp: 520, atk: 45, def: 20, range: 3, attackIntervalMs: 1100 },
 };
 
 function hero(
@@ -101,14 +124,14 @@ export const HEROES: readonly HeroDef[] = [
     '被近身攻击时，把 25% 伤害烧回去'),
   hero('flame_striker', '赤刃', 'flame', 'striker', '连斩', { kind: 'execute', maxChain: 2 },
     '击杀敌人后立刻再挥一刀，最多连锁 2 次'),
-  hero('flame_splash', '燎原者', 'flame', 'splash', '燎原', { kind: 'splash', damagePct: 45, radius: 6 },
+  hero('flame_splash', '燎原者', 'flame', 'splash', '燎原', { kind: 'splash', damagePct: 45, radius: 1 },
     '攻击溅到附近敌人，造成 45% 伤害'),
   hero('flame_support', '战鼓手', 'flame', 'support', '战鼓', { kind: 'hasteAura', hastePct: 20 },
     '全队攻速提升 20%'),
 
   // ── 藤：拖时间与续航，靠拉长输出窗口取胜 ──
   hero('vine_guard', '荆棘卫', 'vine', 'guard', '荆棘壁', { kind: 'slowOnHit', slowPct: 30, durationMs: 2000 },
-    '命中的敌人移速降低 30%，持续 2 秒'),
+    '命中的敌人出手变慢 30%，持续 2 秒'),
   hero('vine_striker', '汲藤客', 'vine', 'striker', '汲取', { kind: 'lifesteal', healPct: 25 },
     '造成伤害的 25% 回复自身'),
   hero('vine_splash', '缠藤妖', 'vine', 'splash', '藤缚', { kind: 'slowAura', slowPct: 25 },
@@ -121,8 +144,8 @@ export const HEROES: readonly HeroDef[] = [
     '每 5 秒获得 220 点吸收护盾'),
   hero('tide_striker', '贯流枪手', 'tide', 'striker', '贯流', { kind: 'pierce', extraTargets: 2 },
     '攻击穿透，额外命中身后 2 个敌人'),
-  hero('tide_splash', '漩涡术士', 'tide', 'splash', '漩涡', { kind: 'vortex', damage: 70, pullDist: 6, everyMs: 4500 },
-    '每 4.5 秒把射程内敌人拉回 6 格并造成 70 伤害'),
+  hero('tide_splash', '漩涡术士', 'tide', 'splash', '漩涡', { kind: 'vortex', damage: 70, pullDist: 1.5, everyMs: 4500 },
+    '每 4.5 秒把射程内敌人拉回 1 排半并造成 70 伤害'),
   hero('tide_support', '潮汐歌者', 'tide', 'support', '潮汐', { kind: 'critAura', chancePct: 20, critMult: 1.8 },
     '全队 20% 概率打出 1.8 倍暴击'),
 ];

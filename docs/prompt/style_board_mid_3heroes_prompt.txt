@@ -1,0 +1,21 @@
+Game character style board, 1 row x 3 columns, equal panels, thin gutter, soft warm gray backdrop.
+
+Blend the two references:
+- From the detailed board: keep volume, a little cel-shade, signature props, candy saturation
+- From the simple board: keep big readable shapes, fat outlines, goofy faces, few parts
+- Middle ground: about 6-8 colors per character, TWO-tone shade only (light + shadow), NO armor pits, NO scale texture, NO barnacles, NO soot specks field, NO particle rain, NO painted foam splash
+
+Style:
+- Super-deformed, head almost half height
+- Goofy faces: oversized shiny eyes, tiny nose, dumb grin or tongue-out — not cool hero faces
+- Fat comic ink outlines, sticker-chibi, cheap-fun
+- Soft rounded forms, one highlight blob per big shape
+- Weapons still bigger than the body, but each weapon is 2-3 shapes max
+- 3/4 view, full body, feet near bottom
+- NO TEXT, no labels, no captions, no letters, no numbers, no watermarks
+
+Panel 1 — Flame kid: flame-hair with 2-3 locks not a hundred sparks, red tunic + rope belt + one gold disc, wooden staff with one glowing orange gourd, tiny soot marks on cheeks only, derpy grin
+Panel 2 — Vine kid: leafy bun hair with one daisy, simple leaf dress, one curly thorn-vine lasso, tongue-out
+Panel 3 — Tide knight: round teal helmet with one seashell, tiny body, one big blue circle shield with a simple white wave, small scarf, proud smile
+
+Same outline weight and camera in all three.

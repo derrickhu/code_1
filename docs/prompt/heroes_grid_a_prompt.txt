@@ -1,0 +1,16 @@
+Game character sprite sheet, 3 columns x 2 rows, six equal square panels, thin light gutter, pale warm gray backdrop (easy to cut out).
+
+Use the reference ONLY for art style: mid-detail sticker-chibi. Super-deformed, head almost half height, fat comic outlines, 6-8 colors, TWO-tone cel shade only, one highlight blob per big shape. Goofy faces. Weapons 2-3 shapes, still bigger than the body. NO armor pits, NO scale texture, NO particles, NO barnacles. NOT premium fantasy. 3/4 view, full body, feet near bottom of each cell.
+NO TEXT, no labels, no letters, no numbers, no watermarks.
+
+Same camera, outline weight, and gray backdrop in every panel.
+
+Row 1:
+1 Flame guard: stubby lava kid, round dark-red rock shield bigger than him, small magma mallet, flame-hair 2-3 locks, tiny soot on cheeks, proud puff-face
+2 Flame striker: skinny fire brat, one long red blade (2 shapes), messy 3-lock ember hair, cocky grin, red tunic + gold disc
+3 Flame splash: chubby fire kid matching the reference left mascot, wooden staff with one orange gourd, derpy grin
+
+Row 2:
+4 Flame support: smallest drummer, one round war-drum + two stick, spark-hair tuft, happy yell
+5 Vine guard: round bark dumpling, one big green thorn-circle shield, pot-helm with one leaf, stubborn frown
+6 Vine striker: lean vine rascal, one huge thorn scissors, leaf-hood, sly smile

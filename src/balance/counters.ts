@@ -21,6 +21,15 @@ export const ELEMENT_NAMES: Readonly<Record<Element, string>> = {
   tide: '潮',
 };
 
+/** 混系波次按系别分路：炎左、藤中、潮右。单系波次再均摊到三路。 */
+export const ELEMENT_LANE: Readonly<Record<Element, 0 | 1 | 2>> = {
+  flame: 0,
+  vine: 1,
+  tide: 2,
+};
+
+export const LANE_NAMES = ['左', '中', '右'] as const;
+
 /** key 克制 value */
 const BEATS: Readonly<Record<Element, Element>> = {
   flame: 'vine',

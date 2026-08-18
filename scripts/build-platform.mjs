@@ -98,6 +98,8 @@ export function assemble(platform, { quiet = false } = {}) {
 
   copyDir(RUNTIME_DIR, out);
   fs.copyFileSync(bundle, path.join(out, 'game-bundle.js'));
+  const assetsDir = path.join(rootDir, 'assets');
+  if (fs.existsSync(assetsDir)) copyDir(assetsDir, out);
   copyDir(platformSrc, out);
   fs.writeFileSync(outConfig, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 

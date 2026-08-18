@@ -1,0 +1,17 @@
+Game character style board, 1 row x 3 columns, equal panels, thin dark gutter.
+
+Style (MUST be identical, DUMB-COOL not pretty-generic):
+- Super-deformed chibi mascot fighters, head is almost half the body height
+- Goofy faces: oversized shiny eyes, tiny noses, dumb confident grins or puffy angry cheeks, not cool hero faces
+- Weapons and props comically bigger than the character
+- Fat comic ink outlines, flat candy colors, cheap-fun sticker look
+- Loud, memorable, slightly stupid-cool — like a joke idle game, NOT premium fantasy, NOT elegant anime
+- 3/4 view, full body, feet near bottom
+- Dark charcoal void backdrop, no scenery, no pedestals
+- NO TEXT, no labels, no captions, no letters, no numbers, no watermarks
+
+Panel 1 — Flame splash mage (燎原者): chubby fire kid, huge ember gourd staff taller than him, soot-smudged cheeks, spark shower, orange-red candy colors, derpy excited grin
+Panel 2 — Vine splash witch (缠藤妖): round leafy gremlin, vine hair like messy noodles, living vine lasso bigger than her body, sap-green, mischievous tongue-out face
+Panel 3 — Tide melee guard (浪盾武士): tiny stubby knight, round wave-shield twice his size, oversized helmet tipping over one eye, seafoam and indigo, proud dumb smile
+
+Same outline weight and camera in all three. Rememberable silhouettes first.
