@@ -1,6 +1,6 @@
 {
-  "description": "代号1 · 微信小游戏。用微信开发者工具打开 build/wechat/",
-  "projectname": "代号1",
+  "description": "村口大战外星人 · 微信小游戏。用微信开发者工具打开 build/wechat/",
+  "projectname": "村口大战外星人",
   "appid": "wx19255301c4f7232e",
   "compileType": "game",
   "libVersion": "3.12.1",

@@ -4,7 +4,6 @@
  */
 import * as PIXI from 'pixi.js';
 import { playSfx } from '@/core/SfxPlayer';
-import { isMeleeRole, type HeroRole } from '@/balance/heroes';
 import type { BattleEvent } from '@/game/BattleEngine';
 
 const MAX_FLOATS = 12;
@@ -41,14 +40,13 @@ interface ShotBit {
   y1: number;
   color: number;
   kind: ShotKind;
-  counter: boolean;
   crit: boolean;
   trail: { x: number; y: number }[];
   done: boolean;
   land: () => void;
 }
 
-type BurstStyle = 'hit' | 'shield' | 'heal' | 'vortex' | 'death' | 'leak';
+type BurstStyle = 'hit' | 'shield' | 'heal' | 'revive' | 'death';
 
 interface BurstBit {
   g: PIXI.Graphics;
@@ -57,7 +55,8 @@ interface BurstBit {
   x: number;
   y: number;
   color: number;
-  counter: boolean;
+  /** 大一号的爆点，暴击用 */
+  strong: boolean;
   style: BurstStyle;
 }
 
@@ -87,13 +86,14 @@ export class CombatFx {
   private readonly _flashes: FlashBit[] = [];
   private readonly _pulls: PullBit[] = [];
   private _firstHit = true;
-  leakPulse = 0;
+  /** 有人倒下时的一次红闪。失败条件是队灭，所以警报挂在倒人身上而不是底线 */
+  downPulse = 0;
   landPulse = 0;
   private _meleeRadius = 72;
 
   reset(): void {
     this._firstHit = true;
-    this.leakPulse = 0;
+    this.downPulse = 0;
     this.landPulse = 0;
     for (const f of this._floats) f.text.destroy();
     for (const s of this._shots) s.g.destroy();
@@ -120,11 +120,13 @@ export class CombatFx {
       tx?: number;
       ty?: number;
       color?: number;
-      role?: HeroRole;
+      /** 近战走挥砍，远程走弹道 */
+      melee?: boolean;
+      /** 溅射类用圆球弹，看起来是「一片」而不是「一根」 */
+      orb?: boolean;
       reachY?: number;
       meleeR?: number;
       baseY?: number;
-      pulled?: { x0: number; y0: number; x1: number; y1: number }[];
       slowed?: boolean;
     },
   ): void {
@@ -132,7 +134,7 @@ export class CombatFx {
     if (pos.meleeR && pos.meleeR > 0) this._meleeRadius = pos.meleeR;
     if (ev.kind === 'hit' && pos.ex !== undefined && pos.ey !== undefined) {
       if (pos.hx !== undefined && pos.hy !== undefined) {
-        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.role);
+        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.melee, pos.orb);
       } else {
         this._impactHero(ev, pos.ex, pos.ey, color);
       }
@@ -142,18 +144,21 @@ export class CombatFx {
       this._spawnClaw(ev, pos.ex, pos.ey, pos.hx, pos.hy);
     }
     if (ev.kind === 'enemyDown') playSfx('enemy_down', 100);
-    if (ev.kind === 'leak') {
-      this.leakPulse = 0.4;
-      playSfx('leak', 80);
-      if (pos.ex !== undefined && pos.ey !== undefined) {
-        this._burst(pos.ex, pos.baseY ?? pos.ey + 40, 0xff5a5a, 0.28, 'leak');
-      }
-    }
     if (ev.kind === 'heroDown' && pos.hx !== undefined && pos.hy !== undefined) {
+      this.downPulse = 0.4;
       this._burst(pos.hx, pos.hy, 0x9aa4bf, 0.32, 'death');
     }
+    // 摩托头盔：站起来这件事必须看得见，否则玩家不知道那件破烂救了他
+    if (ev.kind === 'heroRevive' && pos.hx !== undefined && pos.hy !== undefined) {
+      this._burst(pos.hx, pos.hy, 0xffd66b, 0.4, 'revive');
+      this._spawnPlainFloat('又站起来了', pos.hx, pos.hy - 46, 0xffd66b, 24, 0.7);
+      playSfx('hero_land', 0);
+    }
+    if (ev.kind === 'install' && pos.hx !== undefined && pos.hy !== undefined) {
+      this._burst(pos.hx, pos.hy, 0xffd66b, 0.45, 'revive');
+    }
     if (ev.kind === 'skill' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._skillCallout(ev, { hx: pos.hx, hy: pos.hy, tx: pos.tx, ty: pos.ty, pulled: pos.pulled });
+      this._skillCallout(ev, { hx: pos.hx, hy: pos.hy, tx: pos.tx, ty: pos.ty });
     }
     if (ev.kind === 'hit' && pos.slowed && pos.ex !== undefined && pos.ey !== undefined) {
       this._spawnPlainFloat('减速', pos.ex, pos.ey + 10, 0x86efac, 16, 0.4);
@@ -169,7 +174,7 @@ export class CombatFx {
   }
 
   update(dt: number): void {
-    this.leakPulse = Math.max(0, this.leakPulse - dt);
+    this.downPulse = Math.max(0, this.downPulse - dt);
     this.landPulse = Math.max(0, this.landPulse - dt);
 
     for (let i = this._floats.length - 1; i >= 0; i -= 1) {
@@ -288,16 +293,16 @@ export class CombatFx {
     x1: number,
     y1: number,
     color: number,
-    role?: HeroRole,
+    melee?: boolean,
+    orb?: boolean,
   ): void {
-    const melee = role ? isMeleeRole(role) : false;
-    const tint = ev.counter === 'up' ? mix(color, 0x7dff9a, 0.45) : color;
+    const tint = ev.crit ? mix(color, 0xffd66b, 0.45) : color;
     if (melee) {
       this._spawnSweep(x0, y0, tint, () => this._impactHero(ev, x1, y1, color));
       playSfx('atk', 90);
       return;
     }
-    const kind: ShotKind = role === 'splash' ? 'orb' : 'bolt';
+    const kind: ShotKind = orb ? 'orb' : 'bolt';
     this._pushShot({
       x0,
       y0,
@@ -306,7 +311,6 @@ export class CombatFx {
       color: tint,
       kind,
       fly: kind === 'orb' ? 0.26 : 0.2,
-      counter: ev.counter === 'up',
       crit: ev.crit,
       land: () => this._impactHero(ev, x1, y1, color),
     });
@@ -350,7 +354,6 @@ export class CombatFx {
       color: 0xff6b5a,
       kind: 'claw',
       fly: 0.09,
-      counter: false,
       crit: false,
       land: () => {
         const through = ev.damage - ev.absorbed;
@@ -379,7 +382,6 @@ export class CombatFx {
     color: number;
     kind: ShotKind;
     fly: number;
-    counter: boolean;
     crit: boolean;
     land: () => void;
   }): void {
@@ -400,7 +402,6 @@ export class CombatFx {
       y1: spec.y1,
       color: spec.color,
       kind: spec.kind,
-      counter: spec.counter,
       crit: spec.crit,
       trail: [{ x: spec.x0, y: spec.y0 }],
       done: false,
@@ -410,8 +411,8 @@ export class CombatFx {
 
   private _impactHero(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number, color: number): void {
     this._spawnHitFloat(ev, x, y);
-    playSfx(ev.counter === 'up' ? 'hit_counter' : 'hit', ev.counter === 'up' ? 50 : 80);
-    this._burst(x, y, ev.counter === 'up' ? 0x7dff9a : color, ev.counter === 'up' ? 0.22 : 0.16, 'hit');
+    playSfx(ev.crit ? 'hit_counter' : 'hit', ev.crit ? 50 : 80);
+    this._burst(x, y, ev.crit ? 0xffd66b : color, ev.crit ? 0.22 : 0.16, 'hit');
   }
 
   private _burst(x: number, y: number, color: number, life: number, style: BurstStyle): void {
@@ -424,14 +425,14 @@ export class CombatFx {
       x,
       y,
       color,
-      counter: style === 'hit' && color === 0x7dff9a,
+      strong: style === 'hit' && color === 0xffd66b,
       style,
     });
   }
 
   private _skillCallout(
     ev: Extract<BattleEvent, { kind: 'skill' }>,
-    pos: { hx: number; hy: number; tx?: number; ty?: number; pulled?: { x0: number; y0: number; x1: number; y1: number }[] },
+    pos: { hx: number; hy: number; tx?: number; ty?: number },
   ): void {
     this._skillShape(ev.skillKind, pos);
     if (ev.skillKind === 'shield') {
@@ -442,16 +443,6 @@ export class CombatFx {
       const x = pos.tx ?? pos.hx;
       const y = pos.ty ?? pos.hy;
       if ((ev.amount ?? 0) > 0) this._spawnPlainFloat(`+${Math.round(ev.amount ?? 0)}`, x, y - 24, 0x86efac, 22, 0.5);
-      return;
-    }
-    if (ev.skillKind === 'vortex') {
-      playSfx('skill', 160);
-      if (pos.pulled) {
-        for (const p of pos.pulled) {
-          this._spawnPull(pos.hx, pos.hy, p.x0, p.y0, p.x1, p.y1);
-          this._spawnPlainFloat('拉回', p.x0, p.y0 - 10, 0x7dd3fc, 20, 0.5);
-        }
-      }
       return;
     }
     this._spawnFlash(ev.skillName, pos.hx, pos.hy - 56);
@@ -466,7 +457,6 @@ export class CombatFx {
     const hy = pos.hy ?? 0;
     if (kind === 'shield') this._burst(hx, hy, 0x7dd3fc, 0.36, 'shield');
     else if (kind === 'heal') this._burst(pos.tx ?? hx, pos.ty ?? hy, 0x86efac, 0.32, 'heal');
-    else if (kind === 'vortex') this._burst(hx, hy, 0x5ec8ff, 0.42, 'vortex');
     else this._burst(hx, hy, 0xffd66b, 0.2, 'hit');
   }
 
@@ -513,7 +503,7 @@ export class CombatFx {
     const px = -ny;
     const py = nx;
     const g = s.g;
-    g.beginFill(s.color, 0.22 * fade).drawCircle(p.x, p.y, s.counter ? 16 : 12).endFill();
+    g.beginFill(s.color, 0.22 * fade).drawCircle(p.x, p.y, s.crit ? 16 : 12).endFill();
     g.beginFill(s.color, 0.95 * fade);
     g.moveTo(p.x + nx * 10, p.y + ny * 10);
     g.lineTo(p.x + px * 4.5, p.y + py * 4.5);
@@ -603,14 +593,6 @@ export class CombatFx {
       g.lineStyle(0);
       return;
     }
-    if (b.style === 'vortex') {
-      g.lineStyle(4, b.color, alpha * 0.8);
-      g.drawCircle(b.x, b.y, 16 + t * 54);
-      g.lineStyle(2, 0xffffff, alpha * 0.45);
-      g.drawCircle(b.x, b.y, 8 + t * 32);
-      g.lineStyle(0);
-      return;
-    }
     if (b.style === 'death') {
       g.beginFill(0x0b0f18, alpha * 0.45).drawEllipse(b.x, b.y + 18, 28 + t * 8, 10).endFill();
       g.lineStyle(3, b.color, alpha);
@@ -618,21 +600,25 @@ export class CombatFx {
       g.lineStyle(0);
       return;
     }
-    if (b.style === 'leak') {
-      g.beginFill(b.color, alpha * 0.55).drawRect(b.x - 40, b.y - 4, 80, 8).endFill();
-      g.beginFill(0xff9a9a, alpha * 0.35).drawEllipse(b.x, b.y, 50 + t * 30, 10).endFill();
+    // 站起来 / 装上破烂：一圈金环往外扩，和挨打的红完全区分开
+    if (b.style === 'revive') {
+      g.lineStyle(5, b.color, alpha * 0.9);
+      g.drawCircle(b.x, b.y, 14 + t * 44);
+      g.lineStyle(2.5, 0xffffff, alpha * 0.6);
+      g.drawCircle(b.x, b.y, 8 + t * 26);
+      g.lineStyle(0);
       return;
     }
-    const ring = 6 + t * (b.counter ? 36 : 24);
-    g.lineStyle(b.counter ? 4 : 2.5, b.color, alpha * 0.9);
+    const ring = 6 + t * (b.strong ? 36 : 24);
+    g.lineStyle(b.strong ? 4 : 2.5, b.color, alpha * 0.9);
     g.drawCircle(b.x, b.y, ring);
     g.lineStyle(0);
-    g.beginFill(0xffffff, alpha * (b.counter ? 0.55 : 0.35)).drawCircle(b.x, b.y, 3 + t * 8).endFill();
-    const n = b.counter ? 8 : 5;
+    g.beginFill(0xffffff, alpha * (b.strong ? 0.55 : 0.35)).drawCircle(b.x, b.y, 3 + t * 8).endFill();
+    const n = b.strong ? 8 : 5;
     for (let i = 0; i < n; i += 1) {
       const a = (Math.PI * 2 * i) / n + t * 0.4;
       const r0 = 4 + t * 6;
-      const r1 = 10 + t * (b.counter ? 22 : 16);
+      const r1 = 10 + t * (b.strong ? 22 : 16);
       g.lineStyle(2, b.color, alpha);
       g.moveTo(b.x + Math.cos(a) * r0, b.y + Math.sin(a) * r0);
       g.lineTo(b.x + Math.cos(a) * r1, b.y + Math.sin(a) * r1);
@@ -641,14 +627,12 @@ export class CombatFx {
   }
 
   private _spawnHitFloat(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number): void {
-    const counter = ev.counter === 'up';
-    const down = ev.counter === 'down';
     const first = this._firstHit;
     this._firstHit = false;
-    const size = first ? 42 : counter ? 34 : down ? 18 : 24;
-    const color = counter ? 0x5ecf7b : down ? 0x7a8194 : ev.crit ? 0xffd66b : 0xffffff;
+    const size = first ? 42 : ev.crit ? 34 : 24;
+    const color = ev.crit ? 0xffd66b : 0xffffff;
     this._spawnPlainFloat(
-      counter ? `克 ${Math.round(ev.damage)}` : String(Math.round(ev.damage)),
+      String(Math.round(ev.damage)),
       x,
       y,
       color,

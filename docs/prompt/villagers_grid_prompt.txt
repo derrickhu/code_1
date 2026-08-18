@@ -1,0 +1,19 @@
+Game character sprite sheet, 3 columns x 2 rows, six equal square panels, thin light gutter, pale warm gray backdrop (easy to cut out).
+
+Use the style board ONLY for art style: mid-detail sticker-chibi. Super-deformed, head almost half height, fat comic outlines, 6-8 colors, TWO-tone cel shade only, one highlight blob per big shape. Goofy earnest faces. Props 2-3 shapes, still bigger than the body. NO armor pits, NO texture noise, NO particles. NOT premium fantasy.
+3/4 view, full body, feet near bottom of each cell.
+NO TEXT, no labels, no letters, no numbers, no watermarks.
+
+SUBJECT: ordinary Chinese small-town villagers, present day, NOT warriors and NOT fantasy. Everyday clothes: padded jackets, aprons, rubber slippers, work gloves, knitted vests. Palette: warm earth yellow, cement gray, plastic blue, rust red. Dead serious about doing something ridiculous.
+
+Same camera, outline weight, and gray backdrop in every panel.
+
+Row 1:
+1 TIEZHU: stocky burly guy, THREE puffy padded jackets stacked, scratched motorcycle helmet with visor up, big rubber gloves, plants his feet like a wall, stubborn dumb frown
+2 DACHUI: hardware-store owner, blue work coat, ONE oversized sledgehammer resting on shoulder, cigarette behind ear, cocky squint
+3 LAOLI: butcher, stained white apron over bare arms, ONE big cleaver, towel around neck, wide friendly grin with squinty eyes
+
+Row 2:
+4 ERJIU: skinny fix-everything uncle, taped-up glasses, canvas tool vest full of pockets, ONE screwdriver in hand, spare wire coiled on belt, mild helpful smile
+5 SANSHEN: plump middle-aged auntie, perm hair, floral blouse, ONE portable square speaker on a shoulder strap, red silk dance fan in the other hand, confident cheerful shout
+6 LAOYANQIANG: lanky old man, undershirt and loose trousers, squatting-then-standing pose, ONE very long slingshot, cigarette dangling from lip, half-closed lazy eyes

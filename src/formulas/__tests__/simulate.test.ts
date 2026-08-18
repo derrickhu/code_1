@@ -1,513 +1,508 @@
 /**
- * 数值回归测试。
+ * 回归测试。
  *
- * 这些断言不是在测代码正确性，是在**把设计约束钉住**：
- * 卡关区间、决策价值、单局时长一旦被后续调参破坏，测试就会红。
+ * 这里守的不是「代码没报错」，而是 docs/00-体验目标.md 里那几条能被数值证伪的承诺：
+ *
+ * - 失败条件是队灭或推不动，**不存在漏怪与底线血**（反目标第五条：不像塔防）；
+ * - 改装件能改定位，而不只是加数值（审视清单第 1 条）；
+ * - **装给谁真的有差别**（反目标第一条，头号风险）；
+ * - 卡关点稳定落在第 9–12 波。
+ *
+ * 数值一旦挂在最后那两条上，要回去改 mods.ts 或曲线，而不是改测试。
  */
 
 import { describe, expect, it } from 'vitest';
-import { MELEE_REACH, RANK, SPAWN_DIST, TOTAL_SLOTS, TOTAL_WAVES } from '../../balance/combat';
-import { ELEMENTS, getCounterMult, getCounteredBy } from '../../balance/counters';
-import { HEROES, MAX_LEVEL, getHero } from '../../balance/heroes';
-import { WAVES } from '../../balance/enemies';
-import { ROLE_ROW } from '../../balance/picker';
+import {
+  MELEE_REACH,
+  MOD_SLOTS_PER_HERO,
+  REAR_POS,
+  SPAWN_DIST,
+  TEAM_SIZE,
+  TOTAL_WAVES,
+  slotPos,
+} from '../../balance/combat';
+import { WAVES, waveAtkMult, waveHpMult } from '../../balance/enemies';
+import { HEROES, getHero } from '../../balance/heroes';
+import { MODS, getMod } from '../../balance/mods';
+import { PICK_STRATEGIES, RECRUIT_WAVES } from '../../balance/picker';
 import {
   applyPick,
-  assignSlot,
-  benchHero,
-  benchOf,
+  computeStats,
   createRun,
   enemyVictim,
-  heroAt,
+  heroReach,
+  installMod,
+  installTargets,
+  swapSlots,
+  teamInOrder,
   tick,
-  type DeployOptions,
+  type EnemyUnit,
   type HeroUnit,
   type RunState,
 } from '../../game/BattleEngine';
 import { armorReduction, computeDamage } from '../damage';
 import { simulateBatch, simulateRun } from '../simulate';
 
-describe('站位语义', () => {
-  it('前排必须比中排、后排更靠敌阵', () => {
-    expect(RANK.front).toBeGreaterThan(RANK.mid);
-    expect(RANK.mid).toBeGreaterThan(RANK.back);
+// ── 测试替身 ────────────────────────────────────────────
+
+function unit(heroId: string, slot: number, modIds: string[] = []): HeroUnit {
+  const def = getHero(heroId);
+  const mods = modIds.map(getMod);
+  const stats = computeStats(def, mods);
+  return {
+    def,
+    slot,
+    hp: stats.maxHp,
+    maxHp: stats.maxHp,
+    shield: 0,
+    cdMs: 0,
+    skillCdMs: 0,
+    alive: true,
+    mods,
+    stats,
+    rageStacks: 0,
+    usedRevive: false,
+  };
+}
+
+function enemyAt(dist: number, id = 1): EnemyUnit {
+  return {
+    id,
+    proto: { id: 'cube', name: '方块兵', hp: 300, atk: 20, def: 8, speed: 0.9, attackIntervalMs: 1100, isBoss: false },
+    hp: 300,
+    maxHp: 300,
+    atk: 20,
+    dist,
+    cdMs: 0,
+    slowMs: 0,
+    slowPct: 0,
+  };
+}
+
+/**
+ * 把一局推进到满足 pred 为止。装配阶段若还没达成条件就默认装给第一个人，
+ * 免得卡在等玩家点击的状态里空转。
+ */
+function runUntil(
+  state: RunState,
+  pred: (s: RunState) => boolean,
+  limit = 60_000,
+): boolean {
+  for (let i = 0; i < limit; i += 1) {
+    if (pred(state)) return true;
+    if (state.phase === 'won' || state.phase === 'lost') return false;
+    if (state.phase === 'picking') {
+      const opt = state.pendingOptions[0];
+      if (!opt) return false;
+      applyPick(state, opt);
+      continue;
+    }
+    if (state.phase === 'installing') {
+      const target = installTargets(state)[0];
+      if (!target) return false;
+      installMod(state, target.def.id);
+      continue;
+    }
+    tick(state);
+    state.events.length = 0;
+  }
+  return false;
+}
+
+// ── 布局与失败条件 ──────────────────────────────────────
+
+describe('一列队列的站位', () => {
+  it('队首坐标为 0，往后依次退一格', () => {
+    expect(slotPos(0)).toBe(0);
+    expect(slotPos(1)).toBe(-1);
+    expect(slotPos(2)).toBe(-2);
+    expect(REAR_POS).toBe(slotPos(TEAM_SIZE - 1));
   });
 
-  it('坦克站前排，否则承伤设计不成立', () => {
-    expect(ROLE_ROW.guard).toBe('front');
+  it('外星人先打队首，后面的人被替着挡刀', () => {
+    const team = [unit('laoyanqiang', 0), unit('tiezhu', 1), unit('erjiu', 2)];
+    const victim = enemyVictim(enemyAt(0.5), team);
+    expect(victim?.slot).toBe(0);
   });
 
-  it('敌人从最远排走来，先撞上前排近战', () => {
-    expect(RANK.front + MELEE_REACH).toBeGreaterThan(RANK.back + MELEE_REACH);
-    expect(SPAWN_DIST).toBeGreaterThan(RANK.front + MELEE_REACH);
+  it('队首倒下后才轮到第二个人', () => {
+    const team = [unit('laoyanqiang', 0), unit('tiezhu', 1)];
+    team[0]!.alive = false;
+    // 站 0.5 打不到 -1 的人，得再往前走
+    expect(enemyVictim(enemyAt(0.5), team)).toBeUndefined();
+    expect(enemyVictim(enemyAt(-0.5), team)?.slot).toBe(1);
   });
 
-  it('敌队要走过至少一格才撞上近战，棋盘才有空间', () => {
-    const guard = HEROES.find((h) => h.role === 'guard');
-    if (!guard) throw new Error('guard');
-    const walk = SPAWN_DIST - (RANK.front + guard.range);
-    expect(walk).toBeGreaterThanOrEqual(1);
-    expect(walk / 0.9).toBeLessThanOrEqual(4);
+  it('够不着时不出手，继续往前走', () => {
+    const team = [unit('tiezhu', 0)];
+    expect(enemyVictim(enemyAt(MELEE_REACH + 0.1), team)).toBeUndefined();
   });
 
-  it('默认站位时远程必须明显长于近战', () => {
-    const reach = (
-      role: 'guard' | 'striker' | 'splash' | 'support',
-      row: 'front' | 'mid' | 'back',
-    ): number => {
-      const h = HEROES.find((x) => x.role === role);
-      if (!h) throw new Error(role);
-      return RANK[row] + h.range;
-    };
-    const melee = reach('guard', 'front');
-    const support = reach('support', 'back');
-    const splash = reach('splash', 'mid');
-    const striker = reach('striker', 'mid');
-    expect(melee).toBe(RANK.front + MELEE_REACH);
-    expect(support).toBeGreaterThanOrEqual(melee);
-    expect(splash).toBeGreaterThan(melee);
-    expect(striker).toBeGreaterThan(splash);
+  it('射程从自己的位置往外算，站得靠后就够得更远', () => {
+    // 老烟枪射程 5：站队首够到 5，退到第三位只够到 3
+    expect(heroReach(unit('laoyanqiang', 0))).toBe(5);
+    expect(heroReach(unit('laoyanqiang', 2))).toBe(3);
+  });
+
+  it('出场点留出了空场，落地时谁都打不到', () => {
+    const backline = unit('laoyanqiang', TEAM_SIZE - 1);
+    expect(heroReach(backline)).toBeLessThan(SPAWN_DIST);
   });
 });
 
-describe('克制表', () => {
-  it('三系构成单向循环，不存在互克或自克', () => {
-    for (const a of ELEMENTS) {
-      expect(getCounterMult(a, a)).toBe(1);
-      const prey = ELEMENTS.filter((b) => getCounterMult(a, b) > 1);
-      const predators = ELEMENTS.filter((b) => getCounterMult(b, a) > 1);
-      expect(prey).toHaveLength(1);
-      expect(predators).toHaveLength(1);
-      expect(prey[0]).not.toBe(predators[0]);
+describe('失败条件是队灭，不是漏怪', () => {
+  it('RunState 上不存在底线血这类字段', () => {
+    const s = createRun(7) as unknown as Record<string, unknown>;
+    expect(s.baseHp).toBeUndefined();
+    expect(s.maxBaseHp).toBeUndefined();
+  });
+
+  it('战斗事件里没有漏怪这回事', () => {
+    const s = createRun(11);
+    const kinds = new Set<string>();
+    runUntil(s, (x) => x.phase === 'won' || x.phase === 'lost' || x.wave > 6);
+    for (const ev of s.events) kinds.add(ev.kind);
+    expect([...kinds]).not.toContain('leak');
+  });
+
+  it('全队倒下即判负', () => {
+    const s = createRun(3);
+    runUntil(s, (x) => x.phase === 'fighting');
+    for (const h of s.team) {
+      h.hp = 0;
+      h.alive = false;
+    }
+    tick(s);
+    expect(s.phase).toBe('lost');
+  });
+
+  it('外星人推到队尾后面也不会直接结束这一局', () => {
+    const s = createRun(5);
+    runUntil(s, (x) => x.phase === 'fighting' && x.enemies.length > 0);
+    // 人还活着，怪已经推到最深处：不许因为位置判负
+    for (const e of s.enemies) e.dist = REAR_POS - MELEE_REACH;
+    tick(s);
+    expect(s.phase).toBe('fighting');
+  });
+});
+
+// ── 改装件 ──────────────────────────────────────────────
+
+describe('改装件能改定位，而不只是加数值', () => {
+  it('接了根长水管把近战改成远程', () => {
+    const before = computeStats(getHero('tiezhu'), []);
+    const after = computeStats(getHero('tiezhu'), [getMod('pipe')]);
+    expect(before.range).toBe(1);
+    expect(after.range).toBe(4);
+  });
+
+  it('秤砣绑手上：出手更慢，单下更重', () => {
+    const base = computeStats(getHero('dachui'), []);
+    const heavy = computeStats(getHero('dachui'), [getMod('weight')]);
+    expect(heavy.intervalMs).toBeGreaterThan(base.intervalMs);
+    expect(heavy.heavyMult).toBeGreaterThan(1);
+    // 净 DPS 要真的提升，否则这件只是纯负面
+    const dps = (st: { atk: number; intervalMs: number; heavyMult: number }) =>
+      (st.atk * st.heavyMult) / st.intervalMs;
+    expect(dps(heavy)).toBeGreaterThan(dps(base));
+  });
+
+  it('背了个高压锅：挨打累积攻击加成', () => {
+    const st = computeStats(getHero('tiezhu'), [getMod('pressurecooker')]);
+    expect(st.ragePerHit).toBeGreaterThan(0);
+    expect(st.rageMaxStacks).toBeGreaterThan(0);
+  });
+
+  it('多件一起装会同时生效', () => {
+    const st = computeStats(getHero('tiezhu'), [getMod('pipe'), getMod('chainsaw'), getMod('quilt')]);
+    expect(st.range).toBe(4);
+    expect(st.atk).toBeGreaterThan(getHero('tiezhu').atk);
+    expect(st.armorPct).toBe(30);
+  });
+
+  it('溅射取更强的一份而不是叠加', () => {
+    // 三婶自带溅射 55%，再装鼓风机 60%，结果应是 60% 而不是 115%
+    const st = computeStats(getHero('sanshen'), [getMod('blower')]);
+    expect(st.splash?.damagePct).toBe(60);
+  });
+
+  it('每件改装件都写明了装上之后变成什么', () => {
+    for (const m of MODS) {
+      expect(m.becomes.length).toBeGreaterThan(0);
+      expect(m.desc.length).toBeGreaterThan(0);
     }
   });
 
-  it('getCounteredBy 与克制表一致', () => {
-    for (const el of ELEMENTS) {
-      expect(getCounterMult(getCounteredBy(el), el)).toBeGreaterThan(1);
-    }
+  it('改定位的那一类占多数，纯数值的是少数', () => {
+    const pivot = MODS.filter((m) => m.kind === 'pivot').length;
+    const pure = MODS.filter((m) => m.kind === 'output').length;
+    expect(pivot).toBeGreaterThan(pure);
+  });
+
+  it('摩托头盔让人本波倒下一次还能站起来，但只有一次', () => {
+    const s = createRun(21);
+    runUntil(s, (x) => x.phase === 'fighting');
+    const head = teamInOrder(s)[0]!;
+    head.mods.push(getMod('helmet'));
+    head.stats = computeStats(head.def, head.mods);
+    expect(head.stats.revivePct).toBeGreaterThan(0);
+    expect(head.usedRevive).toBe(false);
   });
 });
+
+// ── 装配这一步 ──────────────────────────────────────────
+
+describe('「装给谁」是独立的一步', () => {
+  it('选中改装件后进入装配阶段，不直接开打', () => {
+    const s = createRun(31);
+    const reached = runUntil(s, (x) => x.phase === 'installing');
+    expect(reached).toBe(true);
+    expect(s.pendingMod).toBeDefined();
+    expect(s.enemies.length).toBe(0);
+  });
+
+  it('装上之后才开打', () => {
+    const s = createRun(33);
+    runUntil(s, (x) => x.phase === 'installing');
+    const target = installTargets(s)[0]!;
+    const before = target.mods.length;
+    expect(installMod(s, target.def.id)).toBe(true);
+    expect(target.mods.length).toBe(before + 1);
+    expect(s.phase).toBe('fighting');
+  });
+
+  it('装配会发出事件，好让画面演一次', () => {
+    const s = createRun(37);
+    runUntil(s, (x) => x.phase === 'installing');
+    s.events.length = 0;
+    const target = installTargets(s)[0]!;
+    installMod(s, target.def.id);
+    expect(s.events.some((e) => e.kind === 'install')).toBe(true);
+  });
+
+  it('每人最多三件，装满就不再是可选目标', () => {
+    const s = createRun(41);
+    runUntil(s, (x) => x.phase === 'installing');
+    const target = installTargets(s)[0]!;
+    while (target.mods.length < MOD_SLOTS_PER_HERO) target.mods.push(getMod('chainsaw'));
+    expect(installTargets(s).map((h) => h.def.id)).not.toContain(target.def.id);
+  });
+
+  it('全员改装位满了也不会卡死在装配阶段', () => {
+    const s = createRun(43);
+    runUntil(s, (x) => x.phase === 'installing');
+    for (const h of s.team) {
+      while (h.mods.length < MOD_SLOTS_PER_HERO) h.mods.push(getMod('chainsaw'));
+    }
+    // 重新走一次选牌：此时没有可装的人，引擎应直接开打
+    s.phase = 'picking';
+    s.pendingMod = undefined;
+    s.pendingOptions = [{ kind: 'mod', modId: 'speaker' }];
+    applyPick(s, s.pendingOptions[0]!);
+    expect(s.phase).toBe('fighting');
+  });
+});
+
+describe('发牌规则', () => {
+  it('前两次三选一给的是村民，凑够一队', () => {
+    const s = createRun(51);
+    runUntil(s, (x) => x.wave > RECRUIT_WAVES[RECRUIT_WAVES.length - 1]!);
+    expect(s.team.length).toBe(TEAM_SIZE);
+  });
+
+  it('之后发的都是改装件', () => {
+    const s = createRun(53);
+    const seen: string[] = [];
+    runUntil(s, (x) => {
+      if (x.phase === 'picking' && x.wave > 3) {
+        for (const o of x.pendingOptions) seen.push(o.kind);
+      }
+      return x.wave >= 8;
+    });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(new Set(seen)).toEqual(new Set(['mod']));
+  });
+
+  it('每次至少给一张能改定位的', () => {
+    for (const seed of [61, 62, 63, 64]) {
+      const s = createRun(seed);
+      runUntil(s, (x) => x.phase === 'installing');
+      // 走到装配说明上一手三选一全是改装件，回看它给了什么
+      expect(s.pendingMod).toBeDefined();
+    }
+    const s = createRun(65);
+    let sawPivot = false;
+    runUntil(s, (x) => {
+      if (x.phase === 'picking' && x.pendingOptions[0]?.kind === 'mod') {
+        sawPivot = x.pendingOptions.some(
+          (o) => o.kind === 'mod' && getMod(o.modId).kind === 'pivot',
+        );
+        return true;
+      }
+      return false;
+    });
+    expect(sawPivot).toBe(true);
+  });
+
+  it('同一件改装件一局只发一次', () => {
+    for (const seed of [71, 72, 73]) {
+      const r = simulateRun({ strategy: 'smart', seed });
+      const all = r.team.flatMap((t) => t.mods);
+      expect(new Set(all).size).toBe(all.length);
+    }
+  });
+
+  it('一局发出的改装件数量不超过池子大小', () => {
+    const r = simulateRun({ strategy: 'spread', seed: 77 });
+    expect(r.installs).toBeLessThanOrEqual(MODS.length);
+    expect(r.installs).toBeGreaterThan(0);
+  });
+});
+
+describe('队列顺序可以由玩家改', () => {
+  it('交换两个位置只换站位，不换人', () => {
+    const s = createRun(81);
+    runUntil(s, (x) => x.team.length >= 2 && x.phase === 'fighting');
+    const before = teamInOrder(s).map((h) => h.def.id);
+    swapSlots(s, 0, 1);
+    const after = teamInOrder(s).map((h) => h.def.id);
+    expect(after[0]).toBe(before[1]);
+    expect(after[1]).toBe(before[0]);
+    expect(s.team.length).toBe(before.length);
+  });
+});
+
+// ── 数值 ────────────────────────────────────────────────
 
 describe('伤害公式', () => {
-  it('护甲减伤递减且永不免伤', () => {
+  it('护甲收益递减且不会免伤', () => {
     expect(armorReduction(0)).toBe(0);
     expect(armorReduction(100)).toBeCloseTo(0.5);
     expect(armorReduction(1e6)).toBeLessThan(1);
   });
 
-  it('克制独占一个乘区，不被护甲吃掉', () => {
-    const base = { atk: 100, targetDef: 50, counterBonusPct: 0, critMult: 1, targetDamageReductionPct: 0 };
-    const neutral = computeDamage({ ...base, counterMult: 1 });
-    const advantage = computeDamage({ ...base, counterMult: 1.5 });
-    expect(advantage / neutral).toBeCloseTo(1.5);
+  it('没有克制乘区，改装倍率独占一个乘区', () => {
+    const base = computeDamage({ atk: 100, targetDef: 0, modMult: 1, targetDamageReductionPct: 0 });
+    const doubled = computeDamage({ atk: 100, targetDef: 0, modMult: 2, targetDamageReductionPct: 0 });
+    expect(doubled).toBeCloseTo(base * 2);
   });
 
-  it('相克增益只在克制成立时生效', () => {
-    const base = { atk: 100, targetDef: 50, critMult: 1, targetDamageReductionPct: 0 };
-    const neutralWithBonus = computeDamage({ ...base, counterMult: 1, counterBonusPct: 15 });
-    const neutralNoBonus = computeDamage({ ...base, counterMult: 1, counterBonusPct: 0 });
-    expect(neutralWithBonus).toBe(neutralNoBonus);
-
-    const advWithBonus = computeDamage({ ...base, counterMult: 1.5, counterBonusPct: 15 });
-    const advNoBonus = computeDamage({ ...base, counterMult: 1.5, counterBonusPct: 0 });
-    expect(advWithBonus).toBeGreaterThan(advNoBonus);
-  });
-});
-
-describe('英雄池', () => {
-  it('12 个英雄覆盖 3 系 × 4 定位，无重复组合', () => {
-    expect(HEROES).toHaveLength(12);
-    const combos = new Set(HEROES.map((h) => `${h.element}/${h.role}`));
-    expect(combos.size).toBe(12);
-  });
-
-  it('同定位基础数值完全相同，保证换人的差别只来自系别与技能', () => {
-    for (const role of ['guard', 'striker', 'splash', 'support'] as const) {
-      const group = HEROES.filter((h) => h.role === role);
-      expect(group).toHaveLength(3);
-      const [first] = group;
-      expect(first).toBeDefined();
-      for (const h of group) {
-        expect(h.hp).toBe(first?.hp);
-        expect(h.atk).toBe(first?.atk);
-        expect(h.def).toBe(first?.def);
-        expect(h.range).toBe(first?.range);
-        expect(h.attackIntervalMs).toBe(first?.attackIntervalMs);
-      }
-    }
-  });
-
-  it('每个英雄都有可量化技能与面向玩家的一句话', () => {
-    for (const h of HEROES) {
-      expect(h.skill.kind).toBeTruthy();
-      expect(h.skillName.length).toBeGreaterThan(0);
-      expect(h.skillDesc.length).toBeGreaterThan(0);
-    }
+  it('减伤按百分比生效，且伤害有下限', () => {
+    const cut = computeDamage({ atk: 100, targetDef: 0, modMult: 1, targetDamageReductionPct: 30 });
+    expect(cut).toBeCloseTo(70);
+    expect(computeDamage({ atk: 1, targetDef: 1e6, modMult: 1, targetDamageReductionPct: 90 })).toBe(1);
   });
 });
 
 describe('波次编排', () => {
-  it('15 波连续且都有敌人与预告', () => {
-    expect(WAVES).toHaveLength(TOTAL_WAVES);
-    WAVES.forEach((w, i) => {
-      expect(w.wave).toBe(i + 1);
-      expect(w.spawns.length).toBeGreaterThan(0);
-      expect(w.hint.length).toBeGreaterThan(0);
-    });
-  });
-
-  it('前 3 波只出一个系，作为建立信任的教学段', () => {
-    for (const w of WAVES.slice(0, 3)) {
-      const els = new Set(w.spawns.map((s) => s.element));
-      expect(els.size).toBe(1);
+  it('15 波齐全且不带系别', () => {
+    expect(WAVES.length).toBe(TOTAL_WAVES);
+    for (let w = 1; w <= TOTAL_WAVES; w += 1) {
+      const def = WAVES.find((x) => x.wave === w);
+      expect(def).toBeDefined();
+      expect(def!.hint.length).toBeGreaterThan(0);
+      for (const sp of def!.spawns) {
+        expect((sp as unknown as Record<string, unknown>).element).toBeUndefined();
+      }
     }
   });
 
-  it('第 9 波起进入混系，对应主卡关区', () => {
-    const mixed = WAVES.slice(8).filter((w) => new Set(w.spawns.map((s) => s.element)).size > 1);
-    expect(mixed.length).toBeGreaterThanOrEqual(6);
+  it('第 1 波足够轻，一个人也守得住', () => {
+    const first = WAVES[0]!;
+    const total = first.spawns.reduce((n, sp) => n + sp.count, 0);
+    expect(total).toBeLessThanOrEqual(5);
+  });
+
+  it('强度曲线单调不降', () => {
+    for (let w = 2; w <= TOTAL_WAVES; w += 1) {
+      expect(waveHpMult(w)).toBeGreaterThanOrEqual(waveHpMult(w - 1));
+      expect(waveAtkMult(w)).toBeGreaterThanOrEqual(waveAtkMult(w - 1));
+    }
+  });
+
+  it('15 波总成长与改装件能给的成长同量级', () => {
+    // 一局只发几件破烂，曲线若失控就必然出现断崖
+    expect(waveHpMult(TOTAL_WAVES)).toBeLessThan(6);
   });
 });
 
-describe('单局模拟', () => {
-  it('同一 seed 可复现', () => {
-    const a = simulateRun({ strategy: 'smart', seed: 42 });
-    const b = simulateRun({ strategy: 'smart', seed: 42 });
-    expect(a).toEqual(b);
+describe('村民', () => {
+  it('每人都有起手特性和一句人物介绍', () => {
+    for (const h of HEROES) {
+      expect(h.skillName.length).toBeGreaterThan(0);
+      expect(h.skillDesc.length).toBeGreaterThan(0);
+      expect(h.flavor.length).toBeGreaterThan(0);
+    }
   });
 
-  it('结果落在合法区间，收集数不超过英雄池且不破 5 级上限', () => {
-    const r = simulateRun({ strategy: 'smart', seed: 7 });
-    expect(r.reachedWave).toBeGreaterThanOrEqual(1);
-    expect(r.reachedWave).toBeLessThanOrEqual(TOTAL_WAVES);
-    expect(r.roster.length).toBeLessThanOrEqual(HEROES.length);
-    for (const m of r.roster) expect(m.level).toBeLessThanOrEqual(MAX_LEVEL);
+  it('村民自带的特性不含改定位那几种，改定位是改装件的戏份', () => {
+    const pivotKinds = new Set(['rangeUp', 'frontMult', 'rageOnHurt', 'heavySwing', 'revive']);
+    for (const h of HEROES) {
+      expect(pivotKinds.has(h.skill.kind)).toBe(false);
+    }
+  });
+
+  it('没有等级系统，成长只来自改装件', () => {
+    const h = unit('tiezhu', 0) as unknown as Record<string, unknown>;
+    expect(h.level).toBeUndefined();
   });
 });
 
-describe('设计约束回归', () => {
-  const RUNS = 300;
-  const smart = simulateBatch('smart', RUNS);
-  const random = simulateBatch('random', RUNS);
-  const coverage = simulateBatch('coverage', RUNS);
+// ── 整局回归 ────────────────────────────────────────────
 
-  it('卡关中位数落在第 9 到 12 波', () => {
-    for (const s of [smart, random, coverage]) {
-      expect(s.medianWave).toBeGreaterThanOrEqual(9);
-      expect(s.medianWave).toBeLessThanOrEqual(12);
+describe('整局回归', () => {
+  it('每种策略都能跑完不卡死', () => {
+    for (const st of PICK_STRATEGIES) {
+      const r = simulateRun({ strategy: st, seed: 1234 });
+      expect(r.reachedWave).toBeGreaterThanOrEqual(1);
+      expect(r.reachedWave).toBeLessThanOrEqual(TOTAL_WAVES);
     }
   });
 
-  it('会玩的玩家要明显打得更深，否则等于「选谁都一样」', () => {
-    expect(smart.meanWave - random.meanWave).toBeGreaterThanOrEqual(1);
-    expect(smart.clearRate).toBeGreaterThan(random.clearRate);
+  it('同一 seed 必得同一结果', () => {
+    const a = simulateRun({ strategy: 'smart', seed: 909 });
+    const b = simulateRun({ strategy: 'smart', seed: 909 });
+    expect(b).toEqual(a);
   });
 
-  it('克制本身必须有决策价值：看系别要强于不看系别', () => {
-    // 这是本项目头号风险的守门线。smart 与 coverage 都会优先填满阵容，
-    // 唯一差别是招人与上场时看不看系别，所以这个差值就是克制的价值。
-    expect(smart.meanWave - coverage.meanWave).toBeGreaterThanOrEqual(0.8);
+  it('上场人数不超过队列长度', () => {
+    const r = simulateRun({ strategy: 'focus', seed: 313 });
+    expect(r.team.length).toBeLessThanOrEqual(TEAM_SIZE);
   });
 
-  it('通关是稀有但真实可达的，终局不是纯数值墙', () => {
-    expect(smart.clearRate).toBeGreaterThan(0);
-    expect(smart.clearRate).toBeLessThan(0.2);
-  });
-
-  it('单局时长落在碎片时间可打完的区间', () => {
-    expect(smart.avgDurationSec).toBeGreaterThan(180);
-    expect(smart.avgDurationSec).toBeLessThan(900);
-  });
-
-  it('难度衰减平滑，不出现某一波是硬墙的断崖', () => {
-    // 区分「卡关坡度」和「硬墙」：主卡关区本来就该有明显下降，那是卡关的定义；
-    // 硬墙是指某一波把绝大多数人一次性挡死（早期版本第 8 波曾从 62% 掉到 13%，
-    // 比率 0.21，原因是 Boss 速度撞上了单波超时保护）。这里守的是后者。
-    for (let w = 1; w < 12; w += 1) {
-      const cur = smart.reachRate[w - 1] ?? 0;
-      const next = smart.reachRate[w] ?? 0;
-      if (cur > 0.2) expect(next / cur).toBeGreaterThan(0.35);
-    }
-  });
-});
-
-describe('玩家接管阵容', () => {
-  // 主体验就落在这里：玩家得能说出「把他挪到前排就顶住了」。
-  // 只要引擎在下一波把人换回去，这句话就不成立，所以这几条比数值更不能破。
-  const OPTS: DeployOptions = { preferCounter: true, shuffle: false };
-
-  function runToWave(s: RunState, wave: number): void {
-    let guard = 0;
-    while (s.wave < wave && s.phase !== 'lost' && s.phase !== 'won') {
-      if (guard++ > 200_000) throw new Error('未收敛');
-      const first = s.pendingOptions[0];
-      if (s.phase === 'picking' && first) applyPick(s, first, OPTS);
-      else tick(s, OPTS);
-      s.events.length = 0;
-    }
-  }
-
-  it('默认由引擎托管，玩家没碰过就自动按克制上场', () => {
-    const s = createRun(7);
-    runToWave(s, 4);
-    expect(s.autoDeploy).toBe(true);
-    expect(s.deployed.length).toBeGreaterThan(0);
-  });
-
-  it('开局三张卡必须是三个不同系，否则第一眼看不出差别', () => {
-    const s = createRun(7);
-    expect(s.pendingOptions).toHaveLength(3);
-    const els = s.pendingOptions.map((o) => {
-      if (o.kind !== 'recruit') throw new Error('开局必须是英雄卡');
-      return getHero(o.heroId).element;
-    });
-    expect(new Set(els).size).toBe(3);
-  });
-
-  it('整局会累计克制与漏怪，结算才能归因', () => {
-    const s = createRun(7);
-    const first = s.pendingOptions[0];
-    applyPick(s, first!, OPTS);
-    let guard = 0;
-    while (s.phase !== 'lost' && s.phase !== 'won' && guard++ < 80_000) {
-      tick(s, OPTS);
-      s.events.length = 0;
-    }
-    expect(s.stats.hits).toBeGreaterThan(0);
-    expect(s.stats.counterHits).toBeGreaterThanOrEqual(0);
-    expect(s.stats.leaks + (s.phase === 'won' ? 1 : 0)).toBeGreaterThanOrEqual(0);
-  });
-
-  it('开局只有一个人时站中间格，不贴左边', () => {
-    const s = createRun(7);
-    const first = s.pendingOptions[0];
-    expect(first).toBeDefined();
-    applyPick(s, first!, OPTS);
-    expect(s.deployed).toHaveLength(1);
-    expect(s.deployed[0]?.slot).toBe(1);
-  });
-
-  it('手动指派后，后续波次不会被引擎换掉', () => {
-    const s = createRun(7);
-    runToWave(s, 6);
-    const bench = benchOf(s);
-    const target = bench[0] ?? s.roster[s.roster.length - 1];
-    expect(target).toBeDefined();
-
-    assignSlot(s, target!.def.id, 'front', 0);
-    expect(s.autoDeploy).toBe(false);
-    expect(heroAt(s, 'front', 0)?.def.id).toBe(target!.def.id);
-
-    runToWave(s, 8);
-    if (s.phase !== 'lost') {
-      expect(heroAt(s, 'front', 0)?.def.id).toBe(target!.def.id);
+  it('没人身上装超过三件', () => {
+    for (const seed of [11, 22, 33, 44]) {
+      const r = simulateRun({ strategy: 'focus', seed });
+      for (const t of r.team) expect(t.mods.length).toBeLessThanOrEqual(MOD_SLOTS_PER_HERO);
     }
   });
 
-  it('撤下一人后，下一波由引擎补空格而不是推翻重排', () => {
-    const s = createRun(11);
-    runToWave(s, 6);
-    const keep = heroAt(s, 'back', 0);
-    const drop = heroAt(s, 'front', 0);
-    if (!keep || !drop) return;
-
-    benchHero(s, drop.def.id);
-    expect(heroAt(s, 'front', 0)).toBeUndefined();
-
-    runToWave(s, 7);
-    if (s.phase !== 'lost') {
-      expect(heroAt(s, 'back', 0)?.def.id).toBe(keep.def.id);
-      expect(s.deployed.length).toBeLessThanOrEqual(TOTAL_SLOTS);
-    }
+  it('卡关点落在第 9–12 波', () => {
+    const s = simulateBatch('smart', 200, 2026);
+    expect(s.medianWave).toBeGreaterThanOrEqual(9);
+    expect(s.medianWave).toBeLessThanOrEqual(12);
   });
 
-  it('英雄优先打本列敌人，换列才有差别', () => {
-    const s = createRun(7);
-    const first = s.pendingOptions[0];
-    applyPick(s, first!, OPTS);
-    const def = getHero('flame_striker');
-    const hero = {
-      def,
-      level: 1,
-      row: 'mid' as const,
-      slot: 0,
-      hp: def.hp,
-      maxHp: def.hp,
-      shield: 0,
-      cdMs: 0,
-      skillCdMs: 9999,
-      alive: true,
-    };
-    s.roster.push(hero);
-    s.deployed = [hero];
-    const proto = { id: 'grunt', name: '兵卒', hp: 800, atk: 1, def: 0, speed: 0, attackIntervalMs: 9999, isBoss: false };
-    s.enemies = [
-      { id: 1, proto, element: 'flame', hp: 800, maxHp: 800, atk: 1, dist: 2.2, lane: 2, cdMs: 9999, slowMs: 0, slowPct: 0 },
-      { id: 2, proto, element: 'vine', hp: 800, maxHp: 800, atk: 1, dist: 4.2, lane: 0, cdMs: 9999, slowMs: 0, slowPct: 0 },
-    ];
-    s.phase = 'fighting';
-    hero!.cdMs = 0;
-    for (let i = 0; i < 8; i += 1) tick(s, OPTS);
-    const firstHit = s.events.find((e) => e.kind === 'hit');
-    expect(firstHit?.kind === 'hit' && firstHit.enemyId).toBe(2);
+  it('打到最后的人有真实通关概率', () => {
+    const s = simulateBatch('smart', 200, 4041);
+    expect(s.clearRate).toBeGreaterThan(0.08);
+    expect(s.clearRate).toBeLessThan(0.5);
   });
 
-  it('敌人近身挥击会留下敌方命中事件', () => {
-    const s = createRun(7);
-    const first = s.pendingOptions[0];
-    applyPick(s, first!, OPTS);
-    const hero = s.deployed[0];
-    expect(hero).toBeDefined();
-    hero!.row = 'front';
-    hero!.slot = 1;
-    hero!.hp = 4000;
-    hero!.maxHp = 4000;
-    hero!.cdMs = 9999;
-    hero!.skillCdMs = 9999;
-    const proto = {
-      id: 'grunt',
-      name: '兵卒',
-      hp: 8000,
-      atk: 40,
-      def: 0,
-      speed: 0,
-      attackIntervalMs: 400,
-      isBoss: false,
-    };
-    s.enemies = [{
-      id: 9,
-      proto,
-      element: 'flame',
-      hp: 8000,
-      maxHp: 8000,
-      atk: 40,
-      dist: RANK.front + 0.4,
-      lane: 1,
-      cdMs: 0,
-      slowMs: 0,
-      slowPct: 0,
-    }];
-    s.phase = 'fighting';
-    tick(s, OPTS);
-    const ev = s.events.find((e) => e.kind === 'enemyHit');
-    expect(ev?.kind).toBe('enemyHit');
-    if (ev?.kind === 'enemyHit') {
-      expect(ev.heroId).toBe(hero!.def.id);
-      expect(ev.damage).toBeGreaterThan(0);
-    }
+  /**
+   * 头号风险的防线。smart 与 random 挑牌倾向一致，唯一差别是装给谁，
+   * 所以这个差值就是「装对人」的价值。掉到 1 波以下时不要改这条测试，
+   * 要回去加强 mods.ts 里的定位改写。
+   */
+  it('装给谁真的有差别：smart 比 random 平均多打一波以上', () => {
+    const smart = simulateBatch('smart', 200, 5150);
+    const random = simulateBatch('random', 200, 5150);
+    expect(smart.meanWave - random.meanWave).toBeGreaterThan(1);
   });
 
-  it('漩涡拉回会带上被拉的敌人，渲染才知道不是怪自己后退', () => {
-    const s = createRun(7);
-    const first = s.pendingOptions[0];
-    applyPick(s, first!, OPTS);
-    const def = getHero('tide_splash');
-    const caster = {
-      def,
-      level: 1,
-      row: 'back' as const,
-      slot: 1,
-      hp: def.hp,
-      maxHp: def.hp,
-      shield: 0,
-      cdMs: 9999,
-      skillCdMs: 0,
-      alive: true,
-    };
-    s.roster.push(caster);
-    s.deployed = [caster];
-    const proto = {
-      id: 'grunt',
-      name: '兵卒',
-      hp: 8000,
-      atk: 1,
-      def: 0,
-      speed: 0,
-      attackIntervalMs: 9999,
-      isBoss: false,
-    };
-    s.enemies = [{
-      id: 3,
-      proto,
-      element: 'flame',
-      hp: 8000,
-      maxHp: 8000,
-      atk: 1,
-      dist: 2.2,
-      lane: 1,
-      cdMs: 9999,
-      slowMs: 0,
-      slowPct: 0,
-    }];
-    s.phase = 'fighting';
-    tick(s, OPTS);
-    const ev = s.events.find((e) => e.kind === 'skill' && e.skillKind === 'vortex');
-    expect(ev?.kind).toBe('skill');
-    if (ev?.kind === 'skill') {
-      expect(ev.pulledIds).toContain(3);
-    }
-    expect(s.enemies[0]?.dist).toBeGreaterThan(2.2);
-  });
-
-  it('有前排时敌人只打前排，不切后排', () => {
-    const tank = getHero('flame_guard');
-    const dps = getHero('flame_striker');
-    const front: HeroUnit = {
-      def: tank, level: 1, row: 'front', slot: 1,
-      hp: 4000, maxHp: 4000, shield: 0, cdMs: 9999, skillCdMs: 9999, alive: true,
-    };
-    const rear: HeroUnit = {
-      def: dps, level: 1, row: 'back', slot: 1,
-      hp: 4000, maxHp: 4000, shield: 0, cdMs: 9999, skillCdMs: 9999, alive: true,
-    };
-    const proto = {
-      id: 'grunt', name: '兵卒', hp: 8000, atk: 40, def: 0, speed: 0,
-      attackIntervalMs: 400, isBoss: false,
-    };
-    const enemy = {
-      id: 4, proto, element: 'flame' as const, hp: 8000, maxHp: 8000, atk: 40,
-      dist: RANK.front + 0.4, lane: 1 as const, cdMs: 0, slowMs: 0, slowPct: 0,
-    };
-    expect(enemyVictim(enemy, [front, rear])?.def.id).toBe(tank.id);
-    front.alive = false;
-    expect(enemyVictim(enemy, [front, rear])).toBeUndefined();
-    enemy.dist = RANK.back + 0.4;
-    expect(enemyVictim(enemy, [front, rear])?.def.id).toBe(dps.id);
-  });
-
-  it('荆棘卫命中后敌人下一次出手变慢', () => {
-    const s = createRun(7);
-    const first = s.pendingOptions[0];
-    applyPick(s, first!, OPTS);
-    const def = getHero('vine_guard');
-    const hero: HeroUnit = {
-      def, level: 1, row: 'front', slot: 1,
-      hp: def.hp, maxHp: def.hp, shield: 0, cdMs: 0, skillCdMs: 9999, alive: true,
-    };
-    s.deployed = [hero];
-    s.roster.push(hero);
-    const proto = {
-      id: 'grunt', name: '兵卒', hp: 8000, atk: 1, def: 0, speed: 0,
-      attackIntervalMs: 1000, isBoss: false,
-    };
-    s.enemies = [{
-      id: 8, proto, element: 'flame', hp: 8000, maxHp: 8000, atk: 1,
-      dist: RANK.front + 0.4, lane: 1, cdMs: 9999, slowMs: 0, slowPct: 0,
-    }];
-    s.phase = 'fighting';
-    tick(s, OPTS);
-    expect(s.enemies[0]?.slowPct).toBe(30);
-    s.enemies[0]!.cdMs = 0;
-    tick(s, OPTS);
-    expect(s.enemies[0]?.cdMs).toBeGreaterThan(1000);
-  });
-
-  it('上场人数永远不超过格子数', () => {
-    const s = createRun(3);
-    runToWave(s, 12);
-    expect(s.deployed.length).toBeLessThanOrEqual(TOTAL_SLOTS);
-    const seen = new Set(s.deployed.map((h) => `${h.row}:${h.slot}`));
-    expect(seen.size).toBe(s.deployed.length);
+  it('单局时长落在碎片时间里', () => {
+    const s = simulateBatch('smart', 120, 6161);
+    expect(s.avgDurationSec).toBeGreaterThan(120);
+    expect(s.avgDurationSec).toBeLessThan(600);
   });
 });

@@ -2,7 +2,7 @@
   "name": "code1",
   "version": "0.1.0",
   "type": "module",
-  "description": "代号1 - 单局肉鸽制英雄编队自走防守（微信/抖音小游戏）",
+  "description": "村口大战外星人 - 单局肉鸽制角色改造自走战斗（微信/抖音小游戏）",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

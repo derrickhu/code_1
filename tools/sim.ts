@@ -1,10 +1,15 @@
 /**
  * 数值回归工具：npm run sim
  *
- * 唯一要回答的问题 —— 卡关点是否稳定落在第 9 到 12 波（docs/00-体验目标.md §7）。
- * 同时用不同选牌策略跑，检查「懂了的玩家」（smart）是否真的比乱选（random）打得更深。
- * 若两者差距不明显，说明克制与三选一没有形成决策价值，
- * 那是反目标第一条「我选谁都一样」的数值证据。
+ * 要回答两个问题：
+ *
+ * 1. 卡关点是否稳定落在第 9 到 12 波（docs/00-体验目标.md §8）。
+ * 2. **「装对人」值不值钱** —— smart（按破烂配人）对 random（随便装）的差值。
+ *    差值不足 1 波，就是反目标第一条「这几件破烂装谁身上都一样」的数值证据，
+ *    要回去改 mods.ts 的定位改写强度，而不是调曲线。
+ *
+ * 另外看 focus（全堆一个人）与 spread（平均分）：这两条差不多说明构筑没有形状，
+ * 「把一个杂兵改造成怪物」就只是句口号。
  */
 
 import { TOTAL_WAVES } from '../src/balance/combat';
@@ -36,7 +41,7 @@ function printStats(s: BatchStats): void {
 }
 
 function main(): void {
-  console.log(`代号1 数值回归 · 每策略 ${RUNS} 局 · 目标中位卡关 ${TARGET_MIN}–${TARGET_MAX} 波`);
+  console.log(`村口大战外星人 数值回归 · 每策略 ${RUNS} 局 · 目标中位卡关 ${TARGET_MIN}–${TARGET_MAX} 波`);
   console.log(`当前曲线 hpGrowth=${WAVE_CURVE.hpGrowth} atkGrowth=${WAVE_CURVE.atkGrowth}\n`);
 
   const all = PICK_STRATEGIES.map((st) => simulateBatch(st, RUNS));
@@ -44,26 +49,27 @@ function main(): void {
 
   const smart = all.find((s) => s.strategy === 'smart');
   const random = all.find((s) => s.strategy === 'random');
-  const coverage = all.find((s) => s.strategy === 'coverage');
+  const focus = all.find((s) => s.strategy === 'focus');
+  const spread = all.find((s) => s.strategy === 'spread');
 
+  // smart 与 random 选的牌倾向相同，唯一差别是装给谁，
+  // 因此这个差值就是「装对人」本身的决策价值
   if (smart && random) {
     const gap = smart.meanWave - random.meanWave;
     const clearRatio = random.clearRate > 0 ? smart.clearRate / random.clearRate : Infinity;
     console.log(
-      `\n整体决策价值：smart 平均多打 ${gap.toFixed(2)} 波，通关率是 random 的 ` +
+      `\n装对人的价值：smart 平均多打 ${gap.toFixed(2)} 波，通关率是 random 的 ` +
         `${Number.isFinite(clearRatio) ? `${clearRatio.toFixed(1)} 倍` : '数倍以上'} ——` +
-        (gap >= 1 ? ' 会玩确实有回报。' : ' 不足 1 波，玩得好坏没区别。'),
+        (gap >= 1
+          ? ' 装给谁确实有回报。'
+          : ' 不足 1 波，撞上反目标第一条：破烂装谁身上都一样。'),
     );
   }
-  // smart 与 coverage 都会优先填满阵容，唯一差别是招人与上场时看不看系别，
-  // 因此这个差值单独度量克制本身的决策价值
-  if (smart && coverage) {
-    const gap = smart.meanWave - coverage.meanWave;
+  if (focus && spread) {
+    const gap = Math.abs(focus.meanWave - spread.meanWave);
     console.log(
-      `克制的决策价值：看系别 vs 不看系别，平均相差 ${gap.toFixed(2)} 波 ——` +
-        (gap >= 0.8
-          ? ' 克制值得玩家关心。'
-          : ' 克制强度不足，玩家没有理由在意系别，正撞反目标第一条。'),
+      `构筑形状：全堆一个人 vs 平均分，相差 ${gap.toFixed(2)} 波 ——` +
+        (gap >= 0.8 ? ' 两种路线的手感确实不同。' : ' 差别太小，构筑没有形状。'),
     );
   }
 

@@ -1,153 +1,138 @@
 /**
- * 英雄池（纯数据）
+ * 村民池（纯数据）
  *
- * 切片放 12 个 = 3 系 × 4 定位。刻意让**同定位的三个英雄基础数值完全相同**，
- * 差别只来自系别与特色技能。这不是省事，是为了让验收可归因：
- * 如果试玩者说不出「换人有差别」，就一定是克制强度或技能设计的问题，
- * 而不会被基础数值差混淆。见 docs/00-体验目标.md 审视清单第 1 条。
+ * 代码里沿用 hero / HeroDef 这套术语（改名不产生玩家价值，只会牵动全工程），
+ * 但游戏里他们是**村口闲人**，名字与文案都按 docs/00-体验目标.md §1 的基调走。
  *
- * 每人一个**自动触发**技能。自走战斗里玩家不点技能，所谓技能就是「常驻特性」，
- * 因此全部设计成命中时、周期性或光环式触发，且效果在战场上肉眼可见 ——
- * 主快感是看戏，看不见的技能等于没做。
+ * 三条设计原则：
+ *
+ * 1. **村民是起点，不是终点。** 每人只有一个起手特性，用来给改造提供一个方向；
+ *    真正决定这一局长什么样的是改装件（见 mods.ts）。所以起手特性刻意做得朴素，
+ *    强度留给改装件——「一个平平无奇的人被我改造成怪物」，前半句必须先成立。
+ *
+ * 2. **没有等级。** 局内唯一的成长来源是改装件，因此每件改装件都是大事。
+ *    加了等级系统就会出现「升级卡」这种只加数值的选项，直接撞反目标第一条。
+ *
+ * 3. **起手特性必须肉眼可见。** 自走战斗里玩家不点技能，所谓特性就是常驻表现，
+ *    看不见的特性等于没做。
  */
 
-import type { Element } from './counters';
-
-export type HeroRole = 'guard' | 'striker' | 'splash' | 'support';
-
-export const ROLE_NAMES: Readonly<Record<HeroRole, string>> = {
-  guard: '近战',
-  striker: '单体',
-  splash: '范围',
-  support: '辅助',
-};
-
-/** 前排近战挥砍，其余远程弹道。观战层用，不改伤害规则。 */
-export function isMeleeRole(role: HeroRole): boolean {
-  return role === 'guard';
-}
-
-/** 场上常驻的技能短词，说效果不说花名 */
-export function skillTag(skill: HeroSkill): string {
-  switch (skill.kind) {
-    case 'thorns': return '反伤';
-    case 'execute': return '连斩';
-    case 'splash': return '溅射';
-    case 'hasteAura': return '攻速';
-    case 'slowOnHit':
-    case 'slowAura': return '减速';
-    case 'lifesteal': return '吸血';
-    case 'heal': return '治疗';
-    case 'shield': return '护盾';
-    case 'pierce': return '穿透';
-    case 'vortex': return '拉回';
-    case 'critAura': return '暴击';
-  }
-}
+import type { Ability } from './mods';
 
 /**
- * 技能效果。每一项都必须能在 tick 模拟里量化，否则无法用 tools/sim.ts 回归 ——
- * 「不可量化的技能」在切片阶段一律不做。
+ * 起手特性。刻意只取 Ability 里这六种「朴素」效果——
+ * 改定位那几种（射程、队首翻倍、越挨越猛……）是改装件的专属戏份，
+ * 村民自带的话，「平平无奇的人被我改造成怪物」这句话的前半句就不成立了。
  */
-export type HeroSkill =
-  /** 受击时反弹伤害给攻击者 */
-  | { kind: 'thorns'; reflectPct: number }
-  /** 击杀后立刻追加一次攻击，可连锁 */
-  | { kind: 'execute'; maxChain: number }
-  /** 攻击溅射到目标附近的敌人 */
-  | { kind: 'splash'; damagePct: number; radius: number }
-  /** 光环：全队攻速提升 */
-  | { kind: 'hasteAura'; hastePct: number }
-  /** 命中时减速目标 */
-  | { kind: 'slowOnHit'; slowPct: number; durationMs: number }
-  /** 造成伤害时按比例回复自身 */
-  | { kind: 'lifesteal'; healPct: number }
-  /** 光环：射程内敌人持续减速 */
-  | { kind: 'slowAura'; slowPct: number }
-  /** 周期治疗当前血量最低的友军 */
-  | { kind: 'heal'; amount: number; everyMs: number }
-  /** 周期给自己叠一层吸收护盾 */
-  | { kind: 'shield'; amount: number; everyMs: number }
-  /** 攻击穿透同一路径上的多个敌人 */
-  | { kind: 'pierce'; extraTargets: number }
-  /** 周期把射程内敌人拉回并造成伤害 */
-  | { kind: 'vortex'; damage: number; pullDist: number; everyMs: number }
-  /** 光环：全队暴击 */
-  | { kind: 'critAura'; chancePct: number; critMult: number };
+export type HeroSkill = Extract<
+  Ability,
+  { kind: 'shield' | 'heal' | 'splash' | 'execute' | 'slowOnHit' | 'lifesteal' }
+>;
 
 export interface HeroDef {
   id: string;
+  /** 村民名。一听就是身边人，不要奇幻词 */
   name: string;
-  element: Element;
-  role: HeroRole;
-  /** Lv1 基础值，升级按 LEVEL_GROWTH 缩放 */
   hp: number;
   atk: number;
   def: number;
-  /** 射程（格），从自身站位往战场远端延伸 */
+  /** 射程（格）。1 即近战，只能打贴到脸上的 */
   range: number;
   /** 攻击间隔（ms），越小越快 */
   attackIntervalMs: number;
+  /** 起手特性的名字，说人话 */
   skillName: string;
   skill: HeroSkill;
-  /** 面向玩家的一句话，结算与三选一卡面都用它 */
+  /** 面向玩家的一句话，选人卡与结算都用它 */
   skillDesc: string;
+  /** 一句人物介绍，只用于选人卡，帮玩家记住脸 */
+  flavor: string;
 }
 
-/** 同定位共用的基础模板，保证「差别只来自系别与技能」 */
-const ROLE_BASE: Readonly<
-  Record<HeroRole, Pick<HeroDef, 'hp' | 'atk' | 'def' | 'range' | 'attackIntervalMs'>>
-> = {
-  // 射程是「能打几排」。近战邻排，远程跨排。
-  // 默认站位：前排近战 2+1=3 < 后排辅助 0+3=3 贴敌前排，中排范围 4、单体 5。
-  guard: { hp: 900, atk: 48, def: 40, range: 1, attackIntervalMs: 1000 },
-  striker: { hp: 380, atk: 105, def: 10, range: 4, attackIntervalMs: 900 },
-  splash: { hp: 460, atk: 62, def: 15, range: 3, attackIntervalMs: 1200 },
-  support: { hp: 520, atk: 45, def: 20, range: 3, attackIntervalMs: 1100 },
-};
-
-function hero(
-  id: string,
-  name: string,
-  element: Element,
-  role: HeroRole,
-  skillName: string,
-  skill: HeroSkill,
-  skillDesc: string,
-): HeroDef {
-  return { id, name, element, role, ...ROLE_BASE[role], skillName, skill, skillDesc };
+/** 近战挥砍，远程走弹道。观战层用，不改伤害规则 */
+export function isMeleeRole(def: HeroDef): boolean {
+  return def.range <= 1;
 }
 
 export const HEROES: readonly HeroDef[] = [
-  // ── 炎：主动进攻，技能都在「打得更狠」这条线上 ──
-  hero('flame_guard', '熔岩卫', 'flame', 'guard', '焦甲', { kind: 'thorns', reflectPct: 25 },
-    '被近身攻击时，把 25% 伤害烧回去'),
-  hero('flame_striker', '赤刃', 'flame', 'striker', '连斩', { kind: 'execute', maxChain: 2 },
-    '击杀敌人后立刻再挥一刀，最多连锁 2 次'),
-  hero('flame_splash', '燎原者', 'flame', 'splash', '燎原', { kind: 'splash', damagePct: 45, radius: 1 },
-    '攻击溅到附近敌人，造成 45% 伤害'),
-  hero('flame_support', '战鼓手', 'flame', 'support', '战鼓', { kind: 'hasteAura', hastePct: 20 },
-    '全队攻速提升 20%'),
-
-  // ── 藤：拖时间与续航，靠拉长输出窗口取胜 ──
-  hero('vine_guard', '荆棘卫', 'vine', 'guard', '荆棘壁', { kind: 'slowOnHit', slowPct: 30, durationMs: 2000 },
-    '命中的敌人出手变慢 30%，持续 2 秒'),
-  hero('vine_striker', '汲藤客', 'vine', 'striker', '汲取', { kind: 'lifesteal', healPct: 25 },
-    '造成伤害的 25% 回复自身'),
-  hero('vine_splash', '缠藤妖', 'vine', 'splash', '藤缚', { kind: 'slowAura', slowPct: 25 },
-    '射程内所有敌人移速降低 25%'),
-  hero('vine_support', '春息祭司', 'vine', 'support', '生机', { kind: 'heal', amount: 90, everyMs: 3000 },
-    '每 3 秒治疗血量最低的队友 90 点'),
-
-  // ── 潮：爆发与穿透，处理成群与厚甲 ──
-  hero('tide_guard', '浪盾武士', 'tide', 'guard', '浪盾', { kind: 'shield', amount: 220, everyMs: 5000 },
-    '每 5 秒获得 220 点吸收护盾'),
-  hero('tide_striker', '贯流枪手', 'tide', 'striker', '贯流', { kind: 'pierce', extraTargets: 2 },
-    '攻击穿透，额外命中身后 2 个敌人'),
-  hero('tide_splash', '漩涡术士', 'tide', 'splash', '漩涡', { kind: 'vortex', damage: 70, pullDist: 1.5, everyMs: 4500 },
-    '每 4.5 秒把射程内敌人拉回 1 排半并造成 70 伤害'),
-  hero('tide_support', '潮汐歌者', 'tide', 'support', '潮汐', { kind: 'critAura', chancePct: 20, critMult: 1.8 },
-    '全队 20% 概率打出 1.8 倍暴击'),
+  {
+    id: 'tiezhu',
+    name: '铁柱',
+    hp: 1700,
+    atk: 62,
+    def: 50,
+    range: 1,
+    attackIntervalMs: 1000,
+    skillName: '棉袄够厚',
+    skill: { kind: 'shield', amount: 160, everyMs: 5000 },
+    skillDesc: '每 5 秒自己缓一层，能扛 160 点',
+    flavor: '三层棉袄加摩托头盔，站前面最合适',
+  },
+  {
+    id: 'dachui',
+    name: '王大锤',
+    hp: 1000,
+    atk: 165,
+    def: 22,
+    range: 1,
+    attackIntervalMs: 1300,
+    skillName: '锤一下晕半天',
+    skill: { kind: 'slowOnHit', slowPct: 35, durationMs: 2000 },
+    skillDesc: '被他锤到的，两秒内动作慢 35%',
+    flavor: '五金店老板，抡起大锤来不看人',
+  },
+  {
+    id: 'laoli',
+    name: '屠户老李',
+    hp: 1150,
+    atk: 120,
+    def: 28,
+    range: 1,
+    attackIntervalMs: 1000,
+    skillName: '越砍越精神',
+    skill: { kind: 'lifesteal', healPct: 30 },
+    skillDesc: '砍出去的伤害，三成变自己的血',
+    flavor: '剁了半辈子肉，手上有准头',
+  },
+  {
+    id: 'erjiu',
+    name: '二舅',
+    hp: 900,
+    atk: 92,
+    def: 22,
+    range: 3,
+    attackIntervalMs: 1100,
+    skillName: '顺手修一下',
+    skill: { kind: 'heal', amount: 110, everyMs: 3000 },
+    skillDesc: '每 3 秒给伤得最重的那个补 110',
+    flavor: '什么破烂到他手里都能装上',
+  },
+  {
+    id: 'sanshen',
+    name: '三婶',
+    hp: 780,
+    atk: 105,
+    def: 14,
+    range: 4,
+    attackIntervalMs: 1200,
+    skillName: '音响一开一片倒',
+    skill: { kind: 'splash', damagePct: 55, radius: 1 },
+    skillDesc: '打人带响，旁边的也吃 55% 伤害',
+    flavor: '广场舞领队，音响就是她的武器',
+  },
+  {
+    id: 'laoyanqiang',
+    name: '老烟枪',
+    hp: 680,
+    atk: 210,
+    def: 10,
+    range: 5,
+    attackIntervalMs: 1500,
+    skillName: '抽完这口接着来',
+    skill: { kind: 'execute', maxChain: 2 },
+    skillDesc: '打倒一个立刻再来一下，最多连 2 次',
+    flavor: '蹲着抽烟，站起来才动手，站得越远越准',
+  },
 ];
 
 export const HERO_BY_ID: Readonly<Record<string, HeroDef>> = Object.fromEntries(
@@ -156,22 +141,6 @@ export const HERO_BY_ID: Readonly<Record<string, HeroDef>> = Object.fromEntries(
 
 export function getHero(id: string): HeroDef {
   const h = HERO_BY_ID[id];
-  if (!h) throw new Error(`未知英雄: ${id}`);
+  if (!h) throw new Error(`未知村民: ${id}`);
   return h;
-}
-
-/** 局内等级上限。只在单局内成长，不做局外养成（无版号，且切片验的是单局） */
-export const MAX_LEVEL = 5;
-
-/**
- * 每级对 hp 与 atk 的乘算加成。
- *
- * 0.35 而不是 0.25：回归显示 0.25 时满级也只有 2 倍，
- * 撑不住后期波次的敌人数量，第 13 波必现断崖且通关率恒为 0。
- * 体验目标要的是「越攒越能打」，成长空间必须真的存在。
- */
-export const LEVEL_GROWTH = 0.35;
-
-export function levelMult(level: number): number {
-  return 1 + (level - 1) * LEVEL_GROWTH;
 }

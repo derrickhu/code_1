@@ -2,30 +2,32 @@
  * 单局战斗引擎（无渲染、可逐帧驱动）
  *
  * 这是战斗逻辑的**唯一真源**：
- * - `tools/sim.ts` 批量快进它，用来回归卡关曲线；
+ * - `formulas/simulate.ts` 批量快进它，用来回归卡关曲线；
  * - `scenes/BattleScene` 按帧驱动它，用来实际游玩。
  *
  * 两边共用同一份 tick，才能保证「模拟里验过的数值」在真机上成立。
  * 任何战斗规则改动只应发生在本文件，绝不允许渲染层另写一套。
+ *
+ * 布局与失败条件（docs/00-体验目标.md §4）：
+ * 三个村民排成一列，队首站坐标 0，往后 -1、-2；外星人从 SPAWN_DIST 走向队首。
+ * **失败是全队倒下或一波推不动，没有底线血量、没有漏怪。**
+ *
+ * 能力系统：村民的起手特性和身上装的改装件用同一套 Ability 类型，
+ * 在 `computeStats` 里合并成一份 HeroStats。引擎因此只有一套 switch。
  */
 
 import {
-  BASE_HP,
   MELEE_REACH,
-  PLAYER_ROWS,
-  RANK,
-  SLOTS_PER_ROW,
+  MOD_SLOTS_PER_HERO,
+  REAR_POS,
   SPAWN_DIST,
+  TEAM_SIZE,
   TICK_MS,
-  TOTAL_SLOTS,
   TOTAL_WAVES,
   WAVE_GAP_MS,
   WAVE_TIMEOUT_MS,
-  type Row,
+  slotPos,
 } from '../balance/combat';
-
-export type { Row };
-import { ELEMENT_LANE, getCounterMult, type Element } from '../balance/counters';
 import {
   getEnemyProto,
   getWave,
@@ -33,14 +35,14 @@ import {
   waveHpMult,
   type EnemyProto,
 } from '../balance/enemies';
-import { HEROES, MAX_LEVEL, getHero, levelMult, type HeroDef } from '../balance/heroes';
+import { HEROES, getHero, type HeroDef } from '../balance/heroes';
+import { MODS, getMod, type Ability, type ModDef, type ModKind } from '../balance/mods';
 import {
+  CHOICES_PER_PICK,
+  KIND_PRIORITY,
   MAX_TEAM_SIZE,
-  OPENING_CHOICES,
   PICK_WAVES,
-  ROLE_ROW,
-  TEAM_BUFFS,
-  getTeamBuff,
+  RECRUIT_WAVES,
   type PickKind,
   type PickOption,
 } from '../balance/picker';
@@ -59,18 +61,162 @@ export function makeRng(seed: number): () => number {
   };
 }
 
-function pickRandom<T>(arr: readonly T[], rng: () => number): T | undefined {
-  if (arr.length === 0) return undefined;
-  return arr[Math.floor(rng() * arr.length)];
+function shuffled<T>(arr: readonly T[], rng: () => number): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    const a = out[i]!;
+    const b = out[j]!;
+    out[i] = b;
+    out[j] = a;
+  }
+  return out;
+}
+
+// ── 能力合并 ────────────────────────────────────────────
+
+/**
+ * 一个村民当前实际生效的全部能力，由起手特性 + 已装改装件合并而来。
+ * 静态部分在这里算完并缓存，避免每 tick 重新遍历改装件列表。
+ */
+export interface HeroStats {
+  atk: number;
+  maxHp: number;
+  def: number;
+  /** 已含改装件的射程加成 */
+  range: number;
+  /** 已含重击的出手变慢，不含全队攻速光环（那是动态的） */
+  intervalMs: number;
+  /** 重击的伤害倍率，累乘 */
+  heavyMult: number;
+  /** 站队首时额外的伤害倍率 */
+  frontMult: number;
+  critChance: number;
+  critMult: number;
+  armorPct: number;
+  thornsPct: number;
+  lifestealPct: number;
+  ragePerHit: number;
+  rageMaxStacks: number;
+  splash?: { damagePct: number; radius: number };
+  pierce: number;
+  execute: number;
+  slowOnHit?: { slowPct: number; durationMs: number };
+  shield?: { amount: number; everyMs: number };
+  heal?: { amount: number; everyMs: number };
+  /** 倒下时原地站起来的血量百分比，0 表示没有 */
+  revivePct: number;
+  /** 提供给全队的攻速光环 */
+  teamHaste: number;
+}
+
+export function abilitiesOf(h: HeroUnit): Ability[] {
+  return [h.def.skill, ...h.mods.map((m) => m.effect)];
+}
+
+export function computeStats(def: HeroDef, mods: readonly ModDef[]): HeroStats {
+  const st: HeroStats = {
+    atk: def.atk,
+    maxHp: def.hp,
+    def: def.def,
+    range: def.range,
+    intervalMs: def.attackIntervalMs,
+    heavyMult: 1,
+    frontMult: 1,
+    critChance: 0,
+    critMult: 1,
+    armorPct: 0,
+    thornsPct: 0,
+    lifestealPct: 0,
+    ragePerHit: 0,
+    rageMaxStacks: 0,
+    pierce: 0,
+    execute: 0,
+    revivePct: 0,
+    teamHaste: 0,
+  };
+
+  let atkPct = 0;
+  let intervalPct = 0;
+
+  for (const a of [def.skill, ...mods.map((m) => m.effect)]) {
+    switch (a.kind) {
+      case 'shield':
+        st.shield = st.shield
+          ? { amount: st.shield.amount + a.amount, everyMs: Math.min(st.shield.everyMs, a.everyMs) }
+          : { amount: a.amount, everyMs: a.everyMs };
+        break;
+      case 'heal':
+        st.heal = st.heal
+          ? { amount: st.heal.amount + a.amount, everyMs: Math.min(st.heal.everyMs, a.everyMs) }
+          : { amount: a.amount, everyMs: a.everyMs };
+        break;
+      case 'splash':
+        // 取更强的那一份，不叠加：叠加会让「鼓风机装给三婶」直接失控
+        if (!st.splash || a.damagePct > st.splash.damagePct) {
+          st.splash = { damagePct: a.damagePct, radius: a.radius };
+        }
+        break;
+      case 'execute':
+        st.execute += a.maxChain;
+        break;
+      case 'slowOnHit':
+        if (!st.slowOnHit || a.slowPct > st.slowOnHit.slowPct) {
+          st.slowOnHit = { slowPct: a.slowPct, durationMs: a.durationMs };
+        }
+        break;
+      case 'lifesteal':
+        st.lifestealPct += a.healPct;
+        break;
+      case 'rangeUp':
+        st.range += a.value;
+        break;
+      case 'frontMult':
+        st.frontMult *= a.mult;
+        break;
+      case 'rageOnHurt':
+        st.ragePerHit += a.pctPerHit;
+        st.rageMaxStacks = Math.max(st.rageMaxStacks, a.maxStacks);
+        break;
+      case 'heavySwing':
+        intervalPct += a.intervalPct;
+        st.heavyMult *= a.damageMult;
+        break;
+      case 'pierce':
+        st.pierce += a.extraTargets;
+        break;
+      case 'atkPct':
+        atkPct += a.value;
+        break;
+      case 'crit':
+        st.critChance += a.chancePct;
+        st.critMult = Math.max(st.critMult, a.mult);
+        break;
+      case 'armorPct':
+        st.armorPct += a.value;
+        break;
+      case 'revive':
+        st.revivePct = Math.max(st.revivePct, a.hpPct);
+        break;
+      case 'thorns':
+        st.thornsPct += a.reflectPct;
+        break;
+      case 'teamHaste':
+        st.teamHaste += a.value;
+        break;
+    }
+  }
+
+  st.atk = def.atk * (1 + atkPct / 100);
+  st.intervalMs = def.attackIntervalMs * (1 + intervalPct / 100);
+  return st;
 }
 
 // ── 状态 ────────────────────────────────────────────────
 
 export interface HeroUnit {
   def: HeroDef;
-  level: number;
-  row: Row;
-  /** 本排内的列序，渲染用 */
+  /** 队列序号，0 是队首。位置换算见 combat.slotPos */
   slot: number;
   hp: number;
   maxHp: number;
@@ -78,73 +224,73 @@ export interface HeroUnit {
   cdMs: number;
   skillCdMs: number;
   alive: boolean;
+  mods: ModDef[];
+  stats: HeroStats;
+  /** 本波累积的「越挨越猛」层数 */
+  rageStacks: number;
+  /** 本波是否已经用掉了站起来的机会 */
+  usedRevive: boolean;
 }
 
 export interface EnemyUnit {
   id: number;
   proto: EnemyProto;
-  element: Element;
   hp: number;
   maxHp: number;
   atk: number;
-  /** 所在排（0 底线 / 5 敌后排），0 以下即突破 */
+  /** 战场坐标。从 SPAWN_DIST 递减，越小越深入我方队列 */
   dist: number;
-  /** 0 左 / 1 中 / 2 右，与英雄 slot 对位 */
-  lane: 0 | 1 | 2;
   cdMs: number;
   slowMs: number;
   slowPct: number;
 }
 
-export interface TeamBuffs {
-  atkPct: number;
-  hpPct: number;
-  hastePct: number;
-  frontDefPct: number;
-  backAtkPct: number;
-  baseHpBonus: number;
-  counterBonusPct: number;
-}
-
 /** 供渲染层消费的一帧内发生的事。引擎只记录，不关心怎么表现 */
 export type BattleEvent =
-  | { kind: 'hit'; heroId: string; enemyId: number; damage: number; counter: 'up' | 'flat' | 'down'; crit: boolean; heal?: number }
+  | { kind: 'hit'; heroId: string; enemyId: number; damage: number; crit: boolean; heal?: number }
   | { kind: 'enemyHit'; enemyId: number; heroId: string; damage: number; reflect: number; absorbed: number }
   | { kind: 'enemyDown'; enemyId: number }
-  | { kind: 'leak'; enemyId: number }
   | { kind: 'heroDown'; heroId: string }
-  | { kind: 'skill'; heroId: string; skillName: string; skillKind: string; targetId?: string; pulledIds?: number[]; amount?: number };
+  /** 摩托头盔生效，原地站起来 */
+  | { kind: 'heroRevive'; heroId: string }
+  | { kind: 'skill'; heroId: string; skillName: string; skillKind: string; targetId?: string; amount?: number }
+  /** 改装件装上了。渲染层用它播一次装配演出 */
+  | { kind: 'install'; heroId: string; modId: string };
 
 export interface RunStats {
   hits: number;
-  counterHits: number;
-  leaks: number;
+  crits: number;
   skills: number;
+  /** 整局装了几件破烂 */
+  installs: number;
 }
 
-export type RunPhase = 'picking' | 'fighting' | 'gap' | 'won' | 'lost';
+export type RunPhase =
+  | 'picking'
+  /** 已经选好一件改装件，等玩家点人 —— 主体验的那一步 */
+  | 'installing'
+  | 'fighting'
+  | 'gap'
+  | 'won'
+  | 'lost';
 
 export interface RunState {
   phase: RunPhase;
-  /** 当前波次，picking 时表示「即将开打的那一波」 */
+  /** 当前波次，picking / installing 时表示「即将开打的那一波」 */
   wave: number;
-  baseHp: number;
-  maxBaseHp: number;
-  roster: HeroUnit[];
-  deployed: HeroUnit[];
+  /** 上场的三个人，索引无意义，站位看 slot */
+  team: HeroUnit[];
   enemies: EnemyUnit[];
-  buffs: TeamBuffs;
   picks: PickKind[];
   /** phase 为 picking 时待选的三张牌 */
   pendingOptions: PickOption[];
+  /** phase 为 installing 时已选中、待装配的那件破烂 */
+  pendingMod?: ModDef;
+  /** 本局还没发出去的改装件。每件一局只出一次 */
+  modPool: ModDef[];
   waveElapsedMs: number;
   gapElapsedMs: number;
   totalMs: number;
-  /**
-   * 阵容是否仍由引擎托管。玩家一旦手动调过就转为 false，
-   * 此后每波只补空格，不再自动换人。批量回归始终保持 true。
-   */
-  autoDeploy: boolean;
   /** 本帧事件，渲染层读完应自行清空 */
   events: BattleEvent[];
   /** 整局累计，结算归因用，模拟层可忽略 */
@@ -154,333 +300,182 @@ export interface RunState {
 }
 
 function emptyStats(): RunStats {
-  return { hits: 0, counterHits: 0, leaks: 0, skills: 0 };
+  return { hits: 0, crits: 0, skills: 0, installs: 0 };
 }
 
 function emit(state: RunState, ev: BattleEvent): void {
   state.events.push(ev);
   if (ev.kind === 'hit') {
     state.stats.hits += 1;
-    if (ev.counter === 'up') state.stats.counterHits += 1;
-  } else if (ev.kind === 'leak') {
-    state.stats.leaks += 1;
+    if (ev.crit) state.stats.crits += 1;
   } else if (ev.kind === 'skill') {
     state.stats.skills += 1;
+  } else if (ev.kind === 'install') {
+    state.stats.installs += 1;
   }
 }
 
-function emptyBuffs(): TeamBuffs {
-  return {
-    atkPct: 0,
-    hpPct: 0,
-    hastePct: 0,
-    frontDefPct: 0,
-    backAtkPct: 0,
-    baseHpBonus: 0,
-    counterBonusPct: 0,
-  };
+// ── 查询 ────────────────────────────────────────────────
+
+export function heroAt(state: RunState, slot: number): HeroUnit | undefined {
+  return state.team.find((h) => h.slot === slot);
 }
 
-// ── 属性计算 ────────────────────────────────────────────
-
-export function heroMaxHp(h: HeroUnit, b: TeamBuffs): number {
-  return h.def.hp * levelMult(h.level) * (1 + b.hpPct / 100);
+/** 队列从前到后 */
+export function teamInOrder(state: RunState): HeroUnit[] {
+  return [...state.team].sort((a, b) => a.slot - b.slot);
 }
 
-export function heroAtk(h: HeroUnit, b: TeamBuffs): number {
-  const rowBonus = h.row === 'back' ? 1 + b.backAtkPct / 100 : 1;
-  return h.def.atk * levelMult(h.level) * (1 + b.atkPct / 100) * rowBonus;
+export function heroPos(h: HeroUnit): number {
+  return slotPos(h.slot);
 }
 
-function heroInterval(h: HeroUnit, b: TeamBuffs, auraHastePct: number): number {
-  return h.def.attackIntervalMs / (1 + (b.hastePct + auraHastePct) / 100);
-}
-
-export function heroRank(h: HeroUnit): number {
-  return RANK[h.row];
-}
-
-/** 英雄能打到的最远排：自己的排 + 射程 */
+/** 能打到的最远坐标 */
 export function heroReach(h: HeroUnit): number {
-  return RANK[h.row] + h.def.range;
+  return slotPos(h.slot) + h.stats.range;
+}
+
+export function canInstallOn(h: HeroUnit): boolean {
+  return h.mods.length < MOD_SLOTS_PER_HERO;
 }
 
 /**
- * 敌人该打谁：近战够得着的人里，先打更靠前的，再打本列。
- * 够不着就返回 undefined，继续往下一排走。
- */
-export function enemyVictim(
-  e: EnemyUnit,
-  living: readonly HeroUnit[],
-): HeroUnit | undefined {
-  const inMelee = living.filter((h) => {
-    if (!h.alive) return false;
-    const d = e.dist - RANK[h.row];
-    return d > 0 && d <= MELEE_REACH;
-  });
-  if (inMelee.length === 0) return undefined;
-  return [...inMelee].sort((a, b) => {
-    const rd = RANK[b.row] - RANK[a.row];
-    if (rd !== 0) return rd;
-    return Math.abs(a.slot - e.lane) - Math.abs(b.slot - e.lane);
-  })[0];
-}
-
-function enemySlowPct(e: EnemyUnit, auraSlow: number): number {
-  return Math.min(60, Math.max(e.slowMs > 0 ? e.slowPct : 0, auraSlow));
-}
-
-// ── 三选一 ──────────────────────────────────────────────
-
-/**
- * 按阶段给牌：
+ * 外星人该打谁：近战够得着的人里打最靠前的那个。
+ * 够不着就返回 undefined，继续往前走。
  *
- * **组队阶段（拥有不足 6 人）** 三张都是英雄且尽量三个不同系。这是「选对系别」的前提 ——
- * 早期版本每次只给一张英雄卡，玩家没得挑系，回归数据显示按系别招人反而比无脑招人差 3 波。
- *
- * **取舍阶段** 一张新英雄加一张升级加一张增益，分别对应覆盖面、单点强度、通用收益。
+ * 「打最靠前的」是队列有意义的全部来源 —— 队首替后面的人挨刀。
  */
-export function buildOptions(roster: readonly HeroUnit[], rng: () => number): PickOption[] {
-  const ownedIds = new Set(roster.map((h) => h.def.id));
-  const pool = [...HEROES.filter((h) => !ownedIds.has(h.id))].sort(() => rng() - 0.5);
-
-  if (roster.length < MAX_TEAM_SIZE) {
-    const picked: HeroDef[] = [];
-    const usedElements = new Set<Element>();
-    for (const h of pool) {
-      if (picked.length >= 3) break;
-      if (usedElements.has(h.element)) continue;
-      picked.push(h);
-      usedElements.add(h.element);
-    }
-    for (const h of pool) {
-      if (picked.length >= 3) break;
-      if (!picked.includes(h)) picked.push(h);
-    }
-    if (picked.length > 0) return picked.map((h) => ({ kind: 'recruit', heroId: h.id }));
+export function enemyVictim(e: EnemyUnit, team: readonly HeroUnit[]): HeroUnit | undefined {
+  let best: HeroUnit | undefined;
+  for (const h of team) {
+    if (!h.alive) continue;
+    const gap = e.dist - slotPos(h.slot);
+    if (gap <= 0 || gap > MELEE_REACH) continue;
+    if (!best || h.slot < best.slot) best = h;
   }
-
-  const options: PickOption[] = [];
-  const recruit = pool[0];
-  if (recruit) options.push({ kind: 'recruit', heroId: recruit.id });
-
-  // 升级目标随机指定，不让玩家挑 —— 否则永远升最强那个，升级卡成为无脑最优解
-  const upgradable = [...roster.filter((h) => h.level < MAX_LEVEL)].sort(() => rng() - 0.5);
-  const up = upgradable[0];
-  if (up) options.push({ kind: 'levelUp', heroId: up.def.id });
-
-  const buff = pickRandom(TEAM_BUFFS, rng);
-  if (buff) options.push({ kind: 'buff', buffId: buff.id });
-
-  return options;
+  return best;
 }
 
-/** 返回对当前底线血量的即时增量（只有「加固」会产生） */
-function applyOption(option: PickOption, state: RunState): number {
-  switch (option.kind) {
-    case 'recruit': {
-      const def = getHero(option.heroId);
-      const row = ROLE_ROW[def.role];
-      state.roster.push({
-        def,
-        level: 1,
-        row,
-        slot: state.roster.filter((h) => h.row === row).length % SLOTS_PER_ROW,
-        hp: 0,
-        maxHp: 0,
-        shield: 0,
-        cdMs: 0,
-        skillCdMs: 0,
-        alive: true,
-      });
-      return 0;
-    }
-    case 'levelUp': {
-      const target = state.roster.find((h) => h.def.id === option.heroId);
-      if (target && target.level < MAX_LEVEL) target.level += 1;
-      return 0;
-    }
-    case 'buff': {
-      const effect = getTeamBuff(option.buffId).effect;
-      const b = state.buffs;
-      switch (effect.kind) {
-        case 'atkPct': b.atkPct += effect.value; return 0;
-        case 'hpPct': b.hpPct += effect.value; return 0;
-        case 'hastePct': b.hastePct += effect.value; return 0;
-        case 'frontDefPct': b.frontDefPct += effect.value; return 0;
-        case 'backAtkPct': b.backAtkPct += effect.value; return 0;
-        case 'baseHp': b.baseHpBonus += effect.value; return effect.value;
-        case 'counterBonus': b.counterBonusPct += effect.value; return 0;
-      }
+function enemySlowPct(e: EnemyUnit): number {
+  return e.slowMs > 0 ? Math.min(60, e.slowPct) : 0;
+}
+
+// ── 发牌 ────────────────────────────────────────────────
+
+function recruitOptions(state: RunState): PickOption[] {
+  const owned = new Set(state.team.map((h) => h.def.id));
+  const pool = shuffled(
+    HEROES.filter((h) => !owned.has(h.id)),
+    state.rng,
+  );
+  return pool.slice(0, CHOICES_PER_PICK).map((h) => ({ kind: 'recruit', heroId: h.id }));
+}
+
+/**
+ * 发改装件：三张 kind 尽量互不相同，且**保证至少一张 pivot**。
+ * 三张都是纯强度等于这一轮没有改定位的机会，主体验就断了一次。
+ */
+function modOptions(state: RunState): PickOption[] {
+  if (state.modPool.length === 0) return [];
+  const pool = shuffled(state.modPool, state.rng);
+  const picked: ModDef[] = [];
+  const usedKinds = new Set<ModKind>();
+
+  const pivot = pool.find((m) => m.kind === 'pivot');
+  if (pivot) {
+    picked.push(pivot);
+    usedKinds.add('pivot');
+  }
+  for (const kind of KIND_PRIORITY) {
+    if (picked.length >= CHOICES_PER_PICK) break;
+    if (usedKinds.has(kind)) continue;
+    const m = pool.find((x) => x.kind === kind && !picked.includes(x));
+    if (m) {
+      picked.push(m);
+      usedKinds.add(kind);
     }
   }
+  // kind 不够凑数时，允许同 kind 补齐，总比只给两张好
+  for (const m of pool) {
+    if (picked.length >= CHOICES_PER_PICK) break;
+    if (!picked.includes(m)) picked.push(m);
+  }
+  return picked.map((m) => ({ kind: 'mod', modId: m.id }));
 }
 
-// ── 上场 ────────────────────────────────────────────────
-
-export interface DeployOptions {
-  /** 优先上能克制来袭系别的英雄，代表「懂了的玩家」 */
-  preferCounter: boolean;
-  /** 随机上场，代表首次接触的玩家 */
-  shuffle: boolean;
+export function buildOptions(state: RunState): PickOption[] {
+  const wantRecruit = RECRUIT_WAVES.includes(state.wave) && state.team.length < MAX_TEAM_SIZE;
+  if (wantRecruit) {
+    const opts = recruitOptions(state);
+    if (opts.length > 0) return opts;
+  }
+  return modOptions(state);
 }
 
-/**
- * 决定本波上场阵容。
- *
- * 「拥有」与「上场」必须分开 —— 这是让克制产生决策价值的关键。阵容若招进来就永久固定，
- * 针对某一波挑的系别在后面十波里毫无意义，回归里克制的价值实测为 0。
- */
-export function deploy(state: RunState, opts: DeployOptions): void {
-  const upcoming = upcomingWaveElement(state.wave);
-  const pickRow = (row: Row): HeroUnit[] => {
-    const candidates = state.roster.filter((h) => h.row === row);
-    if (opts.preferCounter && upcoming) {
-      return [...candidates]
-        .sort((a, b) => {
-          const sa = getCounterMult(a.def.element, upcoming);
-          const sb = getCounterMult(b.def.element, upcoming);
-          if (sa !== sb) return sb - sa;
-          return b.level - a.level;
-        })
-        .slice(0, SLOTS_PER_ROW);
-    }
-    if (opts.shuffle) {
-      return [...candidates].sort(() => state.rng() - 0.5).slice(0, SLOTS_PER_ROW);
-    }
-    return [...candidates].sort((a, b) => b.level - a.level).slice(0, SLOTS_PER_ROW);
+// ── 阵容 ────────────────────────────────────────────────
+
+function makeUnit(def: HeroDef, slot: number): HeroUnit {
+  const stats = computeStats(def, []);
+  return {
+    def,
+    slot,
+    hp: stats.maxHp,
+    maxHp: stats.maxHp,
+    shield: 0,
+    cdMs: 0,
+    skillCdMs: 0,
+    alive: true,
+    mods: [],
+    stats,
+    rageStacks: 0,
+    usedRevive: false,
   };
+}
 
-  const upcomingEl = opts.preferCounter ? upcoming : undefined;
-  const picked: HeroUnit[] = [];
-  for (const row of PLAYER_ROWS) {
-    const room = TOTAL_SLOTS - picked.length;
-    if (room <= 0) break;
-    const chunk = pickRow(row).slice(0, Math.min(SLOTS_PER_ROW, room));
-    placeCentered(chunk, upcomingEl);
-    picked.push(...chunk);
-  }
-  state.deployed = picked;
+function addHero(state: RunState, heroId: string): void {
+  if (state.team.length >= MAX_TEAM_SIZE) return;
+  state.team.push(makeUnit(getHero(heroId), state.team.length));
+}
+
+function refreshStats(h: HeroUnit): void {
+  h.stats = computeStats(h.def, h.mods);
+  h.maxHp = h.stats.maxHp;
+  if (h.hp > h.maxHp) h.hp = h.maxHp;
 }
 
 /**
- * 一排不满 3 人时往中间收，避免开局唯一的英雄贴在最左边。
- * 1 人站中格，2 人站两翼，3 人铺满。
- */
-function placeCentered(heroes: HeroUnit[], upcoming?: Element): void {
-  if (heroes.length === 0) return;
-  if (heroes.length === 1) {
-    heroes[0]!.slot = 1;
-    return;
-  }
-  if (heroes.length === 2) {
-    const prefer = upcoming !== undefined && ELEMENT_LANE[upcoming] !== 1
-      ? ELEMENT_LANE[upcoming]
-      : 0;
-    heroes[0]!.slot = prefer;
-    heroes[1]!.slot = prefer === 0 ? 2 : 0;
-    return;
-  }
-  const prefer = upcoming !== undefined ? ELEMENT_LANE[upcoming] : 1;
-  const rest = [0, 1, 2].filter((s) => s !== prefer);
-  [prefer, ...rest].forEach((slot, i) => {
-    const h = heroes[i];
-    if (h) h.slot = slot;
-  });
-}
-
-// ── 玩家接管阵容 ────────────────────────────────────────
-//
-// 「拥有」与「上场」分开的意义，只有在玩家自己能决定谁上场时才兑现。
-// 引擎自动按克制选人只是缺省行为：一旦玩家动过一次，后续就完全按他的安排来，
-// 引擎只负责把空格补上，绝不再擅自换掉他放好的人。
-
-export function heroAt(state: RunState, row: Row, slot: number): HeroUnit | undefined {
-  return state.deployed.find((h) => h.row === row && h.slot === slot);
-}
-
-export function benchOf(state: RunState): HeroUnit[] {
-  const onField = new Set(state.deployed.map((h) => h.def.id));
-  return state.roster.filter((h) => !onField.has(h.def.id));
-}
-
-/** 新上场的英雄要有血条可打；本波已受伤的沿用当前血量，不靠换人回血 */
-function ensureVitals(h: HeroUnit, b: TeamBuffs): void {
-  const maxHp = heroMaxHp(h, b);
-  h.maxHp = maxHp;
-  if (h.hp <= 0) {
-    h.hp = maxHp;
-    h.alive = true;
-  }
-}
-
-/**
- * 把某个英雄放到指定格位。目标格有人则两者交换，来自替补席则顶替下场。
- * 调用后阵容转为玩家托管。
- */
-export function assignSlot(state: RunState, heroId: string, row: Row, slot: number): void {
-  const hero = state.roster.find((h) => h.def.id === heroId);
-  if (!hero) return;
-  state.autoDeploy = false;
-
-  const occupant = heroAt(state, row, slot);
-  if (occupant && occupant.def.id === heroId) return;
-
-  const wasOnField = state.deployed.includes(hero);
-  const fromRow = hero.row;
-  const fromSlot = hero.slot;
-  if (!wasOnField && !occupant && state.deployed.length >= TOTAL_SLOTS) return;
-
-  hero.row = row;
-  hero.slot = slot;
-  ensureVitals(hero, state.buffs);
-  if (!wasOnField) state.deployed.push(hero);
-
-  if (occupant) {
-    if (wasOnField) {
-      occupant.row = fromRow;
-      occupant.slot = fromSlot;
-    } else {
-      state.deployed = state.deployed.filter((h) => h !== occupant);
-    }
-  }
-}
-
-/** 把英雄撤下场，留出空格 */
-export function benchHero(state: RunState, heroId: string): void {
-  state.autoDeploy = false;
-  state.deployed = state.deployed.filter((h) => h.def.id !== heroId);
-}
-
-/**
- * 补满空格但不动玩家已安排的人。
+ * 交换队列里两个位置的人。
  *
- * 招到新英雄后如果玩家不管，空着的格子会白白浪费 —— 那不是决策，是漏操作。
+ * 这是玩家唯一的站位操作，也是改装件产生连带决策的地方：
+ * 装了钢板的远程想站队首，装了高压锅的肉盾也想挨打，两者会打架。
  */
-export function fillEmptySlots(state: RunState): void {
-  const bench = benchOf(state);
-  if (bench.length === 0) return;
-
-  for (const row of PLAYER_ROWS) {
-    for (let slot = 0; slot < SLOTS_PER_ROW; slot += 1) {
-      if (state.deployed.length >= TOTAL_SLOTS) return;
-      if (heroAt(state, row, slot)) continue;
-      // 先用本来就属于这一排的角色补，实在没有再拿其他人顶上
-      const idx = bench.findIndex((h) => ROLE_ROW[h.def.role] === row);
-      const pick = idx >= 0 ? bench.splice(idx, 1)[0] : bench.shift();
-      if (!pick) return;
-      pick.row = row;
-      pick.slot = slot;
-      ensureVitals(pick, state.buffs);
-      state.deployed.push(pick);
-    }
-  }
+export function swapSlots(state: RunState, a: number, b: number): void {
+  if (a === b) return;
+  const ha = heroAt(state, a);
+  const hb = heroAt(state, b);
+  if (ha) ha.slot = b;
+  if (hb) hb.slot = a;
 }
 
-/** 即将开打这一波的主要系别，供三选一与上场决策参考 */
-export function upcomingWaveElement(wave: number): Element | undefined {
-  if (wave < 1 || wave > TOTAL_WAVES) return undefined;
-  return getWave(wave).spawns[0]?.element;
+/** 把待装配的改装件装到某人身上，随后开打 */
+export function installMod(state: RunState, heroId: string): boolean {
+  if (state.phase !== 'installing') return false;
+  const mod = state.pendingMod;
+  if (!mod) return false;
+  const target = state.team.find((h) => h.def.id === heroId);
+  if (!target || !canInstallOn(target)) return false;
+
+  target.mods.push(mod);
+  refreshStats(target);
+  state.pendingMod = undefined;
+  emit(state, { kind: 'install', heroId, modId: mod.id });
+  beginWave(state);
+  return true;
+}
+
+/** 谁还装得下。全队都满了时装配这一步要跳过，否则会卡死 */
+export function installTargets(state: RunState): HeroUnit[] {
+  return state.team.filter(canInstallOn);
 }
 
 // ── 出怪 ────────────────────────────────────────────────
@@ -488,30 +483,19 @@ export function upcomingWaveElement(wave: number): Element | undefined {
 interface ScheduledSpawn {
   atMs: number;
   proto: EnemyProto;
-  element: Element;
-  lane: 0 | 1 | 2;
 }
 
 function scheduleWave(wave: number): ScheduledSpawn[] {
   const def = getWave(wave);
   const hpMult = waveHpMult(wave);
   const atkMult = waveAtkMult(wave);
-  const mixed = new Set(def.spawns.map((g) => g.element)).size > 1;
   const out: ScheduledSpawn[] = [];
-  let spread = 0;
   for (const group of def.spawns) {
     const proto = getEnemyProto(group.enemyId);
     for (let i = 0; i < group.count; i += 1) {
-      const home = ELEMENT_LANE[group.element];
-      const lane: 0 | 1 | 2 = mixed
-        ? (spread % 3 === 2 ? 1 : home)
-        : ((spread % 3) as 0 | 1 | 2);
-      spread += 1;
       out.push({
         atMs: group.delayMs + i * group.intervalMs,
         proto: { ...proto, hp: proto.hp * hpMult, atk: proto.atk * atkMult },
-        element: group.element,
-        lane,
       });
     }
   }
@@ -519,7 +503,7 @@ function scheduleWave(wave: number): ScheduledSpawn[] {
 }
 
 /** 每波的出怪表在进入战斗时生成，随状态走，便于逐帧驱动 */
-const scheduleCache = new WeakMap<RunState, { wave: number; list: ScheduledSpawn[]; idx: number }>();
+const scheduleCache = new WeakMap<RunState, { list: ScheduledSpawn[]; idx: number }>();
 
 // ── 生命周期 ────────────────────────────────────────────
 
@@ -528,74 +512,72 @@ export function createRun(seed: number): RunState {
   const state: RunState = {
     phase: 'picking',
     wave: 1,
-    baseHp: BASE_HP,
-    maxBaseHp: BASE_HP,
-    roster: [],
-    deployed: [],
+    team: [],
     enemies: [],
-    buffs: emptyBuffs(),
     picks: [],
     pendingOptions: [],
+    modPool: shuffled(MODS, rng),
     waveElapsedMs: 0,
     gapElapsedMs: 0,
     totalMs: 0,
-    autoDeploy: true,
     events: [],
     stats: emptyStats(),
     rng,
     nextEnemyId: 1,
   };
-  // 开局：三张不同系的英雄卡挑一张，落地即开打。
-  // 不允许前置编队页（十秒可懂）；三系都给到，是为了第一眼就看见差别，而不是随机抽到三个炎系。
-  state.pendingOptions = openingChoices(rng);
+  // 开局：三个村民挑一个，落地即开打。不允许前置编队页（十秒可懂）
+  state.pendingOptions = recruitOptions(state);
   return state;
 }
 
-function openingChoices(rng: () => number): PickOption[] {
-  const shuffled = [...HEROES].sort(() => rng() - 0.5);
-  const picked: HeroDef[] = [];
-  const used = new Set<Element>();
-  for (const h of shuffled) {
-    if (picked.length >= OPENING_CHOICES) break;
-    if (used.has(h.element)) continue;
-    picked.push(h);
-    used.add(h.element);
-  }
-  return picked.map((h) => ({ kind: 'recruit', heroId: h.id }));
-}
-
-/** 玩家（或模拟策略）选定一张牌，随后进入战斗 */
-export function applyPick(state: RunState, option: PickOption, deployOpts: DeployOptions): void {
+/**
+ * 玩家（或模拟策略）选定一张牌。
+ *
+ * 选到村民就直接开打；选到改装件则转入 installing，等「装给谁」那一步。
+ * 这两步刻意不合并 —— 合并了主体验就没了。
+ */
+export function applyPick(state: RunState, option: PickOption): void {
   if (state.phase !== 'picking') return;
-  state.baseHp += applyOption(option, state);
-  state.maxBaseHp = BASE_HP + state.buffs.baseHpBonus;
   state.picks.push(option.kind);
   state.pendingOptions = [];
-  beginWave(state, deployOpts);
+
+  if (option.kind === 'recruit') {
+    addHero(state, option.heroId);
+    beginWave(state);
+    return;
+  }
+
+  const mod = getMod(option.modId);
+  state.modPool = state.modPool.filter((m) => m.id !== mod.id);
+  if (installTargets(state).length === 0) {
+    // 全员改装位已满，这件只能作废，直接开打而不是卡在装配阶段
+    beginWave(state);
+    return;
+  }
+  state.pendingMod = mod;
+  state.phase = 'installing';
 }
 
-function beginWave(state: RunState, deployOpts: DeployOptions): void {
-  if (state.autoDeploy) deploy(state, deployOpts);
-  else fillEmptySlots(state);
-
-  // 每波开始全员复活满血：一次灭队不该直接结束观战，
-  // 失败判定统一交给底线血量，这样「快要守不住」才有可感的过程。
-  // 重置整个 roster 而不只是上场的，替补才能作为生力军被换上。
-  for (const h of state.roster) {
-    h.maxHp = heroMaxHp(h, state.buffs);
+function beginWave(state: RunState): void {
+  // 每波开始全员复活满血：一次倒下不该直接结束整局，
+  // 判负交给「本波全队倒下」，这样每一波都是一次完整的戏。
+  for (const h of state.team) {
+    refreshStats(h);
     h.hp = h.maxHp;
     h.alive = true;
     h.shield = 0;
     h.cdMs = 0;
     h.skillCdMs = 0;
+    h.rageStacks = 0;
+    h.usedRevive = false;
   }
   state.enemies = [];
   state.waveElapsedMs = 0;
-  scheduleCache.set(state, { wave: state.wave, list: scheduleWave(state.wave), idx: 0 });
+  scheduleCache.set(state, { list: scheduleWave(state.wave), idx: 0 });
   state.phase = 'fighting';
 }
 
-function finishWave(state: RunState, deployOpts: DeployOptions): void {
+function finishWave(state: RunState): void {
   if (state.wave >= TOTAL_WAVES) {
     state.phase = 'won';
     return;
@@ -603,28 +585,29 @@ function finishWave(state: RunState, deployOpts: DeployOptions): void {
   state.wave += 1;
   state.gapElapsedMs = 0;
   if (PICK_WAVES.includes(state.wave)) {
-    state.pendingOptions = buildOptions(state.roster, state.rng);
+    state.pendingOptions = buildOptions(state);
     if (state.pendingOptions.length > 0) {
       state.phase = 'picking';
       return;
     }
   }
   state.phase = 'gap';
-  void deployOpts;
 }
+
+// ── 每帧 ────────────────────────────────────────────────
 
 /**
  * 推进一个 TICK_MS。
  *
  * 渲染层按帧累积时间后调用，模拟层直接连续调用 —— 两者走的是同一段逻辑。
  */
-export function tick(state: RunState, deployOpts: DeployOptions): void {
-  if (state.phase === 'won' || state.phase === 'lost' || state.phase === 'picking') return;
+export function tick(state: RunState): void {
+  if (state.phase !== 'fighting' && state.phase !== 'gap') return;
 
   if (state.phase === 'gap') {
     state.gapElapsedMs += TICK_MS;
     state.totalMs += TICK_MS;
-    if (state.gapElapsedMs >= WAVE_GAP_MS) beginWave(state, deployOpts);
+    if (state.gapElapsedMs >= WAVE_GAP_MS) beginWave(state);
     return;
   }
 
@@ -644,12 +627,10 @@ export function tick(state: RunState, deployOpts: DeployOptions): void {
     state.enemies.push({
       id: state.nextEnemyId++,
       proto: next.proto,
-      element: next.element,
       hp: next.proto.hp,
       maxHp: next.proto.hp,
       atk: next.proto.atk,
       dist: SPAWN_DIST,
-      lane: next.lane,
       cdMs: next.proto.attackIntervalMs,
       slowMs: 0,
       slowPct: 0,
@@ -658,118 +639,90 @@ export function tick(state: RunState, deployOpts: DeployOptions): void {
   }
 
   if (sched.idx >= sched.list.length && state.enemies.length === 0) {
-    finishWave(state, deployOpts);
+    finishWave(state);
     return;
   }
 
-  const living = state.deployed.filter((h) => h.alive);
-
-  // 2. 光环（每 tick 重算，避免维护叠加状态）
-  let auraHaste = 0;
-  let critChance = 0;
-  let critMult = 1;
-  let auraSlow = 0;
-  for (const h of living) {
-    const sk = h.def.skill;
-    if (sk.kind === 'hasteAura') auraHaste += sk.hastePct;
-    if (sk.kind === 'critAura') {
-      critChance += sk.chancePct;
-      critMult = Math.max(critMult, sk.critMult);
-    }
-    if (sk.kind === 'slowAura') auraSlow = Math.max(auraSlow, sk.slowPct);
+  const living = state.team.filter((h) => h.alive);
+  if (living.length === 0) {
+    state.phase = 'lost';
+    return;
   }
 
-  // 3. 英雄攻击与周期技能
+  // 2. 全队攻速光环（每 tick 重算，避免维护叠加状态）
+  let teamHaste = 0;
+  for (const h of living) teamHaste += h.stats.teamHaste;
+
+  // 3. 村民的周期特性与攻击
   for (const h of living) {
     h.cdMs -= TICK_MS;
     h.skillCdMs -= TICK_MS;
+    const st = h.stats;
 
-    const sk = h.def.skill;
-    if (sk.kind === 'shield' && h.skillCdMs <= 0) {
-      h.shield += sk.amount;
-      h.skillCdMs = sk.everyMs;
-      emit(state, { kind: 'skill', heroId: h.def.id, skillName: h.def.skillName, skillKind: sk.kind, amount: sk.amount });
+    if (st.shield && h.skillCdMs <= 0) {
+      h.shield += st.shield.amount;
+      h.skillCdMs = st.shield.everyMs;
+      emit(state, {
+        kind: 'skill',
+        heroId: h.def.id,
+        skillName: h.def.skillName,
+        skillKind: 'shield',
+        amount: st.shield.amount,
+      });
     }
-    if (sk.kind === 'heal' && h.skillCdMs <= 0) {
+    if (st.heal && h.skillCdMs <= 0) {
       const lowest = living
         .filter((x) => x.hp < x.maxHp)
         .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
-      if (lowest) lowest.hp = Math.min(lowest.maxHp, lowest.hp + sk.amount);
-      h.skillCdMs = sk.everyMs;
+      if (lowest) lowest.hp = Math.min(lowest.maxHp, lowest.hp + st.heal.amount);
+      h.skillCdMs = st.heal.everyMs;
       emit(state, {
         kind: 'skill',
         heroId: h.def.id,
         skillName: h.def.skillName,
-        skillKind: sk.kind,
+        skillKind: 'heal',
         targetId: lowest?.def.id,
-        amount: lowest ? sk.amount : 0,
-      });
-    }
-    if (sk.kind === 'vortex' && h.skillCdMs <= 0) {
-      const reach = heroReach(h);
-      const pulledIds: number[] = [];
-      for (const e of state.enemies) {
-        if (e.hp <= 0 || e.dist <= RANK[h.row] || e.dist > reach) continue;
-        e.dist = Math.min(SPAWN_DIST, e.dist + sk.pullDist);
-        e.hp -= sk.damage;
-        pulledIds.push(e.id);
-        if (e.hp <= 0) emit(state, { kind: 'enemyDown', enemyId: e.id });
-      }
-      h.skillCdMs = sk.everyMs;
-      emit(state, {
-        kind: 'skill',
-        heroId: h.def.id,
-        skillName: h.def.skillName,
-        skillKind: sk.kind,
-        pulledIds,
+        amount: lowest ? st.heal.amount : 0,
       });
     }
 
     if (h.cdMs > 0) continue;
 
+    const from = slotPos(h.slot);
     const reach = heroReach(h);
-    const from = RANK[h.row];
     const inRange = state.enemies.filter((e) => e.hp > 0 && e.dist > from && e.dist <= reach);
     if (inRange.length === 0) continue;
-    // 先打本列，再打邻列。否则六个格子只剩「坦克前排」一个解，换列没有意义。
-    inRange.sort((a, b) => {
-      const sa = a.dist + Math.abs(a.lane - h.slot) * 10;
-      const sb = b.dist + Math.abs(b.lane - h.slot) * 10;
-      return sa - sb;
-    });
+    inRange.sort((a, b) => a.dist - b.dist);
 
-    h.cdMs = heroInterval(h, state.buffs, auraHaste);
+    h.cdMs = st.intervalMs / (1 + teamHaste / 100);
 
-    const atk = heroAtk(h, state.buffs);
-    const isCrit = critChance > 0 && state.rng() * 100 < critChance;
-    const crit = isCrit ? critMult : 1;
+    const isCrit = st.critChance > 0 && state.rng() * 100 < st.critChance;
+    let mult = st.heavyMult;
+    if (h.slot === 0) mult *= st.frontMult;
+    if (isCrit) mult *= st.critMult;
+    if (st.ragePerHit > 0) mult *= 1 + (h.rageStacks * st.ragePerHit) / 100;
 
-    const hit = (target: EnemyUnit, mult: number): void => {
-      const counterMult = getCounterMult(h.def.element, target.element);
-      const dmg =
-        computeDamage({
-          atk,
-          targetDef: target.proto.def,
-          counterMult,
-          counterBonusPct: state.buffs.counterBonusPct,
-          critMult: crit,
-          targetDamageReductionPct: 0,
-        }) * mult;
+    const hit = (target: EnemyUnit, share: number): void => {
+      const dmg = computeDamage({
+        atk: st.atk,
+        targetDef: target.proto.def,
+        modMult: mult,
+        targetDamageReductionPct: 0,
+      }) * share;
       target.hp -= dmg;
-      const healed = sk.kind === 'lifesteal' ? dmg * (sk.healPct / 100) : 0;
+      const healed = st.lifestealPct > 0 ? dmg * (st.lifestealPct / 100) : 0;
       if (healed > 0) h.hp = Math.min(h.maxHp, h.hp + healed);
       emit(state, {
         kind: 'hit',
         heroId: h.def.id,
         enemyId: target.id,
         damage: dmg,
-        counter: counterMult > 1 ? 'up' : counterMult < 1 ? 'down' : 'flat',
         crit: isCrit,
         heal: healed > 0 ? healed : undefined,
       });
-      if (sk.kind === 'slowOnHit') {
-        target.slowMs = sk.durationMs;
-        target.slowPct = sk.slowPct;
+      if (st.slowOnHit) {
+        target.slowMs = st.slowOnHit.durationMs;
+        target.slowPct = st.slowOnHit.slowPct;
       }
       if (target.hp <= 0) emit(state, { kind: 'enemyDown', enemyId: target.id });
     };
@@ -778,27 +731,28 @@ export function tick(state: RunState, deployOpts: DeployOptions): void {
     if (!primary) continue;
     hit(primary, 1);
 
-    if (sk.kind === 'splash') {
+    if (st.splash) {
+      const sp = st.splash;
       for (const e of inRange) {
-        if (e !== primary && Math.abs(e.dist - primary.dist) <= sk.radius) {
-          hit(e, sk.damagePct / 100);
+        if (e !== primary && e.hp > 0 && Math.abs(e.dist - primary.dist) <= sp.radius) {
+          hit(e, sp.damagePct / 100);
         }
       }
     }
-    if (sk.kind === 'pierce') {
+    if (st.pierce > 0) {
       let extra = 0;
       for (const e of inRange) {
-        if (e === primary) continue;
-        if (extra >= sk.extraTargets) break;
+        if (e === primary || e.hp <= 0) continue;
+        if (extra >= st.pierce) break;
         hit(e, 1);
         extra += 1;
       }
     }
-    if (sk.kind === 'execute') {
+    if (st.execute > 0) {
       let chain = 0;
-      while (chain < sk.maxChain && primary.hp <= 0) {
+      while (chain < st.execute && primary.hp <= 0) {
         const next = state.enemies
-          .filter((e) => e.hp > 0 && e.dist > RANK[h.row] && e.dist <= reach)
+          .filter((e) => e.hp > 0 && e.dist > from && e.dist <= reach)
           .sort((a, b) => a.dist - b.dist)[0];
         if (!next) break;
         hit(next, 1);
@@ -808,34 +762,37 @@ export function tick(state: RunState, deployOpts: DeployOptions): void {
     }
   }
 
-  // 4. 敌人推进与攻击。近战够得着就砍（先打前排），够不着就往下一排走。
-  const livingHeroes = state.deployed.filter((h) => h.alive);
+  // 4. 外星人推进与攻击。够得着就打队首，够不着就往前走。
+  const targets = state.team.filter((h) => h.alive);
   for (const e of state.enemies) {
     if (e.hp <= 0) continue;
     e.cdMs -= TICK_MS;
     if (e.slowMs > 0) e.slowMs -= TICK_MS;
-    const slow = enemySlowPct(e, auraSlow);
+    const slow = enemySlowPct(e);
 
-    const victim = enemyVictim(e, livingHeroes);
+    const victim = enemyVictim(e, targets);
     if (victim) {
       if (e.cdMs <= 0) {
         e.cdMs = e.proto.attackIntervalMs * (1 + slow / 100);
-        const reduction = victim.row === 'front' ? state.buffs.frontDefPct : 0;
+        const vst = victim.stats;
         const dmg = computeDamage({
           atk: e.atk,
-          targetDef: victim.def.def,
-          counterMult: getCounterMult(e.element, victim.def.element),
-          counterBonusPct: 0,
-          critMult: 1,
-          targetDamageReductionPct: reduction,
+          targetDef: vst.def,
+          modMult: 1,
+          targetDamageReductionPct: vst.armorPct,
         });
         const absorbed = Math.min(victim.shield, dmg);
         victim.shield -= absorbed;
         victim.hp -= dmg - absorbed;
 
-        const vs = victim.def.skill;
-        const reflect = vs.kind === 'thorns' ? dmg * (vs.reflectPct / 100) : 0;
-        if (reflect > 0) e.hp -= reflect;
+        if (vst.rageMaxStacks > 0) {
+          victim.rageStacks = Math.min(vst.rageMaxStacks, victim.rageStacks + 1);
+        }
+        const reflect = vst.thornsPct > 0 ? dmg * (vst.thornsPct / 100) : 0;
+        if (reflect > 0) {
+          e.hp -= reflect;
+          if (e.hp <= 0) emit(state, { kind: 'enemyDown', enemyId: e.id });
+        }
         emit(state, {
           kind: 'enemyHit',
           enemyId: e.id,
@@ -844,25 +801,25 @@ export function tick(state: RunState, deployOpts: DeployOptions): void {
           reflect,
           absorbed,
         });
+
         if (victim.hp <= 0) {
-          victim.alive = false;
-          emit(state, { kind: 'heroDown', heroId: victim.def.id });
+          if (vst.revivePct > 0 && !victim.usedRevive) {
+            victim.usedRevive = true;
+            victim.hp = victim.maxHp * (vst.revivePct / 100);
+            emit(state, { kind: 'heroRevive', heroId: victim.def.id });
+          } else {
+            victim.alive = false;
+            emit(state, { kind: 'heroDown', heroId: victim.def.id });
+          }
         }
       }
       continue;
     }
 
     e.dist -= e.proto.speed * (1 - slow / 100) * (TICK_MS / 1000);
-    if (e.dist <= 0) {
-      e.hp = 0;
-      state.baseHp -= 1;
-      emit(state, { kind: 'leak', enemyId: e.id });
-      if (state.baseHp <= 0) {
-        state.baseHp = 0;
-        state.phase = 'lost';
-        return;
-      }
-    }
+    // 队尾后面还有一格缓冲，纯粹为了让「被打穿」在画面上看得见；
+    // 真正的判负是全队倒下，不是位置。
+    if (e.dist < REAR_POS - MELEE_REACH) e.dist = REAR_POS - MELEE_REACH;
   }
 
   // 5. 清理
@@ -871,6 +828,12 @@ export function tick(state: RunState, deployOpts: DeployOptions): void {
     if (e && e.hp <= 0) state.enemies.splice(i, 1);
   }
 
-  // 单波超时视为推不动（DPS 不足），避免双方都杀不死对方时卡死
+  // 6. 判负：全队倒下，或这一波推不动
+  if (state.team.length > 0 && state.team.every((h) => !h.alive)) {
+    state.phase = 'lost';
+    return;
+  }
   if (state.waveElapsedMs >= WAVE_TIMEOUT_MS) state.phase = 'lost';
 }
+
+export { TEAM_SIZE, MOD_SLOTS_PER_HERO };

@@ -2,6 +2,7 @@ import * as PIXI from 'pixi.js';
 import { bindPointerTap } from '@/minigame';
 import type { RunMemory } from '@/core/RunMemory';
 import type { RunState } from '@/game/BattleEngine';
+import { fillContain, heroTex, modTex } from '@/core/TextureLoader';
 import { GOLD, goldBtn, plate } from '@/ui/paint';
 
 function text(size: number, color = 0xffffff, bold = false): PIXI.Text {
@@ -40,26 +41,58 @@ export class SettleOverlay extends PIXI.Container {
     const title = text(40, won ? GOLD : 0xff8a8a, true);
     title.anchor.set(0.5);
     title.position.set(375, py + 56);
-    title.text = won ? '守住了' : `被突破 · 第 ${state.wave} 波`;
+    title.text = won ? '整挺好' : `这套配崩了 · 第 ${state.wave} 波`;
     this.addChild(title);
 
-    const names = state.roster.map((h) => `${h.def.name} Lv${h.level}`).join('  ');
-    const body = text(24, 0xd7dcee);
-    body.anchor.set(0.5, 0);
-    body.position.set(375, py + 120);
-    body.style.wordWrap = true;
-    body.style.wordWrapWidth = 540;
-    body.style.align = 'center';
-    const rate = state.stats.hits > 0
-      ? Math.round((state.stats.counterHits / state.stats.hits) * 100)
-      : 0;
-    body.text = [
-      names || '没有英雄',
-      `克制命中 ${state.stats.counterHits} 次（占 ${rate}%）`,
-      `漏怪 ${state.stats.leaks} 次`,
+    // 结算必须能回答「本局是靠谁加哪件破烂打过来的」（体验目标 §8 验收第一条）。
+    // 所以这里是三行「人 + 他身上挂的东西」，而不是一堆战斗统计数字。
+    const roster = [...state.team].sort((a, b) => a.slot - b.slot);
+    const rowH = 84;
+    const listY = py + 104;
+
+    roster.forEach((h, i) => {
+      const y = listY + i * rowH;
+      const face = heroTex(h.def.id);
+      if (face?.baseTexture.valid && face.width > 1) {
+        const g = new PIXI.Graphics();
+        fillContain(g, face, px + 66, y + 70, 68, 72);
+        this.addChild(g);
+      }
+
+      const name = text(24, 0xffffff, true);
+      name.position.set(px + 112, y + 8);
+      name.text = h.def.name;
+      this.addChild(name);
+
+      const line = text(18, h.mods.length > 0 ? GOLD : 0x8a90a8);
+      line.position.set(px + 112, y + 40);
+      line.style.wordWrap = true;
+      line.style.wordWrapWidth = 244;
+      line.text = h.mods.length > 0 ? h.mods.map((m) => m.name).join('、') : '一件没改过';
+      this.addChild(line);
+
+      // 挂在右侧的实物图标：文字说得清装了什么，图才说得清「他成了个什么东西」
+      const cell = 42;
+      const x0 = px + panelW - 28 - h.mods.length * cell;
+      h.mods.forEach((m, k) => {
+        const t = modTex(m.id);
+        if (!t?.baseTexture.valid || t.width <= 1) return;
+        const g = new PIXI.Graphics();
+        fillContain(g, t, x0 + k * cell + cell / 2, y + 62, cell - 8, cell - 8);
+        this.addChild(g);
+      });
+    });
+
+    const foot = text(21, 0xd7dcee);
+    foot.anchor.set(0.5, 0);
+    foot.position.set(375, listY + roster.length * rowH + 8);
+    foot.style.align = 'center';
+    foot.style.lineHeight = 30;
+    foot.text = [
+      roster.length > 0 ? `一局改了 ${state.stats.installs} 件` : '一个人都没叫',
       memory.highestWave > 0 ? `历史最高第 ${memory.highestWave} 波` : '',
-    ].filter(Boolean).join('\n\n');
-    this.addChild(body);
+    ].filter(Boolean).join('\n');
+    this.addChild(foot);
 
     const btn = new PIXI.Container();
     btn.eventMode = 'static';

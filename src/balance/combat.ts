@@ -1,56 +1,51 @@
 /**
  * 战斗常量（纯数据）
  *
- * 整屏棋盘：3 列 × 6 排。下三排我方、上三排敌阵。
- * 距离单位就是「排」：敌人从第 5 排往第 0 排走，走过 0 即漏。
- * 近战打邻排，远程跨排射。格子才是站位，不是一条跑道。
+ * 布局是**一列有序队列**：三个村民排成一队，队首先接敌，后面的靠射程支援。
+ * 位置单位是「格」，村民队首站 0，往后依次 -1、-2；外星人从 SPAWN_DIST 走向 0。
+ *
+ * 为什么不是棋盘：站位要有表达空间，但不需要二维。Super Auto Pets 一排五格
+ * 就让「谁站前面」成为整个构筑的核心；二维棋盘是 TFT 那种体量才需要的，
+ * 我们套上去只换来满屏小人、看不清敌人。见 docs/00-体验目标.md §4。
+ *
+ * 为什么没有底线血量：失败条件是全队倒下或推不动。只要还写「漏怪扣血」，
+ * 玩家第一眼就会认成塔防——这一点已经用三版战场验证过了。
  */
 
 /** 模拟与运行时统一步长。100ms 足够表达攻速差异，又不会让千局回归变慢 */
 export const TICK_MS = 100;
 
-/** 列数 */
-export const SLOTS_PER_ROW = 3;
+/** 上场人数 = 队列长度。3 人是为了看得清谁是谁，见反目标第二条 */
+export const TEAM_SIZE = 3;
 
-/** 我方可站的排：后 / 中 / 前，对应 rank 0 / 1 / 2 */
-export const RANK = {
-  back: 0,
-  mid: 1,
-  front: 2,
-} as const;
-
-export type Row = keyof typeof RANK;
-
-export const PLAYER_ROWS: readonly Row[] = ['front', 'mid', 'back'];
-
-/** 棋盘总排数：0–2 我方，3–5 敌阵 */
-export const BOARD_RANKS = 6;
-
-/** 敌队出现在最远那一排 */
-export const SPAWN_DIST = 5;
+/** 每人最多装几件改装件。有上限才有取舍，否则无脑堆一个人 */
+export const MOD_SLOTS_PER_HERO = 3;
 
 /**
- * 兼容旧名。棋盘上站位用 RANK，不再用「离底线多少格」。
- * 测试与旧注释若还写 ROW_POS，读的是同一套排号。
+ * 队列序号转战场坐标。队首 slot 0 站 0，后面的人依次往后退一格。
+ * 坐标越大越靠敌方来向，外星人的 dist 用的是同一根轴。
  */
-export const ROW_POS = RANK;
+export function slotPos(slot: number): number {
+  // 显式挡掉 -0：它虽然等于 0，但会渗进坐标插值与日志里，读起来莫名其妙
+  return slot === 0 ? 0 : -slot;
+}
 
-/** 上场人数上限。棋盘有 9 格，空格是站位，不是再塞 3 个人 */
-export const TOTAL_SLOTS = 6;
-
-/** 我方格子数（3 列 × 3 排） */
-export const PLAYER_CELLS = SLOTS_PER_ROW * 3;
+/** 队尾坐标。外星人推到这后面就说明全队已经被打穿了 */
+export const REAR_POS = slotPos(TEAM_SIZE - 1);
 
 /**
- * 底线血量：每漏一个敌人扣 1。
- * 给 10 点而不是 1 点，是为了让「快要守不住」有一段可感的过程。
+ * 外星人出场坐标。
+ *
+ * 6 是这样定的：最远的支援位在 -2，射程 5 时够到 3，所以敌人落地后
+ * 还要走 3 格才进入任何人的射程。那 3 格就是舞台——空场是给演出留的，
+ * 屏幕不是用来填满单位的。
  */
-export const BASE_HP = 10;
+export const SPAWN_DIST = 6;
 
 /** 护甲减伤：reduction = def / (def + K) */
 export const ARMOR_K = 100;
 
-/** 近战（敌人砍人、英雄贴脸）能打几排 */
+/** 近战能打几格（外星人砍人、村民贴脸都用它） */
 export const MELEE_REACH = 1;
 
 /** 单局波次总数 */
@@ -61,6 +56,6 @@ export const WAVE_GAP_MS = 1500;
 
 /**
  * 单波超时保护。若一波在此时间内没打完，视为推不动（DPS 不足），
- * 直接判本波失败，避免模拟陷入「双方都杀不死对方」的死循环。
+ * 直接判负。这同时是失败条件的一半：不是漏怪，是这套配崩了。
  */
 export const WAVE_TIMEOUT_MS = 120_000;

@@ -4,7 +4,9 @@
  * 没加载完或失败时返回 null，调用方继续用色块，不挡玩。
  */
 import * as PIXI from 'pixi.js';
+import { ENEMY_PROTOS } from '@/balance/enemies';
 import { HEROES } from '@/balance/heroes';
+import { MODS } from '@/balance/mods';
 import { Platform } from '@/core/PlatformService';
 
 const cache = new Map<string, PIXI.Texture>();
@@ -36,15 +38,24 @@ export function enemyTex(id: string): PIXI.Texture | null {
   return tex(`images/enemy_${id}.png`);
 }
 
-export function bgTex(): PIXI.Texture | null {
-  return tex('images/bg_battle.png');
+export function modTex(id: string): PIXI.Texture | null {
+  return tex(`images/mod_${id}.png`);
 }
 
-/** 进战斗场景时把切片那 17 张踢起来，避免第一波还在色块 */
+/** 背景没有透明区，走 jpg：同画质下比 png 小一个数量级，首包容量卡得很死 */
+const BG_PATH = 'images/bg_battle.jpg';
+
+export function bgTex(): PIXI.Texture | null {
+  return tex(BG_PATH);
+}
+
+/** 进战斗场景时把切片要用的图全踢起来，避免第一波还在色块 */
 export function preloadBattleArt(): void {
-  kick('images/bg_battle.png');
+  kick(BG_PATH);
   for (const h of HEROES) kick(`images/hero_${h.id}.png`);
-  for (const id of ['runner', 'grunt', 'brute', 'boss']) kick(`images/enemy_${id}.png`);
+  // 从原型表读而不是写死 id：上次改名就是漏在这行，敌人图整批加载不到
+  for (const e of ENEMY_PROTOS) kick(`images/enemy_${e.id}.png`);
+  for (const m of MODS) kick(`images/mod_${m.id}.png`);
 }
 
 function kick(path: string): void {
@@ -94,25 +105,28 @@ function kick(path: string): void {
   }
 }
 
-/** 把贴图按目标矩形缩放填充。PIXI 默认 beginTextureFill 不缩放，会只露出左上角一块。 */
-export function fillScaled(
+/**
+ * 铺满且不变形：按较大比例缩放后居中裁切。
+ * 背景图与机型屏幕比例不会正好一致，直接拉伸会把地面透视拉歪，
+ * 宁可切掉两侧的废品堆和卷帘门，那些本来就是装饰。
+ */
+export function fillCover(
   g: PIXI.Graphics,
   texture: PIXI.Texture,
   x: number,
   y: number,
   w: number,
   h: number,
-  radius = 0,
 ): void {
   const tw = texture.width || 1;
   const th = texture.height || 1;
   if (tw <= 1 || th <= 1) return;
+  const scale = Math.max(w / tw, h / th);
   const matrix = new PIXI.Matrix();
-  matrix.scale(w / tw, h / th);
-  matrix.translate(x, y);
+  matrix.scale(scale, scale);
+  matrix.translate(x + (w - tw * scale) / 2, y + (h - th * scale) / 2);
   g.beginTextureFill({ texture, matrix });
-  if (radius > 0) g.drawRoundedRect(x, y, w, h, radius);
-  else g.drawRect(x, y, w, h);
+  g.drawRect(x, y, w, h);
   g.endFill();
 }
 

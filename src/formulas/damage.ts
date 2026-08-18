@@ -1,9 +1,12 @@
 /**
  * 伤害公式（纯函数）
  *
- * 只有一条公式，且克制是**乘算最外层** —— 这样「选对系别」的收益不会被
- * 护甲或等级差吃掉。反目标第一条「我选谁都一样」在数值上的根源就是
- * 克制被其他乘区淹没，所以这里刻意让它独占一个乘区。
+ * 只有一条公式，乘区刻意保持极少：护甲 → 减伤 → 改装倍率。
+ * 克制系已裁掉（docs/00-体验目标.md §4），所以这里不再有系别乘区。
+ *
+ * 改装件的倍率走 `modMult` 这个独占乘区，目的和当初给克制留乘区一样：
+ * 「装对了」的收益不能被护甲或基础攻击差吃掉，否则反目标第一条
+ * 「这几件破烂装谁身上都一样」就会在数值层面成立。
  */
 
 import { ARMOR_K } from '../balance/combat';
@@ -16,22 +19,14 @@ export function armorReduction(def: number): number {
 export interface DamageInput {
   atk: number;
   targetDef: number;
-  /** 来自 getCounterMult */
-  counterMult: number;
-  /** 「相克」增益的额外百分点，只在克制成立时生效 */
-  counterBonusPct: number;
-  /** 暴击倍率，1 表示未暴击 */
-  critMult: number;
-  /** 受击方减伤百分点（前排铁壁一类） */
+  /** 改装件带来的伤害倍率（队首翻倍、重击、暴击等的合并结果），1 表示没有 */
+  modMult: number;
+  /** 受击方减伤百分点（又套一层被一类） */
   targetDamageReductionPct: number;
 }
 
 export function computeDamage(input: DamageInput): number {
   const afterArmor = input.atk * (1 - armorReduction(input.targetDef));
-  const counter =
-    input.counterMult > 1
-      ? input.counterMult * (1 + input.counterBonusPct / 100)
-      : input.counterMult;
   const afterReduction = afterArmor * (1 - input.targetDamageReductionPct / 100);
-  return Math.max(1, afterReduction * counter * input.critMult);
+  return Math.max(1, afterReduction * input.modMult);
 }

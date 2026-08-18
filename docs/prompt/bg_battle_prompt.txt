@@ -1,9 +1,11 @@
 Vertical mobile game battlefield background, portrait 9:16.
 
-Dumb-cool cartoon playground, NOT dark fantasy, NOT premium painterly.
-Fat comic ink outlines, flat candy colors, cheap-fun sticker look.
-A wide stone-candy lane receding toward the top: warm cream tiles, moss doodles, tiny flowers.
-Left and right: chunky toy ruins, oversized mushrooms, silly coral rocks, candy-colored banners with NO symbols.
-Soft teal-peach sky, a round goofy sun, distant cartoon arch like a theme-park gate.
-Low clutter in the center so chibi fighters can stand on the lane.
+Dumb-cool cartoon Chinese small-town edge, present day. NOT dark fantasy, NOT premium painterly, NOT candy fantasy.
+Fat comic ink outlines, flat colors, cheap-fun sticker look.
+A wide cracked cement threshing yard receding toward the top: warm earth yellow ground, cement gray patches, painted lane markings worn away, weeds in the cracks.
+Left and right edges: low brick wall with faded blue paint, a hardware-store roll shutter, stacked plastic crates, a scrap pile of pipes and old washing machines, bamboo drying rack, one utility pole with tangled wires.
+Sky: dusk teal fading to peach, ONE cold violet glow low on the horizon where the aliens came down.
+Palette: warm earth yellow, cement gray, plastic blue, rust red, with a single cold violet accent far away.
+
+CRITICAL: the whole middle of the frame is EMPTY open ground — that space is the stage where the fight happens. No props, no lane tiles, no grid, no path markings, no fences or barriers across the middle.
 NO characters, NO UI, NO TEXT, no labels, no letters, no numbers, no logos, no watermarks.

@@ -1,0 +1,13 @@
+Enemy sprite sheet, 2x2 equal square panels, thin light gutter, pale warm gray backdrop (easy to cut out).
+
+Use the villager sheet as style reference: mid-detail sticker-chibi, fat comic outlines, TWO-tone cel shade, 6-8 colors, super-deformed, goofy not grimdark. NO texture noise, NO panel lines field, NO glow spam, NO text, no labels, no letters, no numbers, no watermarks.
+
+SUBJECT: cartoon aliens invading a small town. Palette is COLD on purpose so they read instantly against the warm villagers: cold violet, cyan-teal, chrome white-gray. Clean smooth machined shapes, no rust, no dirt.
+KEY TONE: they look expensive and high-tech but act completely brainless. That contrast is the whole joke — these are the things getting beaten with a pot lid.
+
+Same camera and outline in every panel. Full body, feet near bottom, not filling the whole panel.
+
+1 GREY: small classic grey alien, huge smooth head, skinny noodle limbs, oversized black eyes, leaning forward mid-sprint, dopey panicked face
+2 CUBE: medium boxy trooper, cube torso with one glowing cyan strip, tiny stub legs, stiff parade-march pose, blank obedient stare
+3 CANISTER: heavy alien sealed inside a thick chrome barrel-shell, only tiny eyes visible through a slit, short thick legs, slow and sturdy, highest mass
+4 SAUCER: boss, classic flying saucer with a glass dome, ONE goofy alien pilot squeezed inside waving, three thin landing legs, hovering low, imposing but still silly
