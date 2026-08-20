@@ -29,10 +29,12 @@ import {
   applyPick,
   computeStats,
   createRun,
+  heroAt,
   enemyVictim,
   heroReach,
   installMod,
   installTargets,
+  placeInSlot,
   swapSlots,
   teamInOrder,
   tick,
@@ -369,6 +371,16 @@ describe('队列顺序可以由玩家改', () => {
     expect(after[0]).toBe(before[1]);
     expect(after[1]).toBe(before[0]);
     expect(s.team.length).toBe(before.length);
+  });
+
+  it('人少时可以站到空着的后排，不必跟谁换', () => {
+    const s = createRun(81);
+    runUntil(s, (x) => x.team.length >= 1 && x.phase === 'fighting');
+    const first = teamInOrder(s)[0];
+    expect(first.slot).toBe(0);
+    expect(placeInSlot(s, first.def.id, 2)).toBe(true);
+    expect(first.slot).toBe(2);
+    expect(heroAt(s, 0)).toBeUndefined();
   });
 });
 

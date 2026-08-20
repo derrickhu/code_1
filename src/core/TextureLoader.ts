@@ -155,8 +155,11 @@ export function fillContain(
   g.endFill();
 }
 
-/** 卡面上半幅铺满立绘，底对齐，圆角裁切一次即可。 */
-export function addCoverPortrait(
+/**
+ * 选人卡立绘：整个人都要看得见。
+ * 铺满裁切会切掉瘦高的人（二舅、老烟枪）的头顶，所以按 contain 缩进框内，脚落在下沿。
+ */
+export function addFitPortrait(
   parent: PIXI.Container,
   texture: PIXI.Texture,
   x: number,
@@ -168,11 +171,14 @@ export function addCoverPortrait(
   const tw = texture.width || 1;
   const th = texture.height || 1;
   if (tw <= 1 || th <= 1) return;
+  const pad = 6;
+  const innerW = w - pad * 2;
+  const innerH = h - pad * 2;
+  const scale = Math.min(innerW / tw, innerH / th);
   const spr = new PIXI.Sprite(texture);
-  const scale = Math.max(w / tw, h / th);
   spr.scale.set(scale);
   spr.x = x + (w - tw * scale) / 2;
-  spr.y = y + h - th * scale;
+  spr.y = y + h - pad - th * scale;
   const mask = new PIXI.Graphics();
   mask.beginFill(0xffffff).drawRoundedRect(x, y, w, h, radius).endFill();
   spr.mask = mask;

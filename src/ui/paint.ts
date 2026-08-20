@@ -26,6 +26,36 @@ export function goldBtn(g: PIXI.Graphics, x: number, y: number, w: number, h: nu
   g.lineStyle(2, GOLD, 0.85).drawRoundedRect(x, y, w, h, 16).lineStyle(0);
 }
 
+/**
+ * 队列三格的地面垫。空位也要画出来，否则玩家会以为只能跟旁边的人换。
+ * 只画在村民站的那三格，上方空场仍然不铺格子。
+ */
+export function queuePad(
+  g: PIXI.Graphics,
+  cx: number,
+  feetY: number,
+  opts: { empty: boolean; hot: boolean; front: boolean },
+): void {
+  const rx = opts.empty ? 46 : 42;
+  const ry = opts.empty ? 16 : 13;
+  g.beginFill(0x000000, opts.empty ? 0.22 : 0.18);
+  g.drawEllipse(cx, feetY + 8, rx, ry);
+  g.endFill();
+  if (opts.hot) {
+    g.lineStyle(3, 0x9be08a, 0.95).drawEllipse(cx, feetY + 8, rx + 4, ry + 3).lineStyle(0);
+    g.beginFill(0x9be08a, 0.12).drawEllipse(cx, feetY + 8, rx, ry).endFill();
+    return;
+  }
+  if (opts.empty) {
+    g.lineStyle(2, GOLD, 0.55).drawEllipse(cx, feetY + 8, rx, ry).lineStyle(0);
+    g.lineStyle(1.2, GOLD, 0.25).drawEllipse(cx, feetY + 8, rx * 0.62, ry * 0.62).lineStyle(0);
+    return;
+  }
+  if (opts.front) {
+    g.lineStyle(2, GOLD, 0.55).drawEllipse(cx, feetY + 8, rx + 2, ry + 1).lineStyle(0);
+  }
+}
+
 /** 脚底阴影 + 系别光晕。这是站位，不是头像框。 */
 export function stance(
   g: PIXI.Graphics,

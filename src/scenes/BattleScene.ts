@@ -30,17 +30,18 @@ import type { PickOption } from '@/balance/picker';
 import { ModDock } from '@/ui/ModDock';
 import { SettleOverlay } from '@/ui/SettleOverlay';
 import { CombatFx } from '@/fx/CombatFx';
-import { addCoverPortrait, bgTex, enemyTex, fillContain, fillCover, heroTex, modTex, preloadBattleArt, watchArt } from '@/core/TextureLoader';
+import { addFitPortrait, bgTex, enemyTex, fillContain, fillCover, heroTex, modTex, preloadBattleArt, watchArt } from '@/core/TextureLoader';
 import { playSfx } from '@/core/SfxPlayer';
 import { saveRun } from '@/core/RunMemory';
-import { GOLD, hpBar, plate, rangeArea, shieldMark, stance } from '@/ui/paint';
+import { GOLD, hpBar, plate, queuePad, rangeArea, shieldMark, stance } from '@/ui/paint';
 import {
   applyPick,
   createRun,
   heroReach,
+  heroAt,
   installMod,
   installTargets,
-  swapSlots,
+  placeInSlot,
   teamInOrder,
   tick,
   type EnemyUnit,
@@ -65,11 +66,13 @@ const ALIEN_COLOR: Readonly<Record<string, number>> = {
   saucer: 0xa050c0,
 };
 
-/**
- * 队列的横向错位。逻辑上是一条线，画面上让三个人稍微错开站，
- * 看着像一小队人而不是排队买菜。
- */
-const QUEUE_X = [375, 288, 462] as const;
+/** 三人一列，都站中轴。左右错开会让人以为没有固定站位。 */
+const QUEUE_X = 375;
+
+const SLOT_NAME = ['前排', '中间', '后排'] as const;
+
+const PICK_CARD_W = 218;
+const PICK_CARD_H = 400;
 
 function villagerColor(id: string): number {
   return VILLAGER_COLOR[id] ?? GOLD;
@@ -119,7 +122,7 @@ export class BattleScene implements Scene {
   private readonly _hudPlate = new PIXI.Graphics();
   private readonly _hud = new PIXI.Container();
   private readonly _pick = new PIXI.Container();
-  private readonly _dock = new ModDock((id) => this._tapHero(id));
+  private readonly _dock = new ModDock((slot) => this._tapSlot(slot));
   private readonly _settle = new SettleOverlay(() => this.onEnter());
   private readonly _fx = new CombatFx();
   private readonly _heroHits: PIXI.Container[] = [];
@@ -204,7 +207,7 @@ export class BattleScene implements Scene {
   /** 只有战斗与间隙里才能调队列。装配阶段点人是装破烂，不是换位 */
   private _canReorder(): boolean {
     const p = this._state.phase;
-    return this._state.team.length > 1 && (p === 'fighting' || p === 'gap');
+    return this._state.team.length > 0 && (p === 'fighting' || p === 'gap');
   }
 
   private _clearSelect(): void {
@@ -214,43 +217,39 @@ export class BattleScene implements Scene {
   }
 
   /**
-   * 点一个人。装配阶段是「装给他」，其余时候是选中／换队列位置。
-   *
-   * 这两件事共用同一个手势，是因为它们是同一个决策的两面：
-   * 装了什么决定他该站哪儿。
+   * 点一个站位。装配阶段是「装给这格的人」，其余时候是选中／换到那一格。
+   * 空位也能点：人少的时候可以把人往后撤，不用非跟谁换。
    */
-  private _tapHero(heroId: string): void {
+  private _tapSlot(slot: number): void {
     const s = this._state;
+    const occupant = heroAt(s, slot);
     if (s.phase === 'installing') {
+      if (!occupant) return;
       const mod = s.pendingMod;
-      const target = s.team.find((h) => h.def.id === heroId);
-      if (!mod || !target) return;
+      if (!mod) return;
       playSfx('ui_tap', 0);
       const modName = mod.name;
       const becomes = mod.becomes;
-      if (!installMod(s, heroId)) return;
+      if (!installMod(s, occupant.def.id)) return;
       this._clearSelect();
       this._accMs = 0;
-      this._say(`${target.def.name}装上了${modName}：${becomes}`);
+      this._say(`${occupant.def.name}装上了${modName}：${becomes}`);
       return;
     }
 
     if (!this._canReorder()) return;
     playSfx('ui_tap', 0);
     if (!this._selected) {
-      this._selected = heroId;
+      if (occupant) this._selected = occupant.def.id;
       return;
     }
-    if (this._selected === heroId) {
+    if (occupant?.def.id === this._selected) {
       this._clearSelect();
       return;
     }
-    const a = s.team.find((h) => h.def.id === this._selected);
-    const b = s.team.find((h) => h.def.id === heroId);
-    if (a && b) {
-      swapSlots(s, a.slot, b.slot);
-      const head = teamInOrder(s)[0];
-      if (head) this._say(`${head.def.name}站队首，他先挨刀`);
+    const mover = s.team.find((h) => h.def.id === this._selected);
+    if (mover && placeInSlot(s, mover.def.id, slot)) {
+      this._say(`${mover.def.name}站到${SLOT_NAME[slot]}`);
     }
     this._clearSelect();
   }
@@ -290,8 +289,8 @@ export class BattleScene implements Scene {
     return this._posToY(slotPos(slot));
   }
 
-  private _slotX(slot: number): number {
-    return QUEUE_X[slot] ?? 375;
+  private _slotX(_slot: number): number {
+    return QUEUE_X;
   }
 
   update(dt: number): void {
@@ -438,12 +437,13 @@ export class BattleScene implements Scene {
   }
 
   private _highlightFirstCard(): void {
-    const card = this._pick.children.find((c) => c.name === 'pick-card-0');
-    if (!card || (card as PIXI.Container).children.some((c) => c.name === 'idle-glow')) return;
+    const card = this._pick.children.find((c) => c.name === 'pick-card-0') as PIXI.Container | undefined;
+    if (!card || card.children.some((c) => c.name === 'idle-glow')) return;
     const glow = new PIXI.Graphics();
     glow.name = 'idle-glow';
-    glow.lineStyle(5, GOLD, 0.95).drawRoundedRect(-6, -6, 222, 356, 20);
-    (card as PIXI.Container).addChild(glow);
+    // 贴着卡边画，不能再往左上偏——旧尺寸 + (-6,-6) 会让第一张看起来没对齐
+    glow.lineStyle(5, GOLD, 0.95).drawRoundedRect(1, 1, PICK_CARD_W - 2, PICK_CARD_H - 2, 19);
+    card.addChild(glow);
   }
 
   // ── HUD ───────────────────────────────────────────────
@@ -490,10 +490,7 @@ export class BattleScene implements Scene {
       const g = new PIXI.Graphics();
       g.beginFill(0xffffff, 0.001).drawRoundedRect(-58, -96, 116, 108, 14).endFill();
       hit.addChild(g);
-      bindPointerTap(hit, () => {
-        const h = this._state.team.find((x) => x.slot === slot);
-        if (h) this._tapHero(h.def.id);
-      });
+      bindPointerTap(hit, () => this._tapSlot(slot));
       hit.name = `queue:${slot}`;
       this._heroHits.push(hit);
       this.container.addChild(hit);
@@ -575,10 +572,8 @@ export class BattleScene implements Scene {
     if (!hero || !on) return;
     const { top } = this._lay;
     plate(this._inspectPlate, 40, top + 86, 670, 84, 16, 0.88);
-    this._inspectTitle.text = `${hero.def.name} · ${hero.def.skillName}（${abilityTag(hero.def.skill)}）`;
-    this._inspectDesc.text = hero.mods.length > 0
-      ? `身上：${hero.mods.map((m) => m.name).join('、')}`
-      : '还没改过他';
+    this._inspectTitle.text = `${hero.def.name} · ${SLOT_NAME[hero.slot]}`;
+    this._inspectDesc.text = '再点前排 / 中间 / 后排换过去';
   }
 
   // ── 战场 ──────────────────────────────────────────────
@@ -604,22 +599,7 @@ export class BattleScene implements Scene {
       g.beginFill(0x8c2b3a, this._fx.downPulse * 0.5).drawRect(0, 0, 750, this._lay.height).endFill();
     }
 
-    if (this._showTeam()) {
-      const installing = this._state.phase === 'installing';
-      const canTake = new Set(installTargets(this._state).map((h) => h.def.id));
-      for (const h of teamInOrder(this._state)) {
-        const x = this._slotX(h.slot);
-        const y = this._slotY(h.slot);
-        stance(g, x, y, villagerColor(h.def.id), true);
-        // 装配阶段把能装的人圈出来，这一步的可点范围必须没有歧义
-        if (installing && canTake.has(h.def.id)) {
-          const pulse = 0.55 + Math.abs(Math.sin(this._state.totalMs / 200)) * 0.35;
-          g.lineStyle(4, 0x9be08a, pulse).drawEllipse(x, y + 8, 52, 16).lineStyle(0);
-        } else if (h.slot === 0) {
-          g.lineStyle(2, GOLD, 0.4).drawEllipse(x, y + 8, 48, 14).lineStyle(0);
-        }
-      }
-    }
+    this._drawQueuePads(g);
 
     if (this._fx.landPulse > 0) {
       g.beginFill(GOLD, this._fx.landPulse * 1.1).drawEllipse(375, this._slotY(0) + 8, 90, 22).endFill();
@@ -631,6 +611,43 @@ export class BattleScene implements Scene {
     for (const h of [...teamInOrder(this._state)].reverse()) this._drawHero(g, h);
     for (const e of this._state.enemies) this._drawEnemy(g, e);
     this._drawHeroNames();
+  }
+
+  private _drawQueuePads(g: PIXI.Graphics): void {
+    const show = this._showTeam();
+    for (let slot = 0; slot < TEAM_SIZE; slot += 1) {
+      const name = `pad:${slot}`;
+      let tag = this._nameLayer.children.find((c) => c.name === name) as PIXI.Text | undefined;
+      if (!tag) {
+        tag = label(14, GOLD, true);
+        tag.name = name;
+        tag.anchor.set(0.5, 0);
+        tag.style.stroke = 0x2a160c;
+        tag.style.strokeThickness = 3;
+        this._nameLayer.addChild(tag);
+      }
+      tag.visible = show;
+      if (!show) continue;
+
+      const x = this._slotX(slot);
+      const y = this._slotY(slot);
+      const occ = heroAt(this._state, slot);
+      const selected = this._selected
+        ? this._state.team.find((h) => h.def.id === this._selected)
+        : undefined;
+      const installing = this._state.phase === 'installing';
+      const canTake = installing && occ
+        ? installTargets(this._state).some((h) => h.def.id === occ.def.id)
+        : false;
+      const moving = !!selected && this._canReorder() && selected.slot !== slot;
+      queuePad(g, x, y, {
+        empty: !occ,
+        hot: canTake || moving,
+        front: slot === 0 && !moving && !installing,
+      });
+      tag.text = SLOT_NAME[slot];
+      tag.position.set(x + 62, y - 2);
+    }
   }
 
   private _drawSelectedRange(g: PIXI.Graphics): void {
@@ -688,7 +705,8 @@ export class BattleScene implements Scene {
       tag.position.set(x, top);
     }
     for (const c of [...this._nameLayer.children]) {
-      if (!c.name || !live.has(c.name)) c.destroy();
+      if (!c.name || c.name.startsWith('pad:')) continue;
+      if (!live.has(c.name)) c.destroy();
     }
   }
 
@@ -811,8 +829,8 @@ export class BattleScene implements Scene {
         : '挑一个人加进队里';
     this._pick.addChild(sub);
 
-    const cardW = 218;
-    const cardH = 368;
+    const cardW = PICK_CARD_W;
+    const cardH = PICK_CARD_H;
     const gap = 12;
     const totalW = s.pendingOptions.length * cardW + (s.pendingOptions.length - 1) * gap;
     const startX = (750 - totalW) / 2;
@@ -831,7 +849,13 @@ export class BattleScene implements Scene {
     card.eventMode = 'static';
 
     const info = this._describe(opt);
-    const faceH = 214;
+    // 立绘、正文、底条各占一段，正文再长也只在自己那一段里换行，不许压到金条或卡边
+    const faceH = 208;
+    const tagH = info.becomes ? 54 : 0;
+    const tagTop = h - 10 - tagH;
+    const textTop = faceH + 8;
+    const wrapW = w - 32;
+
     const bg = new PIXI.Graphics();
     bg.beginFill(0x1a0e08, 0.35).drawRoundedRect(4, 8, w, h, 22).endFill();
     bg.beginFill(0xfff6df).drawRoundedRect(0, 0, w, h, 20).endFill();
@@ -839,11 +863,11 @@ export class BattleScene implements Scene {
     bg.lineStyle(6, info.color, 1).drawRoundedRect(3, 3, w - 6, h - 6, 18).lineStyle(0);
     card.addChild(bg);
 
-    // 人用 cover 撑满卡面才有气势；破烂是个物件，缺一块就认不出，所以居中完整放
+    // 人按整身放进框，不裁头；破烂是个物件，同样完整居中
     const portrait = opt.kind === 'recruit' ? heroTex(opt.heroId) : modTex(opt.modId);
     const drawable = portrait?.baseTexture.valid && portrait.width > 1 ? portrait : null;
     if (drawable && opt.kind === 'recruit') {
-      addCoverPortrait(card, drawable, 10, 10, w - 20, faceH - 16, 14);
+      addFitPortrait(card, drawable, 10, 10, w - 20, faceH - 16, 14);
     } else if (drawable) {
       const g = new PIXI.Graphics();
       fillContain(g, drawable, w / 2, faceH - 22, w - 56, faceH - 52);
@@ -854,41 +878,55 @@ export class BattleScene implements Scene {
       card.addChild(swatch);
     }
 
-    const name = label(26, 0x2a160c, true);
-    name.anchor.set(0.5);
-    name.position.set(w / 2, faceH + 20);
+    const name = label(24, 0x2a160c, true);
+    name.anchor.set(0.5, 0);
+    name.position.set(w / 2, textTop);
     name.style.wordWrap = true;
-    name.style.wordWrapWidth = w - 20;
+    name.style.wordWrapWidth = wrapW;
     name.style.align = 'center';
+    name.style.lineHeight = 28;
     name.text = info.title;
     card.addChild(name);
 
-    const sub = label(17, 0x8a5a2b);
-    sub.anchor.set(0.5);
-    sub.position.set(w / 2, faceH + 50);
+    const sub = label(16, 0x8a5a2b);
+    sub.anchor.set(0.5, 0);
+    sub.position.set(w / 2, textTop + 30);
+    sub.style.wordWrap = true;
+    sub.style.wordWrapWidth = wrapW;
+    sub.style.align = 'center';
     sub.text = info.subtitle;
     card.addChild(sub);
 
-    const desc = label(17, 0x3d2a1c);
+    const desc = label(16, 0x3d2a1c);
     desc.anchor.set(0.5, 0);
-    desc.position.set(w / 2, faceH + 74);
+    desc.position.set(w / 2, textTop + 52);
     desc.style.wordWrap = true;
-    desc.style.wordWrapWidth = w - 28;
+    desc.style.wordWrapWidth = wrapW;
+    desc.style.breakWords = true;
     desc.style.align = 'center';
+    desc.style.lineHeight = 21;
     desc.text = info.desc;
     card.addChild(desc);
 
+    // 正文最多铺到金条上方，多出来的直接裁掉，避免再画出卡
+    const descClip = new PIXI.Graphics();
+    descClip.beginFill(0xffffff).drawRect(12, textTop + 52, w - 24, tagTop - (textTop + 56)).endFill();
+    card.addChild(descClip);
+    desc.mask = descClip;
+
     // 「装上会变成什么」是改装件卡的重点，必须比效果数值更显眼
     if (info.becomes) {
-      const tag = label(16, 0x2a160c, true);
-      tag.anchor.set(0.5);
-      tag.position.set(w / 2, h - 26);
-      tag.style.wordWrap = true;
-      tag.style.wordWrapWidth = w - 24;
-      tag.style.align = 'center';
-      tag.text = info.becomes;
       const tagBg = new PIXI.Graphics();
-      tagBg.beginFill(GOLD, 0.9).drawRoundedRect(10, h - 46, w - 20, 40, 12).endFill();
+      tagBg.beginFill(GOLD, 0.9).drawRoundedRect(10, tagTop, w - 20, tagH, 12).endFill();
+      const tag = label(15, 0x2a160c, true);
+      tag.anchor.set(0.5);
+      tag.position.set(w / 2, tagTop + tagH / 2);
+      tag.style.wordWrap = true;
+      tag.style.wordWrapWidth = w - 36;
+      tag.style.breakWords = true;
+      tag.style.align = 'center';
+      tag.style.lineHeight = 20;
+      tag.text = info.becomes;
       card.addChild(tagBg, tag);
     }
 
@@ -913,7 +951,7 @@ export class BattleScene implements Scene {
     return {
       title: def.name,
       subtitle: `${def.range <= 1 ? '贴脸打' : `射程 ${def.range} 格`} · ${abilityTag(def.skill)}`,
-      desc: `${def.skillName}：${def.skillDesc}`,
+      desc: def.skillDesc,
       color: villagerColor(def.id),
       becomes: def.flavor,
     };

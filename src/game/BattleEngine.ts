@@ -457,6 +457,17 @@ export function swapSlots(state: RunState, a: number, b: number): void {
   if (hb) hb.slot = a;
 }
 
+/** 把人放到指定格：空位直接站上去，有人就互换。 */
+export function placeInSlot(state: RunState, heroId: string, slot: number): boolean {
+  if (slot < 0 || slot >= TEAM_SIZE) return false;
+  const hero = state.team.find((h) => h.def.id === heroId);
+  if (!hero || hero.slot === slot) return false;
+  const other = heroAt(state, slot);
+  if (other) swapSlots(state, hero.slot, slot);
+  else hero.slot = slot;
+  return true;
+}
+
 /** 把待装配的改装件装到某人身上，随后开打 */
 export function installMod(state: RunState, heroId: string): boolean {
   if (state.phase !== 'installing') return false;
