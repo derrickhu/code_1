@@ -1,63 +1,43 @@
 /**
- * 观战层：近战挥砍、远程弹道、敌人爪击。不改战斗结果，只消费 BattleEvent。
- * 数字和命中音在弹着点才出，避免「线还没到、伤害已经跳了」。
+ * 观战层。数字和命中音在弹着点才出。
+ * 出手走贴图 + 粒子，不每帧重画几何。
  */
 import * as PIXI from 'pixi.js';
-import { playSfx } from '@/core/SfxPlayer';
+import type { AttackFx, EnemyFx } from '@/balance/fx';
+import { projSprite } from '@/balance/fx';
+import { playSfx, buzz } from '@/core/SfxPlayer';
+import { fillContain, projTex, vfxTex } from '@/core/TextureLoader';
 import type { BattleEvent } from '@/game/BattleEngine';
+import { VfxKit } from '@/fx/VfxKit';
 
-const MAX_FLOATS = 12;
+const MAX_FLOATS = 18;
 const MAX_SHOTS = 16;
 
-type ShotKind = 'bolt' | 'orb' | 'claw';
-
-interface SweepBit {
-  g: PIXI.Graphics;
-  age: number;
-  life: number;
-  x: number;
-  y: number;
-  radius: number;
-  color: number;
-  done: boolean;
-  land: () => void;
-}
+type ShotKind = AttackFx | EnemyFx;
 
 interface FloatBit {
   text: PIXI.Text;
   life: number;
   max: number;
   vy: number;
+  pop: number;
 }
 
 interface ShotBit {
-  g: PIXI.Graphics;
+  body: PIXI.Graphics;
+  spr: PIXI.Sprite | null;
   age: number;
   fly: number;
   x0: number;
   y0: number;
   x1: number;
   y1: number;
-  color: number;
   kind: ShotKind;
-  crit: boolean;
-  trail: { x: number; y: number }[];
+  color: number;
+  physical: boolean;
+  emit: number;
   done: boolean;
   land: () => void;
-}
-
-type BurstStyle = 'hit' | 'shield' | 'heal' | 'revive' | 'death';
-
-interface BurstBit {
-  g: PIXI.Graphics;
-  life: number;
-  max: number;
-  x: number;
-  y: number;
-  color: number;
-  /** 大一号的爆点，暴击用 */
-  strong: boolean;
-  style: BurstStyle;
 }
 
 interface FlashBit {
@@ -65,49 +45,55 @@ interface FlashBit {
   life: number;
 }
 
-interface PullBit {
+interface FlyBit {
   g: PIXI.Graphics;
   life: number;
   max: number;
-  hx: number;
-  hy: number;
   x0: number;
   y0: number;
   x1: number;
   y1: number;
+  tex: PIXI.Texture | null;
 }
 
 export class CombatFx {
   readonly layer = new PIXI.Container();
+  private readonly _kit = new VfxKit();
   private readonly _floats: FloatBit[] = [];
   private readonly _shots: ShotBit[] = [];
-  private readonly _sweeps: SweepBit[] = [];
-  private readonly _bursts: BurstBit[] = [];
   private readonly _flashes: FlashBit[] = [];
-  private readonly _pulls: PullBit[] = [];
+  private readonly _flies: FlyBit[] = [];
   private _firstHit = true;
-  /** 有人倒下时的一次红闪。失败条件是队灭，所以警报挂在倒人身上而不是底线 */
   downPulse = 0;
   landPulse = 0;
+  hitStop = 0;
   private _meleeRadius = 72;
+  private readonly _waits: { t: number; fn: () => void }[] = [];
+
+  constructor() {
+    this.layer.addChild(this._kit.root);
+  }
 
   reset(): void {
     this._firstHit = true;
     this.downPulse = 0;
     this.landPulse = 0;
+    this.hitStop = 0;
+    this._kit.reset();
     for (const f of this._floats) f.text.destroy();
-    for (const s of this._shots) s.g.destroy();
-    for (const s of this._sweeps) s.g.destroy();
-    for (const b of this._bursts) b.g.destroy();
+    for (const s of this._shots) {
+      s.body.destroy();
+      s.spr?.destroy();
+    }
     for (const s of this._flashes) s.text.destroy();
-    for (const p of this._pulls) p.g.destroy();
+    for (const f of this._flies) f.g.destroy();
     this._floats.length = 0;
     this._shots.length = 0;
-    this._sweeps.length = 0;
-    this._bursts.length = 0;
     this._flashes.length = 0;
-    this._pulls.length = 0;
+    this._flies.length = 0;
+    this._waits.length = 0;
     this.layer.removeChildren();
+    this.layer.addChild(this._kit.root);
   }
 
   consume(
@@ -120,10 +106,10 @@ export class CombatFx {
       tx?: number;
       ty?: number;
       color?: number;
-      /** 近战走挥砍，远程走弹道 */
       melee?: boolean;
-      /** 溅射类用圆球弹，看起来是「一片」而不是「一根」 */
       orb?: boolean;
+      fx?: AttackFx;
+      enemyFx?: EnemyFx;
       reachY?: number;
       meleeR?: number;
       baseY?: number;
@@ -134,28 +120,37 @@ export class CombatFx {
     if (pos.meleeR && pos.meleeR > 0) this._meleeRadius = pos.meleeR;
     if (ev.kind === 'hit' && pos.ex !== undefined && pos.ey !== undefined) {
       if (pos.hx !== undefined && pos.hy !== undefined) {
-        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.melee, pos.orb);
+        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.fx, pos.melee, pos.orb);
       } else {
         this._impactHero(ev, pos.ex, pos.ey, color);
       }
     }
     if (ev.kind === 'enemyHit' && pos.ex !== undefined && pos.ey !== undefined
       && pos.hx !== undefined && pos.hy !== undefined) {
-      this._spawnClaw(ev, pos.ex, pos.ey, pos.hx, pos.hy);
+      this._spawnEnemyHit(ev, pos.ex, pos.ey, pos.hx, pos.hy, pos.enemyFx ?? 'claw');
     }
-    if (ev.kind === 'enemyDown') playSfx('enemy_down', 100);
+    if (ev.kind === 'enemyDown' && pos.ex !== undefined && pos.ey !== undefined) {
+      this._death(pos.ex, pos.ey, 0xffb070);
+      playSfx('kill_pop', 80);
+      this.hitStop = Math.max(this.hitStop, 0.045);
+    }
     if (ev.kind === 'heroDown' && pos.hx !== undefined && pos.hy !== undefined) {
       this.downPulse = 0.4;
-      this._burst(pos.hx, pos.hy, 0x9aa4bf, 0.32, 'death');
+      this._death(pos.hx, pos.hy, 0x9aa4bf);
     }
-    // 摩托头盔：站起来这件事必须看得见，否则玩家不知道那件破烂救了他
     if (ev.kind === 'heroRevive' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._burst(pos.hx, pos.hy, 0xffd66b, 0.4, 'revive');
+      this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.5, s1: 1.2, life: 0.32 });
+      this._kit.ring(pos.hx, pos.hy, 0xffd66b, 0.4);
+      this._kit.spray(pos.hx, pos.hy, { n: 10, tint: 0xffe08a, kind: 'spark', speed: 160 });
       this._spawnPlainFloat('又站起来了', pos.hx, pos.hy - 46, 0xffd66b, 24, 0.7);
       playSfx('hero_land', 0);
     }
     if (ev.kind === 'install' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._burst(pos.hx, pos.hy, 0xffd66b, 0.45, 'revive');
+      this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.45, s1: 1.1, life: 0.28 });
+      this._kit.ring(pos.hx, pos.hy, 0xffd66b, 0.36);
+      this._kit.spray(pos.hx, pos.hy, { n: 8, tint: 0xffe08a, kind: 'spark', speed: 140 });
+      playSfx('install_on', 0);
+      buzz('medium');
     }
     if (ev.kind === 'skill' && pos.hx !== undefined && pos.hy !== undefined) {
       this._skillCallout(ev, { hx: pos.hx, hy: pos.hy, tx: pos.tx, ty: pos.ty });
@@ -176,13 +171,26 @@ export class CombatFx {
   update(dt: number): void {
     this.downPulse = Math.max(0, this.downPulse - dt);
     this.landPulse = Math.max(0, this.landPulse - dt);
+    for (let i = this._waits.length - 1; i >= 0; i -= 1) {
+      const w = this._waits[i];
+      if (!w) continue;
+      w.t -= dt;
+      if (w.t <= 0) {
+        w.fn();
+        this._waits.splice(i, 1);
+      }
+    }
+    this._kit.update(dt);
 
     for (let i = this._floats.length - 1; i >= 0; i -= 1) {
       const f = this._floats[i];
       if (!f) continue;
       f.life -= dt;
       f.text.y += f.vy * dt;
-      f.text.alpha = Math.max(0, f.life / f.max);
+      const t = 1 - Math.max(0, f.life) / f.max;
+      const pop = t < 0.18 ? f.pop * (1.35 - t / 0.18 * 0.35) : f.pop;
+      f.text.scale.set(pop);
+      f.text.alpha = t > 0.72 ? Math.max(0, (1 - t) / 0.28) : 1;
       if (f.life <= 0) {
         f.text.destroy();
         this._floats.splice(i, 1);
@@ -195,45 +203,50 @@ export class CombatFx {
       s.age += dt;
       const u = Math.min(1, s.age / s.fly);
       const p = this._point(s, easeOut(u));
-      if (s.kind === 'bolt' || s.kind === 'orb') {
-        s.trail.push(p);
-        if (s.trail.length > 6) s.trail.shift();
+      const ang = Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
+      this._drawShotBody(s, p, ang, u);
+      if (s.spr) {
+        s.spr.position.set(p.x, p.y);
+        s.spr.rotation = ang;
+        s.spr.alpha = u < 0.08 ? u / 0.08 : 1;
       }
-      this._drawShot(s, p, u);
+      s.emit += dt;
+      if (s.emit > 0.028 && u < 1 && !s.physical) {
+        s.emit = 0;
+        this._kit.spray(p.x, p.y, {
+          n: 1,
+          tint: s.color,
+          kind: 'spark',
+          speed: 50,
+          life: 0.12,
+          scale: 0.2,
+          gy: 0,
+          dir: ang + Math.PI,
+          spread: 0.4,
+        });
+      }
+      if (s.emit > 0.04 && u < 1 && s.physical && s.kind === 'sniper') {
+        s.emit = 0;
+        this._kit.spray(p.x, p.y, {
+          n: 1,
+          tint: 0xc4b59a,
+          kind: 'glow',
+          speed: 20,
+          life: 0.1,
+          scale: 0.12,
+          gy: 40,
+          dir: ang + Math.PI,
+          spread: 0.3,
+        });
+      }
       if (u >= 1 && !s.done) {
         s.done = true;
         s.land();
       }
       if (s.age >= s.fly + 0.04) {
-        s.g.destroy();
+        s.body.destroy();
+        s.spr?.destroy();
         this._shots.splice(i, 1);
-      }
-    }
-
-    for (let i = this._sweeps.length - 1; i >= 0; i -= 1) {
-      const s = this._sweeps[i];
-      if (!s) continue;
-      s.age += dt;
-      const u = Math.min(1, s.age / s.life);
-      this._drawSweep(s, easeOut(u));
-      if (u >= 1 && !s.done) {
-        s.done = true;
-        s.land();
-      }
-      if (s.age >= s.life + 0.04) {
-        s.g.destroy();
-        this._sweeps.splice(i, 1);
-      }
-    }
-
-    for (let i = this._bursts.length - 1; i >= 0; i -= 1) {
-      const b = this._bursts[i];
-      if (!b) continue;
-      b.life -= dt;
-      this._drawBurst(b);
-      if (b.life <= 0) {
-        b.g.destroy();
-        this._bursts.splice(i, 1);
       }
     }
 
@@ -249,41 +262,47 @@ export class CombatFx {
       }
     }
 
-    for (let i = this._pulls.length - 1; i >= 0; i -= 1) {
-      const p = this._pulls[i];
-      if (!p) continue;
-      p.life -= dt;
-      this._drawPull(p);
-      if (p.life <= 0) {
-        p.g.destroy();
-        this._pulls.splice(i, 1);
+    for (let i = this._flies.length - 1; i >= 0; i -= 1) {
+      const f = this._flies[i];
+      if (!f) continue;
+      f.life -= dt;
+      this._drawFly(f);
+      if (f.life <= 0) {
+        f.g.destroy();
+        this._flies.splice(i, 1);
       }
     }
+
+    // 粒子和爆点压在弹道上面
+    this.layer.addChild(this._kit.root);
   }
 
-  private _spawnPull(hx: number, hy: number, x0: number, y0: number, x1: number, y1: number): void {
+  flyMod(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    tex: PIXI.Texture | null,
+  ): void {
     const g = new PIXI.Graphics();
     this.layer.addChild(g);
-    this._pulls.push({ g, life: 0.4, max: 0.4, hx, hy, x0, y0, x1, y1 });
+    this._flies.push({ g, life: 0.38, max: 0.38, x0, y0, x1, y1, tex });
   }
 
-  private _drawPull(p: PullBit): void {
-    const g = p.g;
+  private _drawFly(f: FlyBit): void {
+    const g = f.g;
     g.clear();
-    const t = 1 - Math.max(0, p.life) / p.max;
+    const t = 1 - Math.max(0, f.life) / f.max;
     const u = 1 - (1 - t) * (1 - t);
-    const x = p.x0 + (p.x1 - p.x0) * u;
-    const y = p.y0 + (p.y1 - p.y0) * u;
-    const alpha = 1 - t * 0.35;
-    g.lineStyle(6, 0x5ec8ff, 0.22 * alpha);
-    g.moveTo(p.hx, p.hy);
-    g.lineTo(x, y);
-    g.lineStyle(2.4, 0xa5e8ff, 0.85 * alpha);
-    g.moveTo(p.hx, p.hy);
-    g.lineTo(x, y);
-    g.lineStyle(0);
-    g.beginFill(0x7dd3fc, 0.35 * alpha).drawCircle(x, y, 16 + t * 6).endFill();
-    g.beginFill(0xffffff, 0.7 * alpha).drawCircle(x, y, 4).endFill();
+    const x = f.x0 + (f.x1 - f.x0) * u;
+    const y = f.y0 + (f.y1 - f.y0) * u - Math.sin(u * Math.PI) * 40;
+    const s = 22 + (1 - u) * 10;
+    g.beginFill(0xffd66b, 0.28).drawCircle(x, y, s).endFill();
+    g.beginFill(0xfff4c4, 0.95).drawRoundedRect(x - 16, y - 16, 32, 32, 8).endFill();
+    if (f.tex && f.tex.baseTexture.valid && f.tex.width > 1) {
+      fillContain(g, f.tex, x, y + 12, 28, 28);
+    }
+    g.lineStyle(2, 0xc9a46a, 0.9).drawRoundedRect(x - 16, y - 16, 32, 32, 8).lineStyle(0);
   }
 
   private _spawnHeroAttack(
@@ -293,81 +312,102 @@ export class CombatFx {
     x1: number,
     y1: number,
     color: number,
+    fx?: AttackFx,
     melee?: boolean,
     orb?: boolean,
   ): void {
+    const style: AttackFx = fx ?? (melee ? 'slash' : orb ? 'orb' : 'bolt');
     const tint = ev.crit ? mix(color, 0xffd66b, 0.45) : color;
-    if (melee) {
-      this._spawnSweep(x0, y0, tint, () => this._impactHero(ev, x1, y1, color));
-      playSfx('atk', 90);
+    const land = (): void => this._impactHero(ev, x1, y1, color, style);
+    playSfx(`atk_${style}`, 90);
+    const ang = Math.atan2(y1 - y0, x1 - x0);
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+
+    if (style === 'slash') {
+      this._kit.plate('slash', x0, y0 - 8, { tint, rot: ang - 0.9, vr: 9, s0: 0.45, s1: 0.75, life: 0.14, a0: 0.7 });
+      this._kit.spray(x0, y0, { n: 4, tint, kind: 'spark', speed: 140, dir: ang, spread: 1.0 });
+      land();
       return;
     }
-    const kind: ShotKind = orb ? 'orb' : 'bolt';
-    this._pushShot({
-      x0,
-      y0,
-      x1,
-      y1,
-      color: tint,
-      kind,
-      fly: kind === 'orb' ? 0.26 : 0.2,
-      crit: ev.crit,
-      land: () => this._impactHero(ev, x1, y1, color),
-    });
-    this._burst(x0, y0, color, 0.08, 'hit');
-    playSfx('atk', 90);
-  }
-
-  private _spawnSweep(x: number, y: number, color: number, land: () => void): void {
-    if (this._sweeps.length >= 8) {
-      const old = this._sweeps.shift();
-      if (old && !old.done) old.land();
-      old?.g.destroy();
+    if (style === 'saw') {
+      this._kit.plate('saw', x0, y0 - 6, { tint: 0xffb070, vr: 16, s0: 0.4, s1: 0.7, life: 0.2, a0: 0.75 });
+      this._kit.spray(x0, y0, { n: 6, tint: 0xffc078, kind: 'spark', speed: 160, dir: ang, spread: 1.2 });
+      land();
+      return;
     }
-    const g = new PIXI.Graphics();
-    this.layer.addChild(g);
-    this._sweeps.push({
-      g,
-      age: 0,
-      life: 0.12,
-      x,
-      y,
-      radius: this._meleeRadius,
-      color,
-      done: false,
-      land,
-    });
+    if (style === 'smash') {
+      const hx = x0 + (x1 - x0) * 0.72;
+      const hy = y0 + (y1 - y0) * 0.72;
+      this._kit.arc(x0, y0 - 18, hx, hy, 0xffe08a);
+      this._waits.push({
+        t: 0.22,
+        fn: () => {
+          this._kit.plate('smash', hx, hy, { tint: 0xffe08a, rot: ang, s0: 0.4, s1: 1.25, life: 0.22 });
+          this._kit.ring(hx, hy, 0xffe08a, 0.24);
+          this._kit.spray(hx, hy, { n: 8, tint: 0xffe08a, kind: 'spark', speed: 200, dir: ang, spread: 1.4 });
+          land();
+        },
+      });
+      return;
+    }
+    if (style === 'pierce') {
+      this._kit.plate('pierce', (x0 + x1) / 2, (y0 + y1) / 2, {
+        tint: 0x9be7ff,
+        rot: ang,
+        s0: 0.85,
+        s1: 1.15,
+        sy0: 0.4,
+        sy1: 0.6,
+        life: 0.18,
+      });
+      this._pushShot({ x0, y0, x1, y1, color: 0x9be7ff, kind: 'pierce', fly: 0.12, land });
+      return;
+    }
+
+    const speed = style === 'sniper' ? 560 : style === 'poke' ? 480 : 420;
+    const fly = Math.min(0.48, Math.max(0.2, dist / speed));
+    this._pushShot({ x0, y0, x1, y1, color: tint, kind: style, fly, land });
   }
 
-  private _spawnClaw(
+  private _spawnEnemyHit(
     ev: Extract<BattleEvent, { kind: 'enemyHit' }>,
     x0: number,
     y0: number,
     x1: number,
     y1: number,
+    fx: EnemyFx,
   ): void {
+    const color = fx === 'beam' ? 0xc084fc : fx === 'spark' ? 0xfb923c : fx === 'bash' ? 0xcbd5e1 : 0xff6b5a;
+    playSfx(`enemy_${fx}`, 70);
+    const ang = Math.atan2(y1 - y0, x1 - x0);
+    if (fx === 'beam') {
+      this._kit.plate('beam', (x0 + x1) / 2, (y0 + y1) / 2, {
+        tint: color, rot: ang, s0: 0.55, s1: 0.9, life: 0.16,
+      });
+    } else if (fx === 'bash') {
+      this._kit.plate('smash', x1, y1, { tint: color, s0: 0.3, s1: 0.75, life: 0.14 });
+    } else if (fx === 'spark') {
+      this._kit.plate('pierce', (x0 + x1) / 2, (y0 + y1) / 2, {
+        tint: color, rot: ang, s0: 0.45, s1: 0.7, life: 0.12,
+      });
+    } else {
+      this._kit.plate('claw', x1, y1, { tint: color, rot: ang, s0: 0.4, s1: 0.75, life: 0.14 });
+    }
     this._pushShot({
-      x0,
-      y0,
-      x1,
-      y1,
-      color: 0xff6b5a,
-      kind: 'claw',
-      fly: 0.09,
-      crit: false,
+      x0, y0, x1, y1, color, kind: fx, fly: fx === 'beam' ? 0.22 : 0.18,
       land: () => {
         const through = ev.damage - ev.absorbed;
         if (ev.absorbed > 0) {
           this._spawnPlainFloat('抵挡', x1, y1 - 6, 0x7dd3fc, 18, 0.38);
-          this._burst(x1, y1, 0x7dd3fc, 0.16, 'shield');
+          this._kit.plate('shield', x1, y1, { tint: 0x7dd3fc, s0: 0.35, s1: 0.8, life: 0.22 });
         }
         if (through > 0) {
           this._hurtHero(through, x1, y1);
           playSfx('hit', 70);
-          this._burst(x1, y1, 0xff6b5a, 0.16, 'hit');
+          this._kit.spray(x1, y1, { n: 6, tint: 0xff6b5a, kind: 'spark', speed: 140 });
         }
         if (ev.reflect > 0) {
-          this._burst(x0, y0, 0xff8a3a, 0.18, 'hit');
+          this._kit.spray(x0, y0, { n: 5, tint: 0xff8a3a, kind: 'spark', speed: 120 });
           this._spawnPlainFloat(`反伤 ${Math.round(ev.reflect)}`, x0, y0, 0xffb070, 20);
         }
       },
@@ -382,86 +422,149 @@ export class CombatFx {
     color: number;
     kind: ShotKind;
     fly: number;
-    crit: boolean;
     land: () => void;
   }): void {
     if (this._shots.length >= MAX_SHOTS) {
       const old = this._shots.shift();
       if (old && !old.done) old.land();
-      old?.g.destroy();
+      old?.body.destroy();
+      old?.spr?.destroy();
     }
-    const g = new PIXI.Graphics();
-    this.layer.addChild(g);
+    const physName = projSprite(spec.kind as AttackFx);
+    const physical = !!physName;
+    const tex = physical
+      ? projTex(physName)
+      : spec.kind === 'pierce' || spec.kind === 'beam' || spec.kind === 'spark'
+        ? vfxTex('pierce')
+        : spec.kind === 'claw' ? vfxTex('claw')
+          : spec.kind === 'bash' ? vfxTex('smash')
+            : null;
+    let spr: PIXI.Sprite | null = null;
+    if (tex) {
+      spr = new PIXI.Sprite(tex);
+      spr.anchor.set(0.5);
+      if (!physical) spr.tint = spec.color;
+      spr.position.set(spec.x0, spec.y0);
+      const native = Math.max(tex.width, 1);
+      const px = physical
+        ? spec.kind === 'sniper' ? 28 : spec.kind === 'bolt' ? 42 : spec.kind === 'poke' ? 48 : 36
+        : 64;
+      spr.scale.set(px / native);
+      this.layer.addChild(spr);
+    }
+    const body = new PIXI.Graphics();
+    this.layer.addChild(body);
     this._shots.push({
-      g,
+      body,
+      spr,
       age: 0,
       fly: spec.fly,
       x0: spec.x0,
       y0: spec.y0,
       x1: spec.x1,
       y1: spec.y1,
-      color: spec.color,
       kind: spec.kind,
-      crit: spec.crit,
-      trail: [{ x: spec.x0, y: spec.y0 }],
+      color: spec.color,
+      physical,
+      emit: 0,
       done: false,
       land: spec.land,
     });
   }
 
-  private _impactHero(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number, color: number): void {
-    this._spawnHitFloat(ev, x, y);
-    playSfx(ev.crit ? 'hit_counter' : 'hit', ev.crit ? 50 : 80);
-    this._burst(x, y, ev.crit ? 0xffd66b : color, ev.crit ? 0.22 : 0.16, 'hit');
+  private _drawShotBody(
+    s: ShotBit,
+    p: { x: number; y: number },
+    ang: number,
+    u: number,
+  ): void {
+    const g = s.body;
+    g.clear();
+    if (u >= 1) return;
+    if (s.physical) return;
+    const fade = u < 0.08 ? u / 0.08 : 1;
+    const nx = Math.cos(ang);
+    const ny = Math.sin(ang);
+    if (s.kind === 'orb' || s.kind === 'wind') {
+      const r = s.kind === 'wind' ? 20 : 15;
+      g.beginFill(s.color, 0.28 * fade).drawCircle(p.x, p.y, r + 6).endFill();
+      g.beginFill(s.color, 0.8 * fade).drawCircle(p.x, p.y, r * 0.45).endFill();
+      g.beginFill(0xffffff, 0.95 * fade).drawCircle(p.x - 3, p.y - 3, 3.4).endFill();
+      return;
+    }
+    if (s.kind === 'blast') {
+      g.beginFill(0xff7a3a, 0.35 * fade).drawCircle(p.x, p.y, 16).endFill();
+      g.beginFill(0xfff4c4, 0.95 * fade).drawCircle(p.x, p.y, 6).endFill();
+      return;
+    }
+    const len = s.kind === 'sniper' ? 40 : s.kind === 'poke' || s.kind === 'pierce' || s.kind === 'beam' ? 34 : 26;
+    g.lineStyle(12, s.color, 0.22 * fade);
+    g.moveTo(p.x - nx * len, p.y - ny * len);
+    g.lineTo(p.x + nx * 10, p.y + ny * 10);
+    g.lineStyle(3.4, 0xffffff, 0.95 * fade);
+    g.moveTo(p.x - nx * len * 0.75, p.y - ny * len * 0.75);
+    g.lineTo(p.x + nx * 8, p.y + ny * 8);
+    g.lineStyle(0);
+    g.beginFill(0xffffff, fade).drawCircle(p.x, p.y, 4).endFill();
   }
 
-  private _burst(x: number, y: number, color: number, life: number, style: BurstStyle): void {
-    const g = new PIXI.Graphics();
-    this.layer.addChild(g);
-    this._bursts.push({
-      g,
-      life,
-      max: life,
-      x,
-      y,
-      color,
-      strong: style === 'hit' && color === 0xffd66b,
-      style,
+  private _impactHero(
+    ev: Extract<BattleEvent, { kind: 'hit' }>,
+    x: number,
+    y: number,
+    color: number,
+    fx: AttackFx = 'bolt',
+  ): void {
+    this._spawnHitFloat(ev, x, y);
+    playSfx(ev.crit ? 'hit_counter' : `hit_${fx}`, ev.crit ? 50 : 80);
+    const tint = ev.crit ? 0xffd66b : color;
+    this._kit.plate('flash', x, y, { tint, s0: ev.crit ? 0.55 : 0.35, s1: ev.crit ? 1.15 : 0.8, life: 0.16 });
+    if (fx === 'blast') this._kit.plate('blast', x, y, { tint: 0xff8a3a, s0: 0.45, s1: 1.1, life: 0.22 });
+    if (fx === 'wind') this._kit.plate('wind', x, y, { tint: 0xc7f0ff, vr: 6, s0: 0.4, s1: 0.95, life: 0.24 });
+    if (fx === 'smash') this._kit.ring(x, y, 0xffe08a, 0.2);
+    this._kit.spray(x, y, {
+      n: ev.crit ? 14 : 8,
+      tint,
+      kind: 'spark',
+      speed: ev.crit ? 280 : 190,
+      life: 0.26,
     });
+    this.hitStop = Math.max(this.hitStop, ev.crit ? 0.08 : fx === 'smash' || fx === 'blast' ? 0.06 : 0.035);
+    if (ev.crit || fx === 'smash' || fx === 'blast') buzz(ev.crit ? 'heavy' : 'medium');
+  }
+
+  private _death(x: number, y: number, tint: number): void {
+    this._kit.plate('blast', x, y, { tint, s0: 0.4, s1: 1.2, life: 0.28 });
+    this._kit.ring(x, y, tint, 0.3);
+    this._kit.spray(x, y, { n: 16, tint, kind: 'spark', speed: 260, life: 0.34, gy: 40 });
+    this._kit.spray(x, y, { n: 6, tint, kind: 'glow', speed: 90, life: 0.3, scale: 0.5, gy: 20 });
   }
 
   private _skillCallout(
     ev: Extract<BattleEvent, { kind: 'skill' }>,
     pos: { hx: number; hy: number; tx?: number; ty?: number },
   ): void {
-    this._skillShape(ev.skillKind, pos);
     if (ev.skillKind === 'shield') {
+      this._kit.plate('shield', pos.hx, pos.hy, { tint: 0x7dd3fc, s0: 0.4, s1: 1.05, life: 0.36 });
+      this._kit.ring(pos.hx, pos.hy, 0x7dd3fc, 0.32);
       this._spawnPlainFloat(`+${Math.round(ev.amount ?? 0)} 护盾`, pos.hx, pos.hy - 40, 0x7dd3fc, 22, 0.55);
       return;
     }
     if (ev.skillKind === 'heal') {
       const x = pos.tx ?? pos.hx;
       const y = pos.ty ?? pos.hy;
+      this._kit.plate('heal', x, y, { tint: 0x86efac, s0: 0.4, s1: 0.95, life: 0.32 });
+      this._kit.spray(x, y, { n: 7, tint: 0x86efac, kind: 'glow', speed: 80, gy: -40 });
       if ((ev.amount ?? 0) > 0) this._spawnPlainFloat(`+${Math.round(ev.amount ?? 0)}`, x, y - 24, 0x86efac, 22, 0.5);
       return;
     }
+    this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.4, s1: 0.9, life: 0.2 });
     this._spawnFlash(ev.skillName, pos.hx, pos.hy - 56);
     playSfx('skill', 160);
   }
 
-  private _skillShape(
-    kind: string,
-    pos: { hx?: number; hy?: number; tx?: number; ty?: number; reachY?: number },
-  ): void {
-    const hx = pos.hx ?? 0;
-    const hy = pos.hy ?? 0;
-    if (kind === 'shield') this._burst(hx, hy, 0x7dd3fc, 0.36, 'shield');
-    else if (kind === 'heal') this._burst(pos.tx ?? hx, pos.ty ?? hy, 0x86efac, 0.32, 'heal');
-    else this._burst(hx, hy, 0xffd66b, 0.2, 'hit');
-  }
-
   private _point(s: ShotBit, t: number): { x: number; y: number } {
-    if (s.kind === 'orb') {
+    if (s.kind === 'orb' || s.kind === 'wind') {
       const mx = (s.x0 + s.x1) / 2 + (s.y1 - s.y0) * 0.18;
       const my = (s.y0 + s.y1) / 2 - (s.x1 - s.x0) * 0.18;
       const u = 1 - t;
@@ -476,173 +579,16 @@ export class CombatFx {
     };
   }
 
-  private _drawShot(s: ShotBit, p: { x: number; y: number }, u: number): void {
-    const g = s.g;
-    g.clear();
-    if (u >= 1) return;
-    const fade = u < 0.1 ? u / 0.1 : 1;
-    if (s.kind === 'claw') {
-      this._drawClaw(s, u, fade);
-      return;
-    }
-    for (let i = 0; i < s.trail.length; i += 1) {
-      const q = s.trail[i];
-      if (!q) continue;
-      const a = ((i + 1) / s.trail.length) * 0.35 * fade;
-      const r = s.kind === 'orb' ? 5 + i : 2.2 + i * 0.7;
-      g.beginFill(s.color, a).drawCircle(q.x, q.y, r).endFill();
-    }
-    if (s.kind === 'orb') this._drawOrb(s, p, fade);
-    else this._drawBolt(s, p, fade);
-  }
-
-  private _drawBolt(s: ShotBit, p: { x: number; y: number }, fade: number): void {
-    const ang = Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
-    const nx = Math.cos(ang);
-    const ny = Math.sin(ang);
-    const px = -ny;
-    const py = nx;
-    const g = s.g;
-    g.beginFill(s.color, 0.22 * fade).drawCircle(p.x, p.y, s.crit ? 16 : 12).endFill();
-    g.beginFill(s.color, 0.95 * fade);
-    g.moveTo(p.x + nx * 10, p.y + ny * 10);
-    g.lineTo(p.x + px * 4.5, p.y + py * 4.5);
-    g.lineTo(p.x - nx * 18, p.y - ny * 18);
-    g.lineTo(p.x - px * 4.5, p.y - py * 4.5);
-    g.closePath();
-    g.endFill();
-    g.beginFill(0xffffff, 0.92 * fade).drawCircle(p.x + nx * 2, p.y + ny * 2, s.crit ? 4.5 : 3.2).endFill();
-  }
-
-  private _drawOrb(s: ShotBit, p: { x: number; y: number }, fade: number): void {
-    const g = s.g;
-    g.beginFill(s.color, 0.18 * fade).drawCircle(p.x, p.y, 18).endFill();
-    g.beginFill(s.color, 0.7 * fade).drawCircle(p.x, p.y, 8).endFill();
-    g.beginFill(0xffffff, 0.9 * fade).drawCircle(p.x - 2, p.y - 2, 3.4).endFill();
-  }
-
-  /** 身前扇形挥砍：刀扫过一片区，不沿直线飞向目标。 */
-  private _drawSweep(s: SweepBit, u: number): void {
-    const g = s.g;
-    g.clear();
-    if (u >= 1) return;
-    const fade = u < 0.12 ? u / 0.12 : u > 0.75 ? (1 - u) / 0.25 : 1;
-    const start = -Math.PI * 0.92;
-    const end = -Math.PI * 0.08;
-    const cur = start + (end - start) * u;
-    const r = s.radius;
-    g.beginFill(s.color, 0.22 * fade);
-    g.moveTo(s.x, s.y);
-    g.arc(s.x, s.y, r, start, cur);
-    g.lineTo(s.x, s.y);
-    g.endFill();
-    const edge = (width: number, color: number, alpha: number, a0: number, rad: number): void => {
-      g.lineStyle(width, color, alpha);
-      g.moveTo(s.x + Math.cos(a0) * rad, s.y + Math.sin(a0) * rad);
-      g.arc(s.x, s.y, rad, a0, cur);
-      g.lineStyle(0);
-    };
-    edge(10, s.color, 0.32 * fade, start, r);
-    edge(5, s.color, 0.85 * fade, Math.max(start, cur - 0.5), r);
-    edge(2.4, 0xffffff, 0.92 * fade, Math.max(start, cur - 0.26), r * 0.88);
-    g.beginFill(0xffffff, 0.85 * fade)
-      .drawCircle(s.x + Math.cos(cur) * r, s.y + Math.sin(cur) * r, 4)
-      .endFill();
-  }
-
-  /** 敌人近身爪击：从怪身短扫到英雄，不飞远程弹。 */
-  private _drawClaw(s: ShotBit, u: number, fade: number): void {
-    const tip = this._point(s, u);
-    const ang = Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
-    const px = -Math.sin(ang);
-    const py = Math.cos(ang);
-    const g = s.g;
-    for (const off of [-10, 0, 10]) {
-      const sx = s.x0 + px * off * 0.35;
-      const sy = s.y0 + py * off * 0.35;
-      const ex = tip.x + px * off;
-      const ey = tip.y + py * off;
-      g.lineStyle(off === 0 ? 5 : 3.2, s.color, (off === 0 ? 0.85 : 0.45) * fade);
-      g.moveTo(sx, sy);
-      g.lineTo(ex, ey);
-    }
-    g.lineStyle(0);
-    g.beginFill(0xffffff, 0.7 * fade).drawCircle(tip.x, tip.y, 2.8).endFill();
-  }
-
-  private _drawBurst(b: BurstBit): void {
-    const g = b.g;
-    g.clear();
-    const t = 1 - Math.max(0, b.life) / b.max;
-    const alpha = 1 - t;
-    if (b.style === 'shield') {
-      g.lineStyle(5, b.color, alpha * 0.9);
-      g.drawCircle(b.x, b.y, 18 + t * 28);
-      g.lineStyle(2, 0xffffff, alpha * 0.55);
-      g.drawCircle(b.x, b.y, 12 + t * 18);
-      g.lineStyle(0);
-      return;
-    }
-    if (b.style === 'heal') {
-      g.beginFill(b.color, alpha * 0.35).drawCircle(b.x, b.y, 10 + t * 16).endFill();
-      g.lineStyle(4, b.color, alpha);
-      g.moveTo(b.x, b.y - 12 - t * 6);
-      g.lineTo(b.x, b.y + 12 + t * 6);
-      g.moveTo(b.x - 10 - t * 4, b.y);
-      g.lineTo(b.x + 10 + t * 4, b.y);
-      g.lineStyle(0);
-      return;
-    }
-    if (b.style === 'death') {
-      g.beginFill(0x0b0f18, alpha * 0.45).drawEllipse(b.x, b.y + 18, 28 + t * 8, 10).endFill();
-      g.lineStyle(3, b.color, alpha);
-      g.drawCircle(b.x, b.y, 10 + t * 20);
-      g.lineStyle(0);
-      return;
-    }
-    // 站起来 / 装上破烂：一圈金环往外扩，和挨打的红完全区分开
-    if (b.style === 'revive') {
-      g.lineStyle(5, b.color, alpha * 0.9);
-      g.drawCircle(b.x, b.y, 14 + t * 44);
-      g.lineStyle(2.5, 0xffffff, alpha * 0.6);
-      g.drawCircle(b.x, b.y, 8 + t * 26);
-      g.lineStyle(0);
-      return;
-    }
-    const ring = 6 + t * (b.strong ? 36 : 24);
-    g.lineStyle(b.strong ? 4 : 2.5, b.color, alpha * 0.9);
-    g.drawCircle(b.x, b.y, ring);
-    g.lineStyle(0);
-    g.beginFill(0xffffff, alpha * (b.strong ? 0.55 : 0.35)).drawCircle(b.x, b.y, 3 + t * 8).endFill();
-    const n = b.strong ? 8 : 5;
-    for (let i = 0; i < n; i += 1) {
-      const a = (Math.PI * 2 * i) / n + t * 0.4;
-      const r0 = 4 + t * 6;
-      const r1 = 10 + t * (b.strong ? 22 : 16);
-      g.lineStyle(2, b.color, alpha);
-      g.moveTo(b.x + Math.cos(a) * r0, b.y + Math.sin(a) * r0);
-      g.lineTo(b.x + Math.cos(a) * r1, b.y + Math.sin(a) * r1);
-    }
-    g.lineStyle(0);
-  }
-
   private _spawnHitFloat(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number): void {
     const first = this._firstHit;
     this._firstHit = false;
-    const size = first ? 42 : ev.crit ? 34 : 24;
-    const color = ev.crit ? 0xffd66b : 0xffffff;
-    this._spawnPlainFloat(
-      String(Math.round(ev.damage)),
-      x,
-      y,
-      color,
-      size,
-      first ? 0.7 : 0.45,
-    );
+    const size = first ? 56 : ev.crit ? 46 : 36;
+    const color = ev.crit || first ? 0xffe066 : 0xff9f3c;
+    this._spawnPlainFloat(String(Math.round(ev.damage)), x, y - 10, color, size, first ? 0.9 : ev.crit ? 0.72 : 0.6, ev.crit || first ? 1.15 : 1);
   }
 
   private _hurtHero(damage: number, x: number, y: number): void {
-    this._spawnPlainFloat(`-${Math.round(damage)}`, x, y - 8, 0xff7a7a, 22, 0.42);
+    this._spawnPlainFloat(`-${Math.round(damage)}`, x, y - 8, 0xff6b6b, 32, 0.55, 1);
   }
 
   private _spawnPlainFloat(
@@ -652,6 +598,7 @@ export class CombatFx {
     color: number,
     size: number,
     life = 0.45,
+    pop = 1,
   ): void {
     if (this._floats.length >= MAX_FLOATS) {
       const old = this._floats.shift();
@@ -662,13 +609,13 @@ export class CombatFx {
       fontSize: size,
       fontWeight: 'bold',
       fill: color,
-      stroke: 0x0b0f18,
-      strokeThickness: 4,
+      stroke: 0x1a0c08,
+      strokeThickness: Math.max(6, Math.round(size * 0.18)),
     });
     text.anchor.set(0.5);
-    text.position.set(x + (Math.random() - 0.5) * 16, y - 18);
+    text.position.set(x + (Math.random() - 0.5) * 22, y - 22);
     this.layer.addChild(text);
-    this._floats.push({ text, life, max: life, vy: -70 });
+    this._floats.push({ text, life, max: life, vy: -130, pop });
   }
 
   private _spawnFlash(name: string, x: number, y: number): void {

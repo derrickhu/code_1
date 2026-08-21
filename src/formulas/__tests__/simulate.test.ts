@@ -21,10 +21,11 @@ import {
   TOTAL_WAVES,
   slotPos,
 } from '../../balance/combat';
-import { WAVES, waveAtkMult, waveHpMult } from '../../balance/enemies';
+import { resolveAttackFx } from '../../balance/fx';
+import { WAVES, getEnemyProto, waveAtkMult, waveHpMult } from '../../balance/enemies';
 import { HEROES, getHero } from '../../balance/heroes';
 import { MODS, getMod } from '../../balance/mods';
-import { PICK_STRATEGIES, RECRUIT_WAVES } from '../../balance/picker';
+import { PICK_STRATEGIES } from '../../balance/picker';
 import {
   applyPick,
   computeStats,
@@ -94,7 +95,9 @@ function runUntil(
     if (pred(state)) return true;
     if (state.phase === 'won' || state.phase === 'lost') return false;
     if (state.phase === 'picking') {
-      const opt = state.pendingOptions[0];
+      const opt = state.pendingOptions.find(
+        (o) => o.kind === 'mod' || !state.team.some((h) => h.def.id === o.heroId),
+      );
       if (!opt) return false;
       applyPick(state, opt);
       continue;
@@ -113,7 +116,7 @@ function runUntil(
 
 // ── 布局与失败条件 ──────────────────────────────────────
 
-describe('一列队列的站位', () => {
+describe('队列站位', () => {
   it('队首坐标为 0，往后依次退一格', () => {
     expect(slotPos(0)).toBe(0);
     expect(slotPos(1)).toBe(-1);
@@ -306,17 +309,27 @@ describe('「装给谁」是独立的一步', () => {
 });
 
 describe('发牌规则', () => {
-  it('前两次三选一给的是村民，凑够一队', () => {
+  it('开局一次点齐三个人就开打', () => {
     const s = createRun(51);
-    runUntil(s, (x) => x.wave > RECRUIT_WAVES[RECRUIT_WAVES.length - 1]!);
-    expect(s.team.length).toBe(TEAM_SIZE);
+    expect(s.pendingOptions.every((o) => o.kind === 'recruit')).toBe(true);
+    expect(s.pendingOptions.length).toBe(HEROES.length);
+    applyPick(s, { kind: 'recruit', heroId: 'tiezhu' });
+    expect(s.phase).toBe('picking');
+    expect(s.team).toHaveLength(1);
+    applyPick(s, { kind: 'recruit', heroId: 'tiezhu' });
+    expect(s.team).toHaveLength(0);
+    applyPick(s, { kind: 'recruit', heroId: 'tiezhu' });
+    applyPick(s, { kind: 'recruit', heroId: 'dachui' });
+    applyPick(s, { kind: 'recruit', heroId: 'sanshen' });
+    expect(s.team).toHaveLength(TEAM_SIZE);
+    expect(s.phase).toBe('fighting');
   });
 
-  it('之后发的都是改装件', () => {
+  it('开打之后发的都是改装件', () => {
     const s = createRun(53);
     const seen: string[] = [];
     runUntil(s, (x) => {
-      if (x.phase === 'picking' && x.wave > 3) {
+      if (x.phase === 'picking' && x.pendingOptions[0]?.kind === 'mod') {
         for (const o of x.pendingOptions) seen.push(o.kind);
       }
       return x.wave >= 8;
@@ -375,9 +388,10 @@ describe('队列顺序可以由玩家改', () => {
 
   it('人少时可以站到空着的后排，不必跟谁换', () => {
     const s = createRun(81);
-    runUntil(s, (x) => x.team.length >= 1 && x.phase === 'fighting');
-    const first = teamInOrder(s)[0];
-    expect(first.slot).toBe(0);
+    runUntil(s, (x) => x.phase === 'fighting');
+    const first = teamInOrder(s)[0]!;
+    s.team = [first];
+    first.slot = 0;
     expect(placeInSlot(s, first.def.id, 2)).toBe(true);
     expect(first.slot).toBe(2);
     expect(heroAt(s, 0)).toBeUndefined();
@@ -419,10 +433,21 @@ describe('波次编排', () => {
     }
   });
 
-  it('第 1 波足够轻，一个人也守得住', () => {
+  it('走完空场要看得见，小灰不能像传送带', () => {
+    const walk = (id: string) => SPAWN_DIST / getEnemyProto(id).speed;
+    expect(walk('grey')).toBeGreaterThanOrEqual(11);
+    expect(walk('grey')).toBeLessThan(14);
+    expect(walk('cube')).toBeGreaterThan(walk('grey'));
+    expect(walk('canister')).toBeGreaterThan(walk('cube'));
+    expect(walk('saucer')).toBeGreaterThan(walk('cube'));
+  });
+
+  it('第 1 波只出小灰，三人上场仍是见面礼', () => {
     const first = WAVES[0]!;
     const total = first.spawns.reduce((n, sp) => n + sp.count, 0);
-    expect(total).toBeLessThanOrEqual(5);
+    expect(first.spawns.every((sp) => sp.enemyId === 'grey')).toBe(true);
+    expect(total).toBeGreaterThanOrEqual(6);
+    expect(total).toBeLessThanOrEqual(8);
   });
 
   it('强度曲线单调不降', () => {
@@ -444,6 +469,8 @@ describe('村民', () => {
       expect(h.skillName.length).toBeGreaterThan(0);
       expect(h.skillDesc.length).toBeGreaterThan(0);
       expect(h.flavor.length).toBeGreaterThan(0);
+      expect(h.job.length).toBeGreaterThan(0);
+      expect(h.eats.length).toBeGreaterThan(0);
     }
   });
 
@@ -452,6 +479,14 @@ describe('村民', () => {
     for (const h of HEROES) {
       expect(pivotKinds.has(h.skill.kind)).toBe(false);
     }
+  });
+
+  it('六个人活不一样，电锯会改出手签名', () => {
+    expect(new Set(HEROES.map((h) => h.job)).size).toBe(HEROES.length);
+    expect(resolveAttackFx(getHero('tiezhu'), [])).toBe('slash');
+    expect(resolveAttackFx(getHero('tiezhu'), [getMod('chainsaw')])).toBe('saw');
+    expect(resolveAttackFx(getHero('sanshen'), [])).toBe('orb');
+    expect(resolveAttackFx(getHero('laoyanqiang'), [getMod('pipe')])).toBe('poke');
   });
 
   it('没有等级系统，成长只来自改装件', () => {

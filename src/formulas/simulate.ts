@@ -11,6 +11,7 @@
  */
 
 import { TOTAL_WAVES } from '../balance/combat';
+import { getHero } from '../balance/heroes';
 import { getMod } from '../balance/mods';
 import type { PickOption, PickStrategy } from '../balance/picker';
 import {
@@ -23,13 +24,33 @@ import {
   type RunState,
 } from '../game/BattleEngine';
 
+/** 非随机策略开局固定带这仨：肉、锤、后排，避免选人干扰「装给谁」的回归 */
+const SIM_ROSTER = ['tiezhu', 'dachui', 'laoyanqiang'] as const;
+
 /** 选哪张牌 */
 function chooseOption(
   options: readonly PickOption[],
   strategy: PickStrategy,
   rng: () => number,
+  state: RunState,
 ): PickOption | undefined {
   if (options.length === 0) return undefined;
+
+  const recruits = options.filter(
+    (o) => o.kind === 'recruit' && !state.team.some((h) => h.def.id === o.heroId),
+  );
+  if (recruits.length > 0) {
+    if (strategy === 'random') return recruits[Math.floor(rng() * recruits.length)];
+    for (const id of SIM_ROSTER) {
+      const hit = recruits.find((o) => o.kind === 'recruit' && o.heroId === id);
+      if (hit) return hit;
+    }
+    return [...recruits].sort((a, b) => {
+      if (a.kind !== 'recruit' || b.kind !== 'recruit') return 0;
+      return getHero(b.heroId).hp - getHero(a.heroId).hp;
+    })[0];
+  }
+
   if (strategy === 'random') return options[Math.floor(rng() * options.length)];
 
   const mods = options.filter((o) => o.kind === 'mod');
@@ -145,7 +166,7 @@ export function simulateRun(config: SimConfig): SimResult {
       throw new Error(`模拟未收敛：seed=${config.seed} strategy=${config.strategy}`);
     }
     if (state.phase === 'picking') {
-      const chosen = chooseOption(state.pendingOptions, config.strategy, state.rng);
+      const chosen = chooseOption(state.pendingOptions, config.strategy, state.rng, state);
       if (!chosen) break;
       applyPick(state, chosen);
       continue;

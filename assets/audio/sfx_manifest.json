@@ -60,6 +60,102 @@
       "text": "short muted low brass and timpani descending two notes, somber and dry, instrumental only, no wah-wah, no trombone joke, no frog, no animal, no voice, no cheap synth",
       "duration": 1.3,
       "output": "lose.mp3"
+    },
+    {
+      "name": "atk_saw",
+      "text": "short buzzing chainsaw rev in dry air, metallic teeth spin whoosh, no scream, no voice, no music, no frog",
+      "duration": 0.28,
+      "output": "atk_saw.mp3"
+    },
+    {
+      "name": "hit_saw",
+      "text": "chainsaw teeth biting dry wood and thin metal, harsh buzz cut short, no flesh, no voice, no music",
+      "duration": 0.26,
+      "output": "hit_saw.mp3"
+    },
+    {
+      "name": "atk_smash",
+      "text": "heavy steel sledge swinging through dry air, low whoosh, no impact yet, no voice, no music",
+      "duration": 0.24,
+      "output": "atk_smash.mp3"
+    },
+    {
+      "name": "hit_smash",
+      "text": "heavy iron weight slamming onto steel plate, one fat thud plus short metallic rattle, dry, no voice, no music",
+      "duration": 0.3,
+      "output": "hit_smash.mp3"
+    },
+    {
+      "name": "atk_poke",
+      "text": "hollow metal pipe thrusting through dry air, thin tube whoosh, no impact, no voice, no music",
+      "duration": 0.2,
+      "output": "atk_poke.mp3"
+    },
+    {
+      "name": "hit_poke",
+      "text": "metal pipe tip striking hard plastic and thin steel, short clank, dry, no voice, no music",
+      "duration": 0.22,
+      "output": "hit_poke.mp3"
+    },
+    {
+      "name": "atk_wind",
+      "text": "small electric blower spinning up a burst of dry air, plastic fan whoosh, no voice, no music",
+      "duration": 0.28,
+      "output": "atk_wind.mp3"
+    },
+    {
+      "name": "hit_wind",
+      "text": "focused air blast hitting cloth and tin, flutter plus light clatter, dry, no voice, no music",
+      "duration": 0.24,
+      "output": "hit_wind.mp3"
+    },
+    {
+      "name": "atk_blast",
+      "text": "tiny firecracker fuse fizz then short dry pop, no crowd, no voice, no music",
+      "duration": 0.3,
+      "output": "atk_blast.mp3"
+    },
+    {
+      "name": "hit_blast",
+      "text": "small firecracker explosion on dirt, short crack and paper bits, dry, no voice, no music",
+      "duration": 0.28,
+      "output": "hit_blast.mp3"
+    },
+    {
+      "name": "atk_pierce",
+      "text": "electric spark jumping along copper wire, dry zap, no voice, no music",
+      "duration": 0.22,
+      "output": "atk_pierce.mp3"
+    },
+    {
+      "name": "hit_pierce",
+      "text": "electric arc snapping on metal, short crackle, dry, no voice, no music",
+      "duration": 0.22,
+      "output": "hit_pierce.mp3"
+    },
+    {
+      "name": "atk_sniper",
+      "text": "rubber slingshot releasing a stone, tight dry snap, no voice, no music",
+      "duration": 0.2,
+      "output": "atk_sniper.mp3"
+    },
+    {
+      "name": "hit_sniper",
+      "text": "small stone cracking on hard plastic shell, short tick, dry, no voice, no music",
+      "duration": 0.2,
+      "output": "hit_sniper.mp3"
+    },
+    {
+      "name": "kill_pop",
+      "text": "hollow plastic alien shell popping once, short dry burst, no scream, no voice, no music",
+      "duration": 0.28,
+      "output": "kill_pop.mp3"
+    },
+    {
+      "name": "install_on",
+      "text": "rusty junk being bolted onto cloth, two metal clicks and a strap tug, dry, no voice, no music",
+      "duration": 0.35,
+      "output": "install_on.mp3"
     }
   ]
 }

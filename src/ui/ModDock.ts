@@ -13,13 +13,19 @@ import { GOLD } from '@/ui/paint';
 
 const DOCK_X = 16;
 const DOCK_W = 718;
-const DOCK_H = 118;
+/** 底栏高度。战场下沿按它来钉，小队贴在栏上，不要中间空一截土 */
+export const DOCK_H = 118;
+/** 阵地脚底到栏顶的缝，刚好能看见垫，连成一块 */
+export const DOCK_GAP = 8;
 const SLOT_GAP = 8;
 const SLOT_PAD = 8;
 const SLOT_W = (DOCK_W - SLOT_PAD * 2 - SLOT_GAP * (TEAM_SIZE - 1)) / TEAM_SIZE;
 const SLOT_H = 102;
 const FACE = 76;
 const MOD = 30;
+/** 底栏从左到右对齐场上三角：左后、前排、右后 */
+const DOCK_ORDER = [1, 0, 2] as const;
+const SLOT_NAME = ['前排', '左后', '右后'] as const;
 
 function text(size: number, color = 0xffffff, bold = false): PIXI.Text {
   return new PIXI.Text('', {
@@ -55,18 +61,18 @@ export class ModDock extends PIXI.Container {
     plate.lineStyle(1.5, GOLD, 0.35).drawRoundedRect(DOCK_X, 0, DOCK_W, DOCK_H, 16).lineStyle(0);
     this.addChild(plate);
 
-    for (let i = 0; i < TEAM_SIZE; i += 1) {
-      const hero = heroAt(state, i) ?? null;
+    DOCK_ORDER.forEach((slotIndex, i) => {
+      const hero = heroAt(state, slotIndex) ?? null;
       const canTake = hero ? canInstallOn(hero) : false;
-      const slot = this._slot(hero, i, selected === hero?.def.id, installing, canTake);
-      slot.position.set(DOCK_X + SLOT_PAD + i * (SLOT_W + SLOT_GAP), 8);
-      this.addChild(slot);
+      const card = this._slot(hero, slotIndex, selected === hero?.def.id, installing, canTake);
+      card.position.set(DOCK_X + SLOT_PAD + i * (SLOT_W + SLOT_GAP), 8);
+      this.addChild(card);
       if (hero && (!installing || canTake)) {
-        bindPointerTap(slot, () => this._onTap(i));
+        bindPointerTap(card, () => this._onTap(slotIndex));
       } else if (!hero && !installing) {
-        bindPointerTap(slot, () => this._onTap(i));
+        bindPointerTap(card, () => this._onTap(slotIndex));
       }
-    }
+    });
   }
 
   private _slot(
@@ -77,7 +83,7 @@ export class ModDock extends PIXI.Container {
     canTake: boolean,
   ): PIXI.Container {
     const box = new PIXI.Container();
-    box.eventMode = h ? 'static' : 'none';
+    box.eventMode = 'static';
     const dim = !h || (installing && !canTake);
     const live = !!h?.alive;
     const edge = !h
@@ -101,7 +107,7 @@ export class ModDock extends PIXI.Container {
       const empty = text(16, 0x5a5244);
       empty.anchor.set(0.5);
       empty.position.set(SLOT_W / 2, SLOT_H / 2);
-      empty.text = '空位';
+      empty.text = SLOT_NAME[order];
       box.addChild(empty);
       return box;
     }

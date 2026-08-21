@@ -1,0 +1,19 @@
+8 isolated 2D game VFX sprites in a 4 columns x 2 rows grid, each cell one effect only, centered, filling most of the cell.
+
+PURE BLACK background in every cell. These will be used with additive blending so black must stay black. Soft glowing bloom, bright white-hot cores, cinematic game VFX like Hades or Vampire Survivors.
+
+NO TEXT, no labels, no captions, no writing, no numbers, no UI, no frames, no visible grid lines, no characters, no weapons as objects, no items.
+
+Row 1 left to right:
+1. Crescent slash arc of warm gold-white energy, motion-blurred, curving, facing right-up
+2. Spinning buzzsaw energy ring, orange-white glowing teeth, circular
+3. Heavy smash shockwave: white-gold impact ring exploding outward from a bright center
+4. Thin piercing thrust streak, cyan-white spear of light pointing up-right, long and sharp
+
+Row 2 left to right:
+5. Firework explosion burst, orange-red sparks radiating from a white core
+6. Wind vortex swirl, pale cyan-white air spiral, translucent glow
+7. Jagged lightning bolt, electric cyan-white, vertical, branching sparks
+8. Soft hit flash starburst, white-gold core with short radiating sparks
+
+Each cell: lots of empty black around the glow so effects do not touch neighbors. Premium lighting, high contrast, no muddy gray.

@@ -31,7 +31,7 @@ export class SettleOverlay extends PIXI.Container {
     const dim = new PIXI.Graphics();
     dim.beginFill(0x05060c, 0.82).drawRect(0, 0, 750, height).endFill();
     const panelW = 620;
-    const panelH = 520;
+    const panelH = 560;
     const px = (750 - panelW) / 2;
     const py = height * 0.18;
     plate(dim, px, py, panelW, panelH, 22, 0.92);
@@ -47,8 +47,21 @@ export class SettleOverlay extends PIXI.Container {
     // 结算必须能回答「本局是靠谁加哪件破烂打过来的」（体验目标 §8 验收第一条）。
     // 所以这里是三行「人 + 他身上挂的东西」，而不是一堆战斗统计数字。
     const roster = [...state.team].sort((a, b) => a.slot - b.slot);
+    const core = [...state.team].sort((a, b) => {
+      if (b.mods.length !== a.mods.length) return b.mods.length - a.mods.length;
+      return a.slot - b.slot;
+    })[0];
+    const coreMod = core?.mods[core.mods.length - 1];
+    if (core && core.mods.length > 0) {
+      const why = text(20, GOLD, true);
+      why.anchor.set(0.5);
+      why.position.set(375, py + 92);
+      why.text = `本局靠${core.def.name}的${coreMod?.name ?? '那套'}`;
+      this.addChild(why);
+    }
+
     const rowH = 84;
-    const listY = py + 104;
+    const listY = py + (core && core.mods.length > 0 ? 128 : 104);
 
     roster.forEach((h, i) => {
       const y = listY + i * rowH;

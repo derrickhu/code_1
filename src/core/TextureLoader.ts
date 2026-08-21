@@ -42,6 +42,22 @@ export function modTex(id: string): PIXI.Texture | null {
   return tex(`images/mod_${id}.png`);
 }
 
+export const VFX_FILES = [
+  'glow', 'streak', 'spark', 'ring', 'bolt', 'orb', 'fire',
+  'slash', 'saw', 'smash', 'poke', 'blast', 'wind', 'pierce', 'flash',
+  'claw', 'beam', 'shield', 'heal',
+] as const;
+
+export const PROJ_FILES = ['pebble', 'needle', 'disc', 'pipe', 'cracker', 'leaf'] as const;
+
+export function projTex(name: string): PIXI.Texture | null {
+  return tex(`images/proj_${name}.png`);
+}
+
+export function vfxTex(name: string): PIXI.Texture | null {
+  return tex(`images/vfx_${name}.png`);
+}
+
 /** 背景没有透明区，走 jpg：同画质下比 png 小一个数量级，首包容量卡得很死 */
 const BG_PATH = 'images/bg_battle.jpg';
 
@@ -56,6 +72,25 @@ export function preloadBattleArt(): void {
   // 从原型表读而不是写死 id：上次改名就是漏在这行，敌人图整批加载不到
   for (const e of ENEMY_PROTOS) kick(`images/enemy_${e.id}.png`);
   for (const m of MODS) kick(`images/mod_${m.id}.png`);
+  for (const n of VFX_FILES) kick(`images/vfx_${n}.png`);
+  for (const n of PROJ_FILES) kick(`images/proj_${n}.png`);
+  kick('images/hero_dachui_grip.png');
+  kick('images/fx_hammer.png');
+  for (const h of HEROES) {
+    kick(`images/hero_${h.id}_atk.png`);
+    for (let i = 0; i < 4; i += 1) {
+      kick(`images/anim_${h.id}_idle_${i}.png`);
+      kick(`images/anim_${h.id}_atk_${i}.png`);
+    }
+  }
+  for (const e of ENEMY_PROTOS) {
+    for (let i = 0; i < 4; i += 1) {
+      kick(`images/anim_${e.id}_walk_${i}.png`);
+      kick(`images/anim_${e.id}_atk_${i}.png`);
+    }
+    kick(`images/anim_${e.id}_idle_0.png`);
+    kick(`images/anim_${e.id}_idle_1.png`);
+  }
 }
 
 function kick(path: string): void {

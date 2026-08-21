@@ -21,17 +21,21 @@ export interface EnemyProto {
   hp: number;
   atk: number;
   def: number;
-  /** 推进速度（格/秒） */
+  /**
+   * 推进速度（格/秒）。对标植物大战僵尸 / Kingdom Rush 首波列队，
+   * 不是 Brotato 围攻冲刺。空场现在是大半个屏幕，走路按秒算。
+   * 出场 6 格：小灰约 12 秒贴脸，方块兵约 20 秒，铁罐／飞碟约 25 秒。
+   */
   speed: number;
   attackIntervalMs: number;
   isBoss: boolean;
 }
 
 export const ENEMY_PROTOS: readonly EnemyProto[] = [
-  { id: 'grey', name: '小灰', hp: 145, atk: 12, def: 0, speed: 1.6, attackIntervalMs: 900, isBoss: false },
-  { id: 'cube', name: '方块兵', hp: 315, atk: 20, def: 8, speed: 0.9, attackIntervalMs: 1100, isBoss: false },
-  { id: 'canister', name: '铁罐', hp: 810, atk: 36, def: 32, speed: 0.55, attackIntervalMs: 1400, isBoss: false },
-  { id: 'saucer', name: '飞碟', hp: 2450, atk: 58, def: 40, speed: 0.6, attackIntervalMs: 1500, isBoss: true },
+  { id: 'grey', name: '小灰', hp: 360, atk: 13, def: 0, speed: 0.48, attackIntervalMs: 900, isBoss: false },
+  { id: 'cube', name: '方块兵', hp: 720, atk: 22, def: 8, speed: 0.30, attackIntervalMs: 1100, isBoss: false },
+  { id: 'canister', name: '铁罐', hp: 1500, atk: 38, def: 32, speed: 0.22, attackIntervalMs: 1400, isBoss: false },
+  { id: 'saucer', name: '飞碟', hp: 3000, atk: 58, def: 40, speed: 0.24, attackIntervalMs: 1500, isBoss: true },
 ];
 
 const PROTO_BY_ID: Readonly<Record<string, EnemyProto>> = Object.fromEntries(
@@ -66,27 +70,26 @@ function s(enemyId: string, count: number, intervalMs = 600, delayMs = 0): WaveS
 
 /**
  * 波次编排。五个阶段的意图：
- * 1–3   只有小灰与方块兵，建立「他们自己能打」的信任；
+ * 1–3   只有小灰与方块兵，三人已齐，建立「他们自己能打」的信任；
  * 4–6   引入铁罐（护甲），第一次需要真输出而不是站着挨；
  * 7     飞碟压阵，第一个可能卡住的点；
  * 8–12  数量与护甲混合，主卡关区，也是复活广告的需求来源；
  * 13–15 高压收尾。
  */
 export const WAVES: readonly WaveDef[] = [
-  // 第 1 波只给 4 只：此时玩家手里只有 1 个村民，任何起手都必须能独自守住，
-  // 否则开局就崩，后面全程滚雪球
-  { wave: 1, spawns: [s('grey', 4)], hint: '下来几个小灰，先试试手' },
-  { wave: 2, spawns: [s('grey', 7, 500)], hint: '小灰变多了' },
+  // 开局三人已齐，第 1 波仍只出小灰，让玩家看清「他们自己会打」
+  { wave: 1, spawns: [s('grey', 7)], hint: '下来几个小灰，先试试手' },
+  { wave: 2, spawns: [s('grey', 9, 500)], hint: '小灰变多了' },
   { wave: 3, spawns: [s('cube', 6)], hint: '方块兵列队上来了，比小灰硬' },
   { wave: 4, spawns: [s('cube', 6), s('grey', 6, 400, 3000)], hint: '两拨一起来' },
   { wave: 5, spawns: [s('cube', 7), s('canister', 2, 700, 4000)], hint: '压阵的是铁罐，壳很厚' },
   { wave: 6, spawns: [s('grey', 12, 320)], hint: '一大群小灰冲上来，要能打一片' },
   { wave: 7, spawns: [s('saucer', 1), s('cube', 6, 600, 2500)], hint: '飞碟来了，扛得住才打得动' },
-  { wave: 8, spawns: [s('cube', 8, 450), s('canister', 3, 800, 4500)], hint: '方块兵开路，三个铁罐跟上' },
-  { wave: 9, spawns: [s('grey', 12, 280), s('canister', 3, 800, 5000)], hint: '小灰淹人，铁罐收尾' },
-  { wave: 10, spawns: [s('canister', 4, 800), s('cube', 8, 500, 4000)], hint: '四个铁罐，硬碰硬' },
-  { wave: 11, spawns: [s('grey', 14, 260), s('cube', 8, 450, 5000)], hint: '来得又快又多' },
-  { wave: 12, spawns: [s('canister', 4, 750), s('grey', 14, 280, 4500)], hint: '铁罐顶着，小灰绕上来' },
+  { wave: 8, spawns: [s('cube', 10, 450), s('canister', 3, 800, 4500)], hint: '方块兵开路，三个铁罐跟上' },
+  { wave: 9, spawns: [s('grey', 16, 280), s('canister', 3, 800, 5000)], hint: '小灰淹人，铁罐收尾' },
+  { wave: 10, spawns: [s('canister', 4, 800), s('cube', 10, 500, 4000)], hint: '四个铁罐，硬碰硬' },
+  { wave: 11, spawns: [s('grey', 18, 260), s('cube', 10, 450, 5000)], hint: '来得又快又多' },
+  { wave: 12, spawns: [s('canister', 5, 750), s('grey', 16, 280, 4500)], hint: '铁罐顶着，小灰绕上来' },
   { wave: 13, spawns: [s('saucer', 1), s('canister', 2, 800, 3000)], hint: '飞碟带着铁罐，全是硬的' },
   { wave: 14, spawns: [s('cube', 8, 450), s('canister', 3, 800, 5000)], hint: '人多壳还厚' },
   // 终局刻意不做成数值墙：一个飞碟加三铁罐六方块，
@@ -109,9 +112,9 @@ export const WAVES: readonly WaveDef[] = [
  * 血量再指数下去会变成硬墙。
  */
 export const WAVE_CURVE = {
-  hpGrowth: 1.15,
-  atkGrowth: 1.10,
-  lateGrowth: 1.06,
+  hpGrowth: 1.18,
+  atkGrowth: 1.12,
+  lateGrowth: 1.05,
   lateAtkGrowth: 1.02,
   knee: 7,
 } as const;

@@ -27,6 +27,26 @@ export function goldBtn(g: PIXI.Graphics, x: number, y: number, w: number, h: nu
 }
 
 /**
+ * 自家阵地：三角站位和底栏连成一块台子，避免人悬在路中间。
+ * 只铺在脚下这一小片，上方空场仍然不画格子。
+ */
+export function homeTerrace(
+  g: PIXI.Graphics,
+  cx: number,
+  frontY: number,
+  backY: number,
+): void {
+  const midY = (frontY + backY) / 2 + 12;
+  const ry = Math.max(48, (backY - frontY) * 0.72 + 28);
+  g.beginFill(0x1a1008, 0.38);
+  g.drawEllipse(cx, midY, 208, ry);
+  g.endFill();
+  g.beginFill(0x000000, 0.2);
+  g.drawEllipse(cx, backY + 8, 228, 20);
+  g.endFill();
+}
+
+/**
  * 队列三格的地面垫。空位也要画出来，否则玩家会以为只能跟旁边的人换。
  * 只画在村民站的那三格，上方空场仍然不铺格子。
  */

@@ -47,6 +47,10 @@ export interface HeroDef {
   skillDesc: string;
   /** 一句人物介绍，只用于选人卡，帮玩家记住脸 */
   flavor: string;
+  /** 别人替不了的活。选人看这个，不看面板 */
+  job: string;
+  /** 哪类破烂装他最值 */
+  eats: string;
 }
 
 /** 近战挥砍，远程走弹道。观战层用，不改伤害规则 */
@@ -67,6 +71,8 @@ export const HEROES: readonly HeroDef[] = [
     skill: { kind: 'shield', amount: 160, everyMs: 5000 },
     skillDesc: '每 5 秒自己缓一层，能扛 160 点',
     flavor: '三层棉袄加摩托头盔，站前面最合适',
+    job: '挨',
+    eats: '高压锅、反弹、加厚，装他最值',
   },
   {
     id: 'dachui',
@@ -80,6 +86,8 @@ export const HEROES: readonly HeroDef[] = [
     skill: { kind: 'slowOnHit', slowPct: 35, durationMs: 2000 },
     skillDesc: '被他锤到的，两秒内动作慢 35%',
     flavor: '五金店老板，抡起大锤来不看人',
+    job: '控',
+    eats: '秤砣、电锯，打一下能拖住',
   },
   {
     id: 'laoli',
@@ -87,12 +95,14 @@ export const HEROES: readonly HeroDef[] = [
     hp: 1150,
     atk: 120,
     def: 28,
-    range: 1,
+    range: 2,
     attackIntervalMs: 1000,
     skillName: '越砍越精神',
     skill: { kind: 'lifesteal', healPct: 30 },
     skillDesc: '砍出去的伤害，三成变自己的血',
-    flavor: '剁了半辈子肉，手上有准头',
+    flavor: '剁了半辈子肉，站第二排也能砍到',
+    job: '中',
+    eats: '水管、电锯，不当队首也能输出',
   },
   {
     id: 'erjiu',
@@ -106,6 +116,8 @@ export const HEROES: readonly HeroDef[] = [
     skill: { kind: 'heal', amount: 110, everyMs: 3000 },
     skillDesc: '每 3 秒给伤得最重的那个补 110',
     flavor: '什么破烂到他手里都能装上',
+    job: '修',
+    eats: '队里软的时候带他，音响装谁都行',
   },
   {
     id: 'sanshen',
@@ -119,6 +131,8 @@ export const HEROES: readonly HeroDef[] = [
     skill: { kind: 'splash', damagePct: 55, radius: 1 },
     skillDesc: '打人带响，旁边的也吃 55% 伤害',
     flavor: '广场舞领队，音响就是她的武器',
+    job: '片',
+    eats: '鼓风机、电线，一群怪过来她是芯',
   },
   {
     id: 'laoyanqiang',
@@ -132,6 +146,8 @@ export const HEROES: readonly HeroDef[] = [
     skill: { kind: 'execute', maxChain: 2 },
     skillDesc: '打倒一个立刻再来一下，最多连 2 次',
     flavor: '蹲着抽烟，站起来才动手，站得越远越准',
+    job: '点',
+    eats: '钢板、头盔，脆皮被逼到最前面',
   },
 ];
 

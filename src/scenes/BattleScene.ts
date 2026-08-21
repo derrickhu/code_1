@@ -21,19 +21,20 @@ import {
   SPAWN_DIST,
   TICK_MS,
   TEAM_SIZE,
-  slotPos,
 } from '@/balance/combat';
 import { getWave } from '@/balance/enemies';
+import { resolveAttackFx, resolveEnemyFx } from '@/balance/fx';
 import { getHero } from '@/balance/heroes';
 import { abilityTag, getMod } from '@/balance/mods';
 import type { PickOption } from '@/balance/picker';
-import { ModDock } from '@/ui/ModDock';
+import { DOCK_GAP, DOCK_H, ModDock } from '@/ui/ModDock';
 import { SettleOverlay } from '@/ui/SettleOverlay';
 import { CombatFx } from '@/fx/CombatFx';
-import { addFitPortrait, bgTex, enemyTex, fillContain, fillCover, heroTex, modTex, preloadBattleArt, watchArt } from '@/core/TextureLoader';
+import { motionFor, UnitActor } from '@/fx/UnitActor';
+import { addFitPortrait, bgTex, fillContain, fillCover, heroTex, modTex, preloadBattleArt, watchArt } from '@/core/TextureLoader';
 import { playSfx } from '@/core/SfxPlayer';
 import { saveRun } from '@/core/RunMemory';
-import { GOLD, hpBar, plate, queuePad, rangeArea, shieldMark, stance } from '@/ui/paint';
+import { GOLD, homeTerrace, hpBar, plate, queuePad, rangeArea, shieldMark } from '@/ui/paint';
 import {
   applyPick,
   createRun,
@@ -41,6 +42,7 @@ import {
   heroAt,
   installMod,
   installTargets,
+  isRosterPicking,
   placeInSlot,
   teamInOrder,
   tick,
@@ -59,33 +61,27 @@ const VILLAGER_COLOR: Readonly<Record<string, number>> = {
   laoyanqiang: 0x8f7a4a,
 };
 
-const ALIEN_COLOR: Readonly<Record<string, number>> = {
-  grey: 0x9fb6c9,
-  cube: 0x7d6bd4,
-  canister: 0x5a8fa8,
-  saucer: 0xa050c0,
-};
+/** 小队中轴。前排在中，后排左右错开，贴在底栏上，像一队人守在自家门口。 */
+const SQUAD_X = 375;
+const BACK_DX = 96;
+const BACK_DY = 62;
 
-/** 三人一列，都站中轴。左右错开会让人以为没有固定站位。 */
-const QUEUE_X = 375;
-
-const SLOT_NAME = ['前排', '中间', '后排'] as const;
+const SLOT_NAME = ['前排', '左后', '右后'] as const;
 
 const PICK_CARD_W = 218;
 const PICK_CARD_H = 400;
+/** 开局 6 人一屏，两排三张，比波间三选一更扁 */
+const ROSTER_CARD_W = 216;
+const ROSTER_CARD_H = 278;
 
 function villagerColor(id: string): number {
   return VILLAGER_COLOR[id] ?? GOLD;
 }
 
-function alienColor(id: string): number {
-  return ALIEN_COLOR[id] ?? 0x9fb6c9;
-}
-
 function heroH(h: HeroUnit): number {
-  if (h.def.hp >= 1000) return 90;
-  if (h.def.hp >= 700) return 82;
-  return 76;
+  if (h.def.hp >= 1000) return 102;
+  if (h.def.hp >= 700) return 94;
+  return 88;
 }
 
 function enemyH(e: EnemyUnit): number {
@@ -98,7 +94,7 @@ function enemyH(e: EnemyUnit): number {
 /** 外星人横向散开，别叠成一根柱子。同一只怪每帧必须落在同一条道上 */
 function alienLaneX(id: number): number {
   const spread = (id * 137) % 5;
-  return 258 + spread * 58;
+  return 300 + spread * 38;
 }
 
 function label(size: number, color = 0xffffff, bold = false): PIXI.Text {
@@ -118,6 +114,9 @@ export class BattleScene implements Scene {
   private _accMs = 0;
 
   private readonly _field = new PIXI.Graphics();
+  private readonly _unitLayer = new PIXI.Container();
+  private readonly _heroActors = new Map<string, UnitActor>();
+  private readonly _enemyActors = new Map<number, UnitActor>();
   private readonly _nameLayer = new PIXI.Container();
   private readonly _hudPlate = new PIXI.Graphics();
   private readonly _hud = new PIXI.Container();
@@ -139,13 +138,16 @@ export class BattleScene implements Scene {
 
   private _pickIdle = 0;
   private _guideLife = 0;
+  private _gapTold = 0;
   private _settled = false;
   private _selected: string | null = null;
 
   private readonly _hitFlash = new Map<number, number>();
   private readonly _hurtFlash = new Map<string, number>();
-  private readonly _lunge = new Map<string, { dx: number; dy: number; life: number }>();
   private readonly _lastEnemyXY = new Map<number, { x: number; y: number }>();
+  /** 上一逻辑帧的距离，用来在 100ms 步长之间把走路插成滑步 */
+  private readonly _prevDist = new Map<number, number>();
+  private readonly _enemyKind = new Map<number, string>();
   private readonly _rangeHint = label(18, GOLD, true);
 
   /**
@@ -156,12 +158,15 @@ export class BattleScene implements Scene {
     top: 96,
     fieldTop: 200,
     fieldBottom: 1010,
+    /** 前排脚底。钉在底栏上方，不跟坐标轴均分 */
+    frontY: 930,
     height: 1334,
     pxPerCell: 90,
   };
 
   constructor() {
     this.container.addChild(this._field);
+    this.container.addChild(this._unitLayer);
     this.container.addChild(this._nameLayer);
     this.container.addChild(this._fx.layer);
     this.container.addChild(this._hud);
@@ -176,6 +181,8 @@ export class BattleScene implements Scene {
     this._buildHud();
     watchArt(() => {
       if (this._state.phase === 'picking') this._renderPickCards();
+      for (const [id, a] of this._heroActors) a.bindHero(id);
+      for (const e of this._state.enemies) this._enemyActors.get(e.id)?.bindEnemy(e.proto.id);
     });
   }
 
@@ -185,16 +192,19 @@ export class BattleScene implements Scene {
     this._applyHudLayout();
     this._settle.hide();
     this._fx.reset();
+    this._clearActors();
     this._state = createRun(Date.now() >>> 0);
     this._clearSelect();
     this._accMs = 0;
     this._hitFlash.clear();
     this._hurtFlash.clear();
-    this._lunge.clear();
     this._lastEnemyXY.clear();
+    this._prevDist.clear();
+    this._enemyKind.clear();
     this._rangeHint.visible = false;
     this._pickIdle = 0;
     this._guideLife = 0;
+    this._gapTold = 0;
     this._settled = false;
     this._guide.visible = false;
     this._renderPickCards();
@@ -231,6 +241,8 @@ export class BattleScene implements Scene {
       const modName = mod.name;
       const becomes = mod.becomes;
       if (!installMod(s, occupant.def.id)) return;
+      const dest = this._heroXY(occupant.def.id);
+      this._fx.flyMod(375, this._dock.y + 40, dest?.x ?? this._slotX(slot), dest?.y ?? this._slotY(slot), modTex(mod.id));
       this._clearSelect();
       this._accMs = 0;
       this._say(`${occupant.def.name}装上了${modName}：${becomes}`);
@@ -249,7 +261,7 @@ export class BattleScene implements Scene {
     }
     const mover = s.team.find((h) => h.def.id === this._selected);
     if (mover && placeInSlot(s, mover.def.id, slot)) {
-      this._say(`${mover.def.name}站到${SLOT_NAME[slot]}`);
+      this._say(`${mover.def.name}站到${SLOT_NAME[slot] ?? '那个位置'}`);
     }
     this._clearSelect();
   }
@@ -264,33 +276,44 @@ export class BattleScene implements Scene {
     const height = Math.max(1334, Game.logicHeight || 1334);
     const top = Math.max(Game.safeTop, 96);
     const fieldTop = top + 104;
-    // 底部留给改装条与安全区，其余全部给战场
-    const fieldBottom = height - 176 - Game.safeBottom;
-    // 整条坐标轴（队尾缓冲 → 出场点）线性铺满战场高度。
-    // 队列只占下面三格，上面六格全是空场 —— 空场是舞台，不是浪费。
-    const span = SPAWN_DIST - (REAR_POS - MELEE_REACH);
+    // 底栏先钉死，战场下沿贴着栏，小队坐在栏上。多出来的高度全给外星人走路。
+    const fieldBottom = height - Game.safeBottom - DOCK_H - DOCK_GAP;
+    const frontY = fieldBottom - 16 - BACK_DY;
     this._lay = {
       top,
       fieldTop,
       fieldBottom,
+      frontY,
       height,
-      pxPerCell: (fieldBottom - fieldTop) / span,
+      pxPerCell: Math.max(1, (frontY - fieldTop) / SPAWN_DIST),
     };
   }
 
-  /** 战场坐标 → 屏幕 Y。坐标越大越靠上（越靠外星人来的方向） */
+  /**
+   * 战场坐标 → 屏幕 Y。坐标越大越靠上（越靠外星人来的方向）。
+   * 对打线钉在底栏上方；上路（0→出场点）拉满空场。队尾只留薄薄一条，
+   * 够表现「推过去了」，不要在人脚下空出半屏土。
+   */
   private _posToY(pos: number): number {
     const min = REAR_POS - MELEE_REACH;
-    const clamped = Math.max(min, Math.min(SPAWN_DIST, pos));
-    return this._lay.fieldBottom - (clamped - min) * this._lay.pxPerCell;
+    const { frontY, fieldBottom, pxPerCell } = this._lay;
+    if (pos >= 0) {
+      const t = Math.min(SPAWN_DIST, pos);
+      return frontY - t * pxPerCell;
+    }
+    const depth = Math.min(0, Math.max(min, pos));
+    const home = fieldBottom - frontY;
+    return frontY + (depth / min) * home;
   }
 
   private _slotY(slot: number): number {
-    return this._posToY(slotPos(slot));
+    return slot <= 0 ? this._lay.frontY : this._lay.frontY + BACK_DY;
   }
 
-  private _slotX(_slot: number): number {
-    return QUEUE_X;
+  private _slotX(slot: number): number {
+    if (slot === 1) return SQUAD_X - BACK_DX;
+    if (slot === 2) return SQUAD_X + BACK_DX;
+    return SQUAD_X;
   }
 
   update(dt: number): void {
@@ -299,13 +322,23 @@ export class BattleScene implements Scene {
     // 点中人时战斗停住：换位是想清楚的决定，但不弹窗打断看戏
     if (this._selected) {
       this._drawField();
+      this._tickActors(dt);
+      this._updateHud();
+      return;
+    }
+
+    if (this._fx.hitStop > 0) {
+      this._fx.hitStop = Math.max(0, this._fx.hitStop - dt);
+      this._fx.update(dt);
+      this._drawField();
+      this._tickActors(dt);
       this._updateHud();
       return;
     }
 
     if (s.phase === 'picking') {
       if (this._pick.children.length === 0) this._renderPickCards();
-      if (s.team.length === 0) {
+      if (isRosterPicking(s) && s.team.length === 0) {
         this._pickIdle += dt;
         if (this._pickIdle >= 3) this._highlightFirstCard();
       }
@@ -323,6 +356,10 @@ export class BattleScene implements Scene {
         this._consumeEvents();
         // 经 tick 后 phase 可能已变，这里必须重新读状态
         const phase = this._state.phase;
+        if (phase === 'gap' && this._gapTold !== this._state.wave) {
+          this._gapTold = this._state.wave;
+          this._say(`第 ${this._state.wave} 波 · ${getWave(this._state.wave).hint}`);
+        }
         if (phase === 'picking') {
           this._renderPickCards();
           break;
@@ -344,11 +381,6 @@ export class BattleScene implements Scene {
       if (left <= 0) this._hurtFlash.delete(id);
       else this._hurtFlash.set(id, left);
     }
-    for (const [id, l] of this._lunge) {
-      l.life -= dt;
-      if (l.life <= 0) this._lunge.delete(id);
-    }
-
     if (this._guideLife > 0) {
       this._guideLife -= dt;
       this._guide.visible = this._guideLife > 0;
@@ -356,6 +388,7 @@ export class BattleScene implements Scene {
 
     this._fx.update(dt);
     this._drawField();
+    this._tickActors(dt);
     this._updateHud();
   }
 
@@ -365,15 +398,25 @@ export class BattleScene implements Scene {
     return { x: this._slotX(h.slot), y: this._slotY(h.slot) - heroH(h) * 0.45 };
   }
 
+  private _visualDist(e: EnemyUnit): number {
+    const prev = this._prevDist.get(e.id);
+    if (prev === undefined) return e.dist;
+    const u = Math.max(0, Math.min(1, this._accMs / TICK_MS));
+    return prev + (e.dist - prev) * u;
+  }
+
   private _enemyXY(id: number): { x: number; y: number } | undefined {
     const e = this._state.enemies.find((x) => x.id === id);
-    if (e) return { x: alienLaneX(e.id), y: this._posToY(e.dist) - enemyH(e) * 0.45 };
+    if (e) return { x: alienLaneX(e.id), y: this._posToY(this._visualDist(e)) - enemyH(e) * 0.45 };
     return this._lastEnemyXY.get(id);
   }
 
   private _rememberUnits(): void {
     this._lastEnemyXY.clear();
+    this._prevDist.clear();
     for (const e of this._state.enemies) {
+      this._prevDist.set(e.id, e.dist);
+      this._enemyKind.set(e.id, e.proto.id);
       this._lastEnemyXY.set(e.id, {
         x: alienLaneX(e.id),
         y: this._posToY(e.dist) - enemyH(e) * 0.45,
@@ -386,11 +429,24 @@ export class BattleScene implements Scene {
       if (ev.kind === 'hit') {
         this._hitFlash.set(ev.enemyId, 120);
         const attacker = this._state.team.find((h) => h.def.id === ev.heroId);
-        if (attacker && attacker.stats.range <= 1) {
-          this._lunge.set(ev.heroId, { dx: 0, dy: -8, life: 0.1 });
+        if (attacker) {
+          const actor = this._heroActors.get(ev.heroId);
+          const enemy = this._enemyXY(ev.enemyId);
+          if (actor && enemy) {
+            actor.playAttack(enemy.x, enemy.y, motionFor(resolveAttackFx(attacker.def, attacker.mods)));
+          }
         }
       }
-      if (ev.kind === 'enemyHit') this._hurtFlash.set(ev.heroId, 140);
+      if (ev.kind === 'enemyHit') {
+        this._hurtFlash.set(ev.heroId, 140);
+        this._heroActors.get(ev.heroId)?.flash(140);
+        this._enemyActors.get(ev.enemyId)?.playAttack(
+          this._heroXY(ev.heroId)?.x ?? 375,
+          this._heroXY(ev.heroId)?.y ?? this._lay.frontY,
+          'lunge',
+        );
+      }
+      if (ev.kind === 'hit') this._enemyActors.get(ev.enemyId)?.flash(120);
 
       const withHero = ev.kind === 'hit' || ev.kind === 'skill' || ev.kind === 'heroDown'
         || ev.kind === 'enemyHit' || ev.kind === 'heroRevive' || ev.kind === 'install';
@@ -414,6 +470,14 @@ export class BattleScene implements Scene {
         color,
         melee,
         orb: attacker ? !!attacker.stats.splash : false,
+        fx: attacker ? resolveAttackFx(attacker.def, attacker.mods) : undefined,
+        enemyFx: ev.kind === 'enemyHit' || ev.kind === 'enemyDown'
+          ? resolveEnemyFx(
+            this._enemyKind.get(ev.enemyId)
+              ?? this._state.enemies.find((e) => e.id === ev.enemyId)?.proto.id
+              ?? 'grey',
+          )
+          : undefined,
         reachY: attacker ? this._posToY(heroReach(attacker)) : undefined,
         meleeR: attacker && melee
           ? Math.max(56, Math.abs((hero?.y ?? 0) - this._posToY(heroReach(attacker))) + 10)
@@ -441,8 +505,11 @@ export class BattleScene implements Scene {
     if (!card || card.children.some((c) => c.name === 'idle-glow')) return;
     const glow = new PIXI.Graphics();
     glow.name = 'idle-glow';
+    const roster = isRosterPicking(this._state);
+    const w = roster ? ROSTER_CARD_W : PICK_CARD_W;
+    const h = roster ? ROSTER_CARD_H : PICK_CARD_H;
     // 贴着卡边画，不能再往左上偏——旧尺寸 + (-6,-6) 会让第一张看起来没对齐
-    glow.lineStyle(5, GOLD, 0.95).drawRoundedRect(1, 1, PICK_CARD_W - 2, PICK_CARD_H - 2, 19);
+    glow.lineStyle(5, GOLD, 0.95).drawRoundedRect(1, 1, w - 2, h - 2, 19);
     card.addChild(glow);
   }
 
@@ -488,7 +555,7 @@ export class BattleScene implements Scene {
       const hit = new PIXI.Container();
       hit.eventMode = 'static';
       const g = new PIXI.Graphics();
-      g.beginFill(0xffffff, 0.001).drawRoundedRect(-58, -96, 116, 108, 14).endFill();
+      g.beginFill(0xffffff, 0.001).drawRoundedRect(-64, -110, 128, 124, 14).endFill();
       hit.addChild(g);
       bindPointerTap(hit, () => this._tapSlot(slot));
       hit.name = `queue:${slot}`;
@@ -501,8 +568,8 @@ export class BattleScene implements Scene {
     const { top, fieldBottom } = this._lay;
     this._waveText.position.set(44, top + 6);
     this._hintText.position.set(44, top + 44);
-    this._dock.place(fieldBottom + 16);
-    this._guide.position.set(375, fieldBottom - 40);
+    this._dock.place(fieldBottom + DOCK_GAP);
+    this._guide.position.set(375, this._lay.frontY - 118);
     this._installTitle.position.set(375, top + 96);
     this._installDesc.position.set(375, top + 132);
     this._inspectTitle.position.set(375, top + 96);
@@ -518,7 +585,7 @@ export class BattleScene implements Scene {
 
   private _updateHud(): void {
     const s = this._state;
-    const opening = s.phase === 'picking' && s.team.length === 0;
+    const opening = isRosterPicking(s);
     this._waveText.visible = !opening;
     this._hintText.visible = !opening;
     this._waveText.text = `第 ${s.wave} 波`;
@@ -573,7 +640,7 @@ export class BattleScene implements Scene {
     const { top } = this._lay;
     plate(this._inspectPlate, 40, top + 86, 670, 84, 16, 0.88);
     this._inspectTitle.text = `${hero.def.name} · ${SLOT_NAME[hero.slot]}`;
-    this._inspectDesc.text = '再点前排 / 中间 / 后排换过去';
+    this._inspectDesc.text = '再点前排 / 左后 / 右后换过去';
   }
 
   // ── 战场 ──────────────────────────────────────────────
@@ -599,10 +666,13 @@ export class BattleScene implements Scene {
       g.beginFill(0x8c2b3a, this._fx.downPulse * 0.5).drawRect(0, 0, 750, this._lay.height).endFill();
     }
 
+    if (this._showTeam()) {
+      homeTerrace(g, SQUAD_X, this._lay.frontY, this._lay.frontY + BACK_DY);
+    }
     this._drawQueuePads(g);
 
     if (this._fx.landPulse > 0) {
-      g.beginFill(GOLD, this._fx.landPulse * 1.1).drawEllipse(375, this._slotY(0) + 8, 90, 22).endFill();
+      g.beginFill(GOLD, this._fx.landPulse * 1.1).drawEllipse(SQUAD_X, this._slotY(0) + 8, 90, 22).endFill();
     }
 
     this._drawSelectedRange(g);
@@ -611,6 +681,103 @@ export class BattleScene implements Scene {
     for (const h of [...teamInOrder(this._state)].reverse()) this._drawHero(g, h);
     for (const e of this._state.enemies) this._drawEnemy(g, e);
     this._drawHeroNames();
+  }
+
+  private _clearActors(): void {
+    for (const a of this._heroActors.values()) a.destroy();
+    for (const a of this._enemyActors.values()) a.destroy();
+    this._heroActors.clear();
+    this._enemyActors.clear();
+    this._unitLayer.removeChildren();
+  }
+
+  private _syncActors(): void {
+    const liveH = new Set<string>();
+    if (this._showTeam()) {
+      for (const h of this._state.team) {
+        liveH.add(h.def.id);
+        let a = this._heroActors.get(h.def.id);
+        if (!a) {
+          a = new UnitActor();
+          a.bindHero(h.def.id);
+          this._heroActors.set(h.def.id, a);
+          this._unitLayer.addChild(a.view);
+        }
+        a.place(this._slotX(h.slot), this._slotY(h.slot), heroH(h));
+        a.setDead(!h.alive);
+        a.view.zIndex = 20 - h.slot;
+      }
+    }
+    for (const [id, a] of [...this._heroActors]) {
+      if (liveH.has(id)) continue;
+      a.destroy();
+      this._heroActors.delete(id);
+    }
+
+    const liveE = new Set<number>();
+    for (const e of this._state.enemies) {
+      liveE.add(e.id);
+      let a = this._enemyActors.get(e.id);
+      if (!a) {
+        a = new UnitActor();
+        a.bindEnemy(e.proto.id);
+        this._enemyActors.set(e.id, a);
+        this._unitLayer.addChild(a.view);
+      }
+      a.place(alienLaneX(e.id), this._posToY(this._visualDist(e)), enemyH(e));
+      a.walkBob = this._state.phase === 'fighting';
+      a.view.zIndex = Math.round(e.dist * 10);
+    }
+    for (const [id, a] of [...this._enemyActors]) {
+      if (liveE.has(id)) continue;
+      a.destroy();
+      this._enemyActors.delete(id);
+    }
+    this._unitLayer.sortableChildren = true;
+  }
+
+  private _tickActors(dt: number): void {
+    this._syncActors();
+    this._aimActors();
+    for (const a of this._heroActors.values()) a.update(dt);
+    for (const a of this._enemyActors.values()) a.update(dt);
+  }
+
+  /** 待机看向最近威胁，出手方向才跟战场轴对上 */
+  private _aimActors(): void {
+    const foes = this._state.enemies;
+    for (const h of this._state.team) {
+      const actor = this._heroActors.get(h.def.id);
+      if (!actor || foes.length === 0) continue;
+      let best = foes[0];
+      let bestD = Infinity;
+      const hx = this._slotX(h.slot);
+      for (const e of foes) {
+        const d = Math.abs(alienLaneX(e.id) - hx) + e.dist * 8;
+        if (d < bestD) {
+          bestD = d;
+          best = e;
+        }
+      }
+      actor.faceToward(alienLaneX(best.id));
+    }
+    for (const e of foes) {
+      const actor = this._enemyActors.get(e.id);
+      if (!actor) continue;
+      const live = this._state.team.filter((h) => h.alive);
+      if (live.length === 0) continue;
+      let best = live[0];
+      let bestD = Infinity;
+      const ex = alienLaneX(e.id);
+      for (const h of live) {
+        const d = Math.abs(this._slotX(h.slot) - ex);
+        if (d < bestD) {
+          bestD = d;
+          best = h;
+        }
+      }
+      actor.faceToward(this._slotX(best.slot));
+    }
   }
 
   private _drawQueuePads(g: PIXI.Graphics): void {
@@ -646,7 +813,9 @@ export class BattleScene implements Scene {
         front: slot === 0 && !moving && !installing,
       });
       tag.text = SLOT_NAME[slot];
-      tag.position.set(x + 62, y - 2);
+      if (slot === 1) tag.position.set(x - 54, y - 6);
+      else if (slot === 2) tag.position.set(x + 54, y - 6);
+      else tag.position.set(x, y + 20);
     }
   }
 
@@ -711,22 +880,12 @@ export class BattleScene implements Scene {
   }
 
   private _drawHero(g: PIXI.Graphics, h: HeroUnit): void {
-    const lunge = this._lunge.get(h.def.id);
-    const x = this._slotX(h.slot) + (lunge ? lunge.dx : 0);
-    const feet = this._slotY(h.slot) + (lunge ? lunge.dy : 0);
-    const color = villagerColor(h.def.id);
+    const x = this._slotX(h.slot);
+    const feet = this._slotY(h.slot);
     const size = heroH(h);
-    const spr = heroTex(h.def.id);
-    const hurt = this._hurtFlash.has(h.def.id);
 
     if (!h.alive) {
       g.beginFill(0x000000, 0.4).drawEllipse(x, feet + 8, 34, 10).endFill();
-      if (spr && spr.baseTexture.valid && spr.width > 1) {
-        fillContain(g, spr, x, feet, size + 8, size);
-        g.beginFill(0x0b0f18, 0.58).drawEllipse(x, feet - size * 0.45, size * 0.42, size * 0.5).endFill();
-      } else {
-        g.beginFill(0x4b5568, 0.55).drawRoundedRect(x - 28, feet - size, 56, size, 10).endFill();
-      }
       return;
     }
 
@@ -734,18 +893,21 @@ export class BattleScene implements Scene {
       g.lineStyle(3, GOLD, 0.95).drawEllipse(x, feet + 8, 48, 14).lineStyle(0);
     }
 
-    if (spr && spr.baseTexture.valid && spr.width > 1) {
-      fillContain(g, spr, x, feet, size + 8, size);
-      if (hurt) g.beginFill(0xffffff, 0.32).drawEllipse(x, feet - size * 0.45, size * 0.4, size * 0.5).endFill();
-    } else {
-      g.beginFill(hurt ? 0xffffff : color, hurt ? 0.95 : 0.9).drawRoundedRect(x - 28, feet - size, 56, size, 10).endFill();
-    }
-
-    // 身上装了几件破烂，就在肩上挂几个小方块。改造要看得见
+    // 破烂挂在身上：看得见「他变成了什么」，不是三个金点
+    const hang = [
+      { dx: 30, dy: -size * 0.55 },
+      { dx: -32, dy: -size * 0.38 },
+      { dx: 8, dy: -size * 0.92 },
+    ];
     for (let i = 0; i < h.mods.length; i += 1) {
-      g.beginFill(GOLD, 0.9);
-      g.drawRoundedRect(x + 22, feet - size * 0.85 + i * 16, 13, 13, 3);
-      g.endFill();
+      const p = hang[i];
+      if (!p) continue;
+      const mx = x + p.dx;
+      const my = feet + p.dy;
+      g.beginFill(0xfff4c4, 0.95).drawRoundedRect(mx - 13, my - 13, 26, 26, 6).endFill();
+      const t = modTex(h.mods[i]!.id);
+      if (t?.baseTexture.valid && t.width > 1) fillContain(g, t, mx, my + 10, 22, 22);
+      else g.beginFill(GOLD, 0.9).drawRoundedRect(mx - 10, my - 10, 20, 20, 4).endFill();
     }
 
     // 越挨越猛：层数直接画成小竖条，玩家才知道高压锅在起作用
@@ -767,20 +929,9 @@ export class BattleScene implements Scene {
   private _drawEnemy(g: PIXI.Graphics, e: EnemyUnit): void {
     const size = enemyH(e);
     const x = alienLaneX(e.id);
-    const feet = this._posToY(e.dist);
-    const color = alienColor(e.proto.id);
+    const feet = this._posToY(this._visualDist(e));
     const flashing = this._hitFlash.has(e.id);
-    const spr = enemyTex(e.proto.id);
-
-    stance(g, x, feet, color, true);
-    if (spr && spr.baseTexture.valid && spr.width > 1) {
-      fillContain(g, spr, x, feet, size + 10, size);
-      if (flashing) g.beginFill(0xffffff, 0.35).drawEllipse(x, feet - size * 0.45, size * 0.4, size * 0.5).endFill();
-    } else {
-      g.beginFill(flashing ? 0xffffff : color, flashing ? 0.95 : 0.85);
-      g.drawRoundedRect(x - size / 2, feet - size, size, size, 8);
-      g.endFill();
-    }
+    if (flashing) g.beginFill(0xffffff, 0.2).drawEllipse(x, feet - size * 0.2, size * 0.35, 12).endFill();
     if (e.slowMs > 0) {
       g.lineStyle(2.2, 0x86efac, 0.75);
       g.drawEllipse(x, feet - size * 0.4, size * 0.42, size * 0.28);
@@ -801,33 +952,58 @@ export class BattleScene implements Scene {
     const s = this._state;
     if (s.phase !== 'picking' || s.pendingOptions.length === 0) return;
 
-    const opening = s.team.length === 0;
+    const roster = isRosterPicking(s);
     const dim = new PIXI.Graphics();
-    dim.beginFill(0x2a160c, opening ? 0.38 : 0.55).drawRect(0, 0, 750, this._lay.height).endFill();
+    dim.beginFill(0x2a160c, roster ? 0.38 : 0.55).drawRect(0, 0, 750, this._lay.height).endFill();
     this._pick.addChild(dim);
 
-    const isMod = s.pendingOptions[0]?.kind === 'mod';
-    const titleY = this._lay.fieldTop + (this._lay.fieldBottom - this._lay.fieldTop) * (opening ? 0.14 : 0.16);
+    const titleY = this._lay.fieldTop + (roster ? 8 : (this._lay.fieldBottom - this._lay.fieldTop) * 0.16);
 
-    const title = label(36, 0xfff4c4, true);
+    const title = label(roster ? 32 : 36, 0xfff4c4, true);
     title.style.stroke = '#2a160c';
     title.style.strokeThickness = 6;
     title.anchor.set(0.5);
     title.position.set(375, titleY);
-    title.text = opening ? '叫谁来' : isMod ? '废品站今天有这些' : '又来一个帮手';
+    title.text = roster ? '叫三个人来' : '废品站今天有这些';
     this._pick.addChild(title);
 
-    const sub = label(24, 0xfff1a8, true);
+    const names = s.team.map((h) => h.def.name);
+    const left = TEAM_SIZE - s.team.length;
+    const sub = label(roster ? 22 : 24, 0xfff1a8, true);
     sub.style.stroke = '#2a160c';
     sub.style.strokeThickness = 4;
     sub.anchor.set(0.5);
-    sub.position.set(375, titleY + 44);
-    sub.text = opening
-      ? '点一个就开打，他自己会动手'
-      : isMod
-        ? '挑一件，下一步决定装给谁'
-        : '挑一个人加进队里';
+    sub.position.set(375, titleY + (roster ? 38 : 44));
+    sub.text = roster
+      ? names.length === 0
+        ? '点满三个就开打，点错再点一下取消'
+        : `已叫${names.join('、')} · 还差 ${left} 个`
+      : '挑一件，下一步决定装给谁';
     this._pick.addChild(sub);
+
+    if (roster) {
+      const cardW = ROSTER_CARD_W;
+      const cardH = ROSTER_CARD_H;
+      const gapX = 12;
+      const gapY = 10;
+      const cols = 3;
+      const totalW = cols * cardW + (cols - 1) * gapX;
+      const startX = (750 - totalW) / 2;
+      const startY = titleY + 68;
+      s.pendingOptions.forEach((opt, i) => {
+        const picked = opt.kind === 'recruit'
+          ? s.team.findIndex((h) => h.def.id === opt.heroId)
+          : -1;
+        const card = this._buildCard(opt, cardW, cardH, picked >= 0 ? picked : undefined);
+        card.name = `pick-card-${i}`;
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        card.position.set(startX + col * (cardW + gapX), startY + row * (cardH + gapY));
+        this._pick.addChild(card);
+        bindPointerTap(card, () => this._choose(opt));
+      });
+      return;
+    }
 
     const cardW = PICK_CARD_W;
     const cardH = PICK_CARD_H;
@@ -844,14 +1020,15 @@ export class BattleScene implements Scene {
     });
   }
 
-  private _buildCard(opt: PickOption, w: number, h: number): PIXI.Container {
+  private _buildCard(opt: PickOption, w: number, h: number, picked?: number): PIXI.Container {
     const card = new PIXI.Container();
     card.eventMode = 'static';
 
     const info = this._describe(opt);
     // 立绘、正文、底条各占一段，正文再长也只在自己那一段里换行，不许压到金条或卡边
-    const faceH = 208;
-    const tagH = info.becomes ? 54 : 0;
+    const compact = h < 340;
+    const faceH = compact ? 142 : 208;
+    const tagH = info.becomes ? (compact ? 44 : 54) : 0;
     const tagTop = h - 10 - tagH;
     const textTop = faceH + 8;
     const wrapW = w - 32;
@@ -878,7 +1055,7 @@ export class BattleScene implements Scene {
       card.addChild(swatch);
     }
 
-    const name = label(24, 0x2a160c, true);
+    const name = label(compact ? 22 : 24, 0x2a160c, true);
     name.anchor.set(0.5, 0);
     name.position.set(w / 2, textTop);
     name.style.wordWrap = true;
@@ -888,18 +1065,18 @@ export class BattleScene implements Scene {
     name.text = info.title;
     card.addChild(name);
 
-    const sub = label(16, 0x8a5a2b);
+    const sub = label(compact ? 15 : 16, 0x8a5a2b);
     sub.anchor.set(0.5, 0);
-    sub.position.set(w / 2, textTop + 30);
+    sub.position.set(w / 2, textTop + (compact ? 26 : 30));
     sub.style.wordWrap = true;
     sub.style.wordWrapWidth = wrapW;
     sub.style.align = 'center';
     sub.text = info.subtitle;
     card.addChild(sub);
 
-    const desc = label(16, 0x3d2a1c);
+    const desc = label(compact ? 15 : 16, 0x3d2a1c);
     desc.anchor.set(0.5, 0);
-    desc.position.set(w / 2, textTop + 52);
+    desc.position.set(w / 2, textTop + (compact ? 46 : 52));
     desc.style.wordWrap = true;
     desc.style.wordWrapWidth = wrapW;
     desc.style.breakWords = true;
@@ -909,8 +1086,9 @@ export class BattleScene implements Scene {
     card.addChild(desc);
 
     // 正文最多铺到金条上方，多出来的直接裁掉，避免再画出卡
+    const descTop = compact ? textTop + 46 : textTop + 52;
     const descClip = new PIXI.Graphics();
-    descClip.beginFill(0xffffff).drawRect(12, textTop + 52, w - 24, tagTop - (textTop + 56)).endFill();
+    descClip.beginFill(0xffffff).drawRect(12, descTop, w - 24, tagTop - (descTop + 4)).endFill();
     card.addChild(descClip);
     desc.mask = descClip;
 
@@ -918,7 +1096,7 @@ export class BattleScene implements Scene {
     if (info.becomes) {
       const tagBg = new PIXI.Graphics();
       tagBg.beginFill(GOLD, 0.9).drawRoundedRect(10, tagTop, w - 20, tagH, 12).endFill();
-      const tag = label(15, 0x2a160c, true);
+      const tag = label(compact ? 14 : 15, 0x2a160c, true);
       tag.anchor.set(0.5);
       tag.position.set(w / 2, tagTop + tagH / 2);
       tag.style.wordWrap = true;
@@ -928,6 +1106,19 @@ export class BattleScene implements Scene {
       tag.style.lineHeight = 20;
       tag.text = info.becomes;
       card.addChild(tagBg, tag);
+    }
+
+    if (picked !== undefined) {
+      const ring = new PIXI.Graphics();
+      ring.lineStyle(7, GOLD, 1).drawRoundedRect(2, 2, w - 4, h - 4, 18).lineStyle(0);
+      card.addChild(ring);
+      const badge = new PIXI.Graphics();
+      badge.beginFill(GOLD).drawCircle(w - 22, 22, 16).endFill();
+      const n = label(18, 0x2a160c, true);
+      n.anchor.set(0.5);
+      n.position.set(w - 22, 22);
+      n.text = String(picked + 1);
+      card.addChild(badge, n);
     }
 
     return card;
@@ -950,21 +1141,25 @@ export class BattleScene implements Scene {
     const def = getHero(opt.heroId);
     return {
       title: def.name,
-      subtitle: `${def.range <= 1 ? '贴脸打' : `射程 ${def.range} 格`} · ${abilityTag(def.skill)}`,
+      subtitle: `${def.job} · ${def.range <= 1 ? '贴脸' : `射程 ${def.range}`} · ${abilityTag(def.skill)}`,
       desc: def.skillDesc,
       color: villagerColor(def.id),
-      becomes: def.flavor,
+      becomes: def.eats,
     };
   }
 
   private _choose(opt: PickOption): void {
-    const opening = this._state.team.length === 0;
+    const roster = isRosterPicking(this._state);
     playSfx('ui_tap', 0);
     applyPick(this._state, opt);
-    this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
     this._accMs = 0;
     this._pickIdle = 0;
-    if (opening) {
+    if (isRosterPicking(this._state)) {
+      this._renderPickCards();
+      return;
+    }
+    this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
+    if (roster && this._state.phase === 'fighting') {
       this._fx.markLand();
       this._say('外星人下来了，撑过 15 波');
     }

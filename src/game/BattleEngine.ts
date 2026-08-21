@@ -9,7 +9,8 @@
  * 任何战斗规则改动只应发生在本文件，绝不允许渲染层另写一套。
  *
  * 布局与失败条件（docs/00-体验目标.md §4）：
- * 三个村民排成一列，队首站坐标 0，往后 -1、-2；外星人从 SPAWN_DIST 走向队首。
+ * 三个村民逻辑上是队列（队首 0，往后 -1、-2），画面上是前 1 后 2。
+ * 外星人从 SPAWN_DIST 走向队首。
  * **失败是全队倒下或一波推不动，没有底线血量、没有漏怪。**
  *
  * 能力系统：村民的起手特性和身上装的改装件用同一套 Ability 类型，
@@ -42,7 +43,6 @@ import {
   KIND_PRIORITY,
   MAX_TEAM_SIZE,
   PICK_WAVES,
-  RECRUIT_WAVES,
   type PickKind,
   type PickOption,
 } from '../balance/picker';
@@ -282,7 +282,7 @@ export interface RunState {
   team: HeroUnit[];
   enemies: EnemyUnit[];
   picks: PickKind[];
-  /** phase 为 picking 时待选的三张牌 */
+  /** phase 为 picking 时待选的牌。开局是全员村民，波间是三张改装件 */
   pendingOptions: PickOption[];
   /** phase 为 installing 时已选中、待装配的那件破烂 */
   pendingMod?: ModDef;
@@ -362,13 +362,19 @@ function enemySlowPct(e: EnemyUnit): number {
 
 // ── 发牌 ────────────────────────────────────────────────
 
-function recruitOptions(state: RunState): PickOption[] {
-  const owned = new Set(state.team.map((h) => h.def.id));
-  const pool = shuffled(
-    HEROES.filter((h) => !owned.has(h.id)),
-    state.rng,
+/** 开局一次铺开全部村民，点满 3 个就开打。顺序固定，方便认脸 */
+function rosterOptions(): PickOption[] {
+  return HEROES.map((h) => ({ kind: 'recruit' as const, heroId: h.id }));
+}
+
+/** 还在开局点人：牌全是村民，人还没点齐 */
+export function isRosterPicking(state: RunState): boolean {
+  return (
+    state.phase === 'picking'
+    && state.team.length < MAX_TEAM_SIZE
+    && state.pendingOptions.length > 0
+    && state.pendingOptions.every((o) => o.kind === 'recruit')
   );
-  return pool.slice(0, CHOICES_PER_PICK).map((h) => ({ kind: 'recruit', heroId: h.id }));
 }
 
 /**
@@ -404,11 +410,6 @@ function modOptions(state: RunState): PickOption[] {
 }
 
 export function buildOptions(state: RunState): PickOption[] {
-  const wantRecruit = RECRUIT_WAVES.includes(state.wave) && state.team.length < MAX_TEAM_SIZE;
-  if (wantRecruit) {
-    const opts = recruitOptions(state);
-    if (opts.length > 0) return opts;
-  }
   return modOptions(state);
 }
 
@@ -434,7 +435,22 @@ function makeUnit(def: HeroDef, slot: number): HeroUnit {
 
 function addHero(state: RunState, heroId: string): void {
   if (state.team.length >= MAX_TEAM_SIZE) return;
+  if (state.team.some((h) => h.def.id === heroId)) return;
   state.team.push(makeUnit(getHero(heroId), state.team.length));
+}
+
+/** 开打前把近战/肉的放到前面，远程靠后。玩家随后还能换 */
+function arrangeOpeningTeam(state: RunState): void {
+  const ordered = [...state.team].sort((a, b) => {
+    const aMelee = a.def.range <= 1;
+    const bMelee = b.def.range <= 1;
+    if (aMelee !== bMelee) return aMelee ? -1 : 1;
+    if (b.maxHp !== a.maxHp) return b.maxHp - a.maxHp;
+    return a.def.range - b.def.range;
+  });
+  ordered.forEach((h, i) => {
+    h.slot = i;
+  });
 }
 
 function refreshStats(h: HeroUnit): void {
@@ -536,27 +552,44 @@ export function createRun(seed: number): RunState {
     rng,
     nextEnemyId: 1,
   };
-  // 开局：三个村民挑一个，落地即开打。不允许前置编队页（十秒可懂）
-  state.pendingOptions = recruitOptions(state);
+  // 开局：战场上一次点齐 3 人，点满就开打。不是前置编队页
+  state.pendingOptions = rosterOptions();
   return state;
 }
 
 /**
  * 玩家（或模拟策略）选定一张牌。
  *
- * 选到村民就直接开打；选到改装件则转入 installing，等「装给谁」那一步。
- * 这两步刻意不合并 —— 合并了主体验就没了。
+ * 开局点村民是勾选：再点一下取消，点满 3 个才开打。
+ * 选到改装件则转入 installing，等「装给谁」那一步。
+ * 后两步刻意不合并 —— 合并了主体验就没了。
  */
 export function applyPick(state: RunState, option: PickOption): void {
   if (state.phase !== 'picking') return;
-  state.picks.push(option.kind);
-  state.pendingOptions = [];
 
   if (option.kind === 'recruit') {
+    if (!state.pendingOptions.some((o) => o.kind === 'recruit' && o.heroId === option.heroId)) return;
+    const existing = state.team.find((h) => h.def.id === option.heroId);
+    if (existing) {
+      state.team = state.team.filter((h) => h.def.id !== option.heroId);
+      state.team.forEach((h, i) => {
+        h.slot = i;
+      });
+      return;
+    }
+    if (state.team.length >= MAX_TEAM_SIZE) return;
+    state.picks.push('recruit');
     addHero(state, option.heroId);
-    beginWave(state);
+    if (state.team.length >= MAX_TEAM_SIZE) {
+      arrangeOpeningTeam(state);
+      state.pendingOptions = [];
+      beginWave(state);
+    }
     return;
   }
+
+  state.picks.push(option.kind);
+  state.pendingOptions = [];
 
   const mod = getMod(option.modId);
   state.modPool = state.modPool.filter((m) => m.id !== mod.id);
