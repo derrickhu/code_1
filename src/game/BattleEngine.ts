@@ -26,9 +26,15 @@ import {
   TICK_MS,
   TOTAL_WAVES,
   WAVE_GAP_MS,
+  REVIVE_GRACE_MS,
   WAVE_TIMEOUT_MS,
+  WALK_HASTE,
+  WALK_HASTE_FROM_WAVE,
+  WALK_HASTE_UNTIL_WAVE,
   slotPos,
 } from '../balance/combat';
+import { comboOf } from '../balance/combos';
+import { REROLL_COST, SCRAP_PER_INSTALL, SCRAP_PER_WAVE, STRIP_COST } from '../balance/rewards';
 import {
   getEnemyProto,
   getWave,
@@ -138,8 +144,10 @@ export function computeStats(def: HeroDef, mods: readonly ModDef[]): HeroStats {
 
   let atkPct = 0;
   let intervalPct = 0;
+  const combo = comboOf(mods.map((m) => m.id));
+  const extra = combo?.extras ?? [];
 
-  for (const a of [def.skill, ...mods.map((m) => m.effect)]) {
+  for (const a of [def.skill, ...mods.map((m) => m.effect), ...extra]) {
     switch (a.kind) {
       case 'shield':
         st.shield = st.shield
@@ -274,6 +282,9 @@ export type RunPhase =
   | 'won'
   | 'lost';
 
+/** 判负原因。队灭才能卖复活；推不动直接结算。 */
+export type LoseReason = 'wipe' | 'timeout';
+
 export interface RunState {
   phase: RunPhase;
   /** 当前波次，picking / installing 时表示「即将开打的那一波」 */
@@ -288,6 +299,10 @@ export interface RunState {
   pendingMod?: ModDef;
   /** 本局还没发出去的改装件。每件一局只出一次 */
   modPool: ModDef[];
+  /** 本局零钱，打完作废 */
+  scrap: number;
+  scrapEarned: number;
+  scrapSpent: number;
   waveElapsedMs: number;
   gapElapsedMs: number;
   totalMs: number;
@@ -295,6 +310,8 @@ export interface RunState {
   events: BattleEvent[];
   /** 整局累计，结算归因用，模拟层可忽略 */
   stats: RunStats;
+  /** phase 为 lost 时有值 */
+  loseReason?: LoseReason;
   rng: () => number;
   nextEnemyId: number;
 }
@@ -494,9 +511,61 @@ export function installMod(state: RunState, heroId: string): boolean {
 
   target.mods.push(mod);
   refreshStats(target);
+  addScrap(state, SCRAP_PER_INSTALL);
   state.pendingMod = undefined;
   emit(state, { kind: 'install', heroId, modId: mod.id });
   beginWave(state);
+  return true;
+}
+
+function addScrap(state: RunState, n: number): void {
+  const add = Math.max(0, Math.floor(n));
+  state.scrap += add;
+  state.scrapEarned += add;
+}
+
+function spendScrap(state: RunState, n: number): boolean {
+  const cost = Math.max(0, Math.floor(n));
+  if (state.scrap < cost) return false;
+  state.scrap -= cost;
+  state.scrapSpent += cost;
+  return true;
+}
+
+/** 三选一重抽。当前三张仍在池里，尽量避开刚才那三张。 */
+export function rerollMods(state: RunState): boolean {
+  if (state.phase !== 'picking' || isRosterPicking(state)) return false;
+  if (state.modPool.length <= 1) return false;
+  if (!spendScrap(state, REROLL_COST)) return false;
+  const avoid = new Set(
+    state.pendingOptions.filter((o) => o.kind === 'mod').map((o) => o.modId),
+  );
+  const next = modOptionsAvoiding(state, avoid);
+  state.pendingOptions = next.length > 0 ? next : modOptions(state);
+  return true;
+}
+
+function modOptionsAvoiding(state: RunState, avoid: ReadonlySet<string>): PickOption[] {
+  const saved = state.modPool;
+  const filtered = saved.filter((m) => !avoid.has(m.id));
+  if (filtered.length < 2) return modOptions(state);
+  state.modPool = filtered;
+  const out = modOptions(state);
+  state.modPool = saved;
+  return out;
+}
+
+/** 拆掉某人一件，退回本局池，腾出槽。 */
+export function stripMod(state: RunState, heroId: string, modIndex: number): boolean {
+  if (state.phase !== 'installing' && state.phase !== 'gap') return false;
+  const hero = state.team.find((h) => h.def.id === heroId);
+  if (!hero) return false;
+  const mod = hero.mods[modIndex];
+  if (!mod) return false;
+  if (!spendScrap(state, STRIP_COST)) return false;
+  hero.mods.splice(modIndex, 1);
+  if (!state.modPool.some((m) => m.id === mod.id)) state.modPool.push(mod);
+  refreshStats(hero);
   return true;
 }
 
@@ -534,8 +603,9 @@ const scheduleCache = new WeakMap<RunState, { list: ScheduledSpawn[]; idx: numbe
 
 // ── 生命周期 ────────────────────────────────────────────
 
-export function createRun(seed: number): RunState {
+export function createRun(seed: number, startingScrap = 0): RunState {
   const rng = makeRng(seed);
+  const start = Math.max(0, Math.floor(startingScrap));
   const state: RunState = {
     phase: 'picking',
     wave: 1,
@@ -544,6 +614,9 @@ export function createRun(seed: number): RunState {
     picks: [],
     pendingOptions: [],
     modPool: shuffled(MODS, rng),
+    scrap: start,
+    scrapEarned: start,
+    scrapSpent: 0,
     waveElapsedMs: 0,
     gapElapsedMs: 0,
     totalMs: 0,
@@ -622,6 +695,7 @@ function beginWave(state: RunState): void {
 }
 
 function finishWave(state: RunState): void {
+  addScrap(state, SCRAP_PER_WAVE);
   if (state.wave >= TOTAL_WAVES) {
     state.phase = 'won';
     return;
@@ -636,6 +710,32 @@ function finishWave(state: RunState): void {
     }
   }
   state.phase = 'gap';
+}
+
+function lose(state: RunState, reason: LoseReason): void {
+  state.phase = 'lost';
+  state.loseReason = reason;
+}
+
+/**
+ * 队灭后看广告就地站起：半血、继续当前波、怪还在。
+ * 只接受 wipe，推不动不能靠广告硬过 DPS 墙。
+ */
+export function reviveAfterWipe(state: RunState): boolean {
+  if (state.phase !== 'lost' || state.loseReason !== 'wipe') return false;
+  if (state.team.length === 0) return false;
+  for (const h of state.team) {
+    refreshStats(h);
+    h.hp = Math.max(1, h.maxHp * 0.5);
+    h.alive = true;
+    h.shield = 0;
+    h.cdMs = 0;
+    emit(state, { kind: 'heroRevive', heroId: h.def.id });
+  }
+  state.loseReason = undefined;
+  state.waveElapsedMs = Math.min(state.waveElapsedMs, WAVE_TIMEOUT_MS - REVIVE_GRACE_MS);
+  state.phase = 'fighting';
+  return true;
 }
 
 // ── 每帧 ────────────────────────────────────────────────
@@ -660,7 +760,7 @@ export function tick(state: RunState): void {
 
   const sched = scheduleCache.get(state);
   if (!sched) {
-    state.phase = 'lost';
+    lose(state, 'wipe');
     return;
   }
 
@@ -689,7 +789,7 @@ export function tick(state: RunState): void {
 
   const living = state.team.filter((h) => h.alive);
   if (living.length === 0) {
-    state.phase = 'lost';
+    lose(state, 'wipe');
     return;
   }
 
@@ -860,7 +960,10 @@ export function tick(state: RunState): void {
       continue;
     }
 
-    e.dist -= e.proto.speed * (1 - slow / 100) * (TICK_MS / 1000);
+    const walk = state.wave >= WALK_HASTE_FROM_WAVE && state.wave <= WALK_HASTE_UNTIL_WAVE
+      ? WALK_HASTE
+      : 1;
+    e.dist -= e.proto.speed * (1 - slow / 100) * (TICK_MS / 1000) * walk;
     // 队尾后面还有一格缓冲，纯粹为了让「被打穿」在画面上看得见；
     // 真正的判负是全队倒下，不是位置。
     if (e.dist < REAR_POS - MELEE_REACH) e.dist = REAR_POS - MELEE_REACH;
@@ -874,10 +977,10 @@ export function tick(state: RunState): void {
 
   // 6. 判负：全队倒下，或这一波推不动
   if (state.team.length > 0 && state.team.every((h) => !h.alive)) {
-    state.phase = 'lost';
+    lose(state, 'wipe');
     return;
   }
-  if (state.waveElapsedMs >= WAVE_TIMEOUT_MS) state.phase = 'lost';
+  if (state.waveElapsedMs >= WAVE_TIMEOUT_MS) lose(state, 'timeout');
 }
 
 export { TEAM_SIZE, MOD_SLOTS_PER_HERO };

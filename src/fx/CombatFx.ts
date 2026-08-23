@@ -137,6 +137,7 @@ export class CombatFx {
     if (ev.kind === 'heroDown' && pos.hx !== undefined && pos.hy !== undefined) {
       this.downPulse = 0.4;
       this._death(pos.hx, pos.hy, 0x9aa4bf);
+      playSfx('hero_down', 0);
     }
     if (ev.kind === 'heroRevive' && pos.hx !== undefined && pos.hy !== undefined) {
       this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.5, s1: 1.2, life: 0.32 });

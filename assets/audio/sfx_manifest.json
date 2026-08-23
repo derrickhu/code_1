@@ -156,6 +156,24 @@
       "text": "rusty junk being bolted onto cloth, two metal clicks and a strap tug, dry, no voice, no music",
       "duration": 0.35,
       "output": "install_on.mp3"
+    },
+    {
+      "name": "enemy_beam",
+      "text": "clean short electronic laser zap, thin digital beep plus dry sci-fi beam, no voice, no music, no frog, no analog guitar",
+      "duration": 0.28,
+      "output": "enemy_beam.mp3"
+    },
+    {
+      "name": "enemy_spark",
+      "text": "dry digital electric spark crackle, short sci-fi zap on metal, no voice, no music, no frog",
+      "duration": 0.22,
+      "output": "enemy_spark.mp3"
+    },
+    {
+      "name": "hero_down",
+      "text": "heavy body hitting packed dirt once, short dry thud plus cloth rustle, no scream, no voice, no music, no frog",
+      "duration": 0.32,
+      "output": "hero_down.mp3"
     }
   ]
 }

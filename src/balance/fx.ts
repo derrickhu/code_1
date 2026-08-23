@@ -3,6 +3,7 @@
  * 每种破烂 / 每种外星人必须能和别的分清，否则改造等于没做。
  */
 
+import { comboOf } from './combos';
 import type { HeroDef } from './heroes';
 import type { ModDef } from './mods';
 
@@ -29,6 +30,12 @@ const MOD_FX: Readonly<Record<string, AttackFx>> = {
   wire: 'pierce',
   chainsaw: 'saw',
   firecracker: 'blast',
+  // 钢板站前排靠金圈说话；出手仍是挥砍，但要和没装的人分得开
+  steelplate: 'slash',
+  // 高压锅越挨越猛：出手改成重砸，层数条已经在身上
+  pressurecooker: 'smash',
+  pot: 'slash',
+  speaker: 'orb',
 };
 
 const HERO_FX: Readonly<Record<string, AttackFx>> = {
@@ -49,6 +56,8 @@ const ENEMY_FX: Readonly<Record<string, EnemyFx>> = {
 
 /** 后装的破烂覆盖起手。钢板 / 头盔只改站位，不改这一下怎么飞 */
 export function resolveAttackFx(def: HeroDef, mods: readonly ModDef[]): AttackFx {
+  const comboFx = comboOf(mods.map((m) => m.id))?.fx;
+  if (comboFx) return comboFx;
   for (let i = mods.length - 1; i >= 0; i -= 1) {
     const fx = MOD_FX[mods[i]!.id];
     if (fx) return fx;

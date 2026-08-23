@@ -55,3 +55,11 @@ export const WAVE_GAP_MS = 1500;
  * 直接判负。这同时是失败条件的一半：不是漏怪，是这套配崩了。
  */
 export const WAVE_TIMEOUT_MS = 120_000;
+
+/** 第 3–8 波加快走进来。前两波保持慢，后期堆怪已经够密不再加速。只改走路，不改漏怪。 */
+export const WALK_HASTE_FROM_WAVE = 3;
+export const WALK_HASTE_UNTIL_WAVE = 8;
+export const WALK_HASTE = 1.2;
+
+/** 队灭复活后至少再给这么久，避免看完广告下一帧「推不动」 */
+export const REVIVE_GRACE_MS = 15_000;

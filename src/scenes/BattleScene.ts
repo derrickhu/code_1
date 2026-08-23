@@ -21,22 +21,29 @@ import {
   SPAWN_DIST,
   TICK_MS,
   TEAM_SIZE,
+  WAVE_TIMEOUT_MS,
 } from '@/balance/combat';
+import { comboIfAdd, comboOf } from '@/balance/combos';
+import { REROLL_COST, STRIP_COST } from '@/balance/rewards';
 import { getWave } from '@/balance/enemies';
 import { resolveAttackFx, resolveEnemyFx } from '@/balance/fx';
 import { getHero } from '@/balance/heroes';
 import { abilityTag, getMod } from '@/balance/mods';
 import type { PickOption } from '@/balance/picker';
 import { DOCK_GAP, DOCK_H, ModDock } from '@/ui/ModDock';
+import { ReviveOverlay } from '@/ui/ReviveOverlay';
 import { SettleOverlay } from '@/ui/SettleOverlay';
 import { CombatFx } from '@/fx/CombatFx';
 import { motionFor, UnitActor } from '@/fx/UnitActor';
 import { addFitPortrait, bgTex, fillContain, fillCover, heroTex, modTex, preloadBattleArt, watchArt } from '@/core/TextureLoader';
 import { playSfx } from '@/core/SfxPlayer';
-import { saveRun } from '@/core/RunMemory';
-import { GOLD, homeTerrace, hpBar, plate, queuePad, rangeArea, shieldMark } from '@/ui/paint';
+import { consumeNextScrap, saveRun, stashNextScrap } from '@/core/RunMemory';
+import { Platform } from '@/core/PlatformService';
+import { adCanShow, adRecord, adRemaining } from '@/core/AdDay';
+import { GOLD, drawModSilhouette, goldBtn, homeTerrace, hpBar, plate, queuePad, rangeArea, shieldMark } from '@/ui/paint';
 import {
   applyPick,
+  canInstallOn,
   createRun,
   heroReach,
   heroAt,
@@ -44,6 +51,9 @@ import {
   installTargets,
   isRosterPicking,
   placeInSlot,
+  rerollMods,
+  reviveAfterWipe,
+  stripMod,
   teamInOrder,
   tick,
   type EnemyUnit,
@@ -121,13 +131,24 @@ export class BattleScene implements Scene {
   private readonly _hudPlate = new PIXI.Graphics();
   private readonly _hud = new PIXI.Container();
   private readonly _pick = new PIXI.Container();
-  private readonly _dock = new ModDock((slot) => this._tapSlot(slot));
-  private readonly _settle = new SettleOverlay(() => this.onEnter());
+  private readonly _dock = new ModDock(
+    (slot) => this._tapSlot(slot),
+    (slot, modIndex) => this._strip(slot, modIndex),
+  );
+  private readonly _settle = new SettleOverlay(
+    () => this.onEnter(),
+    () => this._doubleSettle(),
+  );
+  private readonly _revive = new ReviveOverlay(
+    () => { void this._acceptRevive(); },
+    () => this._giveUpRevive(),
+  );
   private readonly _fx = new CombatFx();
   private readonly _heroHits: PIXI.Container[] = [];
   private readonly _guide = label(26, 0xffd66b, true);
 
   private readonly _waveText = label(34, 0xffffff, true);
+  private readonly _scrapText = label(22, GOLD, true);
   private readonly _hintText = label(24, 0xffd66b);
   private readonly _installPlate = new PIXI.Graphics();
   private readonly _installTitle = label(28, 0xfff4c4, true);
@@ -140,6 +161,7 @@ export class BattleScene implements Scene {
   private _guideLife = 0;
   private _gapTold = 0;
   private _settled = false;
+  private _baseScrap = 0;
   private _selected: string | null = null;
 
   private readonly _hitFlash = new Map<number, number>();
@@ -172,6 +194,7 @@ export class BattleScene implements Scene {
     this.container.addChild(this._hud);
     this.container.addChild(this._dock);
     this.container.addChild(this._pick);
+    this.container.addChild(this._revive);
     this.container.addChild(this._settle);
     this._rangeHint.anchor.set(0.5);
     this._rangeHint.visible = false;
@@ -191,9 +214,10 @@ export class BattleScene implements Scene {
     this._computeLayout();
     this._applyHudLayout();
     this._settle.hide();
+    this._revive.hide();
     this._fx.reset();
     this._clearActors();
-    this._state = createRun(Date.now() >>> 0);
+    this._state = createRun(Date.now() >>> 0, consumeNextScrap());
     this._clearSelect();
     this._accMs = 0;
     this._hitFlash.clear();
@@ -206,6 +230,7 @@ export class BattleScene implements Scene {
     this._guideLife = 0;
     this._gapTold = 0;
     this._settled = false;
+    this._baseScrap = 0;
     this._guide.visible = false;
     this._renderPickCards();
   }
@@ -238,14 +263,16 @@ export class BattleScene implements Scene {
       const mod = s.pendingMod;
       if (!mod) return;
       playSfx('ui_tap', 0);
-      const modName = mod.name;
-      const becomes = mod.becomes;
+      const who = occupant.def.name;
+      const combo = comboIfAdd(occupant.mods.map((m) => m.id), mod.id);
+      const becomes = combo?.becomes ?? mod.becomes;
       if (!installMod(s, occupant.def.id)) return;
       const dest = this._heroXY(occupant.def.id);
       this._fx.flyMod(375, this._dock.y + 40, dest?.x ?? this._slotX(slot), dest?.y ?? this._slotY(slot), modTex(mod.id));
+      this._consumeEvents();
       this._clearSelect();
       this._accMs = 0;
-      this._say(`${occupant.def.name}装上了${modName}：${becomes}`);
+      this._say(combo ? `${who}叠出了${combo.name}：${becomes}` : `${who}变成了${becomes}`);
       return;
     }
 
@@ -264,6 +291,33 @@ export class BattleScene implements Scene {
       this._say(`${mover.def.name}站到${SLOT_NAME[slot] ?? '那个位置'}`);
     }
     this._clearSelect();
+  }
+
+  private _strip(slot: number, modIndex: number): void {
+    const hero = heroAt(this._state, slot);
+    if (!hero) return;
+    const piece = hero.mods[modIndex];
+    if (!piece) return;
+    if (this._state.scrap < STRIP_COST) {
+      this._say(`拆一件要 ${STRIP_COST} 废品`);
+      return;
+    }
+    if (!stripMod(this._state, hero.def.id, modIndex)) return;
+    playSfx('ui_tap', 0);
+    this._say(`拆了${hero.def.name}的${piece.name}`);
+    this._dock.refresh(this._state, this._selected);
+    this._updateHud();
+  }
+
+  private _reroll(): void {
+    if (this._state.scrap < REROLL_COST) {
+      this._say(`重抽要 ${REROLL_COST} 废品`);
+      return;
+    }
+    if (!rerollMods(this._state)) return;
+    playSfx('ui_tap', 0);
+    this._renderPickCards();
+    this._updateHud();
   }
 
   private _say(msg: string): void {
@@ -365,7 +419,7 @@ export class BattleScene implements Scene {
           break;
         }
         if (phase === 'won' || phase === 'lost') {
-          this._showSettle();
+          this._endRun();
           break;
         }
       }
@@ -489,15 +543,65 @@ export class BattleScene implements Scene {
     this._state.events.length = 0;
   }
 
-  private _showSettle(): void {
+  private _endRun(): void {
+    if (this._settled || this._revive.visible) return;
+    const s = this._state;
+    if (s.phase === 'lost' && s.loseReason === 'wipe' && adCanShow('revive')) {
+      this._revive.show(s.wave, adRemaining('revive'), this._lay.height);
+      playSfx('lose', 0);
+      return;
+    }
+    this._openSettle();
+  }
+
+  private async _acceptRevive(): Promise<void> {
+    const ok = await Platform.showRewardedVideo();
+    if (!ok) {
+      this._revive.hide();
+      this._openSettle();
+      return;
+    }
+    adRecord('revive');
+    if (!reviveAfterWipe(this._state)) {
+      this._revive.hide();
+      this._openSettle();
+      return;
+    }
+    this._revive.hide();
+    this._consumeEvents();
+    this._say('又站起来了，这套还在');
+  }
+
+  private _giveUpRevive(): void {
+    this._revive.hide();
+    this._openSettle();
+  }
+
+  private async _doubleSettle(): Promise<boolean> {
+    if (!adCanShow('settleDouble')) return false;
+    const ok = await Platform.showRewardedVideo();
+    if (!ok) return false;
+    adRecord('settleDouble');
+    stashNextScrap(Math.max(16, this._baseScrap * 2), 'ad');
+    return true;
+  }
+
+  private _openSettle(): void {
     if (this._settled) return;
     this._settled = true;
     const mem = saveRun(
       this._state.wave,
       this._state.team.map((h) => h.def.id),
     );
+    this._baseScrap = this._state.scrap;
     playSfx(this._state.phase === 'won' ? 'win' : 'lose', 0);
-    this._settle.show(this._state, mem, this._lay.height);
+    this._settle.show(this._state, mem, this._lay.height, {
+      scrap: this._baseScrap,
+      earned: this._state.scrapEarned,
+      spent: this._state.scrapSpent,
+      canDouble: adCanShow('settleDouble'),
+      loseReason: this._state.loseReason,
+    });
   }
 
   private _highlightFirstCard(): void {
@@ -537,6 +641,7 @@ export class BattleScene implements Scene {
     this._hud.addChild(
       this._hudPlate,
       this._waveText,
+      this._scrapText,
       this._hintText,
       this._installPlate,
       this._installTitle,
@@ -567,6 +672,7 @@ export class BattleScene implements Scene {
   private _applyHudLayout(): void {
     const { top, fieldBottom } = this._lay;
     this._waveText.position.set(44, top + 6);
+    this._scrapText.position.set(220, top + 10);
     this._hintText.position.set(44, top + 44);
     this._dock.place(fieldBottom + DOCK_GAP);
     this._guide.position.set(375, this._lay.frontY - 118);
@@ -587,12 +693,16 @@ export class BattleScene implements Scene {
     const s = this._state;
     const opening = isRosterPicking(s);
     this._waveText.visible = !opening;
+    this._scrapText.visible = !opening;
     this._hintText.visible = !opening;
     this._waveText.text = `第 ${s.wave} 波`;
+    this._scrapText.text = `废品 ${s.scrap}`;
 
     if (s.phase === 'won' || s.phase === 'lost') {
       this._hintText.text = '';
       if (this._selected) this._clearSelect();
+    } else if (s.phase === 'fighting' && s.waveElapsedMs >= WAVE_TIMEOUT_MS - 20_000) {
+      this._hintText.text = '再打不动这波就散了';
     } else {
       this._hintText.text = s.wave >= 1 ? getWave(s.wave).hint : '';
     }
@@ -624,7 +734,7 @@ export class BattleScene implements Scene {
     const { top } = this._lay;
     plate(this._installPlate, 40, top + 86, 670, 92, 16, 0.9);
     this._installTitle.text = s.pendingMod.name;
-    this._installDesc.text = `${s.pendingMod.desc} —— ${s.pendingMod.becomes}`;
+    this._installDesc.text = `点谁身上：${s.pendingMod.becomes} · 拆一件 ${STRIP_COST} 废品`;
   }
 
   private _showInspect(): void {
@@ -866,10 +976,18 @@ export class BattleScene implements Scene {
       name.text = h.mods.length > 0 ? `${h.def.name} +${h.mods.length}` : h.def.name;
       name.tint = h.alive ? 0xffffff : 0x6b7394;
       name.position.set(x, top - 16);
-      // 标签说的是「现在在干什么」，改装件可能已经把起手定位改掉了
-      tag.text = h.mods.length > 0
-        ? (h.mods[h.mods.length - 1]?.name ?? abilityTag(h.def.skill))
-        : abilityTag(h.def.skill);
+      // 装配时三人头顶直接写「装他会变成什么」，不要让玩家猜
+      if (this._state.phase === 'installing' && this._state.pendingMod && canInstallOn(h)) {
+        const combo = comboIfAdd(h.mods.map((m) => m.id), this._state.pendingMod.id);
+        tag.text = combo ? `装他 → ${combo.name}` : `装他`;
+      } else {
+        const combo = comboOf(h.mods.map((m) => m.id));
+        tag.text = combo
+          ? combo.name
+          : h.mods.length > 0
+            ? (h.mods[h.mods.length - 1]?.name ?? abilityTag(h.def.skill))
+            : abilityTag(h.def.skill);
+      }
       tag.tint = h.alive ? 0xffd66b : 0x6b7394;
       tag.position.set(x, top);
     }
@@ -892,22 +1010,39 @@ export class BattleScene implements Scene {
     if (this._selected === h.def.id) {
       g.lineStyle(3, GOLD, 0.95).drawEllipse(x, feet + 8, 48, 14).lineStyle(0);
     }
+    if (this._state.phase === 'installing' && this._state.pendingMod && canInstallOn(h)) {
+      g.lineStyle(3, GOLD, 0.9).drawEllipse(x, feet + 8, 52, 16).lineStyle(0);
+    }
+
+    const ids = h.mods.map((m) => m.id);
+    if (ids.includes('steelplate') && h.slot === 0) {
+      g.beginFill(0x9aa4b2, 0.88).drawRoundedRect(x - 28, feet - size * 0.62, 18, 44, 4).endFill();
+    }
+    if (ids.includes('helmet')) {
+      g.beginFill(0xc45a32, 0.95).drawEllipse(x, feet - size * 0.92, 22, 14).endFill();
+    }
+    if (ids.includes('quilt')) {
+      g.beginFill(0xd4736b, 0.55).drawEllipse(x, feet - size * 0.28, 40, 18).endFill();
+    }
+    if (ids.includes('speaker')) {
+      g.lineStyle(2, GOLD, 0.55).drawCircle(x, feet - size * 0.4, 36).lineStyle(0);
+    }
 
     // 破烂挂在身上：看得见「他变成了什么」，不是三个金点
     const hang = [
-      { dx: 30, dy: -size * 0.55 },
-      { dx: -32, dy: -size * 0.38 },
-      { dx: 8, dy: -size * 0.92 },
+      { dx: 34, dy: -size * 0.52 },
+      { dx: -36, dy: -size * 0.36 },
+      { dx: 10, dy: -size * 0.98 },
     ];
     for (let i = 0; i < h.mods.length; i += 1) {
       const p = hang[i];
       if (!p) continue;
       const mx = x + p.dx;
       const my = feet + p.dy;
-      g.beginFill(0xfff4c4, 0.95).drawRoundedRect(mx - 13, my - 13, 26, 26, 6).endFill();
+      g.beginFill(0xfff4c4, 0.95).drawRoundedRect(mx - 18, my - 18, 36, 36, 8).endFill();
       const t = modTex(h.mods[i]!.id);
-      if (t?.baseTexture.valid && t.width > 1) fillContain(g, t, mx, my + 10, 22, 22);
-      else g.beginFill(GOLD, 0.9).drawRoundedRect(mx - 10, my - 10, 20, 20, 4).endFill();
+      if (t?.baseTexture.valid && t.width > 1) fillContain(g, t, mx, my + 14, 32, 32);
+      else drawModSilhouette(g, h.mods[i]!.id, mx, my, 30);
     }
 
     // 越挨越猛：层数直接画成小竖条，玩家才知道高压锅在起作用
@@ -964,7 +1099,7 @@ export class BattleScene implements Scene {
     title.style.strokeThickness = 6;
     title.anchor.set(0.5);
     title.position.set(375, titleY);
-    title.text = roster ? '叫三个人来' : '废品站今天有这些';
+    title.text = roster ? '叫三个人来' : `下一波：${getWave(s.wave).hint}`;
     this._pick.addChild(title);
 
     const names = s.team.map((h) => h.def.name);
@@ -978,7 +1113,7 @@ export class BattleScene implements Scene {
       ? names.length === 0
         ? '点满三个就开打，点错再点一下取消'
         : `已叫${names.join('、')} · 还差 ${left} 个`
-      : '挑一件，下一步决定装给谁';
+      : `废品 ${s.scrap} · 挑一件对付它`;
     this._pick.addChild(sub);
 
     if (roster) {
@@ -1018,6 +1153,20 @@ export class BattleScene implements Scene {
       this._pick.addChild(card);
       bindPointerTap(card, () => this._choose(opt));
     });
+
+    const reroll = new PIXI.Container();
+    reroll.eventMode = 'static';
+    reroll.name = 'reroll-btn';
+    const rbg = new PIXI.Graphics();
+    goldBtn(rbg, -150, -28, 300, 56);
+    if (s.scrap < REROLL_COST) rbg.alpha = 0.45;
+    const rl = label(20, GOLD, true);
+    rl.anchor.set(0.5);
+    rl.text = `花 ${REROLL_COST} 废品换一批`;
+    reroll.addChild(rbg, rl);
+    reroll.position.set(375, titleY + 84 + cardH + 40);
+    this._pick.addChild(reroll);
+    bindPointerTap(reroll, () => this._reroll());
   }
 
   private _buildCard(opt: PickOption, w: number, h: number, picked?: number): PIXI.Container {

@@ -16,11 +16,15 @@ import {
   MELEE_REACH,
   MOD_SLOTS_PER_HERO,
   REAR_POS,
+  REVIVE_GRACE_MS,
   SPAWN_DIST,
   TEAM_SIZE,
   TOTAL_WAVES,
+  WAVE_TIMEOUT_MS,
   slotPos,
 } from '../../balance/combat';
+import { comboOf } from '../../balance/combos';
+import { REROLL_COST, STRIP_COST, runScrap } from '../../balance/rewards';
 import { resolveAttackFx } from '../../balance/fx';
 import { WAVES, getEnemyProto, waveAtkMult, waveHpMult } from '../../balance/enemies';
 import { HEROES, getHero } from '../../balance/heroes';
@@ -28,6 +32,7 @@ import { MODS, getMod } from '../../balance/mods';
 import { PICK_STRATEGIES } from '../../balance/picker';
 import {
   applyPick,
+  canInstallOn,
   computeStats,
   createRun,
   heroAt,
@@ -36,6 +41,9 @@ import {
   installMod,
   installTargets,
   placeInSlot,
+  rerollMods,
+  reviveAfterWipe,
+  stripMod,
   swapSlots,
   teamInOrder,
   tick,
@@ -179,6 +187,56 @@ describe('失败条件是队灭，不是漏怪', () => {
     }
     tick(s);
     expect(s.phase).toBe('lost');
+    expect(s.loseReason).toBe('wipe');
+  });
+
+  it('推不动记成 timeout，不是队灭', () => {
+    const s = createRun(3);
+    runUntil(s, (x) => x.phase === 'fighting');
+    s.waveElapsedMs = WAVE_TIMEOUT_MS;
+    tick(s);
+    expect(s.phase).toBe('lost');
+    expect(s.loseReason).toBe('timeout');
+  });
+
+  it('队灭后可以就地站起继续当前波', () => {
+    const s = createRun(3);
+    runUntil(s, (x) => x.phase === 'fighting');
+    for (const h of s.team) {
+      h.hp = 0;
+      h.alive = false;
+    }
+    tick(s);
+    expect(reviveAfterWipe(s)).toBe(true);
+    expect(s.phase).toBe('fighting');
+    expect(s.team.every((h) => h.alive && h.hp > 0)).toBe(true);
+    expect(s.loseReason).toBeUndefined();
+  });
+
+  it('推不动不能靠复活过', () => {
+    const s = createRun(3);
+    runUntil(s, (x) => x.phase === 'fighting');
+    s.waveElapsedMs = WAVE_TIMEOUT_MS;
+    tick(s);
+    expect(reviveAfterWipe(s)).toBe(false);
+    expect(s.phase).toBe('lost');
+  });
+
+  it('结算废品跟波次和改装件数走', () => {
+    expect(runScrap(10, 3)).toBe(10 * 8 + 3 * 4);
+  });
+
+  it('队灭复活会压回超时前的宽限', () => {
+    const s = createRun(3);
+    runUntil(s, (x) => x.phase === 'fighting');
+    s.waveElapsedMs = WAVE_TIMEOUT_MS - 100;
+    for (const h of s.team) {
+      h.hp = 0;
+      h.alive = false;
+    }
+    tick(s);
+    expect(reviveAfterWipe(s)).toBe(true);
+    expect(s.waveElapsedMs).toBeLessThanOrEqual(WAVE_TIMEOUT_MS - REVIVE_GRACE_MS);
   });
 
   it('外星人推到队尾后面也不会直接结束这一局', () => {
@@ -244,6 +302,21 @@ describe('改装件能改定位，而不只是加数值', () => {
     expect(pivot).toBeGreaterThan(pure);
   });
 
+  it('水管加电锯点名合体，多穿一个', () => {
+    expect(comboOf(['pipe', 'chainsaw'])?.id).toBe('longsaw');
+    const alone = computeStats(getHero('tiezhu'), [getMod('pipe'), getMod('chainsaw')]);
+    const pipe = computeStats(getHero('tiezhu'), [getMod('pipe')]);
+    expect(alone.pierce).toBe(pipe.pierce + 1);
+    expect(resolveAttackFx(getHero('tiezhu'), [getMod('pipe'), getMod('chainsaw')])).toBe('saw');
+  });
+
+  it('头盔加棉被把复活加厚', () => {
+    const lid = computeStats(getHero('erjiu'), [getMod('helmet'), getMod('quilt')]);
+    const helm = computeStats(getHero('erjiu'), [getMod('helmet')]);
+    expect(lid.revivePct).toBeGreaterThan(helm.revivePct);
+    expect(lid.armorPct).toBeGreaterThan(helm.armorPct);
+  });
+
   it('摩托头盔让人本波倒下一次还能站起来，但只有一次', () => {
     const s = createRun(21);
     runUntil(s, (x) => x.phase === 'fighting');
@@ -305,6 +378,53 @@ describe('「装给谁」是独立的一步', () => {
     s.pendingOptions = [{ kind: 'mod', modId: 'speaker' }];
     applyPick(s, s.pendingOptions[0]!);
     expect(s.phase).toBe('fighting');
+  });
+});
+
+describe('本局废品', () => {
+  it('开局可以带着上一局剩下的废品', () => {
+    const s = createRun(1, 20);
+    expect(s.scrap).toBe(20);
+    expect(s.scrapEarned).toBe(20);
+    expect(s.scrapSpent).toBe(0);
+  });
+
+  it('重抽扣废品并换一批', () => {
+    const s = createRun(71, 30);
+    const reached = runUntil(s, (x) => x.phase === 'picking' && x.pendingOptions[0]?.kind === 'mod');
+    expect(reached).toBe(true);
+    const before = s.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : '')).join(',');
+    const scrap = s.scrap;
+    expect(rerollMods(s)).toBe(true);
+    expect(s.scrap).toBe(scrap - REROLL_COST);
+    expect(s.scrapSpent).toBe(REROLL_COST);
+    expect(s.pendingOptions).toHaveLength(3);
+    expect(s.pendingOptions.every((o) => o.kind === 'mod')).toBe(true);
+    const after = s.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : '')).join(',');
+    expect(after).not.toBe(before);
+  });
+
+  it('废品不够不能重抽', () => {
+    const s = createRun(73, 0);
+    runUntil(s, (x) => x.phase === 'picking' && x.pendingOptions[0]?.kind === 'mod');
+    s.scrap = 0;
+    const before = s.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : '')).join(',');
+    expect(rerollMods(s)).toBe(false);
+    expect(s.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : '')).join(',')).toBe(before);
+  });
+
+  it('拆一件腾槽并退回本局池', () => {
+    const s = createRun(41, 40);
+    runUntil(s, (x) => x.phase === 'installing');
+    const hero = installTargets(s)[0]!;
+    hero.mods.push(getMod('chainsaw'));
+    hero.stats = computeStats(hero.def, hero.mods);
+    const scrap = s.scrap;
+    expect(stripMod(s, hero.def.id, hero.mods.length - 1)).toBe(true);
+    expect(hero.mods.some((m) => m.id === 'chainsaw')).toBe(false);
+    expect(s.modPool.some((m) => m.id === 'chainsaw')).toBe(true);
+    expect(s.scrap).toBe(scrap - STRIP_COST);
+    expect(canInstallOn(hero)).toBe(true);
   });
 });
 
@@ -487,6 +607,9 @@ describe('村民', () => {
     expect(resolveAttackFx(getHero('tiezhu'), [getMod('chainsaw')])).toBe('saw');
     expect(resolveAttackFx(getHero('sanshen'), [])).toBe('orb');
     expect(resolveAttackFx(getHero('laoyanqiang'), [getMod('pipe')])).toBe('poke');
+    expect(resolveAttackFx(getHero('erjiu'), [getMod('steelplate')])).toBe('slash');
+    expect(resolveAttackFx(getHero('laoli'), [getMod('pressurecooker')])).toBe('smash');
+    expect(resolveAttackFx(getHero('sanshen'), [getMod('speaker')])).toBe('orb');
   });
 
   it('没有等级系统，成长只来自改装件', () => {

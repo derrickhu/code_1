@@ -38,10 +38,12 @@ function text(size: number, color = 0xffffff, bold = false): PIXI.Text {
 
 export class ModDock extends PIXI.Container {
   private readonly _onTap: (slot: number) => void;
+  private readonly _onStrip: (slot: number, modIndex: number) => void;
 
-  constructor(onTap: (slot: number) => void) {
+  constructor(onTap: (slot: number) => void, onStrip: (slot: number, modIndex: number) => void) {
     super();
     this._onTap = onTap;
+    this._onStrip = onStrip;
     this.visible = false;
     this.eventMode = 'static';
   }
@@ -167,6 +169,15 @@ export class ModDock extends PIXI.Container {
         fillContain(icon, t, x + MOD / 2, slotY + MOD - 2, MOD - 6, MOD - 6);
         icon.alpha = dim ? 0.4 : 1;
         box.addChild(icon);
+      }
+      if (mod && installing) {
+        const hit = new PIXI.Container();
+        hit.eventMode = 'static';
+        const pad = new PIXI.Graphics();
+        pad.beginFill(0xffffff, 0.001).drawRoundedRect(x - 2, slotY - 2, MOD + 4, MOD + 4, 5).endFill();
+        hit.addChild(pad);
+        bindPointerTap(hit, () => this._onStrip(order, i));
+        box.addChild(hit);
       }
     }
 

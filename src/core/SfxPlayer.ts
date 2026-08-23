@@ -31,6 +31,9 @@ const FILE: Readonly<Record<string, string>> = {
   hit_sniper: 'audio/hit_sniper.mp3',
   kill_pop: 'audio/kill_pop.mp3',
   install_on: 'audio/install_on.mp3',
+  enemy_beam: 'audio/enemy_beam.mp3',
+  enemy_spark: 'audio/enemy_spark.mp3',
+  hero_down: 'audio/hero_down.mp3',
 };
 
 /** 没单独出文件的签名，直接用已有音，不发空路径 */
@@ -43,8 +46,6 @@ const ALIAS: Readonly<Record<string, string>> = {
   hit_orb: 'hit',
   enemy_claw: 'hit',
   enemy_bash: 'hit_smash',
-  enemy_spark: 'atk_pierce',
-  enemy_beam: 'atk_pierce',
 };
 
 export type SfxName = keyof typeof FILE | keyof typeof ALIAS;

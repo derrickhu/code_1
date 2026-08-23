@@ -136,6 +136,65 @@ export function shieldMark(g: PIXI.Graphics, cx: number, cy: number): void {
   g.endFill();
 }
 
+/**
+ * 没贴图时也要能认出是哪件破烂：几何剪影，不画金方块。
+ */
+export function drawModSilhouette(g: PIXI.Graphics, id: string, cx: number, cy: number, size = 28): void {
+  const s = size;
+  if (id === 'pipe') {
+    g.beginFill(0x8a9aa8).drawRoundedRect(cx - s * 0.12, cy - s * 0.48, s * 0.24, s * 0.96, 3).endFill();
+    return;
+  }
+  if (id === 'steelplate') {
+    g.beginFill(0x9aa4b2).drawRoundedRect(cx - s * 0.4, cy - s * 0.32, s * 0.8, s * 0.64, 4).endFill();
+    return;
+  }
+  if (id === 'pressurecooker') {
+    g.beginFill(0xc9c4b8).drawRoundedRect(cx - s * 0.32, cy - s * 0.18, s * 0.64, s * 0.5, 8).endFill();
+    g.beginFill(0xd7c7a4).drawCircle(cx, cy - s * 0.28, s * 0.14).endFill();
+    return;
+  }
+  if (id === 'weight') {
+    g.beginFill(0x4a4a52).drawEllipse(cx, cy + 2, s * 0.34, s * 0.28).endFill();
+    return;
+  }
+  if (id === 'blower') {
+    g.beginFill(0x4a8fd4).drawCircle(cx, cy, s * 0.32).endFill();
+    g.beginFill(0xfff4c4).drawCircle(cx, cy, s * 0.12).endFill();
+    return;
+  }
+  if (id === 'wire') {
+    g.lineStyle(3, 0x2a2a2a, 0.95).drawCircle(cx, cy, s * 0.28).lineStyle(0);
+    return;
+  }
+  if (id === 'helmet') {
+    g.beginFill(0xc45a32).drawEllipse(cx, cy, s * 0.36, s * 0.3).endFill();
+    return;
+  }
+  if (id === 'chainsaw') {
+    g.beginFill(0xd9a13b).drawRoundedRect(cx - s * 0.42, cy - s * 0.14, s * 0.84, s * 0.28, 4).endFill();
+    return;
+  }
+  if (id === 'firecracker') {
+    g.beginFill(0xc43a32).drawRoundedRect(cx - s * 0.16, cy - s * 0.36, s * 0.32, s * 0.72, 3).endFill();
+    return;
+  }
+  if (id === 'pot') {
+    g.beginFill(0xb8b0a4).drawEllipse(cx, cy, s * 0.36, s * 0.28).endFill();
+    return;
+  }
+  if (id === 'quilt') {
+    g.beginFill(0xd4736b).drawRoundedRect(cx - s * 0.36, cy - s * 0.22, s * 0.72, s * 0.44, 8).endFill();
+    return;
+  }
+  if (id === 'speaker') {
+    g.beginFill(0x3a3a42).drawRoundedRect(cx - s * 0.3, cy - s * 0.3, s * 0.6, s * 0.6, 6).endFill();
+    g.beginFill(0xffd66b).drawCircle(cx, cy, s * 0.14).endFill();
+    return;
+  }
+  g.beginFill(GOLD, 0.9).drawRoundedRect(cx - s * 0.32, cy - s * 0.32, s * 0.64, s * 0.64, 6).endFill();
+}
+
 export function hpBar(
   g: PIXI.Graphics,
   cx: number,
