@@ -26,6 +26,47 @@ export function goldBtn(g: PIXI.Graphics, x: number, y: number, w: number, h: nu
   g.lineStyle(2, GOLD, 0.85).drawRoundedRect(x, y, w, h, 16).lineStyle(0);
 }
 
+/** 局外贴图：整件缩进框里，脚和链子都留着，不裁。 */
+export function fitSprite(
+  parent: PIXI.Container,
+  texture: PIXI.Texture | null,
+  cx: number,
+  cy: number,
+  maxW: number,
+  maxH: number,
+): PIXI.Sprite | null {
+  if (!texture?.baseTexture.valid || texture.width <= 1) return null;
+  const spr = new PIXI.Sprite(texture);
+  spr.anchor.set(0.5);
+  spr.position.set(cx, cy);
+  spr.scale.set(Math.min(maxW / texture.width, maxH / texture.height));
+  parent.addChild(spr);
+  return spr;
+}
+
+/** 木板铺满面板，多出来的边裁掉。 */
+export function coverSprite(
+  parent: PIXI.Container,
+  texture: PIXI.Texture | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius = 18,
+): PIXI.Sprite | null {
+  if (!texture?.baseTexture.valid || texture.width <= 1) return null;
+  const spr = new PIXI.Sprite(texture);
+  const scale = Math.max(w / texture.width, h / texture.height);
+  spr.anchor.set(0.5);
+  spr.position.set(x + w / 2, y + h / 2);
+  spr.scale.set(scale);
+  const mask = new PIXI.Graphics();
+  mask.beginFill(0xffffff).drawRoundedRect(x, y, w, h, radius).endFill();
+  spr.mask = mask;
+  parent.addChild(spr, mask);
+  return spr;
+}
+
 /**
  * 自家阵地：三角站位和底栏连成一块台子，避免人悬在路中间。
  * 只铺在脚下这一小片，上方空场仍然不画格子。
@@ -72,7 +113,9 @@ export function queuePad(
     return;
   }
   if (opts.front) {
-    g.lineStyle(2, GOLD, 0.55).drawEllipse(cx, feetY + 8, rx + 2, ry + 1).lineStyle(0);
+    g.beginFill(GOLD, 0.18).drawEllipse(cx, feetY + 8, rx + 8, ry + 5).endFill();
+    g.lineStyle(3.6, GOLD, 0.95).drawEllipse(cx, feetY + 8, rx + 7, ry + 4).lineStyle(0);
+    g.lineStyle(1.4, 0xffe08a, 0.75).drawEllipse(cx, feetY + 8, rx + 1, ry + 1).lineStyle(0);
   }
 }
 

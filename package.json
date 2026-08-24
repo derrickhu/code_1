@@ -12,7 +12,8 @@
     "build:wechat": "CODE1_PLATFORM=wechat vite build",
     "build:douyin": "CODE1_PLATFORM=douyin vite build",
     "build": "npm run typecheck && npm run test && vite build",
-    "dev": "vite build --watch"
+    "dev": "vite build --watch",
+    "lab": "vite --config tools/anim-lab/vite.config.ts"
   },
   "dependencies": {
     "@pixi/unsafe-eval": "^7.3.2",

@@ -1,0 +1,8 @@
+Game UI wood prop sheet, 2 columns x 1 row, two equal wide panels, thin pale gutter, flat pale warm gray backdrop.
+
+Fat comic ink outlines, flat 6-8 colors, two-tone cel shade, cheap village hardware-store look.
+Palette: weathered wood brown, mustard, rust, cement gray.
+NO TEXT, no labels, no letters, no numbers, no logos, no watermarks.
+
+Panel 1 WOOD BAR: a long thin weathered wood plank, like a painted village notice board. Horizontal, chipped mustard wash, rusty nails at both ends, empty face. Good for a HUD strip.
+Panel 2 WOOD PANEL: a large vertical-ish wooden shop board / chalkboard, dark stained wood, rusty corner brackets, empty center, slightly worn. Good as a popup panel background.

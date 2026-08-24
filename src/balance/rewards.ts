@@ -9,6 +9,12 @@ export const STRIP_COST = 8;
 
 export type RewardSource = 'free' | 'ad' | 'iap' | 'quest';
 
+/** 每一笔发放都带 source，日后 IAA / IAP 分账不用重做存档。 */
+export interface ScrapGrant {
+  amount: number;
+  source: RewardSource;
+}
+
 export function runScrap(wave: number, installs: number): number {
   return Math.max(0, wave) * SCRAP_PER_WAVE + Math.max(0, installs) * SCRAP_PER_INSTALL;
 }

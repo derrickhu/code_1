@@ -47,6 +47,8 @@ export type Ability =
   | { kind: 'pierce'; extraTargets: number }
   /** 攻击力百分比 */
   | { kind: 'atkPct'; value: number }
+  /** 攻击变强，但焊死成近战：远程装上就得贴脸 */
+  | { kind: 'sawGrip'; atkPct: number }
   /** 自身暴击 */
   | { kind: 'crit'; chancePct: number; mult: number }
   /** 受伤减免 */
@@ -140,9 +142,9 @@ export const MODS: readonly ModDef[] = [
     id: 'chainsaw',
     name: '手上焊把电锯',
     kind: 'output',
-    effect: { kind: 'atkPct', value: 50 },
-    desc: '攻击 +50%',
-    becomes: '谁装谁能打',
+    effect: { kind: 'sawGrip', atkPct: 50 },
+    desc: '攻击 +50%，焊上就只能贴脸',
+    becomes: '远程焊上就得贴脸',
   },
   {
     id: 'firecracker',
@@ -150,7 +152,7 @@ export const MODS: readonly ModDef[] = [
     kind: 'output',
     effect: { kind: 'crit', chancePct: 25, mult: 2 },
     desc: '25% 概率炸出 2 倍伤害',
-    becomes: '偶尔来一下狠的',
+    becomes: '打一窝小灰才值，打铁罐浪费',
   },
 
   // ── tanky ──
@@ -177,8 +179,8 @@ export const MODS: readonly ModDef[] = [
     name: '扛个广场舞音响',
     kind: 'team',
     effect: { kind: 'teamHaste', value: 25 },
-    desc: '全队出手快 25%',
-    becomes: '整队跟着节奏走',
+    desc: '全队出手快 25%，他倒了光环停',
+    becomes: '别让他站最前，倒了全队变慢',
   },
 ];
 
@@ -190,6 +192,14 @@ export function getMod(id: string): ModDef {
   const m = MOD_BY_ID[id];
   if (!m) throw new Error(`未知改装件: ${id}`);
   return m;
+}
+
+/** 图鉴和货架上用的短名，去掉「绑了个」这类前缀 */
+export function shortModName(name: string): string {
+  return name
+    .replace(/^(接了根|手上焊把|兜里塞满|反手一口|又套一层|扛个|绑了[块个]|背了个)/, '')
+    .replace(/绑手上$/, '')
+    .replace(/缠一圈$/, '');
 }
 
 /** 场上显示的短词，说效果不说花名 */
@@ -207,6 +217,7 @@ export function abilityTag(a: Ability): string {
     case 'heavySwing': return '重击';
     case 'pierce': return '穿透';
     case 'atkPct': return '强攻';
+    case 'sawGrip': return '焊成近战';
     case 'crit': return '暴击';
     case 'armorPct': return '硬';
     case 'revive': return '站得起来';

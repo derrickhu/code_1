@@ -34,17 +34,17 @@ const FILE: Readonly<Record<string, string>> = {
   enemy_beam: 'audio/enemy_beam.mp3',
   enemy_spark: 'audio/enemy_spark.mp3',
   hero_down: 'audio/hero_down.mp3',
+  atk_slash: 'audio/atk_slash.mp3',
+  hit_slash: 'audio/hit_slash.mp3',
+  atk_bolt: 'audio/atk_bolt.mp3',
+  hit_bolt: 'audio/hit_bolt.mp3',
+  atk_orb: 'audio/atk_orb.mp3',
+  hit_orb: 'audio/hit_orb.mp3',
+  enemy_claw: 'audio/enemy_claw.mp3',
 };
 
 /** 没单独出文件的签名，直接用已有音，不发空路径 */
 const ALIAS: Readonly<Record<string, string>> = {
-  atk_slash: 'atk',
-  hit_slash: 'hit',
-  atk_bolt: 'atk',
-  hit_bolt: 'hit',
-  atk_orb: 'atk',
-  hit_orb: 'hit',
-  enemy_claw: 'hit',
   enemy_bash: 'hit_smash',
 };
 

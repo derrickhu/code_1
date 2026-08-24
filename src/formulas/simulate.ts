@@ -11,6 +11,7 @@
  */
 
 import { TOTAL_WAVES } from '../balance/combat';
+import { getWave } from '../balance/enemies';
 import { getHero } from '../balance/heroes';
 import { getMod } from '../balance/mods';
 import type { PickOption, PickStrategy } from '../balance/picker';
@@ -117,6 +118,12 @@ function chooseTarget(
     case 'atkPct':
     case 'crit':
       return hardest;
+    // 电锯焊给近战不亏射程；焊给远程是取舍，懂的人不乱焊
+    case 'sawGrip':
+      return melee;
+    // 音响倒了光环停，别让脆皮站最前扛这件
+    case 'teamHaste':
+      return [...targets].sort((a, b) => b.slot - a.slot)[0];
     default:
       return fewest;
   }
@@ -137,6 +144,21 @@ function reorderAfterInstall(state: RunState, strategy: PickStrategy, target: He
   const from = target.slot;
   target.slot = 0;
   if (head) head.slot = from;
+}
+
+/** 飞碟打后排：队首仍扛步兵，后排两人里把肉的换到最后挡飞碟 */
+function reorderForSaucer(state: RunState, strategy: PickStrategy): void {
+  if (strategy !== 'smart') return;
+  if (!getWave(state.wave).spawns.some((g) => g.enemyId === 'saucer')) return;
+  const back = state.team.filter((h) => h.slot > 0);
+  if (back.length < 2) return;
+  const stout = [...back].sort((a, b) => b.maxHp - a.maxHp)[0];
+  const rearSlot = Math.max(...back.map((h) => h.slot));
+  if (!stout || stout.slot === rearSlot) return;
+  const rear = state.team.find((h) => h.slot === rearSlot);
+  const from = stout.slot;
+  stout.slot = rearSlot;
+  if (rear) rear.slot = from;
 }
 
 export interface SimConfig {
@@ -161,6 +183,7 @@ export function simulateRun(config: SimConfig): SimResult {
   const state: RunState = createRun(config.seed);
 
   let ticks = 0;
+  let lastSaucerWave = 0;
   while (state.phase !== 'won' && state.phase !== 'lost') {
     if (ticks++ > MAX_TICKS) {
       throw new Error(`模拟未收敛：seed=${config.seed} strategy=${config.strategy}`);
@@ -177,6 +200,10 @@ export function simulateRun(config: SimConfig): SimResult {
       installMod(state, target.def.id);
       reorderAfterInstall(state, config.strategy, target);
       continue;
+    }
+    if (state.phase === 'fighting' && lastSaucerWave !== state.wave) {
+      lastSaucerWave = state.wave;
+      reorderForSaucer(state, config.strategy);
     }
     tick(state);
     // 事件只服务渲染层，批量回归里必须清掉，否则一局下来会堆成几十万条

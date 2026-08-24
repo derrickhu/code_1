@@ -114,6 +114,8 @@ export class CombatFx {
       meleeR?: number;
       baseY?: number;
       slowed?: boolean;
+      /** 装配回执：××装上了××：变成了×× */
+      installLine?: string;
     },
   ): void {
     const color = pos.color ?? 0xffffff;
@@ -148,8 +150,11 @@ export class CombatFx {
     }
     if (ev.kind === 'install' && pos.hx !== undefined && pos.hy !== undefined) {
       this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.45, s1: 1.1, life: 0.28 });
-      this._kit.ring(pos.hx, pos.hy, 0xffd66b, 0.36);
+      this._kit.ring(pos.hx, pos.hy, 0xffd66b, 0.48);
       this._kit.spray(pos.hx, pos.hy, { n: 8, tint: 0xffe08a, kind: 'spark', speed: 140 });
+      if (pos.installLine) {
+        this._spawnInstallFloat(pos.installLine, pos.hx, pos.hy - 52);
+      }
       playSfx('install_on', 0);
       buzz('medium');
     }
@@ -164,8 +169,12 @@ export class CombatFx {
     }
   }
 
-  markLand(): void {
+  markLand(x?: number, y?: number): void {
     this.landPulse = 0.28;
+    if (x !== undefined && y !== undefined) {
+      this._kit.ring(x, y, 0xffd66b, 0.5);
+      this._kit.plate('flash', x, y, { tint: 0xffe08a, s0: 0.4, s1: 1.3, life: 0.34 });
+    }
     playSfx('hero_land', 0);
   }
 
@@ -617,6 +626,29 @@ export class CombatFx {
     text.position.set(x + (Math.random() - 0.5) * 22, y - 22);
     this.layer.addChild(text);
     this._floats.push({ text, life, max: life, vy: -130, pop });
+  }
+
+  private _spawnInstallFloat(msg: string, x: number, y: number): void {
+    if (this._floats.length >= MAX_FLOATS) {
+      const old = this._floats.shift();
+      old?.text.destroy();
+    }
+    const text = new PIXI.Text(msg, {
+      fontFamily: 'sans-serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffe08a,
+      stroke: 0x1a0c08,
+      strokeThickness: 5,
+      wordWrap: true,
+      wordWrapWidth: 300,
+      align: 'center',
+      lineHeight: 26,
+    });
+    text.anchor.set(0.5);
+    text.position.set(x, y);
+    this.layer.addChild(text);
+    this._floats.push({ text, life: 1.1, max: 1.1, vy: -70, pop: 1.08 });
   }
 
   private _spawnFlash(name: string, x: number, y: number): void {

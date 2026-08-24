@@ -1,22 +1,28 @@
 /**
- * 核心流程两个广告位的日限。插屏不做。
- * 日限见 docs/01-核心玩法循环.md §9。
+ * 广告位日限。核心流程只有复活和结算双倍；
+ * 首局多带一件、翻废品站是局外，不挡十秒开场。
+ * 插屏不做。日限见 docs/01-核心玩法循环.md §9。
  */
 import { Platform } from '@/core/PlatformService';
 
 const KEY = 'code1_ad_day';
 
-export type AdPlacement = 'revive' | 'settleDouble';
+export type AdPlacement = 'revive' | 'settleDouble' | 'dailyGift' | 'junkyard';
 
 const LIMIT: Readonly<Record<AdPlacement, number>> = {
   revive: 2,
   settleDouble: 5,
+  dailyGift: 1,
+  junkyard: 1,
 };
 
 interface DayBook {
   date: string;
   revive: number;
   settleDouble: number;
+  dailyGift: number;
+  junkyard: number;
+  runsStarted: number;
 }
 
 function today(): string {
@@ -27,7 +33,7 @@ function today(): string {
 }
 
 function empty(date = today()): DayBook {
-  return { date, revive: 0, settleDouble: 0 };
+  return { date, revive: 0, settleDouble: 0, dailyGift: 0, junkyard: 0, runsStarted: 0 };
 }
 
 function load(): DayBook {
@@ -40,6 +46,9 @@ function load(): DayBook {
       date: parsed.date,
       revive: Math.max(0, Number(parsed.revive) || 0),
       settleDouble: Math.max(0, Number(parsed.settleDouble) || 0),
+      dailyGift: Math.max(0, Number(parsed.dailyGift) || 0),
+      junkyard: Math.max(0, Number(parsed.junkyard) || 0),
+      runsStarted: Math.max(0, Number(parsed.runsStarted) || 0),
     };
   } catch {
     return empty();
@@ -65,5 +74,16 @@ export function adCanShow(placement: AdPlacement): boolean {
 export function adRecord(placement: AdPlacement): void {
   const book = load();
   book[placement] += 1;
+  save(book);
+}
+
+/** 今天还没开过局，才能卖「首局多带一件」 */
+export function adIsFirstRunToday(): boolean {
+  return load().runsStarted === 0;
+}
+
+export function adMarkRunStart(): void {
+  const book = load();
+  book.runsStarted += 1;
   save(book);
 }

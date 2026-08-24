@@ -34,7 +34,7 @@ const MOD_FX: Readonly<Record<string, AttackFx>> = {
   steelplate: 'slash',
   // 高压锅越挨越猛：出手改成重砸，层数条已经在身上
   pressurecooker: 'smash',
-  pot: 'slash',
+  pot: 'smash',
   speaker: 'orb',
 };
 

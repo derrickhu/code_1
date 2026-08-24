@@ -4,7 +4,7 @@
  * 不写「队首挨刀」这类说明——站位和金边已经说清楚了。
  */
 import * as PIXI from 'pixi.js';
-import { MOD_SLOTS_PER_HERO, TEAM_SIZE } from '@/balance/combat';
+import { MOD_SLOTS_PER_HERO, SLOT_NAME, SLOT_VIEW_ORDER, TEAM_SIZE } from '@/balance/combat';
 import { abilityTag } from '@/balance/mods';
 import { fillContain, heroTex, modTex } from '@/core/TextureLoader';
 import { canInstallOn, heroAt, type HeroUnit, type RunState } from '@/game/BattleEngine';
@@ -24,8 +24,6 @@ const SLOT_H = 102;
 const FACE = 76;
 const MOD = 30;
 /** 底栏从左到右对齐场上三角：左后、前排、右后 */
-const DOCK_ORDER = [1, 0, 2] as const;
-const SLOT_NAME = ['前排', '左后', '右后'] as const;
 
 function text(size: number, color = 0xffffff, bold = false): PIXI.Text {
   return new PIXI.Text('', {
@@ -39,6 +37,7 @@ function text(size: number, color = 0xffffff, bold = false): PIXI.Text {
 export class ModDock extends PIXI.Container {
   private readonly _onTap: (slot: number) => void;
   private readonly _onStrip: (slot: number, modIndex: number) => void;
+  private _sig = '';
 
   constructor(onTap: (slot: number) => void, onStrip: (slot: number, modIndex: number) => void) {
     super();
@@ -53,8 +52,18 @@ export class ModDock extends PIXI.Container {
   }
 
   refresh(state: RunState, selected: string | null): void {
+    const show = state.team.length > 0 && state.phase !== 'picking';
+    const sig = show
+      ? `${state.phase}|${selected ?? ''}|${state.team.map((h) =>
+        `${h.def.id}:${h.slot}:${h.alive ? 1 : 0}:${h.mods.map((m) => m.id).join(',')}`).join(';')}`
+      : '';
+    if (sig === this._sig) {
+      this.visible = show;
+      return;
+    }
+    this._sig = sig;
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
-    this.visible = state.team.length > 0 && state.phase !== 'picking';
+    this.visible = show;
     if (!this.visible) return;
 
     const installing = state.phase === 'installing';
@@ -63,7 +72,7 @@ export class ModDock extends PIXI.Container {
     plate.lineStyle(1.5, GOLD, 0.35).drawRoundedRect(DOCK_X, 0, DOCK_W, DOCK_H, 16).lineStyle(0);
     this.addChild(plate);
 
-    DOCK_ORDER.forEach((slotIndex, i) => {
+    SLOT_VIEW_ORDER.forEach((slotIndex, i) => {
       const hero = heroAt(state, slotIndex) ?? null;
       const canTake = hero ? canInstallOn(hero) : false;
       const card = this._slot(hero, slotIndex, selected === hero?.def.id, installing, canTake);

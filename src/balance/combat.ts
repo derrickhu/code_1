@@ -16,6 +16,43 @@ export const TICK_MS = 100;
 /** 上场人数 = 队列长度。3 人是为了看得清谁是谁，见反目标第二条 */
 export const TEAM_SIZE = 3;
 
+/** 画面名。和局里三角、底栏同一套：前排居中靠前，两人分列左后右后 */
+export const SLOT_NAME = ['前排', '左后', '右后'] as const;
+/** 从左到右看过去：左后、前排、右后 */
+export const SLOT_VIEW_ORDER = [1, 0, 2] as const;
+
+/**
+ * 画面三角。逻辑队列仍是 0 / -1 / -2，只有渲染用这套。
+ * 村子主页必须走同一公式、同一身高，否则大立绘会把三角压成横排。
+ */
+export const SQUAD_X = 375;
+export const BACK_DX = 96;
+export const BACK_DY = 62;
+
+export function slotScreenX(slot: number, cx = SQUAD_X): number {
+  if (slot === 1) return cx - BACK_DX;
+  if (slot === 2) return cx + BACK_DX;
+  return cx;
+}
+
+export function slotScreenY(slot: number, frontY: number): number {
+  return slot <= 0 ? frontY : frontY + BACK_DY;
+}
+
+/** 局内立绘身高。村子预览跟局里用同一套，三角比例才对得上 */
+export function heroSpriteH(hp: number): number {
+  if (hp >= 1000) return 102;
+  if (hp >= 700) return 94;
+  return 88;
+}
+
+/** 槽位名相对脚底的偏移。左后写左边，右后写右边，前排写脚下 */
+export function slotTagPos(slot: number, x: number, feetY: number): { x: number; y: number } {
+  if (slot === 1) return { x: x - 54, y: feetY - 6 };
+  if (slot === 2) return { x: x + 54, y: feetY - 6 };
+  return { x, y: feetY + 20 };
+}
+
 /** 每人最多装几件改装件。有上限才有取舍，否则无脑堆一个人 */
 export const MOD_SLOTS_PER_HERO = 3;
 

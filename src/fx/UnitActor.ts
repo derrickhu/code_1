@@ -1,11 +1,9 @@
 /**
- * 待机几乎不动，出手才切帧。
- * AI 闲置图集各帧道具对不齐（锤子会闪没），所以村民待机只用过稿立绘 + 很轻的呼吸。
- *
- * 大小只跟身体走，不跟当前帧包围盒走。出手只位移、转身，不缩放。
+ * 不拆骨骼：柄在拳里，头朝外。家伙始终看得见，免得锅拿反还藏身后。
  */
 import * as PIXI from 'pixi.js';
 import type { AttackFx } from '@/balance/fx';
+import { HAND, HAND_GEAR, resolveHandGear, wornModIds, type HandGear } from '@/balance/gear';
 import { enemyTex, heroTex, tex } from '@/core/TextureLoader';
 import { clipBody } from '@/fx/spriteBody';
 
@@ -18,6 +16,14 @@ export function motionFor(fx: AttackFx): AtkMotion {
     return 'recoil';
   }
   return 'lunge';
+}
+
+/** 朝右：0 敌人，-π/2 天。绕拳头转，举起不超过头太多，命中不进地。 */
+export function swingKeyframes(motion: AtkMotion): { rest: number; up: number; hit: number } {
+  if (motion === 'sling') return { rest: -Math.PI / 2, up: -0.25, hit: -2.05 };
+  if (motion === 'recoil') return { rest: -0.4, up: -1.05, hit: 0.12 };
+  if (motion === 'crush') return { rest: -0.7, up: -1.65, hit: 0.26 };
+  return { rest: -0.75, up: -1.45, hit: 0.16 };
 }
 
 function frames(id: string, clip: string, n: number): PIXI.Texture[] {
@@ -33,7 +39,10 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-/** 接触帧卡在突刺顶点。重锤：慢蓄 → 一帧抡出去 → 砸住 */
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
 function atkFrame(u: number, n: number, crush: boolean): number {
   if (n <= 1) return 0;
   if (crush) {
@@ -48,10 +57,17 @@ function atkFrame(u: number, n: number, crush: boolean): number {
   return Math.min(3, n - 1);
 }
 
+function gripTex(id: string): PIXI.Texture | null {
+  return tex(`images/hero_${id}_grip.png`);
+}
+
 export class UnitActor {
   readonly view = new PIXI.Container();
   private readonly _anim: PIXI.AnimatedSprite;
-  private readonly _hammer = new PIXI.Sprite();
+  private readonly _arm = new PIXI.Container();
+  private readonly _smear = new PIXI.Sprite();
+  private readonly _weapon = new PIXI.Sprite();
+  private readonly _wear: PIXI.Sprite[] = [];
   private _id = '';
   private _kind: 'hero' | 'enemy' = 'hero';
   private _idle: PIXI.Texture[] = [];
@@ -71,30 +87,71 @@ export class UnitActor {
   private _flash = 0;
   private _dead = false;
   private _breath = Math.random() * Math.PI * 2;
-  private _swing = false;
+  private _armed = false;
+  private _gear: HandGear | null = null;
+  private _modKey = '';
   walkBob = false;
 
   constructor() {
     this._anim = new PIXI.AnimatedSprite([PIXI.Texture.WHITE]);
     this._anim.anchor.set(0.5, 1);
     this._anim.animationSpeed = 0.1;
-    this.view.addChild(this._anim);
-    this._hammer.anchor.set(0.28, 0.7);
-    this._hammer.visible = false;
-    this.view.addChild(this._hammer);
+    this._smear.anchor.set(0.15, 0.5);
+    this._smear.visible = false;
+    this._weapon.anchor.set(0.28, 0.7);
+    this._arm.addChild(this._smear, this._weapon);
+    this._arm.visible = false;
+    this.view.addChild(this._arm, this._anim);
+    for (let i = 0; i < 3; i += 1) {
+      const s = new PIXI.Sprite();
+      s.anchor.set(0.5, 0.5);
+      s.visible = false;
+      this._wear.push(s);
+      this.view.addChild(s);
+    }
   }
 
-  bindHero(id: string): void {
+  bindHero(id: string, modIds: readonly string[] = []): void {
     this._id = id;
     this._kind = 'hero';
     this.walkBob = false;
+    this._modKey = '';
     this._reload();
+    this.equip(modIds);
   }
 
   bindEnemy(id: string): void {
     this._id = id;
     this._kind = 'enemy';
+    this._armed = false;
+    this._gear = null;
+    this._arm.visible = false;
+    for (const s of this._wear) s.visible = false;
     this._reload();
+  }
+
+  /** 换手上的家伙、穿上的破烂。handId 给预览台强行指定，局内不用传 */
+  equip(modIds: readonly string[], handId?: string): void {
+    if (this._kind !== 'hero') return;
+    const key = `${modIds.join(',')}|${handId ?? ''}`;
+    const forced = handId ? HAND_GEAR[handId] : undefined;
+    const gear = forced ?? resolveHandGear(this._id, modIds);
+    if (!this._armed || key !== this._modKey || gear.id !== this._gear?.id) {
+      this._modKey = key;
+      this._gear = gear;
+      const t = tex(gear.path);
+      if (t) {
+        this._weapon.texture = t;
+        this._weapon.anchor.set(gear.gripX, gear.gripY);
+        this._armed = true;
+        this._arm.visible = !this._dead;
+      } else {
+        this._armed = false;
+        this._arm.visible = false;
+      }
+    }
+    this._bindWear(modIds);
+    if (this._atkT < 0) this._holdRest();
   }
 
   place(x: number, feetY: number, h: number): void {
@@ -103,7 +160,6 @@ export class UnitActor {
     this._h = h;
   }
 
-  /** 待机看向威胁；出手中不转，避免半招翻面 */
   faceToward(tx: number): void {
     if (this._dead || this._atkT >= 0) return;
     if (Math.abs(tx - this._feetX) > 10) this._face = tx >= this._feetX ? 1 : -1;
@@ -128,11 +184,18 @@ export class UnitActor {
     }
 
     this._motion = motion;
-    this._atkLife = motion === 'crush' ? 0.48
-      : this._atk.length > 1 ? 0.38
-        : motion === 'sling' ? 0.34 : 0.26;
+    this._atkLife = this._kind === 'hero' && this._armed
+      ? (motion === 'crush' ? 0.52 : motion === 'sling' ? 0.55 : 0.46)
+      : motion === 'crush' ? 0.48
+        : this._atk.length > 1 ? 0.38
+          : motion === 'sling' ? 0.34 : 0.26;
     this._atkT = 0;
-    if (motion === 'crush' && this._startHammerSwing()) return;
+    if (this._kind === 'hero' && this._armed) {
+      this._play('idle', false);
+      this._anim.stop();
+      this._tickWeapon(0, 0);
+      return;
+    }
     this._play('atk', false);
     this._anim.stop();
     this._anim.gotoAndStop(0);
@@ -145,9 +208,12 @@ export class UnitActor {
   setDead(dead: boolean): void {
     this._dead = dead;
     if (dead) {
-      this._stopHammer();
       this._anim.stop();
       this._anim.tint = 0x6b7394;
+      this._arm.visible = false;
+      for (const s of this._wear) s.visible = false;
+    } else if (this._armed) {
+      this._arm.visible = true;
     }
   }
 
@@ -167,12 +233,11 @@ export class UnitActor {
       const pose = this._pose(u);
       ox = pose.ox;
       oy = pose.oy;
-      rot = this._tilt * pose.lean;
-      if (this._swing) this._tickHammer(u);
+      rot = this._tilt * pose.lean + (this._armed && this._kind === 'hero' ? pose.twist : 0);
+      if (this._kind === 'hero' && this._armed) this._tickWeapon(u, rot);
       else if (this._atk.length > 1) this._anim.gotoAndStop(atkFrame(u, this._atk.length, this._motion === 'crush'));
       if (u >= 1) {
         this._atkT = -1;
-        this._stopHammer();
         this._holdRest();
       }
     } else if (this.walkBob && this._walk.length > 1) {
@@ -187,99 +252,208 @@ export class UnitActor {
       : 0;
     const sx = this._dead ? 1.12 : 1 - breath * 0.01;
     const sy = this._dead ? 0.55 : 1 + breath * 0.018;
-    const bodyClip = this._swing ? 'idle' : (this._clip || 'idle');
+    const bodyClip = this._kind === 'hero' && this._armed ? 'idle' : (this._clip || 'idle');
     const fit = this._h / clipBody(this._id, bodyClip, this._anim.texture.height || this._h);
     this._anim.scale.set(fit * sx * this._face, fit * sy);
     this._anim.rotation = rot;
     this.view.position.set(this._feetX + ox, this._feetY + oy);
+    if (this._kind === 'hero' && this._armed && this._atkT < 0 && !this._dead) this._tickWeapon(-1, rot);
+    this._placeWear(fit);
     if (this._dead) return;
     this._anim.alpha = this._flash > 0 ? 0.72 + Math.sin(this._flash * 40) * 0.22 : 1;
     this._anim.tint = 0xffffff;
   }
 
   destroy(): void {
-    this._stopHammer();
     this._anim.stop();
     this._anim.onComplete = undefined;
     this.view.destroy({ children: true });
   }
 
-  private _startHammerSwing(): boolean {
-    const ham = tex('images/fx_hammer.png');
-    const grip = tex('images/hero_dachui_grip.png');
-    if (this._id !== 'dachui' || !ham || !grip) return false;
-    this._hammer.texture = ham;
-    this._swing = true;
-    this._hammer.visible = true;
-    if (grip) {
-      this._anim.textures = [grip];
-      this._clip = 'atk';
-      this._anim.gotoAndStop(0);
-    } else {
-      this._clip = 'atk';
+  private _bindWear(modIds: readonly string[]): void {
+    const worn = [
+      ...wornModIds(modIds, 'head').map((id) => ({ id, slot: 'head' as const })),
+      ...wornModIds(modIds, 'back').map((id) => ({ id, slot: 'back' as const })),
+      ...wornModIds(modIds, 'body').map((id) => ({ id, slot: 'body' as const })),
+    ];
+    for (let i = 0; i < this._wear.length; i += 1) {
+      const item = worn[i];
+      const spr = this._wear[i]!;
+      if (!item) {
+        spr.visible = false;
+        continue;
+      }
+      const t = tex(`images/mod_${item.id}.png`);
+      if (!t) {
+        spr.visible = false;
+        continue;
+      }
+      spr.texture = t;
+      spr.visible = !this._dead;
+      spr.name = item.slot;
     }
-    this._tickHammer(0);
-    return true;
   }
 
-  private _stopHammer(): void {
-    this._swing = false;
-    this._hammer.visible = false;
-  }
-
-  private _tickHammer(u: number): void {
-    const texH = Math.max(1, this._hammer.texture.height);
-    const fit = (this._h * 0.9) / texH;
-    this._hammer.scale.set(fit, fit);
-    // 握在胸口双手上，不从脚底长出来
-    this._hammer.position.set(this._face * this._h * 0.06, -this._h * 0.64);
-
-    // 贴图锤头在右上。世界角：0 朝右，-π/2 朝上。全程走肩→身侧平举→天上，不扫地面。
-    const headLocal = -Math.PI / 4;
-    const shoulder = -0.55;
-    const windup = 0.1;
-    const impact = -1.42;
-    const follow = -1.12;
-    let head = shoulder;
-    if (u < 0.36) {
-      head = shoulder + (windup - shoulder) * (u / 0.36);
-    } else if (u < 0.54) {
-      const p = (u - 0.36) / 0.18;
-      head = windup + (impact - windup) * (p * p);
-    } else {
-      const p = Math.min(1, (u - 0.54) / 0.46);
-      head = impact + (follow - impact) * p;
+  private _placeWear(fit: number): void {
+    for (const spr of this._wear) {
+      if (!spr.visible) continue;
+      const th = Math.max(1, spr.texture.height);
+      const slot = spr.name;
+      const scale = slot === 'head' ? 0.28 : slot === 'back' ? 0.34 : 0.32;
+      spr.scale.set(scale * this._h / th * this._face, scale * this._h / th);
+      if (slot === 'head') spr.position.set(this._face * this._h * 0.02, -this._h * 0.92);
+      else if (slot === 'back') spr.position.set(-this._face * this._h * 0.22, -this._h * 0.58);
+      else spr.position.set(-this._face * this._h * 0.18, -this._h * 0.42);
+      void fit;
     }
-    if (this._face < 0) head = Math.PI - head;
-    this._hammer.rotation = head - headLocal;
-    this._hammer.alpha = u < 0.9 ? 1 : 1 - (u - 0.9) / 0.1;
   }
 
-  private _pose(u: number): { ox: number; oy: number; lean: number } {
+  /**
+   * 柄钉在拳头上，头朝外。家伙叠在身前，方向一眼能看清。
+   */
+  private _tickWeapon(u: number, bodyRot: number): void {
+    const gear = this._gear;
+    if (!gear || !this._armed) {
+      this._arm.visible = false;
+      this._smear.visible = false;
+      return;
+    }
+    this._arm.visible = !this._dead;
+
+    const sock = HAND[this._id] ?? { x: 0.2, y: -0.45 };
+    const sx = this._face * this._h * sock.x;
+    const sy = this._h * sock.y;
+    this._arm.position.set(
+      sx * Math.cos(bodyRot) - sy * Math.sin(bodyRot),
+      sx * Math.sin(bodyRot) + sy * Math.cos(bodyRot),
+    );
+    this._arm.scale.set(this._face, 1);
+    this._arm.rotation = this._face * this._armAngle(u);
+    this._layerWeapon(true);
+
+    const wepH = Math.max(1, this._weapon.texture.height);
+    this._weapon.texture = tex(gear.path) ?? this._weapon.texture;
+    this._weapon.anchor.set(gear.gripX, gear.gripY);
+    this._weapon.position.set(-this._h * 0.03, 0);
+    this._weapon.rotation = -gear.headLocal + (gear.twist ?? 0);
+    const kick = this._motion === 'sling' && u >= 0.4 && u < 0.56
+      ? Math.sin(((u - 0.4) / 0.16) * Math.PI)
+      : 0;
+    this._weapon.scale.set((this._h * gear.scale * (1 + kick * 0.18)) / wepH);
+    this._weapon.visible = true;
+    this._weapon.alpha = 1;
+    if (kick > 0) this._arm.position.y -= this._h * 0.18 * kick;
+
+    const snap = u >= 0.32 && u <= 0.6 && (this._motion === 'lunge' || this._motion === 'crush');
+
+    const smearTex = tex('images/vfx_slash.png');
+    if (smearTex && snap) {
+      this._smear.texture = smearTex;
+      this._smear.visible = true;
+      this._smear.alpha = u < 0.5 ? 0.88 : 0.32;
+      this._smear.position.set(this._h * 0.12, 0);
+      this._smear.rotation = 0.15;
+      this._smear.scale.set((this._h * 0.72) / Math.max(1, smearTex.width), (this._h * 0.34) / Math.max(1, smearTex.height));
+    } else {
+      this._smear.visible = false;
+    }
+  }
+
+  private _layerWeapon(inFront: boolean): void {
+    const top = this.view.children.length - 1;
+    const now = this.view.getChildIndex(this._arm);
+    if (inFront && now !== top) this.view.setChildIndex(this._arm, top);
+    if (!inFront && now !== 0) this.view.setChildIndex(this._arm, 0);
+  }
+
+  private _armAngle(u: number): number {
+    const keys = swingKeyframes(this._motion);
+    const rest = this._gear?.rest ?? keys.rest;
+    const { up, hit } = keys;
+    if (u < 0) return rest;
     if (this._motion === 'sling') {
-      const pull = u < 0.42 ? u / 0.42 : u < 0.56 ? 1 : Math.max(0, 1 - (u - 0.56) / 0.44);
-      return { ox: -this._nx * 11 * pull, oy: -this._ny * 9 * pull, lean: -0.55 * pull };
+      if (u < 0.4) return lerp(rest, up, u / 0.4);
+      if (u < 0.54) return lerp(up, hit, ((u - 0.4) / 0.14) ** 0.45);
+      return lerp(hit, rest, Math.min(1, (u - 0.54) / 0.46));
+    }
+    if (this._motion === 'recoil') {
+      if (u < 0.3) return lerp(rest, up, u / 0.3);
+      if (u < 0.52) return lerp(up, hit, ((u - 0.3) / 0.22) ** 2);
+      return lerp(hit, rest, Math.min(1, (u - 0.52) / 0.48));
+    }
+    if (u < 0.34) return lerp(rest, up, u / 0.34);
+    if (u < 0.52) {
+      const p = (u - 0.34) / 0.18;
+      return lerp(up, hit, p * p);
+    }
+    return lerp(hit, rest, Math.min(1, (u - 0.52) / 0.48));
+  }
+
+  private _pose(u: number): { ox: number; oy: number; lean: number; twist: number } {
+    if (this._kind === 'hero' && this._armed && (this._motion === 'lunge' || this._motion === 'crush')) {
+      if (u < 0.34) {
+        const p = u / 0.34;
+        return { ox: -this._face * 4 * p, oy: -6 * p, lean: -0.12 * p, twist: -0.12 * p };
+      }
+      if (u < 0.52) {
+        const p = ((u - 0.34) / 0.18) ** 2;
+        return {
+          ox: lerp(-this._face * 4, this._face * 8, p),
+          oy: lerp(-6, 2, p),
+          lean: lerp(-0.12, 0.16, p),
+          twist: lerp(-0.12, 0.1, p),
+        };
+      }
+      const p = Math.min(1, (u - 0.52) / 0.48);
+      return {
+        ox: lerp(this._face * 8, 0, p),
+        oy: lerp(2, 0, p),
+        lean: lerp(0.22, 0, p),
+        twist: lerp(0.16, 0, p),
+      };
+    }
+    if (this._motion === 'sling') {
+      if (u < 0.4) {
+        const p = u / 0.4;
+        return { ox: -this._face * 6 * p, oy: 8 * p, lean: -0.22 * p, twist: 0 };
+      }
+      if (u < 0.54) {
+        const p = ((u - 0.4) / 0.14) ** 2;
+        return {
+          ox: lerp(-this._face * 6, this._face * 3, p),
+          oy: lerp(8, -16, p),
+          lean: lerp(-0.22, 0.14, p),
+          twist: 0,
+        };
+      }
+      const p = Math.min(1, (u - 0.54) / 0.46);
+      return {
+        ox: lerp(this._face * 3, 0, p),
+        oy: lerp(-16, 0, p),
+        lean: lerp(0.14, 0, p),
+        twist: 0,
+      };
     }
     if (this._motion === 'recoil') {
       const d = Math.sin(u * Math.PI);
-      return { ox: -this._nx * 8 * d, oy: -this._ny * 6 * d, lean: -0.4 * d };
+      return { ox: -this._nx * 8 * d, oy: -this._ny * 6 * d, lean: -0.4 * d, twist: 0 };
     }
     if (this._motion === 'crush') {
       if (u < 0.36) {
         const p = u / 0.36;
-        return { ox: -this._nx * 2 * p, oy: 0, lean: -0.22 * p };
+        return { ox: -this._nx * 2 * p, oy: 0, lean: -0.22 * p, twist: 0 };
       }
       const t = (u - 0.36) / 0.64;
       const d = Math.sin(Math.min(1, t) * Math.PI);
-      return { ox: this._nx * 4 * d, oy: this._ny * 5 * d, lean: 0.35 * d };
+      return { ox: this._nx * 4 * d, oy: this._ny * 5 * d, lean: 0.35 * d, twist: 0 };
     }
     if (u < 0.3) {
       const p = u / 0.3;
-      return { ox: -this._nx * 7 * p, oy: -this._ny * 8 * p, lean: -0.7 * p };
+      return { ox: -this._nx * 7 * p, oy: -this._ny * 8 * p, lean: -0.7 * p, twist: 0 };
     }
     const t = (u - 0.3) / 0.7;
     const d = Math.sin(Math.min(1, t) * Math.PI);
-    return { ox: this._nx * 10 * d, oy: this._ny * 16 * d, lean: 0.85 * d };
+    return { ox: this._nx * 10 * d, oy: this._ny * 16 * d, lean: 0.85 * d, twist: 0 };
   }
 
   private _holdRest(): void {
@@ -288,11 +462,19 @@ export class UnitActor {
   }
 
   private _reload(): void {
-    const portrait = this._kind === 'hero' ? heroTex(this._id) : enemyTex(this._id);
-    this._idle = portrait ? [portrait] : frames(this._id, 'idle', 1);
-    this._walk = frames(this._id, 'walk', 4);
-    this._atk = frames(this._id, 'atk', 4);
-    if (this._walk.length === 0) this._walk = this._idle;
+    if (this._kind === 'hero') {
+      const grip = gripTex(this._id);
+      const portrait = heroTex(this._id);
+      this._idle = grip ? [grip] : portrait ? [portrait] : frames(this._id, 'idle', 1);
+      this._walk = this._idle;
+      this._atk = this._idle;
+    } else {
+      const portrait = enemyTex(this._id);
+      this._idle = portrait ? [portrait] : frames(this._id, 'idle', 1);
+      this._walk = frames(this._id, 'walk', 4);
+      this._atk = frames(this._id, 'atk', 4);
+      if (this._walk.length === 0) this._walk = this._idle;
+    }
     const keepAtk = this._clip === 'atk' && this._atkT >= 0;
     this._clip = '';
     if (keepAtk) this._play('atk', false);
@@ -302,7 +484,7 @@ export class UnitActor {
   private _play(name: 'idle' | 'walk' | 'atk', loop: boolean): boolean {
     const list = name === 'atk' ? this._atk : name === 'walk' ? this._walk : this._idle;
     if (list.length === 0) return false;
-    if (name === this._clip && (loop || list.length === 1)) return true;
+    if (name === this._clip && (loop || list.length <= 1)) return true;
     this._clip = name;
     this._anim.textures = list;
     this._anim.loop = loop && list.length > 1;

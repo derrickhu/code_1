@@ -23,7 +23,9 @@ export function deferAfterPointerEvent(fn: () => void): void {
     }
   };
   _rafId = -1;
-  if (Platform.isMinigame && !Platform.isDevtools) {
+  // 开发者工具也走 setTimeout：微信模拟器里 ticker.addOnce 会偶发丢，
+  // 点下去像没反应。真机同样不能靠 addOnce（见 deferNextFrame 注释）。
+  if (Platform.isMinigame) {
     setTimeout(flush, 0);
     return;
   }

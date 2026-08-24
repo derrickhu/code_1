@@ -305,6 +305,23 @@ class PlatformServiceClass {
     } catch (_) {}
   }
 
+  /** 自定义分析。有宿主走 reportEvent，没有就打日志，切片验收够用。 */
+  reportEvent(name: string, data: Record<string, unknown> = {}): void {
+    try {
+      if (typeof this._api?.reportEvent === 'function') {
+        this._api.reportEvent(name, data);
+        return;
+      }
+    } catch {
+      /* 上报失败不挡玩 */
+    }
+    try {
+      console.log(`[track] ${name}`, data);
+    } catch {
+      /* */
+    }
+  }
+
   /** 关掉当前原生 toast（激励广告关闭后宿主偶发自带提示时用） */
   hideToast(): void {
     try {

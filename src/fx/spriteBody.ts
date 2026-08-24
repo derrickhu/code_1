@@ -8,12 +8,12 @@
  * 同一拍里换帧不再改缩放，人不会一抡就瘪。
  */
 export const CLIP_BODY: Record<string, { idle: number; atk: number; walk?: number }> = {
-  dachui: { idle: 307, atk: 97 },
+  dachui: { idle: 318, atk: 97 },
   tiezhu: { idle: 309, atk: 138 },
-  laoli: { idle: 309, atk: 99 },
-  erjiu: { idle: 309, atk: 105 },
-  sanshen: { idle: 296, atk: 119 },
-  laoyanqiang: { idle: 282, atk: 86 },
+  laoli: { idle: 1230, atk: 99 },
+  erjiu: { idle: 490, atk: 105 },
+  sanshen: { idle: 490, atk: 119 },
+  laoyanqiang: { idle: 488, atk: 86 },
   grey: { idle: 309, atk: 151, walk: 157 },
   cube: { idle: 314, atk: 112, walk: 160 },
   canister: { idle: 296, atk: 142, walk: 152 },

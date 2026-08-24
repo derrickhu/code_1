@@ -34,8 +34,17 @@ import {
   slotPos,
 } from '../balance/combat';
 import { comboOf } from '../balance/combos';
-import { REROLL_COST, SCRAP_PER_INSTALL, SCRAP_PER_WAVE, STRIP_COST } from '../balance/rewards';
 import {
+  REROLL_COST,
+  SCRAP_PER_INSTALL,
+  SCRAP_PER_WAVE,
+  STRIP_COST,
+  type RewardSource,
+  type ScrapGrant,
+} from '../balance/rewards';
+import {
+  BACK_AIM_DAMAGE,
+  BACK_AIM_DIST,
   getEnemyProto,
   getWave,
   waveAtkMult,
@@ -44,6 +53,7 @@ import {
 } from '../balance/enemies';
 import { HEROES, getHero, type HeroDef } from '../balance/heroes';
 import { MODS, getMod, type Ability, type ModDef, type ModKind } from '../balance/mods';
+import { availableMods } from '../balance/yard';
 import {
   CHOICES_PER_PICK,
   KIND_PRIORITY,
@@ -144,6 +154,7 @@ export function computeStats(def: HeroDef, mods: readonly ModDef[]): HeroStats {
 
   let atkPct = 0;
   let intervalPct = 0;
+  let forceMelee = false;
   const combo = comboOf(mods.map((m) => m.id));
   const extra = combo?.extras ?? [];
 
@@ -196,6 +207,10 @@ export function computeStats(def: HeroDef, mods: readonly ModDef[]): HeroStats {
       case 'atkPct':
         atkPct += a.value;
         break;
+      case 'sawGrip':
+        atkPct += a.atkPct;
+        forceMelee = true;
+        break;
       case 'crit':
         st.critChance += a.chancePct;
         st.critMult = Math.max(st.critMult, a.mult);
@@ -217,6 +232,10 @@ export function computeStats(def: HeroDef, mods: readonly ModDef[]): HeroStats {
 
   st.atk = def.atk * (1 + atkPct / 100);
   st.intervalMs = def.attackIntervalMs * (1 + intervalPct / 100);
+  // 电锯把远程焊成近战；水管加电锯的「加长电锯」另有射程，不要夹死
+  const gainedRange = [def.skill, ...mods.map((m) => m.effect), ...extra]
+    .some((a) => a.kind === 'rangeUp');
+  if (forceMelee && !gainedRange) st.range = Math.min(st.range, 1);
   return st;
 }
 
@@ -271,6 +290,8 @@ export interface RunStats {
   skills: number;
   /** 整局装了几件破烂 */
   installs: number;
+  /** 调过几次队列。结算用来判断要不要提示换位 */
+  queueMoves: number;
 }
 
 export type RunPhase =
@@ -286,6 +307,7 @@ export type RunPhase =
 export type LoseReason = 'wipe' | 'timeout';
 
 export interface RunState {
+  seed: number;
   phase: RunPhase;
   /** 当前波次，picking / installing 时表示「即将开打的那一波」 */
   wave: number;
@@ -299,10 +321,16 @@ export interface RunState {
   pendingMod?: ModDef;
   /** 本局还没发出去的改装件。每件一局只出一次 */
   modPool: ModDef[];
+  /** 首局广告白送的那件，点满三人后先装再开打 */
+  openingGift?: ModDef;
+  /** 翻废品站翻到的，下一手三选一必出 */
+  pinnedMods: ModDef[];
   /** 本局零钱，打完作废 */
   scrap: number;
   scrapEarned: number;
   scrapSpent: number;
+  /** 每笔发放带 source，接口形状留给日后分账 */
+  scrapLog: ScrapGrant[];
   waveElapsedMs: number;
   gapElapsedMs: number;
   totalMs: number;
@@ -317,7 +345,7 @@ export interface RunState {
 }
 
 function emptyStats(): RunStats {
-  return { hits: 0, crits: 0, skills: 0, installs: 0 };
+  return { hits: 0, crits: 0, skills: 0, installs: 0, queueMoves: 0 };
 }
 
 function emit(state: RunState, ev: BattleEvent): void {
@@ -363,6 +391,15 @@ export function canInstallOn(h: HeroUnit): boolean {
  * 「打最靠前的」是队列有意义的全部来源 —— 队首替后面的人挨刀。
  */
 export function enemyVictim(e: EnemyUnit, team: readonly HeroUnit[]): HeroUnit | undefined {
+  if (e.proto.aim === 'back') {
+    if (e.dist > BACK_AIM_DIST) return undefined;
+    let rear: HeroUnit | undefined;
+    for (const h of team) {
+      if (!h.alive) continue;
+      if (!rear || h.slot > rear.slot) rear = h;
+    }
+    return rear;
+  }
   let best: HeroUnit | undefined;
   for (const h of team) {
     if (!h.alive) continue;
@@ -379,7 +416,7 @@ function enemySlowPct(e: EnemyUnit): number {
 
 // ── 发牌 ────────────────────────────────────────────────
 
-/** 开局一次铺开全部村民，点满 3 个就开打。顺序固定，方便认脸 */
+/** 开局一次铺开全部村民。真玩在村子里点人，这里留给模拟 */
 function rosterOptions(): PickOption[] {
   return HEROES.map((h) => ({ kind: 'recruit' as const, heroId: h.id }));
 }
@@ -427,7 +464,12 @@ function modOptions(state: RunState): PickOption[] {
 }
 
 export function buildOptions(state: RunState): PickOption[] {
-  return modOptions(state);
+  const rest = modOptions(state);
+  const forced = state.pinnedMods.shift();
+  if (!forced) return rest;
+  const head: PickOption = { kind: 'mod', modId: forced.id };
+  return [head, ...rest.filter((o) => o.kind !== 'mod' || o.modId !== forced.id)]
+    .slice(0, CHOICES_PER_PICK);
 }
 
 // ── 阵容 ────────────────────────────────────────────────
@@ -498,6 +540,7 @@ export function placeInSlot(state: RunState, heroId: string, slot: number): bool
   const other = heroAt(state, slot);
   if (other) swapSlots(state, hero.slot, slot);
   else hero.slot = slot;
+  state.stats.queueMoves += 1;
   return true;
 }
 
@@ -511,17 +554,19 @@ export function installMod(state: RunState, heroId: string): boolean {
 
   target.mods.push(mod);
   refreshStats(target);
-  addScrap(state, SCRAP_PER_INSTALL);
+  addScrap(state, SCRAP_PER_INSTALL, 'free');
   state.pendingMod = undefined;
   emit(state, { kind: 'install', heroId, modId: mod.id });
   beginWave(state);
   return true;
 }
 
-function addScrap(state: RunState, n: number): void {
+function addScrap(state: RunState, n: number, source: RewardSource): void {
   const add = Math.max(0, Math.floor(n));
+  if (add <= 0) return;
   state.scrap += add;
   state.scrapEarned += add;
+  state.scrapLog.push({ amount: add, source });
 }
 
 function spendScrap(state: RunState, n: number): boolean {
@@ -574,6 +619,35 @@ export function installTargets(state: RunState): HeroUnit[] {
   return state.team.filter(canInstallOn);
 }
 
+function takeFromPool(state: RunState, except: ReadonlySet<string>): ModDef | undefined {
+  const pool = shuffled(state.modPool.filter((m) => !except.has(m.id)), state.rng);
+  return pool.find((m) => m.kind === 'pivot') ?? pool[0];
+}
+
+/** 首局广告：白送一件，点满三人后先装再开打 */
+export function claimOpeningGift(state: RunState): ModDef | undefined {
+  if (state.openingGift) return state.openingGift;
+  if (!isRosterPicking(state)) return undefined;
+  const except = new Set(state.pinnedMods.map((m) => m.id));
+  const pick = takeFromPool(state, except);
+  if (!pick) return undefined;
+  state.openingGift = pick;
+  return pick;
+}
+
+/** 翻废品站：从本局还没发出去的里面翻一件，下一手三选一必出 */
+export function claimJunkyard(state: RunState): ModDef | undefined {
+  const except = new Set([
+    ...state.pinnedMods.map((m) => m.id),
+    ...(state.openingGift ? [state.openingGift.id] : []),
+  ]);
+  const pick = takeFromPool(state, except);
+  if (!pick) return undefined;
+  state.modPool = state.modPool.filter((m) => m.id !== pick.id);
+  state.pinnedMods.push(pick);
+  return pick;
+}
+
 // ── 出怪 ────────────────────────────────────────────────
 
 interface ScheduledSpawn {
@@ -603,20 +677,37 @@ const scheduleCache = new WeakMap<RunState, { list: ScheduledSpawn[]; idx: numbe
 
 // ── 生命周期 ────────────────────────────────────────────
 
-export function createRun(seed: number, startingScrap = 0): RunState {
+export function createRun(
+  seed: number,
+  startingScrap = 0,
+  carrySource: RewardSource = 'ad',
+  pinModId = '',
+  unlockedMods?: readonly string[],
+  heroIds?: readonly string[],
+  giftModId = '',
+): RunState {
   const rng = makeRng(seed);
   const start = Math.max(0, Math.floor(startingScrap));
+  const pool = [...availableMods(unlockedMods)];
+  if (pinModId && !pool.some((m) => m.id === pinModId)) {
+    const extra = MODS.find((m) => m.id === pinModId);
+    if (extra) pool.push(extra);
+  }
   const state: RunState = {
+    seed,
     phase: 'picking',
     wave: 1,
     team: [],
     enemies: [],
     picks: [],
     pendingOptions: [],
-    modPool: shuffled(MODS, rng),
+    openingGift: undefined,
+    pinnedMods: [],
+    modPool: shuffled(pool, rng),
     scrap: start,
     scrapEarned: start,
     scrapSpent: 0,
+    scrapLog: start > 0 ? [{ amount: start, source: carrySource }] : [],
     waveElapsedMs: 0,
     gapElapsedMs: 0,
     totalMs: 0,
@@ -625,7 +716,27 @@ export function createRun(seed: number, startingScrap = 0): RunState {
     rng,
     nextEnemyId: 1,
   };
-  // 开局：战场上一次点齐 3 人，点满就开打。不是前置编队页
+  if (pinModId) {
+    const pinned = state.modPool.find((m) => m.id === pinModId);
+    if (pinned) {
+      state.modPool = state.modPool.filter((m) => m.id !== pinModId);
+      state.pinnedMods.push(pinned);
+    }
+  }
+  if (giftModId) {
+    const gift = state.modPool.find((m) => m.id === giftModId) ?? getMod(giftModId);
+    state.modPool = state.modPool.filter((m) => m.id !== gift.id);
+    state.openingGift = gift;
+  }
+  const squad = (heroIds ?? [])
+    .filter((id, i, all) => HEROES.some((h) => h.id === id) && all.indexOf(id) === i)
+    .slice(0, MAX_TEAM_SIZE);
+  if (squad.length >= MAX_TEAM_SIZE) {
+    for (const id of squad) addHero(state, id);
+    launchSquad(state);
+    return state;
+  }
+  // 测试 / 模拟仍可走点人；真玩在村子里点齐再进场
   state.pendingOptions = rosterOptions();
   return state;
 }
@@ -633,7 +744,7 @@ export function createRun(seed: number, startingScrap = 0): RunState {
 /**
  * 玩家（或模拟策略）选定一张牌。
  *
- * 开局点村民是勾选：再点一下取消，点满 3 个才开打。
+ * 开局点村民是勾选：再点一下取消，点满 3 个先焊第一件再打。
  * 选到改装件则转入 installing，等「装给谁」那一步。
  * 后两步刻意不合并 —— 合并了主体验就没了。
  */
@@ -654,9 +765,8 @@ export function applyPick(state: RunState, option: PickOption): void {
     state.picks.push('recruit');
     addHero(state, option.heroId);
     if (state.team.length >= MAX_TEAM_SIZE) {
-      arrangeOpeningTeam(state);
       state.pendingOptions = [];
-      beginWave(state);
+      launchSquad(state);
     }
     return;
   }
@@ -673,6 +783,44 @@ export function applyPick(state: RunState, option: PickOption): void {
   }
   state.pendingMod = mod;
   state.phase = 'installing';
+}
+
+function bestGiftTarget(state: RunState, mod: ModDef): HeroUnit | undefined {
+  const targets = installTargets(state);
+  if (targets.length === 0) return undefined;
+  const front = [...targets].sort((a, b) => a.slot - b.slot)[0];
+  const melee = [...targets].sort((a, b) => a.stats.range - b.stats.range)[0];
+  const ranged = [...targets].sort((a, b) => b.stats.range - a.stats.range)[0];
+  switch (mod.effect.kind) {
+    case 'rangeUp':
+      return melee;
+    case 'splash':
+    case 'pierce':
+      return ranged;
+    default:
+      return front;
+  }
+}
+
+/** 白送件直接焊上最能吃的人，进场不再多点一次 */
+function applyOpeningGift(state: RunState): boolean {
+  const gift = state.openingGift;
+  if (!gift) return false;
+  state.openingGift = undefined;
+  state.modPool = state.modPool.filter((m) => m.id !== gift.id);
+  const target = bestGiftTarget(state, gift);
+  if (!target) return false;
+  target.mods.push(gift);
+  refreshStats(target);
+  emit(state, { kind: 'install', heroId: target.def.id, modId: gift.id });
+  return true;
+}
+
+/** 人齐了就开打。破烂留到第 2 波，进场不要连选三轮 */
+function launchSquad(state: RunState): void {
+  arrangeOpeningTeam(state);
+  applyOpeningGift(state);
+  beginWave(state);
 }
 
 function beginWave(state: RunState): void {
@@ -695,7 +843,7 @@ function beginWave(state: RunState): void {
 }
 
 function finishWave(state: RunState): void {
-  addScrap(state, SCRAP_PER_WAVE);
+  addScrap(state, SCRAP_PER_WAVE, 'free');
   if (state.wave >= TOTAL_WAVES) {
     state.phase = 'won';
     return;
@@ -920,7 +1068,7 @@ export function tick(state: RunState): void {
         e.cdMs = e.proto.attackIntervalMs * (1 + slow / 100);
         const vst = victim.stats;
         const dmg = computeDamage({
-          atk: e.atk,
+          atk: e.proto.aim === 'back' ? e.atk * BACK_AIM_DAMAGE : e.atk,
           targetDef: vst.def,
           modMult: 1,
           targetDamageReductionPct: vst.armorPct,

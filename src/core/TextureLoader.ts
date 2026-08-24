@@ -5,6 +5,7 @@
  */
 import * as PIXI from 'pixi.js';
 import { ENEMY_PROTOS } from '@/balance/enemies';
+import { HAND_GEAR, STARTER_WEP_IDS } from '@/balance/gear';
 import { HEROES } from '@/balance/heroes';
 import { MODS } from '@/balance/mods';
 import { Platform } from '@/core/PlatformService';
@@ -60,9 +61,51 @@ export function vfxTex(name: string): PIXI.Texture | null {
 
 /** 背景没有透明区，走 jpg：同画质下比 png 小一个数量级，首包容量卡得很死 */
 const BG_PATH = 'images/bg_battle.jpg';
+const VILLAGE_BG = 'images/bg_village.jpg';
+const YARD_BG = 'images/bg_yard.jpg';
+
+export const UI_FILES = [
+  'title_plaque',
+  'play_plate',
+  'door_squad',
+  'door_yard',
+  'door_book',
+  'scrap_pile',
+  'wood_bar',
+  'wood_panel',
+] as const;
 
 export function bgTex(): PIXI.Texture | null {
   return tex(BG_PATH);
+}
+
+export function villageBgTex(): PIXI.Texture | null {
+  return tex(VILLAGE_BG) ?? bgTex();
+}
+
+export function yardBgTex(): PIXI.Texture | null {
+  return tex(YARD_BG) ?? villageBgTex();
+}
+
+export type UiName = (typeof UI_FILES)[number];
+
+export function uiTex(name: UiName): PIXI.Texture | null {
+  return tex(`images/ui_${name}.png`);
+}
+
+/** 村子主页：局外件 + 立绘 + 局里那套闲置精灵（主页站位跟战场共用） */
+export function preloadVillageArt(): void {
+  kick(VILLAGE_BG);
+  kick(YARD_BG);
+  for (const n of UI_FILES) kick(`images/ui_${n}.png`);
+  for (const h of HEROES) {
+    kick(`images/hero_${h.id}.png`);
+    kick(`images/hero_${h.id}_grip.png`);
+    kick(`images/anim_${h.id}_idle_0.png`);
+  }
+  for (const id of STARTER_WEP_IDS) kick(`images/wep_${id}.png`);
+  for (const g of Object.values(HAND_GEAR)) kick(g.path);
+  for (const m of MODS) kick(`images/mod_${m.id}.png`);
 }
 
 /** 进战斗场景时把切片要用的图全踢起来，避免第一波还在色块 */
@@ -76,6 +119,9 @@ export function preloadBattleArt(): void {
   for (const n of PROJ_FILES) kick(`images/proj_${n}.png`);
   kick('images/hero_dachui_grip.png');
   kick('images/fx_hammer.png');
+  for (const h of HEROES) kick(`images/hero_${h.id}_grip.png`);
+  for (const id of STARTER_WEP_IDS) kick(`images/wep_${id}.png`);
+  for (const g of Object.values(HAND_GEAR)) kick(g.path);
   for (const h of HEROES) {
     kick(`images/hero_${h.id}_atk.png`);
     for (let i = 0; i < 4; i += 1) {

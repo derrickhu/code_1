@@ -13,21 +13,29 @@
 
 import * as PIXI from 'pixi.js';
 import { Game } from '@/core/Game';
-import type { Scene } from '@/core/SceneManager';
+import { SceneManager, type Scene } from '@/core/SceneManager';
 import { bindPointerTap } from '@/minigame';
 import {
+  BACK_DY,
   MELEE_REACH,
   REAR_POS,
+  SLOT_NAME,
   SPAWN_DIST,
+  SQUAD_X,
   TICK_MS,
   TEAM_SIZE,
   WAVE_TIMEOUT_MS,
+  heroSpriteH,
+  slotScreenX,
+  slotScreenY,
+  slotTagPos,
 } from '@/balance/combat';
 import { comboIfAdd, comboOf } from '@/balance/combos';
+import { comboTeaser, installForecast } from '@/balance/forecast';
 import { REROLL_COST, STRIP_COST } from '@/balance/rewards';
-import { getWave } from '@/balance/enemies';
+import { waveHeadline } from '@/balance/enemies';
 import { resolveAttackFx, resolveEnemyFx } from '@/balance/fx';
-import { getHero } from '@/balance/heroes';
+import { DEFAULT_SQUAD, getHero } from '@/balance/heroes';
 import { abilityTag, getMod } from '@/balance/mods';
 import type { PickOption } from '@/balance/picker';
 import { DOCK_GAP, DOCK_H, ModDock } from '@/ui/ModDock';
@@ -37,13 +45,34 @@ import { CombatFx } from '@/fx/CombatFx';
 import { motionFor, UnitActor } from '@/fx/UnitActor';
 import { addFitPortrait, bgTex, fillContain, fillCover, heroTex, modTex, preloadBattleArt, watchArt } from '@/core/TextureLoader';
 import { playSfx } from '@/core/SfxPlayer';
-import { consumeNextScrap, saveRun, stashNextScrap } from '@/core/RunMemory';
+import { track } from '@/core/Analytics';
+import {
+  bankToYard,
+  consumeNextGift,
+  consumeNextPin,
+  consumeNextScrap,
+  loadMemory,
+  saveRun,
+  saveSquad,
+  stashNextPin,
+  stashNextScrap,
+} from '@/core/RunMemory';
+import { goalLine, nextYardGoal, startScrapBonus, yardDeposit } from '@/balance/yard';
 import { Platform } from '@/core/PlatformService';
-import { adCanShow, adRecord, adRemaining } from '@/core/AdDay';
-import { GOLD, drawModSilhouette, goldBtn, homeTerrace, hpBar, plate, queuePad, rangeArea, shieldMark } from '@/ui/paint';
+import {
+  adCanShow,
+  adIsFirstRunToday,
+  adMarkRunStart,
+  adRecord,
+  adRemaining,
+  type AdPlacement,
+} from '@/core/AdDay';
+import { GOLD, goldBtn, homeTerrace, hpBar, plate, queuePad, rangeArea, shieldMark } from '@/ui/paint';
 import {
   applyPick,
   canInstallOn,
+  claimJunkyard,
+  claimOpeningGift,
   createRun,
   heroReach,
   heroAt,
@@ -71,13 +100,6 @@ const VILLAGER_COLOR: Readonly<Record<string, number>> = {
   laoyanqiang: 0x8f7a4a,
 };
 
-/** 小队中轴。前排在中，后排左右错开，贴在底栏上，像一队人守在自家门口。 */
-const SQUAD_X = 375;
-const BACK_DX = 96;
-const BACK_DY = 62;
-
-const SLOT_NAME = ['前排', '左后', '右后'] as const;
-
 const PICK_CARD_W = 218;
 const PICK_CARD_H = 400;
 /** 开局 6 人一屏，两排三张，比波间三选一更扁 */
@@ -89,9 +111,7 @@ function villagerColor(id: string): number {
 }
 
 function heroH(h: HeroUnit): number {
-  if (h.def.hp >= 1000) return 102;
-  if (h.def.hp >= 700) return 94;
-  return 88;
+  return heroSpriteH(h.def.hp);
 }
 
 function enemyH(e: EnemyUnit): number {
@@ -136,8 +156,10 @@ export class BattleScene implements Scene {
     (slot, modIndex) => this._strip(slot, modIndex),
   );
   private readonly _settle = new SettleOverlay(
-    () => this.onEnter(),
+    () => this.onEnter({ heroIds: this._state.team.map((h) => h.def.id) }),
     () => this._doubleSettle(),
+    () => this._settleJunkyard(),
+    () => SceneManager.switchTo('village'),
   );
   private readonly _revive = new ReviveOverlay(
     () => { void this._acceptRevive(); },
@@ -163,6 +185,14 @@ export class BattleScene implements Scene {
   private _settled = false;
   private _baseScrap = 0;
   private _selected: string | null = null;
+  private _pickShownKey = '';
+  private _installShownKey = '';
+  private _runStarted = false;
+  private _openClock = 0;
+  private _openingHintSaid = false;
+  private _cardPulsed = false;
+  private _offerBusy = false;
+  private _pickArtTimer: ReturnType<typeof setTimeout> | 0 = 0;
 
   private readonly _hitFlash = new Map<number, number>();
   private readonly _hurtFlash = new Map<string, number>();
@@ -203,13 +233,17 @@ export class BattleScene implements Scene {
     this._buildHeroHits();
     this._buildHud();
     watchArt(() => {
-      if (this._state.phase === 'picking') this._renderPickCards();
-      for (const [id, a] of this._heroActors) a.bindHero(id);
+      // 贴图陆续到位时不要立刻拆掉卡：按下和抬起会落在两棵树上，点了没反应
+      if (this._state.phase === 'picking') this._refreshPickArt();
+      for (const [id, a] of this._heroActors) {
+        const hero = this._state.team.find((h) => h.def.id === id);
+        a.bindHero(id, hero?.mods.map((m) => m.id) ?? []);
+      }
       for (const e of this._state.enemies) this._enemyActors.get(e.id)?.bindEnemy(e.proto.id);
     });
   }
 
-  onEnter(): void {
+  onEnter(data?: unknown): void {
     preloadBattleArt();
     this._computeLayout();
     this._applyHudLayout();
@@ -217,7 +251,27 @@ export class BattleScene implements Scene {
     this._revive.hide();
     this._fx.reset();
     this._clearActors();
-    this._state = createRun(Date.now() >>> 0, consumeNextScrap());
+    const mem = loadMemory();
+    const asked = data && typeof data === 'object' && 'heroIds' in data
+      ? (data as { heroIds: string[] }).heroIds
+      : undefined;
+    const squad = (asked?.length === TEAM_SIZE ? asked : mem.squadIds)
+      .filter((id, i, all) => !!id && all.indexOf(id) === i)
+      .slice(0, TEAM_SIZE);
+    const heroes = squad.length === TEAM_SIZE ? squad : [...DEFAULT_SQUAD];
+    saveSquad(heroes);
+    const carry = consumeNextScrap();
+    const bonus = startScrapBonus(mem.startScrapLv);
+    const pocket = carry.amount + bonus;
+    this._state = createRun(
+      Date.now() >>> 0,
+      pocket,
+      carry.amount > 0 ? carry.source : 'free',
+      consumeNextPin(),
+      mem.unlockedMods,
+      heroes,
+      consumeNextGift(),
+    );
     this._clearSelect();
     this._accMs = 0;
     this._hitFlash.clear();
@@ -231,7 +285,27 @@ export class BattleScene implements Scene {
     this._gapTold = 0;
     this._settled = false;
     this._baseScrap = 0;
+    this._pickShownKey = '';
+    this._installShownKey = '';
+    this._runStarted = false;
+    this._openClock = 0;
+    this._openingHintSaid = false;
+    this._cardPulsed = false;
+    this._offerBusy = false;
+    if (this._pickArtTimer) {
+      clearTimeout(this._pickArtTimer);
+      this._pickArtTimer = 0;
+    }
     this._guide.visible = false;
+    if (this._state.phase === 'fighting') {
+      this._runStarted = true;
+      adMarkRunStart();
+      track('run_start', {
+        seed: this._state.seed,
+        opening_heroes: this._state.team.map((h) => h.def.id),
+      });
+      this._fx.markLand(SQUAD_X, this._slotY(0));
+    }
     this._renderPickCards();
   }
 
@@ -267,12 +341,21 @@ export class BattleScene implements Scene {
       const combo = comboIfAdd(occupant.mods.map((m) => m.id), mod.id);
       const becomes = combo?.becomes ?? mod.becomes;
       if (!installMod(s, occupant.def.id)) return;
+      this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
+      this._installShownKey = '';
       const dest = this._heroXY(occupant.def.id);
       this._fx.flyMod(375, this._dock.y + 40, dest?.x ?? this._slotX(slot), dest?.y ?? this._slotY(slot), modTex(mod.id));
       this._consumeEvents();
       this._clearSelect();
       this._accMs = 0;
-      this._say(combo ? `${who}叠出了${combo.name}：${becomes}` : `${who}变成了${becomes}`);
+      this._say(`${who}装上了${mod.name}：变成了${becomes}`);
+      track('mod_install', {
+        wave: s.wave,
+        mod_id: mod.id,
+        target_hero: occupant.def.id,
+        target_slot: occupant.slot,
+        target_mod_count: occupant.mods.length,
+      });
       return;
     }
 
@@ -287,8 +370,14 @@ export class BattleScene implements Scene {
       return;
     }
     const mover = s.team.find((h) => h.def.id === this._selected);
+    const before = teamInOrder(s).map((h) => h.def.id);
     if (mover && placeInSlot(s, mover.def.id, slot)) {
       this._say(`${mover.def.name}站到${SLOT_NAME[slot] ?? '那个位置'}`);
+      track('queue_change', {
+        wave: s.wave,
+        order_before: before,
+        order_after: teamInOrder(s).map((h) => h.def.id),
+      });
     }
     this._clearSelect();
   }
@@ -361,13 +450,11 @@ export class BattleScene implements Scene {
   }
 
   private _slotY(slot: number): number {
-    return slot <= 0 ? this._lay.frontY : this._lay.frontY + BACK_DY;
+    return slotScreenY(slot, this._lay.frontY);
   }
 
   private _slotX(slot: number): number {
-    if (slot === 1) return SQUAD_X - BACK_DX;
-    if (slot === 2) return SQUAD_X + BACK_DX;
-    return SQUAD_X;
+    return slotScreenX(slot);
   }
 
   update(dt: number): void {
@@ -390,29 +477,49 @@ export class BattleScene implements Scene {
       return;
     }
 
+    if (!this._settled && !this._openingHintSaid) this._openClock += dt;
+    if (this._runStarted && !this._openingHintSaid && this._openClock >= 8) {
+      this._openingHintSaid = true;
+      this._say('外星人下来了，撑过 15 波');
+    }
+
     if (s.phase === 'picking') {
       if (this._pick.children.length === 0) this._renderPickCards();
       if (isRosterPicking(s) && s.team.length === 0) {
-        this._pickIdle += dt;
-        if (this._pickIdle >= 3) this._highlightFirstCard();
+        if (this._openClock >= 1.5 && !this._cardPulsed) this._pulseRosterCards();
+        if (this._openClock >= 3) this._highlightFirstCard();
       }
     } else if (s.phase === 'installing') {
-      // 等玩家点人，战斗不动。这一步就是主体验，不设自动兜底
+      // 跟选牌一样铺在屏幕中间。只留场上三个人时，模拟器底部点不中
+      this._renderInstallCards();
+    } else if (this._pick.children.length > 0) {
       this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-    } else if (s.phase === 'fighting' || s.phase === 'gap') {
+      this._installShownKey = '';
+    }
+    if (s.phase === 'fighting' || s.phase === 'gap') {
       // 按固定步长推进，与批量回归完全一致：掉帧只会让画面变慢，不会改变战斗结果
       this._accMs += dt * 1000;
       let guard = 0;
       while (this._accMs >= TICK_MS && guard++ < 8) {
         this._accMs -= TICK_MS;
         this._rememberUnits();
+        const waveBefore = s.wave;
+        const phaseBefore = s.phase;
         tick(s);
         this._consumeEvents();
         // 经 tick 后 phase 可能已变，这里必须重新读状态
         const phase = this._state.phase;
+        if (phaseBefore === 'fighting'
+          && (phase === 'gap' || phase === 'picking' || phase === 'won')) {
+          track('wave_clear', {
+            wave: waveBefore,
+            duration_ms: s.waveElapsedMs,
+            alive_count: s.team.filter((h) => h.alive).length,
+          });
+        }
         if (phase === 'gap' && this._gapTold !== this._state.wave) {
           this._gapTold = this._state.wave;
-          this._say(`第 ${this._state.wave} 波 · ${getWave(this._state.wave).hint}`);
+          this._say(`第 ${this._state.wave} 波 · ${waveHeadline(this._state.wave)}`);
         }
         if (phase === 'picking') {
           this._renderPickCards();
@@ -501,6 +608,27 @@ export class BattleScene implements Scene {
         );
       }
       if (ev.kind === 'hit') this._enemyActors.get(ev.enemyId)?.flash(120);
+      if (ev.kind === 'install') {
+        const who = this._state.team.find((h) => h.def.id === ev.heroId);
+        const actor = this._heroActors.get(ev.heroId);
+        if (who && actor) {
+          actor.equip(who.mods.map((m) => m.id));
+          const foe = this._state.enemies[0];
+          const aim = foe ? this._enemyXY(foe.id) : { x: 520, y: this._lay.fieldTop + 180 };
+          if (aim) actor.playAttack(aim.x, aim.y, motionFor(resolveAttackFx(who.def, who.mods)));
+        }
+      }
+      if (ev.kind === 'heroDown') {
+        const who = this._state.team.find((h) => h.def.id === ev.heroId);
+        track('hero_down', {
+          wave: this._state.wave,
+          hero_id: ev.heroId,
+          slot: who?.slot ?? -1,
+        });
+        if (who?.slot === 0 && this._state.team.some((h) => h.alive)) {
+          this._say('队首倒了，点人换上去');
+        }
+      }
 
       const withHero = ev.kind === 'hit' || ev.kind === 'skill' || ev.kind === 'heroDown'
         || ev.kind === 'enemyHit' || ev.kind === 'heroRevive' || ev.kind === 'install';
@@ -538,6 +666,9 @@ export class BattleScene implements Scene {
           : undefined,
         baseY: this._lay.fieldBottom,
         slowed: ev.kind === 'hit' && !!attacker?.stats.slowOnHit,
+        installLine: ev.kind === 'install'
+          ? this._installLine(ev.heroId, ev.modId)
+          : undefined,
       });
     }
     this._state.events.length = 0;
@@ -554,8 +685,23 @@ export class BattleScene implements Scene {
     this._openSettle();
   }
 
-  private async _acceptRevive(): Promise<void> {
+  private async _watchAd(placement: AdPlacement): Promise<boolean> {
+    track('ad_show', { placement, wave: this._state.wave });
     const ok = await Platform.showRewardedVideo();
+    track('ad_close', { placement, wave: this._state.wave, completed: ok });
+    return ok;
+  }
+
+  private _installLine(heroId: string, modId: string): string {
+    const who = this._state.team.find((h) => h.def.id === heroId);
+    const piece = getMod(modId);
+    const combo = who ? comboOf(who.mods.map((m) => m.id)) : undefined;
+    const name = who?.def.name ?? '他';
+    return `${name}装上了${piece.name}：变成了${combo?.becomes ?? piece.becomes}`;
+  }
+
+  private async _acceptRevive(): Promise<void> {
+    const ok = await this._watchAd('revive');
     if (!ok) {
       this._revive.hide();
       this._openSettle();
@@ -579,7 +725,7 @@ export class BattleScene implements Scene {
 
   private async _doubleSettle(): Promise<boolean> {
     if (!adCanShow('settleDouble')) return false;
-    const ok = await Platform.showRewardedVideo();
+    const ok = await this._watchAd('settleDouble');
     if (!ok) return false;
     adRecord('settleDouble');
     stashNextScrap(Math.max(16, this._baseScrap * 2), 'ad');
@@ -589,19 +735,48 @@ export class BattleScene implements Scene {
   private _openSettle(): void {
     if (this._settled) return;
     this._settled = true;
-    const mem = saveRun(
+    this._baseScrap = this._state.scrap;
+    const deposited = yardDeposit(this._state.wave, this._baseScrap);
+    saveRun(
       this._state.wave,
       this._state.team.map((h) => h.def.id),
     );
-    this._baseScrap = this._state.scrap;
+    const mem = bankToYard(deposited);
+    track('run_end', {
+      reached_wave: this._state.wave,
+      cleared: this._state.phase === 'won',
+      duration_ms: this._state.totalMs,
+      team_with_mods: this._state.team.map((h) => ({
+        id: h.def.id,
+        slot: h.slot,
+        mods: h.mods.map((m) => m.id),
+      })),
+      installs: this._state.stats.installs,
+    });
     playSfx(this._state.phase === 'won' ? 'win' : 'lose', 0);
     this._settle.show(this._state, mem, this._lay.height, {
       scrap: this._baseScrap,
       earned: this._state.scrapEarned,
       spent: this._state.scrapSpent,
       canDouble: adCanShow('settleDouble'),
+      canJunkyard: adCanShow('junkyard'),
       loseReason: this._state.loseReason,
+      nextMove: this._state.phase === 'lost' ? loseNextMove(this._state) : '',
+      yardScrap: mem.yardScrap,
+      yardIn: deposited,
+      yardGoal: goalLine(nextYardGoal(mem.yardScrap, mem.unlockedMods, mem.startScrapLv)),
     });
+  }
+
+  private async _settleJunkyard(): Promise<boolean> {
+    if (!adCanShow('junkyard')) return false;
+    const ok = await this._watchAd('junkyard');
+    if (!ok) return false;
+    adRecord('junkyard');
+    const mod = claimJunkyard(this._state);
+    if (!mod) return false;
+    stashNextPin(mod.id);
+    return true;
   }
 
   private _highlightFirstCard(): void {
@@ -660,7 +835,7 @@ export class BattleScene implements Scene {
       const hit = new PIXI.Container();
       hit.eventMode = 'static';
       const g = new PIXI.Graphics();
-      g.beginFill(0xffffff, 0.001).drawRoundedRect(-64, -110, 128, 124, 14).endFill();
+      g.beginFill(0xffffff, 0.001).drawRoundedRect(-110, -230, 220, 260, 16).endFill();
       hit.addChild(g);
       bindPointerTap(hit, () => this._tapSlot(slot));
       hit.name = `queue:${slot}`;
@@ -704,11 +879,12 @@ export class BattleScene implements Scene {
     } else if (s.phase === 'fighting' && s.waveElapsedMs >= WAVE_TIMEOUT_MS - 20_000) {
       this._hintText.text = '再打不动这波就散了';
     } else {
-      this._hintText.text = s.wave >= 1 ? getWave(s.wave).hint : '';
+      this._hintText.text = s.wave >= 1 ? waveHeadline(s.wave) : '';
     }
 
     for (const hit of this._heroHits) {
-      hit.visible = this._showTeam();
+      // 装配时中间有大卡，场上热区会跟卡叠在一起点错人
+      hit.visible = this._showTeam() && this._state.phase !== 'installing';
     }
 
     this._hudPlate.clear();
@@ -734,7 +910,7 @@ export class BattleScene implements Scene {
     const { top } = this._lay;
     plate(this._installPlate, 40, top + 86, 670, 92, 16, 0.9);
     this._installTitle.text = s.pendingMod.name;
-    this._installDesc.text = `点谁身上：${s.pendingMod.becomes} · 拆一件 ${STRIP_COST} 废品`;
+    this._installDesc.text = '点中间那个人焊上去';
   }
 
   private _showInspect(): void {
@@ -809,10 +985,11 @@ export class BattleScene implements Scene {
         let a = this._heroActors.get(h.def.id);
         if (!a) {
           a = new UnitActor();
-          a.bindHero(h.def.id);
+          a.bindHero(h.def.id, h.mods.map((m) => m.id));
           this._heroActors.set(h.def.id, a);
           this._unitLayer.addChild(a.view);
         }
+        a.equip(h.mods.map((m) => m.id));
         a.place(this._slotX(h.slot), this._slotY(h.slot), heroH(h));
         a.setDead(!h.alive);
         a.view.zIndex = 20 - h.slot;
@@ -923,9 +1100,8 @@ export class BattleScene implements Scene {
         front: slot === 0 && !moving && !installing,
       });
       tag.text = SLOT_NAME[slot];
-      if (slot === 1) tag.position.set(x - 54, y - 6);
-      else if (slot === 2) tag.position.set(x + 54, y - 6);
-      else tag.position.set(x, y + 20);
+      const tagAt = slotTagPos(slot, x, y);
+      tag.position.set(tagAt.x, tagAt.y);
     }
   }
 
@@ -976,10 +1152,11 @@ export class BattleScene implements Scene {
       name.text = h.mods.length > 0 ? `${h.def.name} +${h.mods.length}` : h.def.name;
       name.tint = h.alive ? 0xffffff : 0x6b7394;
       name.position.set(x, top - 16);
-      // 装配时三人头顶直接写「装他会变成什么」，不要让玩家猜
+      // 装配时三人头顶各写一句：值、能用、浪费，不要只写「装他」
       if (this._state.phase === 'installing' && this._state.pendingMod && canInstallOn(h)) {
-        const combo = comboIfAdd(h.mods.map((m) => m.id), this._state.pendingMod.id);
-        tag.text = combo ? `装他 → ${combo.name}` : `装他`;
+        const forecast = installForecast(h, this._state.pendingMod);
+        tag.text = forecast.line;
+        tag.tint = forecast.fit === 'waste' ? 0x8a90a8 : forecast.fit === 'good' ? 0x9be08a : GOLD;
       } else {
         const combo = comboOf(h.mods.map((m) => m.id));
         tag.text = combo
@@ -987,8 +1164,8 @@ export class BattleScene implements Scene {
           : h.mods.length > 0
             ? (h.mods[h.mods.length - 1]?.name ?? abilityTag(h.def.skill))
             : abilityTag(h.def.skill);
+        tag.tint = h.alive ? 0xffd66b : 0x6b7394;
       }
-      tag.tint = h.alive ? 0xffd66b : 0x6b7394;
       tag.position.set(x, top);
     }
     for (const c of [...this._nameLayer.children]) {
@@ -1012,37 +1189,6 @@ export class BattleScene implements Scene {
     }
     if (this._state.phase === 'installing' && this._state.pendingMod && canInstallOn(h)) {
       g.lineStyle(3, GOLD, 0.9).drawEllipse(x, feet + 8, 52, 16).lineStyle(0);
-    }
-
-    const ids = h.mods.map((m) => m.id);
-    if (ids.includes('steelplate') && h.slot === 0) {
-      g.beginFill(0x9aa4b2, 0.88).drawRoundedRect(x - 28, feet - size * 0.62, 18, 44, 4).endFill();
-    }
-    if (ids.includes('helmet')) {
-      g.beginFill(0xc45a32, 0.95).drawEllipse(x, feet - size * 0.92, 22, 14).endFill();
-    }
-    if (ids.includes('quilt')) {
-      g.beginFill(0xd4736b, 0.55).drawEllipse(x, feet - size * 0.28, 40, 18).endFill();
-    }
-    if (ids.includes('speaker')) {
-      g.lineStyle(2, GOLD, 0.55).drawCircle(x, feet - size * 0.4, 36).lineStyle(0);
-    }
-
-    // 破烂挂在身上：看得见「他变成了什么」，不是三个金点
-    const hang = [
-      { dx: 34, dy: -size * 0.52 },
-      { dx: -36, dy: -size * 0.36 },
-      { dx: 10, dy: -size * 0.98 },
-    ];
-    for (let i = 0; i < h.mods.length; i += 1) {
-      const p = hang[i];
-      if (!p) continue;
-      const mx = x + p.dx;
-      const my = feet + p.dy;
-      g.beginFill(0xfff4c4, 0.95).drawRoundedRect(mx - 18, my - 18, 36, 36, 8).endFill();
-      const t = modTex(h.mods[i]!.id);
-      if (t?.baseTexture.valid && t.width > 1) fillContain(g, t, mx, my + 14, 32, 32);
-      else drawModSilhouette(g, h.mods[i]!.id, mx, my, 30);
     }
 
     // 越挨越猛：层数直接画成小竖条，玩家才知道高压锅在起作用
@@ -1081,6 +1227,113 @@ export class BattleScene implements Scene {
 
   // ── 三选一 ────────────────────────────────────────────
 
+  private _refreshPickArt(): void {
+    if (this._pickArtTimer) clearTimeout(this._pickArtTimer);
+    this._pickArtTimer = setTimeout(() => {
+      this._pickArtTimer = 0;
+      if (this._state.phase === 'picking') this._renderPickCards();
+      if (this._state.phase === 'installing') {
+        this._installShownKey = '';
+        this._renderInstallCards();
+      }
+    }, 220);
+  }
+
+  /** 装配：三张大卡铺在屏幕中间，跟刚选破烂同一套点击 */
+  private _renderInstallCards(): void {
+    const s = this._state;
+    if (s.phase !== 'installing' || !s.pendingMod) return;
+    const key = `${s.pendingMod.id}:${s.team.map((h) => `${h.def.id}:${h.slot}`).join(',')}`;
+    if (this._installShownKey === key && this._pick.children.length > 0) return;
+    this._installShownKey = key;
+    this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
+
+    const dim = new PIXI.Graphics();
+    dim.beginFill(0x2a160c, 0.55).drawRect(0, 0, 750, this._lay.height).endFill();
+    this._pick.addChild(dim);
+
+    const titleY = this._lay.fieldTop + (this._lay.fieldBottom - this._lay.fieldTop) * 0.12;
+    const title = label(34, 0xfff4c4, true);
+    title.style.stroke = '#2a160c';
+    title.style.strokeThickness = 6;
+    title.anchor.set(0.5);
+    title.position.set(375, titleY);
+    title.text = `焊给谁 · ${s.pendingMod.name}`;
+    this._pick.addChild(title);
+
+    const sub = label(22, 0xfff1a8, true);
+    sub.style.stroke = '#2a160c';
+    sub.style.strokeThickness = 4;
+    sub.anchor.set(0.5);
+    sub.position.set(375, titleY + 40);
+    sub.text = '三人说法不一样，点对的那个';
+    this._pick.addChild(sub);
+
+    const cardW = 218;
+    const cardH = 320;
+    const gap = 12;
+    const targets = teamInOrder(s).filter(canInstallOn);
+    const totalW = targets.length * cardW + Math.max(0, targets.length - 1) * gap;
+    const startX = (750 - totalW) / 2;
+    targets.forEach((h, i) => {
+      const card = this._buildInstallCard(h, s.pendingMod!, cardW, cardH);
+      card.name = `install-card-${h.def.id}`;
+      card.position.set(startX + i * (cardW + gap), titleY + 72);
+      this._pick.addChild(card);
+      bindPointerTap(card, () => this._tapSlot(h.slot));
+    });
+  }
+
+  private _buildInstallCard(
+    h: HeroUnit,
+    mod: NonNullable<RunState['pendingMod']>,
+    w: number,
+    hgt: number,
+  ): PIXI.Container {
+    const card = new PIXI.Container();
+    card.eventMode = 'static';
+    const forecast = installForecast(h, mod);
+    const edge = forecast.fit === 'waste' ? 0x8a90a8 : forecast.fit === 'good' ? 0x6fbf73 : GOLD;
+    const faceH = 168;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x1a0e08, 0.35).drawRoundedRect(4, 8, w, hgt, 22).endFill();
+    bg.beginFill(0xfff6df).drawRoundedRect(0, 0, w, hgt, 20).endFill();
+    bg.beginFill(edge, 0.18).drawRoundedRect(8, 8, w - 16, faceH - 10, 16).endFill();
+    bg.lineStyle(6, edge, 1).drawRoundedRect(3, 3, w - 6, hgt - 6, 18).lineStyle(0);
+    card.addChild(bg);
+
+    const portrait = heroTex(h.def.id);
+    const drawable = portrait?.baseTexture.valid && portrait.width > 1 ? portrait : null;
+    if (drawable) {
+      addFitPortrait(card, drawable, 10, 10, w - 20, faceH - 16, 14);
+    } else {
+      const swatch = new PIXI.Graphics();
+      swatch.beginFill(villagerColor(h.def.id), 0.9).drawRoundedRect(w / 2 - 40, 40, 80, 80, 18).endFill();
+      card.addChild(swatch);
+    }
+
+    const name = label(22, 0x2a160c, true);
+    name.anchor.set(0.5, 0);
+    name.position.set(w / 2, faceH + 6);
+    name.text = `${h.def.name} · ${SLOT_NAME[h.slot] ?? ''}`;
+    card.addChild(name);
+
+    const tagBg = new PIXI.Graphics();
+    tagBg.beginFill(edge, 0.92).drawRoundedRect(10, hgt - 78, w - 20, 64, 12).endFill();
+    const tag = label(16, forecast.fit === 'good' ? 0x143018 : 0x2a160c, true);
+    tag.anchor.set(0.5);
+    tag.position.set(w / 2, hgt - 46);
+    tag.style.wordWrap = true;
+    tag.style.wordWrapWidth = w - 36;
+    tag.style.breakWords = true;
+    tag.style.align = 'center';
+    tag.style.lineHeight = 22;
+    tag.text = forecast.line;
+    card.addChild(tagBg, tag);
+    return card;
+  }
+
   private _renderPickCards(): void {
     this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
 
@@ -1088,6 +1341,17 @@ export class BattleScene implements Scene {
     if (s.phase !== 'picking' || s.pendingOptions.length === 0) return;
 
     const roster = isRosterPicking(s);
+    if (!roster) {
+      const key = `${s.wave}:${s.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : o.heroId)).join(',')}`;
+      if (this._pickShownKey !== key) {
+        this._pickShownKey = key;
+        track('pick_show', {
+          wave: s.wave,
+          options: s.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : o.heroId)),
+          kinds: s.pendingOptions.map((o) => (o.kind === 'mod' ? getMod(o.modId).kind : 'recruit')),
+        });
+      }
+    }
     const dim = new PIXI.Graphics();
     dim.beginFill(0x2a160c, roster ? 0.38 : 0.55).drawRect(0, 0, 750, this._lay.height).endFill();
     this._pick.addChild(dim);
@@ -1099,7 +1363,7 @@ export class BattleScene implements Scene {
     title.style.strokeThickness = 6;
     title.anchor.set(0.5);
     title.position.set(375, titleY);
-    title.text = roster ? '叫三个人来' : `下一波：${getWave(s.wave).hint}`;
+    title.text = roster ? '叫三个人来' : `下一波：${waveHeadline(s.wave)}`;
     this._pick.addChild(title);
 
     const names = s.team.map((h) => h.def.name);
@@ -1111,7 +1375,7 @@ export class BattleScene implements Scene {
     sub.position.set(375, titleY + (roster ? 38 : 44));
     sub.text = roster
       ? names.length === 0
-        ? '点满三个就开打，点错再点一下取消'
+        ? '点满三个先焊一件，点错再点一下取消'
         : `已叫${names.join('、')} · 还差 ${left} 个`
       : `废品 ${s.scrap} · 挑一件对付它`;
     this._pick.addChild(sub);
@@ -1137,6 +1401,7 @@ export class BattleScene implements Scene {
         this._pick.addChild(card);
         bindPointerTap(card, () => this._choose(opt));
       });
+      this._renderSideOffers();
       return;
     }
 
@@ -1285,7 +1550,14 @@ export class BattleScene implements Scene {
       const kindName = m.kind === 'pivot' ? '改打法'
         : m.kind === 'output' ? '更能打'
           : m.kind === 'tanky' ? '更能挨' : '帮全队';
-      return { title: m.name, subtitle: kindName, desc: m.desc, color: GOLD, becomes: m.becomes };
+      const tease = comboTeaser(this._state.team, m.id);
+      return {
+        title: m.name,
+        subtitle: kindName,
+        desc: m.desc,
+        color: GOLD,
+        becomes: tease ? `${m.becomes} · ${tease}` : m.becomes,
+      };
     }
     const def = getHero(opt.heroId);
     return {
@@ -1300,6 +1572,14 @@ export class BattleScene implements Scene {
   private _choose(opt: PickOption): void {
     const roster = isRosterPicking(this._state);
     playSfx('ui_tap', 0);
+    if (opt.kind === 'mod') {
+      track('pick_choose', {
+        wave: this._state.wave,
+        mod_id: opt.modId,
+        kind: getMod(opt.modId).kind,
+        options: this._state.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : '')),
+      });
+    }
     applyPick(this._state, opt);
     this._accMs = 0;
     this._pickIdle = 0;
@@ -1307,10 +1587,119 @@ export class BattleScene implements Scene {
       this._renderPickCards();
       return;
     }
+    if (this._state.phase === 'installing') {
+      this._renderInstallCards();
+      if (roster) this._lockOpening();
+      return;
+    }
     this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-    if (roster && this._state.phase === 'fighting') {
-      this._fx.markLand();
-      this._say('外星人下来了，撑过 15 波');
+    this._installShownKey = '';
+    if (roster && this._state.team.length >= TEAM_SIZE) {
+      this._lockOpening();
     }
   }
+
+  private _lockOpening(): void {
+    if (!this._runStarted) {
+      this._runStarted = true;
+      adMarkRunStart();
+      track('run_start', {
+        seed: this._state.seed,
+        opening_heroes: this._state.team.map((h) => h.def.id),
+      });
+      this._fx.markLand(SQUAD_X, this._slotY(0));
+    }
+    if (this._state.phase === 'installing' && this._state.pendingMod) {
+      this._renderInstallCards();
+      this._say(`白送的${this._state.pendingMod.name}，点中间一个人`);
+    } else if (this._state.phase === 'picking') {
+      this._say('先焊一件再打第一波');
+    }
+  }
+
+  private _pulseRosterCards(): void {
+    this._cardPulsed = true;
+    for (const child of this._pick.children) {
+      if (!child.name?.startsWith('pick-card-')) continue;
+      const card = child as PIXI.Container;
+      if (card.children.some((c) => c.name === 'idle-pulse')) continue;
+      const glow = new PIXI.Graphics();
+      glow.name = 'idle-pulse';
+      glow.lineStyle(3, GOLD, 0.55).drawRoundedRect(4, 4, ROSTER_CARD_W - 8, ROSTER_CARD_H - 8, 16);
+      card.addChild(glow);
+    }
+  }
+
+  private _offerChip(title: string, x: number, y: number, onTap: () => void): PIXI.Container {
+    const chip = new PIXI.Container();
+    chip.eventMode = 'static';
+    const bg = new PIXI.Graphics();
+    goldBtn(bg, -148, -22, 296, 44);
+    const t = label(16, GOLD, true);
+    t.anchor.set(0.5);
+    t.text = title;
+    chip.addChild(bg, t);
+    chip.position.set(x, y);
+    bindPointerTap(chip, onTap);
+    return chip;
+  }
+
+  private _renderSideOffers(): void {
+    if (!isRosterPicking(this._state)) return;
+    const y = this._lay.height - 36 - 8;
+    if (this._state.openingGift) {
+      const note = label(16, GOLD, true);
+      note.anchor.set(0.5);
+      note.position.set(375, y - 48);
+      note.text = `开局多带：${this._state.openingGift.name}`;
+      this._pick.addChild(note);
+    } else if (adCanShow('dailyGift') && adIsFirstRunToday()) {
+      this._pick.addChild(this._offerChip('看一段，开局多带一件', 375, y - 48, () => {
+        void this._claimDailyGift();
+      }));
+    }
+    if (this._state.pinnedMods[0]) {
+      const note = label(16, 0xfff4c4, true);
+      note.anchor.set(0.5);
+      note.position.set(375, y);
+      note.text = `废品站：${this._state.pinnedMods[0].name}，下一手必出`;
+      this._pick.addChild(note);
+    } else if (adCanShow('junkyard')) {
+      this._pick.addChild(this._offerChip('翻废品站，看一件池外破烂', 375, y, () => {
+        void this._claimJunkyard();
+      }));
+    }
+  }
+
+  private async _claimDailyGift(): Promise<void> {
+    if (this._offerBusy || !adCanShow('dailyGift') || !adIsFirstRunToday()) return;
+    this._offerBusy = true;
+    const ok = await this._watchAd('dailyGift');
+    if (ok) {
+      adRecord('dailyGift');
+      const mod = claimOpeningGift(this._state);
+      if (mod) this._say(`开局多带${mod.name}，点满三人再装`);
+      this._renderPickCards();
+    }
+    this._offerBusy = false;
+  }
+
+  private async _claimJunkyard(): Promise<void> {
+    if (this._offerBusy || !adCanShow('junkyard')) return;
+    this._offerBusy = true;
+    const ok = await this._watchAd('junkyard');
+    if (ok) {
+      adRecord('junkyard');
+      const mod = claimJunkyard(this._state);
+      if (mod) this._say(`翻到${mod.name}：${mod.becomes}。下一手必出`);
+      this._renderPickCards();
+    }
+    this._offerBusy = false;
+  }
+}
+
+function loseNextMove(state: RunState): string {
+  if (state.stats.installs === 0) return '下次先捡破烂装身上，空着手打不过';
+  if (state.stats.queueMoves === 0) return '下次把改猛的挪到前排，站位也是构筑';
+  return '下次换个人装试试，别只靠重开碰运气';
 }

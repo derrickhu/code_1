@@ -58,6 +58,9 @@ export function isMeleeRole(def: HeroDef): boolean {
   return def.range <= 1;
 }
 
+/** 村子没点过人时的默认三人：肉、锤、后排 */
+export const DEFAULT_SQUAD: readonly string[] = ['tiezhu', 'dachui', 'laoyanqiang'];
+
 export const HEROES: readonly HeroDef[] = [
   {
     id: 'tiezhu',
@@ -159,4 +162,27 @@ export function getHero(id: string): HeroDef {
   const h = HERO_BY_ID[id];
   if (!h) throw new Error(`未知村民: ${id}`);
   return h;
+}
+
+export { SLOT_NAME as QUEUE_LABELS, SLOT_VIEW_ORDER } from './combat';
+
+/**
+ * 叫人是换位子，不是收集。满员再点新人，换进当前高亮槽，不要点了没反应。
+ */
+export function placeHero(
+  squad: readonly string[],
+  id: string,
+  focus: number,
+  cap: number,
+): { squad: string[]; focus: number } {
+  const i = squad.indexOf(id);
+  if (i >= 0) return { squad: [...squad], focus: i };
+  if (squad.length < cap) {
+    const next = [...squad, id];
+    return { squad: next, focus: next.length - 1 };
+  }
+  const slot = Math.max(0, Math.min(cap - 1, Math.floor(focus)));
+  const next = [...squad];
+  next[slot] = id;
+  return { squad: next, focus: slot };
 }

@@ -1,0 +1,18 @@
+Game UI prop sprite sheet, 3 columns x 2 rows, six equal square panels, thin pale gutter, flat pale warm gray backdrop (easy to cut out).
+
+Same cheap-fun sticker-chibi world as the village game: fat comic ink outlines, flat 6-8 colors, TWO-tone cel shade only, one highlight blob per big shape.
+Palette: warm earth yellow, cement gray, plastic blue, rust red, mustard enamel, weathered wood.
+NOT premium fantasy UI, NOT glossy AAA HUD, NOT neon sci-fi, NOT candy cute.
+
+Each object sits centered in its cell, isolated, with a little contact shadow. No people.
+NO TEXT, no labels, no letters, no numbers, no logos, no watermarks, no writing on any surface.
+
+Row 1:
+1 TITLE PLAQUE: a wide weathered wooden shop sign board hanging from two rusty chains. Faded mustard-yellow painted face, chipped edges, rusty nails, empty center (we will print the title later). Horizontal rectangle, chunky.
+2 PLAY PLATE: a wide rusted enamel shop door-plate / tin sign. Ochre-gold rim, rust-red and dirty cream enamel, two bolt holes, empty center. Looks like something torn off a hardware-store door. Horizontal, chunky, clickable.
+3 SQUAD DOOR: a small village shop-front tile. Faded plastic-blue painted wooden door frame, three empty wooden stools in a row, three straw hats and work jackets on wall hooks. Means "call people". No faces, no bodies.
+
+Row 2:
+4 YARD DOOR: a small scrap-yard shop-front tile. Gray corrugated roll shutter half open, junk spilling out: pipes, one rusty washer, blue crate, a dented pot. Means "junkyard shop".
+5 BOOK DOOR: a battered scrap catalog / photo album standing open, yellowed pages, doodles of junk (hammer, pot, pipe) drawn as pictures only, rusted metal corners, twine binding. Means "catalog". Absolutely no writing on the pages.
+6 SCRAP PILE ICON: a tiny cute junk heap icon for currency. Blue crate, rusted can, two pipes, a pot lid. Compact, readable at 64px.

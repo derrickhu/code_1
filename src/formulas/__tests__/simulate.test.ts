@@ -22,17 +22,28 @@ import {
   TOTAL_WAVES,
   WAVE_TIMEOUT_MS,
   slotPos,
+  slotScreenX,
+  slotScreenY,
+  slotTagPos,
+  SQUAD_X,
+  BACK_DX,
+  BACK_DY,
 } from '../../balance/combat';
 import { comboOf } from '../../balance/combos';
-import { REROLL_COST, STRIP_COST, runScrap } from '../../balance/rewards';
+import { REROLL_COST, SCRAP_PER_INSTALL, STRIP_COST, runScrap } from '../../balance/rewards';
 import { resolveAttackFx } from '../../balance/fx';
-import { WAVES, getEnemyProto, waveAtkMult, waveHpMult } from '../../balance/enemies';
+import { BACK_AIM_DIST, WAVES, getEnemyProto, waveAtkMult, waveHpMult } from '../../balance/enemies';
+import { installForecast } from '../../balance/forecast';
+import { availableMods, isModUnlocked, yardDeposit } from '../../balance/yard';
 import { HEROES, getHero } from '../../balance/heroes';
 import { MODS, getMod } from '../../balance/mods';
 import { PICK_STRATEGIES } from '../../balance/picker';
 import {
   applyPick,
+  buildOptions,
   canInstallOn,
+  claimJunkyard,
+  claimOpeningGift,
   computeStats,
   createRun,
   heroAt,
@@ -76,10 +87,11 @@ function unit(heroId: string, slot: number, modIds: string[] = []): HeroUnit {
   };
 }
 
-function enemyAt(dist: number, id = 1): EnemyUnit {
+function enemyAt(dist: number, id = 1, protoId = 'cube'): EnemyUnit {
+  const proto = getEnemyProto(protoId);
   return {
     id,
-    proto: { id: 'cube', name: '方块兵', hp: 300, atk: 20, def: 8, speed: 0.9, attackIntervalMs: 1100, isBoss: false },
+    proto: { ...proto, hp: 300, atk: 20 },
     hp: 300,
     maxHp: 300,
     atk: 20,
@@ -132,6 +144,17 @@ describe('队列站位', () => {
     expect(REAR_POS).toBe(slotPos(TEAM_SIZE - 1));
   });
 
+  it('画面三角：前排居中靠前，两人分列左后右后', () => {
+    expect(slotScreenX(0)).toBe(SQUAD_X);
+    expect(slotScreenX(1)).toBe(SQUAD_X - BACK_DX);
+    expect(slotScreenX(2)).toBe(SQUAD_X + BACK_DX);
+    expect(slotScreenY(0, 800)).toBe(800);
+    expect(slotScreenY(1, 800)).toBe(800 + BACK_DY);
+    expect(slotScreenY(2, 800)).toBe(800 + BACK_DY);
+    expect(slotTagPos(1, 279, 862).x).toBeLessThan(279);
+    expect(slotTagPos(2, 471, 862).x).toBeGreaterThan(471);
+  });
+
   it('外星人先打队首，后面的人被替着挡刀', () => {
     const team = [unit('laoyanqiang', 0), unit('tiezhu', 1), unit('erjiu', 2)];
     const victim = enemyVictim(enemyAt(0.5), team);
@@ -149,6 +172,22 @@ describe('队列站位', () => {
   it('够不着时不出手，继续往前走', () => {
     const team = [unit('tiezhu', 0)];
     expect(enemyVictim(enemyAt(MELEE_REACH + 0.1), team)).toBeUndefined();
+  });
+
+  it('飞碟进村口打后排，脆皮躲后面会被点名', () => {
+    const team = [unit('tiezhu', 0), unit('dachui', 1), unit('sanshen', 2)];
+    expect(enemyVictim(enemyAt(1.5, 1, 'saucer'), team)?.slot).toBe(2);
+  });
+
+  it('飞碟还在路上不打', () => {
+    const team = [unit('tiezhu', 0), unit('sanshen', 2)];
+    expect(enemyVictim(enemyAt(BACK_AIM_DIST + 0.2, 1, 'saucer'), team)).toBeUndefined();
+  });
+
+  it('飞碟来时后排倒了才轮到前面', () => {
+    const team = [unit('tiezhu', 0), unit('sanshen', 2)];
+    team[1]!.alive = false;
+    expect(enemyVictim(enemyAt(1.5, 1, 'saucer'), team)?.slot).toBe(0);
   });
 
   it('射程从自己的位置往外算，站得靠后就够得更远', () => {
@@ -252,6 +291,30 @@ describe('失败条件是队灭，不是漏怪', () => {
 // ── 改装件 ──────────────────────────────────────────────
 
 describe('改装件能改定位，而不只是加数值', () => {
+  it('电锯焊给远程就得贴脸，焊给近战只加伤害', () => {
+    const ranged = computeStats(getHero('sanshen'), []);
+    const sawed = computeStats(getHero('sanshen'), [getMod('chainsaw')]);
+    expect(ranged.range).toBeGreaterThan(1);
+    expect(sawed.range).toBe(1);
+    expect(sawed.atk).toBeGreaterThan(ranged.atk);
+    const melee = computeStats(getHero('tiezhu'), [getMod('chainsaw')]);
+    expect(melee.range).toBe(1);
+  });
+
+  it('水管加电锯仍能站后面，不被焊死成近战', () => {
+    const st = computeStats(getHero('tiezhu'), [getMod('pipe'), getMod('chainsaw')]);
+    expect(st.range).toBe(4);
+  });
+
+  it('装配预告：同一件装三个人说法不一样', () => {
+    const pipe = getMod('pipe');
+    const melee = installForecast(unit('tiezhu', 0), pipe);
+    const ranged = installForecast(unit('sanshen', 2), pipe);
+    expect(melee.fit).toBe('good');
+    expect(ranged.fit).toBe('waste');
+    expect(melee.line).not.toBe(ranged.line);
+  });
+
   it('接了根长水管把近战改成远程', () => {
     const before = computeStats(getHero('tiezhu'), []);
     const after = computeStats(getHero('tiezhu'), [getMod('pipe')]);
@@ -387,6 +450,16 @@ describe('本局废品', () => {
     expect(s.scrap).toBe(20);
     expect(s.scrapEarned).toBe(20);
     expect(s.scrapSpent).toBe(0);
+    expect(s.seed).toBe(1);
+    expect(s.scrapLog).toEqual([{ amount: 20, source: 'ad' }]);
+  });
+
+  it('装上发的废品记成 free', () => {
+    const s = createRun(33);
+    runUntil(s, (x) => x.phase === 'installing');
+    const target = installTargets(s)[0]!;
+    expect(installMod(s, target.def.id)).toBe(true);
+    expect(s.scrapLog[s.scrapLog.length - 1]).toEqual({ amount: SCRAP_PER_INSTALL, source: 'free' });
   });
 
   it('重抽扣废品并换一批', () => {
@@ -429,7 +502,7 @@ describe('本局废品', () => {
 });
 
 describe('发牌规则', () => {
-  it('开局一次点齐三个人就开打', () => {
+  it('点齐三个人直接开打，进场不再先选破烂', () => {
     const s = createRun(51);
     expect(s.pendingOptions.every((o) => o.kind === 'recruit')).toBe(true);
     expect(s.pendingOptions.length).toBe(HEROES.length);
@@ -443,6 +516,61 @@ describe('发牌规则', () => {
     applyPick(s, { kind: 'recruit', heroId: 'sanshen' });
     expect(s.team).toHaveLength(TEAM_SIZE);
     expect(s.phase).toBe('fighting');
+    expect(s.wave).toBe(1);
+  });
+
+  it('带着三人进场直接开打', () => {
+    const s = createRun(52, 0, 'ad', '', undefined, ['tiezhu', 'dachui', 'sanshen']);
+    expect(s.phase).toBe('fighting');
+    expect(s.team).toHaveLength(TEAM_SIZE);
+    expect(s.pendingOptions).toHaveLength(0);
+  });
+
+  it('首局白送的破烂点满三人后自动焊上再开打', () => {
+    const s = createRun(57);
+    const gift = claimOpeningGift(s);
+    expect(gift).toBeDefined();
+    expect(gift!.kind).toBe('pivot');
+    applyPick(s, { kind: 'recruit', heroId: 'tiezhu' });
+    applyPick(s, { kind: 'recruit', heroId: 'dachui' });
+    applyPick(s, { kind: 'recruit', heroId: 'sanshen' });
+    expect(s.phase).toBe('fighting');
+    expect(s.team.some((h) => h.mods.some((m) => m.id === gift!.id))).toBe(true);
+    expect(s.wave).toBe(1);
+  });
+
+  it('翻废品站翻到的破烂下一手三选一必出', () => {
+    const s = createRun(59);
+    const found = claimJunkyard(s);
+    expect(found).toBeDefined();
+    s.wave = 2;
+    s.pendingOptions = buildOptions(s);
+    expect(s.pendingOptions[0]).toEqual({ kind: 'mod', modId: found!.id });
+  });
+
+  it('createRun 可以带进上一局翻到的件', () => {
+    const s = createRun(60, 0, 'ad', 'pipe');
+    expect(s.pinnedMods.map((m) => m.id)).toEqual(['pipe']);
+    expect(s.modPool.some((m) => m.id === 'pipe')).toBe(false);
+  });
+
+  it('废品站没买的破烂不进本局池子', () => {
+    expect(isModUnlocked('pipe', [])).toBe(true);
+    expect(isModUnlocked('chainsaw', [])).toBe(false);
+    expect(availableMods([]).some((m) => m.id === 'chainsaw')).toBe(false);
+    const s = createRun(61, 0, 'ad', '', []);
+    expect(s.modPool.some((m) => m.id === 'chainsaw')).toBe(false);
+    expect(s.modPool.some((m) => m.id === 'pipe')).toBe(true);
+  });
+
+  it('买下的破烂和翻到的钉子能进池子', () => {
+    const s = createRun(62, 0, 'ad', 'chainsaw', ['chainsaw']);
+    expect(s.pinnedMods.map((m) => m.id)).toEqual(['chainsaw']);
+  });
+
+  it('走得越深废品堆进账越多', () => {
+    expect(yardDeposit(10, 20)).toBe(20 + 50);
+    expect(yardDeposit(1, 0)).toBeGreaterThan(0);
   });
 
   it('开打之后发的都是改装件', () => {
@@ -506,6 +634,14 @@ describe('队列顺序可以由玩家改', () => {
     expect(s.team.length).toBe(before.length);
   });
 
+  it('玩家换位会计入 queueMoves', () => {
+    const s = createRun(82);
+    runUntil(s, (x) => x.team.length >= 2 && x.phase === 'fighting');
+    const first = teamInOrder(s)[0]!;
+    expect(placeInSlot(s, first.def.id, 2)).toBe(true);
+    expect(s.stats.queueMoves).toBe(1);
+  });
+
   it('人少时可以站到空着的后排，不必跟谁换', () => {
     const s = createRun(81);
     runUntil(s, (x) => x.phase === 'fighting');
@@ -547,6 +683,7 @@ describe('波次编排', () => {
       const def = WAVES.find((x) => x.wave === w);
       expect(def).toBeDefined();
       expect(def!.hint.length).toBeGreaterThan(0);
+      expect(['硬', '多', '快']).toContain(def!.pressure);
       for (const sp of def!.spawns) {
         expect((sp as unknown as Record<string, unknown>).element).toBeUndefined();
       }
