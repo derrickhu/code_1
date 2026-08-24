@@ -91,6 +91,8 @@ export class UnitActor {
   private _gear: HandGear | null = null;
   private _modKey = '';
   walkBob = false;
+  /** 村里点中「要换掉」的人，呼吸放大，让玩家一眼看见换的是谁 */
+  holdPulse = false;
 
   constructor() {
     this._anim = new PIXI.AnimatedSprite([PIXI.Texture.WHITE]);
@@ -219,7 +221,7 @@ export class UnitActor {
 
   update(dt: number): void {
     if (this._flash > 0) this._flash = Math.max(0, this._flash - dt);
-    this._breath += dt * 2.1;
+    this._breath += dt * (this.holdPulse ? 3.6 : 2.1);
     let ox = 0;
     let oy = 0;
     let rot = 0;
@@ -250,18 +252,20 @@ export class UnitActor {
     const breath = !this._dead && this._atkT < 0 && this._clip === 'idle'
       ? Math.sin(this._breath)
       : 0;
-    const sx = this._dead ? 1.12 : 1 - breath * 0.01;
-    const sy = this._dead ? 0.55 : 1 + breath * 0.018;
+    const amp = this.holdPulse ? 0.07 : 0.018;
+    const sx = this._dead ? 1.12 : 1 - breath * (this.holdPulse ? 0.035 : 0.01);
+    const sy = this._dead ? 0.55 : 1 + breath * amp;
     const bodyClip = this._kind === 'hero' && this._armed ? 'idle' : (this._clip || 'idle');
     const fit = this._h / clipBody(this._id, bodyClip, this._anim.texture.height || this._h);
     this._anim.scale.set(fit * sx * this._face, fit * sy);
     this._anim.rotation = rot;
-    this.view.position.set(this._feetX + ox, this._feetY + oy);
+    const bob = this.holdPulse ? -6 - breath * 5 : 0;
+    this.view.position.set(this._feetX + ox, this._feetY + oy + bob);
     if (this._kind === 'hero' && this._armed && this._atkT < 0 && !this._dead) this._tickWeapon(-1, rot);
     this._placeWear(fit);
     if (this._dead) return;
     this._anim.alpha = this._flash > 0 ? 0.72 + Math.sin(this._flash * 40) * 0.22 : 1;
-    this._anim.tint = 0xffffff;
+    this._anim.tint = this.holdPulse ? 0xffe6a8 : 0xffffff;
   }
 
   destroy(): void {

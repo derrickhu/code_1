@@ -25,6 +25,7 @@ import {
   slotScreenX,
   slotScreenY,
   slotTagPos,
+  slotHitBox,
   SQUAD_X,
   BACK_DX,
   BACK_DY,
@@ -153,6 +154,13 @@ describe('队列站位', () => {
     expect(slotScreenY(2, 800)).toBe(800 + BACK_DY);
     expect(slotTagPos(1, 279, 862).x).toBeLessThan(279);
     expect(slotTagPos(2, 471, 862).x).toBeGreaterThan(471);
+    const boxes = [0, 1, 2].map((slot) => {
+      const box = slotHitBox(slot);
+      const x = slotScreenX(slot);
+      return { l: x + box.x, r: x + box.x + box.w };
+    });
+    expect(boxes[1]!.r).toBeLessThan(boxes[0]!.l);
+    expect(boxes[0]!.r).toBeLessThan(boxes[2]!.l);
   });
 
   it('外星人先打队首，后面的人被替着挡刀', () => {
@@ -524,6 +532,13 @@ describe('发牌规则', () => {
     expect(s.phase).toBe('fighting');
     expect(s.team).toHaveLength(TEAM_SIZE);
     expect(s.pendingOptions).toHaveLength(0);
+  });
+
+  it('村子排好的位子进场不重排', () => {
+    const s = createRun(52, 0, 'ad', '', undefined, ['sanshen', 'dachui', 'laoyanqiang']);
+    expect(s.team.find((h) => h.slot === 0)?.def.id).toBe('sanshen');
+    expect(s.team.find((h) => h.slot === 1)?.def.id).toBe('dachui');
+    expect(s.team.find((h) => h.slot === 2)?.def.id).toBe('laoyanqiang');
   });
 
   it('首局白送的破烂点满三人后自动焊上再开打', () => {

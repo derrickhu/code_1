@@ -58,6 +58,11 @@ export function isMeleeRole(def: HeroDef): boolean {
   return def.range <= 1;
 }
 
+/** 能打多远。别写成「后排 5」，那会被认成第五个位子 */
+export function heroReachLine(range: number): string {
+  return range <= 1 ? '贴脸' : `射程 ${range}`;
+}
+
 /** 村子没点过人时的默认三人：肉、锤、后排 */
 export const DEFAULT_SQUAD: readonly string[] = ['tiezhu', 'dachui', 'laoyanqiang'];
 
@@ -185,4 +190,16 @@ export function placeHero(
   const next = [...squad];
   next[slot] = id;
   return { squad: next, focus: slot };
+}
+
+/** 村里点两个人换位子。和局里 placeInSlot 同一件事，只是还没开打 */
+export function swapSquad(squad: readonly string[], a: number, b: number): string[] {
+  const next = [...squad];
+  const i = Math.max(0, Math.min(next.length - 1, Math.floor(a)));
+  const j = Math.max(0, Math.min(next.length - 1, Math.floor(b)));
+  if (i === j) return next;
+  const tmp = next[i];
+  next[i] = next[j]!;
+  next[j] = tmp!;
+  return next;
 }

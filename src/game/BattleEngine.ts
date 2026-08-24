@@ -498,7 +498,7 @@ function addHero(state: RunState, heroId: string): void {
   state.team.push(makeUnit(getHero(heroId), state.team.length));
 }
 
-/** 开打前把近战/肉的放到前面，远程靠后。玩家随后还能换 */
+/** 局里点人没指定槽位时，近战/肉靠前、远程靠后。村子排好的三人不要动 */
 function arrangeOpeningTeam(state: RunState): void {
   const ordered = [...state.team].sort((a, b) => {
     const aMelee = a.def.range <= 1;
@@ -733,7 +733,7 @@ export function createRun(
     .slice(0, MAX_TEAM_SIZE);
   if (squad.length >= MAX_TEAM_SIZE) {
     for (const id of squad) addHero(state, id);
-    launchSquad(state);
+    launchSquad(state, true);
     return state;
   }
   // 测试 / 模拟仍可走点人；真玩在村子里点齐再进场
@@ -817,8 +817,8 @@ function applyOpeningGift(state: RunState): boolean {
 }
 
 /** 人齐了就开打。破烂留到第 2 波，进场不要连选三轮 */
-function launchSquad(state: RunState): void {
-  arrangeOpeningTeam(state);
+function launchSquad(state: RunState, keepOrder = false): void {
+  if (!keepOrder) arrangeOpeningTeam(state);
   applyOpeningGift(state);
   beginWave(state);
 }

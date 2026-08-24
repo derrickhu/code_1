@@ -7,17 +7,18 @@ import { Game } from '@/core/Game';
 import type { Scene } from '@/core/SceneManager';
 import { SceneManager } from '@/core/SceneManager';
 import { bindPointerTap } from '@/minigame';
+import { RosterSheet, rosterSheetHeight } from '@/ui/RosterSheet';
 import {
   BACK_DY,
   SLOT_NAME,
   SQUAD_X,
   TEAM_SIZE,
   heroSpriteH,
+  slotHitBox,
   slotScreenX,
   slotScreenY,
-  slotTagPos,
 } from '@/balance/combat';
-import { DEFAULT_SQUAD, HEROES, getHero, placeHero } from '@/balance/heroes';
+import { DEFAULT_SQUAD, getHero, heroReachLine, placeHero, swapSquad } from '@/balance/heroes';
 import { UnitActor } from '@/fx/UnitActor';
 import { MODS, abilityTag, getMod, shortModName } from '@/balance/mods';
 import {
@@ -27,7 +28,6 @@ import {
   isModUnlocked,
   nextStartScrapCost,
   nextYardGoal,
-  rollVillageGift,
   startScrapBonus,
 } from '@/balance/yard';
 import {
@@ -35,16 +35,7 @@ import {
   buyYardUnlock,
   loadMemory,
   saveSquad,
-  stashNextGift,
-  stashNextPin,
 } from '@/core/RunMemory';
-import {
-  adCanShow,
-  adIsFirstRunToday,
-  adRecord,
-} from '@/core/AdDay';
-import { track } from '@/core/Analytics';
-import { Platform } from '@/core/PlatformService';
 import {
   addFitPortrait,
   fillContain,
@@ -58,7 +49,7 @@ import {
   yardBgTex,
   type UiName,
 } from '@/core/TextureLoader';
-import { GOLD, coverSprite, fitSprite, goldBtn, homeTerrace, plate } from '@/ui/paint';
+import { GOLD, coverSprite, fitSprite, goldBtn, plate } from '@/ui/paint';
 
 const INK = 0x2a160c;
 const CREAM = 0xfff4c4;
@@ -77,7 +68,7 @@ const TINT: Readonly<Record<string, number>> = {
   laoyanqiang: 0x8f7a4a,
 };
 
-type HubPage = 'home' | 'squad' | 'book' | 'yard' | 'ready';
+type HubPage = 'home' | 'squad' | 'book' | 'yard';
 
 function label(size: number, color = 0xffffff, bold = false): PIXI.Text {
   return new PIXI.Text('', {
@@ -96,12 +87,14 @@ export class VillageScene implements Scene {
   private _page: HubPage = 'home';
   private _squad: string[] = [];
   private _focusSlot = 0;
-  private _busy = false;
+  private _holdSlot: number | null = null;
+  private _holdHero: string | null = null;
   private _pulse = 0;
   private _playBtn: PIXI.Container | null = null;
   private _hotBuy: PIXI.Container | null = null;
   private _artTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private _stageActors: UnitActor[] = [];
+  private _sheet: RosterSheet | null = null;
 
   constructor() {
     this.container.addChild(this._root);
@@ -120,24 +113,31 @@ export class VillageScene implements Scene {
     this._squad = mem.squadIds.length === TEAM_SIZE ? [...mem.squadIds] : [...DEFAULT_SQUAD];
     saveSquad(this._squad);
     this._page = 'home';
-    this._busy = false;
+    this._holdSlot = null;
+    this._holdHero = null;
     this._render();
   }
 
   onExit(): void {
     saveSquad(this._squad);
+    this._clearSheet();
     this._clearActors();
   }
 
   update(dt: number): void {
     this._pulse += dt;
     for (const a of this._stageActors) a.update(dt);
-    if ((this._page === 'home' || this._page === 'ready') && this._playBtn) {
+    if (this._page === 'home' && this._playBtn) {
       this._playBtn.scale.set(1 + Math.sin(this._pulse * 2.4) * 0.025);
     }
     if (this._hotBuy) {
       this._hotBuy.scale.set(1 + Math.sin(this._pulse * 3.1) * 0.03);
     }
+  }
+
+  private _clearSheet(): void {
+    this._sheet?.destroy();
+    this._sheet = null;
   }
 
   private _clearActors(): void {
@@ -152,34 +152,45 @@ export class VillageScene implements Scene {
   }
 
   private _open(page: HubPage): void {
+    this._holdHero = null;
+    if (page !== 'squad') this._holdSlot = null;
     this._page = page;
     this._render();
   }
 
-  private _place(id: string): void {
-    const next = placeHero(this._squad, id, this._focusSlot, TEAM_SIZE);
-    this._squad = next.squad;
-    this._focusSlot = next.focus;
-    saveSquad(this._squad);
+  /** 场上只点「要换掉谁」。谁上阵只从名单里点。 */
+  private _tapSlot(slot: number): void {
+    const next = Math.max(0, Math.min(TEAM_SIZE - 1, slot));
+    this._holdHero = null;
+    this._holdSlot = next;
+    this._focusSlot = next;
     this._render();
   }
 
-  private _focus(slot: number): void {
-    this._focusSlot = Math.max(0, Math.min(TEAM_SIZE - 1, slot));
-    if (this._page !== 'squad') this._open('squad');
-    else this._render();
+  private _tapHero(id: string): void {
+    const dest = this._holdSlot ?? this._focusSlot;
+    const i = this._squad.indexOf(id);
+    if (i === dest) return;
+    if (i >= 0) {
+      this._squad = swapSquad(this._squad, dest, i);
+      this._holdSlot = dest;
+      this._focusSlot = dest;
+      this._holdHero = null;
+      saveSquad(this._squad);
+      this._render();
+      return;
+    }
+    this._seat(id, dest);
   }
 
-  private _goFight(): void {
-    if (this._squad.length < TEAM_SIZE) {
-      this._open('squad');
-      return;
-    }
-    if (this._page !== 'ready') {
-      this._open('ready');
-      return;
-    }
-    this._launch();
+  private _seat(id: string, slot: number): void {
+    const next = placeHero(this._squad, id, slot, TEAM_SIZE);
+    this._squad = next.squad;
+    this._focusSlot = next.focus;
+    this._holdSlot = next.focus;
+    this._holdHero = null;
+    saveSquad(this._squad);
+    this._render();
   }
 
   private _launch(): void {
@@ -189,41 +200,6 @@ export class VillageScene implements Scene {
     }
     saveSquad(this._squad);
     SceneManager.switchTo('battle', { heroIds: [...this._squad] });
-  }
-
-  private async _watch(placement: 'dailyGift' | 'junkyard'): Promise<boolean> {
-    track('ad_show', { placement, wave: 0 });
-    const ok = await Platform.showRewardedVideo();
-    track('ad_close', { placement, wave: 0, completed: ok });
-    return ok;
-  }
-
-  private async _claimGift(): Promise<void> {
-    if (this._busy || !adCanShow('dailyGift') || !adIsFirstRunToday()) return;
-    this._busy = true;
-    const ok = await this._watch('dailyGift');
-    if (ok) {
-      adRecord('dailyGift');
-      const mem = loadMemory();
-      const gift = rollVillageGift(mem.unlockedMods, [mem.nextPinModId, mem.nextGiftModId]);
-      if (gift) stashNextGift(gift.id);
-    }
-    this._busy = false;
-    this._render();
-  }
-
-  private async _claimPin(): Promise<void> {
-    if (this._busy || !adCanShow('junkyard')) return;
-    this._busy = true;
-    const ok = await this._watch('junkyard');
-    if (ok) {
-      adRecord('junkyard');
-      const mem = loadMemory();
-      const found = rollVillageGift(mem.unlockedMods, [mem.nextPinModId, mem.nextGiftModId]);
-      if (found) stashNextPin(found.id);
-    }
-    this._busy = false;
-    this._render();
   }
 
   private _backdrop(h: number, dim = 0.2, art = villageBgTex()): void {
@@ -273,17 +249,17 @@ export class VillageScene implements Scene {
   }
 
   private _titlePlaque(cx: number, cy: number, title: string, tag: string): void {
-    if (!fitSprite(this._root, uiTex('title_plaque'), cx, cy, 420, 300)) {
-      plate(this._root.addChild(new PIXI.Graphics()), cx - 210, cy - 70, 420, 140, 16, 0.88);
+    if (!fitSprite(this._root, uiTex('title_plaque'), cx, cy, 360, 120)) {
+      plate(this._root.addChild(new PIXI.Graphics()), cx - 180, cy - 44, 360, 88, 16, 0.88);
     }
-    const t = this._stroke(36, CREAM, '#2a160c', 6);
+    const t = this._stroke(28, CREAM, '#2a160c', 5);
     t.anchor.set(0.5);
-    t.position.set(cx, cy + 10);
+    t.position.set(cx, cy + 2);
     t.text = title;
     this._root.addChild(t);
-    const s = this._stroke(18, 0xffd66b, '#2a160c', 4);
+    const s = this._stroke(15, 0xffe08a, '#2a160c', 3);
     s.anchor.set(0.5);
-    s.position.set(cx, cy + 52);
+    s.position.set(cx, cy + 32);
     s.text = tag;
     this._root.addChild(s);
   }
@@ -299,6 +275,7 @@ export class VillageScene implements Scene {
   ): PIXI.Container {
     const play = new PIXI.Container();
     play.eventMode = 'static';
+    play.interactiveChildren = false;
     const hitW = Math.min(380, maxW * 0.76);
     const hitH = Math.min(92, maxH * 0.46);
     play.hitArea = new PIXI.Rectangle(-hitW / 2, -hitH / 2, hitW, hitH);
@@ -353,6 +330,7 @@ export class VillageScene implements Scene {
   private _render(): void {
     this._playBtn = null;
     this._hotBuy = null;
+    this._clearSheet();
     this._clearActors();
     this._root.removeChildren().forEach((c) => {
       if (!c.destroyed) c.destroy({ children: true });
@@ -360,55 +338,70 @@ export class VillageScene implements Scene {
     if (this._page === 'squad') this._renderSquad();
     else if (this._page === 'book') this._renderBook();
     else if (this._page === 'yard') this._renderYard();
-    else if (this._page === 'ready') this._renderReady();
     else this._renderHome();
   }
 
   private _renderHome(): void {
+    if (this._holdSlot !== null) {
+      this._renderHomeEdit();
+      return;
+    }
     const h = this._height();
     const mem = loadMemory();
     this._backdrop(h, 0.12);
     const y0 = this._topBar();
-    this._titlePlaque(375, y0 + 118, '村口大战外星人', '焊点村里破烂，把闲人改成猛货');
+    this._titlePlaque(375, y0 + 40, '村口大战外星人', '焊点村里破烂，把闲人改成猛货');
 
-    const doorY = h - Game.safeBottom - 128;
-    const playY = Math.min(doorY - 214, Math.max(y0 + 430, Math.round(h * 0.62)));
-    const frontY = playY - 168;
+    const doorY = h - Game.safeBottom - 118;
+    const playY = Math.min(doorY - 280, Math.max(y0 + 430, Math.round(h * 0.58)));
+    const frontY = Math.min(playY - 230, Math.max(y0 + 280, Math.round(h * 0.4)));
 
-    this._drawSquadStage(frontY, true);
+    this._woodChip(375, frontY - 128, 560, 36, '点人换阵。出村开打前确认一次', 16);
+    this._drawSquadStage(frontY);
+    this._playBtn = this._playPlate(375, playY, '出村开打', () => this._open('squad'));
     const goal = nextYardGoal(mem.yardScrap, mem.unlockedMods, mem.startScrapLv);
-
-    this._playBtn = this._playPlate(375, playY, '出村开打', () => this._goFight());
-
-    let noteY = playY + 78;
-    if (mem.nextGiftModId) {
-      this._woodChip(375, noteY, 420, 36, `开局焊上：${getMod(mem.nextGiftModId).name}`, 16);
-      noteY += 38;
-    } else if (adCanShow('dailyGift') && adIsFirstRunToday()) {
-      this._root.addChild(this._chip('看一段，开局自动焊一件', 375, noteY, () => {
-        void this._claimGift();
-      }));
-      noteY += 42;
-    }
-    if (mem.nextPinModId) {
-      this._woodChip(375, noteY, 420, 36, `下一手必出：${getMod(mem.nextPinModId).name}`, 16);
-    } else if (adCanShow('junkyard')) {
-      this._root.addChild(this._chip('翻一件，下一手三选一必出', 375, noteY, () => {
-        void this._claimPin();
-      }));
-    }
-
     const pool = availableMods(mem.unlockedMods).length;
-    this._shopDoor('door_squad', '叫人', '换前排／左后／右后', 135, doorY, () => this._open('squad'));
+    this._shopDoor('door_squad', '叫人', '看看各人的活', 135, doorY, () => this._open('squad'));
     this._shopDoor('door_yard', '废品站', goalLine(goal), 375, doorY, () => this._open('yard'));
     this._shopDoor('door_book', '图鉴', `池子 ${pool}/${MODS.length}`, 615, doorY, () => this._open('book'));
   }
 
-  private _drawSquadStage(frontY: number, pick = false): void {
-    const dirt = new PIXI.Graphics();
-    homeTerrace(dirt, SQUAD_X, frontY, frontY + BACK_DY);
-    this._root.addChild(dirt);
+  private _renderHomeEdit(): void {
+    const h = this._height();
+    this._backdrop(h, 0.22);
+    const y0 = this._topBar();
+    const slot = this._holdSlot ?? 0;
+    const who = this._squad[slot] ? getHero(this._squad[slot]!).name : '空位';
+    this._woodChip(375, y0 + 28, 600, 48, `要换掉：${SLOT_NAME[slot]}  ${who}`, 24);
+    this._woodChip(375, y0 + 68, 620, 32, '喘气的是要换掉的。下面点谁上阵', 15);
 
+    const barY = h - Game.safeBottom - 72;
+    const frontY = y0 + 200;
+    this._drawSquadStage(frontY);
+
+    const sheetY = frontY + BACK_DY + 44;
+    const room = Math.max(220, barY - 96 - sheetY);
+    this._mountSheet(20, sheetY, 710, Math.min(rosterSheetHeight(), room));
+
+    this._playPlate(200, barY, '换完了', () => {
+      this._holdSlot = null;
+      this._holdHero = null;
+      this._render();
+    }, 300, 110, 22);
+    this._playBtn = this._playPlate(550, barY, '出村开打', () => this._launch(), 300, 110, 22);
+  }
+
+  private _editHint(): string {
+    if (this._holdSlot !== null) {
+      const id = this._squad[this._holdSlot];
+      const who = id ? getHero(id).name : '空位';
+      return `要换掉${SLOT_NAME[this._holdSlot]} ${who}。下面点谁上阵`;
+    }
+    return '点上面要换掉的人，下面点谁上阵';
+  }
+
+  private _drawSquadStage(frontY: number): void {
+    const hold = this._holdSlot;
     const drawOrder = [1, 2, 0];
     for (const slot of drawOrder) {
       const id = this._squad[slot];
@@ -420,6 +413,9 @@ export class VillageScene implements Scene {
         actor.bindHero(id);
         actor.place(x, feet, heroSpriteH(hero.hp));
         actor.faceToward(SQUAD_X);
+        actor.holdPulse = hold === slot;
+        actor.view.alpha = hold !== null && hold !== slot ? 0.72 : 1;
+        actor.view.eventMode = 'none';
         actor.view.zIndex = 20 - slot;
         this._root.addChild(actor.view);
         this._stageActors.push(actor);
@@ -431,46 +427,21 @@ export class VillageScene implements Scene {
         empty.text = '空';
         this._root.addChild(empty);
       }
-      const hot = pick && slot === this._focusSlot;
-      if (hot) {
-        const mark = new PIXI.Graphics();
-        mark.lineStyle(4, GOLD, 0.95).moveTo(x - 30, feet + 10).lineTo(x + 30, feet + 10).lineStyle(0);
-        this._root.addChild(mark);
-      }
-      const tag = this._stroke(14, hot ? GOLD : 0xffe08a, '#2a160c', 3);
-      tag.anchor.set(0.5, 0);
-      const at = slotTagPos(slot, x, feet);
-      tag.position.set(at.x, at.y);
-      tag.text = id ? `${SLOT_NAME[slot]}  ${getHero(id).name}` : SLOT_NAME[slot] ?? '空';
-      this._root.addChild(tag);
 
-      if (pick) {
-        const hit = new PIXI.Container();
-        hit.eventMode = 'static';
-        hit.position.set(x, feet);
-        hit.hitArea = new PIXI.Rectangle(-48, -118, 96, 148);
-        this._root.addChild(hit);
-        bindPointerTap(hit, () => this._focus(slot));
-      }
+      const box = slotHitBox(slot);
+      const hit = new PIXI.Container();
+      hit.eventMode = 'static';
+      hit.position.set(x, feet);
+      hit.hitArea = new PIXI.Rectangle(box.x, box.y, box.w, box.h);
+      this._root.addChild(hit);
+      bindPointerTap(hit, () => this._tapSlot(slot));
     }
   }
 
-  private _renderReady(): void {
-    const h = this._height();
-    this._backdrop(h, 0.28);
-    const y0 = this._topBar();
-    this._woodChip(375, y0 + 28, 560, 52, '就这仨出村？', 28);
-    const sub = this._stroke(16, 0xffd66b, '#2a160c', 4);
-    sub.anchor.set(0.5);
-    sub.position.set(375, y0 + 64);
-    sub.text = '前排先挨打。不对就换人，对了再出村';
-    this._root.addChild(sub);
-
-    const frontY = Math.round(h * 0.42);
-    this._drawSquadStage(frontY, false);
-
-    this._playPlate(200, frontY + BACK_DY + 118, '再换人', () => this._open('squad'), 300, 130, 24);
-    this._playBtn = this._playPlate(550, frontY + BACK_DY + 118, '出村开打', () => this._launch(), 300, 130, 24);
+  private _mountSheet(x: number, y: number, w: number, h: number): void {
+    this._sheet = new RosterSheet();
+    this._sheet.place(x, y, w, h, this._squad, this._holdSlot, (id) => this._tapHero(id));
+    this._root.addChild(this._sheet.view);
   }
 
   private _renderYard(): void {
@@ -617,30 +588,21 @@ export class VillageScene implements Scene {
     const h = this._height();
     this._backdrop(h, 0.38);
     const y0 = this._topBar();
-    this._woodChip(375, y0 + 26, 560, 52, '换谁出村', 28);
+    this._woodChip(375, y0 + 26, 560, 52, '确认这仨', 28);
     const sub = this._stroke(16, 0xffd66b, '#2a160c', 4);
     sub.anchor.set(0.5);
     sub.position.set(375, y0 + 62);
-    sub.text = '点上面位子，再点下面的人换上去';
+    sub.text = this._editHint();
     this._root.addChild(sub);
 
-    const frontY = y0 + 196;
-    this._drawSquadStage(frontY, true);
-
-    const cols = 3;
-    const totalW = cols * CARD_W + (cols - 1) * GAP_X;
-    const startX = (750 - totalW) / 2;
-    const startY = frontY + BACK_DY + 56;
-    HEROES.forEach((hero, i) => {
-      const picked = this._squad.indexOf(hero.id);
-      const card = this._card(hero.id, picked >= 0 ? picked : undefined, picked === this._focusSlot);
-      card.position.set(startX + (i % cols) * (CARD_W + GAP_X), startY + Math.floor(i / cols) * (CARD_H + GAP_Y));
-      this._root.addChild(card);
-      bindPointerTap(card, () => this._place(hero.id));
-    });
-
-    const doneY = Math.min(startY + 2 * (CARD_H + GAP_Y) + 36, h - Game.safeBottom - 160);
-    this._playPlate(375, doneY, '就这仨', () => this._open('home'), 380, 140, 28);
+    const frontY = y0 + 188;
+    this._drawSquadStage(frontY);
+    const doneY = h - Game.safeBottom - 72;
+    const sheetY = frontY + BACK_DY + 40;
+    const room = Math.max(220, doneY - 96 - sheetY);
+    this._mountSheet(20, sheetY, 710, Math.min(rosterSheetHeight(), room));
+    this._playPlate(200, doneY, '回村子', () => this._open('home'), 300, 110, 22);
+    this._playBtn = this._playPlate(550, doneY, '出村开打', () => this._launch(), 300, 110, 22);
   }
 
   private _renderBook(): void {
@@ -742,24 +704,6 @@ export class VillageScene implements Scene {
     this._playPlate(x, h - Game.safeBottom - 56, text, () => this._open('home'), 300, 110, 22);
   }
 
-  private _chip(title: string, x: number, y: number, onTap: () => void): PIXI.Container {
-    const chip = new PIXI.Container();
-    chip.eventMode = 'static';
-    chip.hitArea = new PIXI.Rectangle(-190, -24, 380, 48);
-    if (!fitSprite(chip, uiTex('play_plate'), 0, 0, 400, 56)) {
-      const bg = new PIXI.Graphics();
-      goldBtn(bg, -180, -20, 360, 40);
-      chip.addChild(bg);
-    }
-    const t = this._stroke(16, INK, '#fff4c4', 3);
-    t.anchor.set(0.5);
-    t.text = title;
-    chip.addChild(t);
-    chip.position.set(x, y);
-    bindPointerTap(chip, onTap);
-    return chip;
-  }
-
   private _card(id: string, picked?: number, focused = false): PIXI.Container {
     const def = getHero(id);
     const card = new PIXI.Container();
@@ -793,7 +737,7 @@ export class VillageScene implements Scene {
     const job = label(14, 0x8a5a2b, true);
     job.anchor.set(0.5, 0);
     job.position.set(CARD_W / 2, faceH + 26);
-    job.text = `${def.job} · ${def.range <= 1 ? '贴脸' : `后排 ${def.range}`} · ${abilityTag(def.skill)}`;
+    job.text = `${def.job} · ${heroReachLine(def.range)} · ${abilityTag(def.skill)}`;
     card.addChild(job);
 
     const eats = label(13, 0x3d2a1c);

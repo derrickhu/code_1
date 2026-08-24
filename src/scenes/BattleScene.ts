@@ -26,6 +26,7 @@ import {
   TEAM_SIZE,
   WAVE_TIMEOUT_MS,
   heroSpriteH,
+  slotHitBox,
   slotScreenX,
   slotScreenY,
   slotTagPos,
@@ -67,7 +68,7 @@ import {
   adRemaining,
   type AdPlacement,
 } from '@/core/AdDay';
-import { GOLD, goldBtn, homeTerrace, hpBar, plate, queuePad, rangeArea, shieldMark } from '@/ui/paint';
+import { GOLD, goldBtn, hpBar, plate, queuePad, rangeArea, shieldMark } from '@/ui/paint';
 import {
   applyPick,
   canInstallOn,
@@ -419,9 +420,9 @@ export class BattleScene implements Scene {
     const height = Math.max(1334, Game.logicHeight || 1334);
     const top = Math.max(Game.safeTop, 96);
     const fieldTop = top + 104;
-    // 底栏先钉死，战场下沿贴着栏，小队坐在栏上。多出来的高度全给外星人走路。
+    // 底栏先钉死。小队抬高一点，别贴着人物面板。多出来的高度全给外星人走路。
     const fieldBottom = height - Game.safeBottom - DOCK_H - DOCK_GAP;
-    const frontY = fieldBottom - 16 - BACK_DY;
+    const frontY = fieldBottom - 64 - BACK_DY;
     this._lay = {
       top,
       fieldTop,
@@ -829,17 +830,16 @@ export class BattleScene implements Scene {
     this._applyHudLayout();
   }
 
-  /** 三个人各一块点击区，钉在队列位置上 */
+  /** 三个人各一块点击区。跟村里同一套热区，互不重叠，前排才点得到。 */
   private _buildHeroHits(): void {
-    for (let slot = 0; slot < TEAM_SIZE; slot += 1) {
+    for (const slot of [1, 2, 0]) {
       const hit = new PIXI.Container();
       hit.eventMode = 'static';
-      const g = new PIXI.Graphics();
-      g.beginFill(0xffffff, 0.001).drawRoundedRect(-110, -230, 220, 260, 16).endFill();
-      hit.addChild(g);
+      const box = slotHitBox(slot);
+      hit.hitArea = new PIXI.Rectangle(box.x, box.y, box.w, box.h);
       bindPointerTap(hit, () => this._tapSlot(slot));
       hit.name = `queue:${slot}`;
-      this._heroHits.push(hit);
+      this._heroHits[slot] = hit;
       this.container.addChild(hit);
     }
   }
@@ -952,9 +952,6 @@ export class BattleScene implements Scene {
       g.beginFill(0x8c2b3a, this._fx.downPulse * 0.5).drawRect(0, 0, 750, this._lay.height).endFill();
     }
 
-    if (this._showTeam()) {
-      homeTerrace(g, SQUAD_X, this._lay.frontY, this._lay.frontY + BACK_DY);
-    }
     this._drawQueuePads(g);
 
     if (this._fx.landPulse > 0) {
@@ -992,6 +989,9 @@ export class BattleScene implements Scene {
         a.equip(h.mods.map((m) => m.id));
         a.place(this._slotX(h.slot), this._slotY(h.slot), heroH(h));
         a.setDead(!h.alive);
+        const picked = this._selected === h.def.id;
+        a.holdPulse = picked;
+        a.view.alpha = this._selected && !picked && h.alive ? 0.58 : 1;
         a.view.zIndex = 20 - h.slot;
       }
     }
@@ -1094,11 +1094,15 @@ export class BattleScene implements Scene {
         ? installTargets(this._state).some((h) => h.def.id === occ.def.id)
         : false;
       const moving = !!selected && this._canReorder() && selected.slot !== slot;
-      queuePad(g, x, y, {
-        empty: !occ,
-        hot: canTake || moving,
-        front: slot === 0 && !moving && !installing,
-      });
+      const mark = !occ || canTake || moving;
+      if (mark) {
+        queuePad(g, x, y, {
+          empty: !occ,
+          hot: canTake || moving,
+          front: false,
+        });
+      }
+      tag.visible = show && mark;
       tag.text = SLOT_NAME[slot];
       const tagAt = slotTagPos(slot, x, y);
       tag.position.set(tagAt.x, tagAt.y);
@@ -1150,7 +1154,9 @@ export class BattleScene implements Scene {
       const x = this._slotX(h.slot);
       const top = this._slotY(h.slot) - heroH(h) - 2;
       name.text = h.mods.length > 0 ? `${h.def.name} +${h.mods.length}` : h.def.name;
-      name.tint = h.alive ? 0xffffff : 0x6b7394;
+      const picked = this._selected === h.def.id;
+      name.tint = !h.alive ? 0x6b7394 : picked ? GOLD : 0xffffff;
+      name.scale.set(picked ? 1.12 : 1);
       name.position.set(x, top - 16);
       // 装配时三人头顶各写一句：值、能用、浪费，不要只写「装他」
       if (this._state.phase === 'installing' && this._state.pendingMod && canInstallOn(h)) {
@@ -1184,9 +1190,6 @@ export class BattleScene implements Scene {
       return;
     }
 
-    if (this._selected === h.def.id) {
-      g.lineStyle(3, GOLD, 0.95).drawEllipse(x, feet + 8, 48, 14).lineStyle(0);
-    }
     if (this._state.phase === 'installing' && this._state.pendingMod && canInstallOn(h)) {
       g.lineStyle(3, GOLD, 0.9).drawEllipse(x, feet + 8, 52, 16).lineStyle(0);
     }

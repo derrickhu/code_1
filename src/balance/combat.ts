@@ -53,6 +53,16 @@ export function slotTagPos(slot: number, x: number, feetY: number): { x: number;
   return { x, y: feetY + 20 };
 }
 
+/**
+ * 点人热区，相对脚底。罩住立绘身体，三块左右错开、互不重叠。
+ * 左后若只罩外侧，点老烟枪身子会落空。
+ */
+export function slotHitBox(slot: number): { x: number; y: number; w: number; h: number } {
+  if (slot === 1) return { x: -52, y: -112, w: 100, h: 128 };
+  if (slot === 2) return { x: -48, y: -112, w: 100, h: 128 };
+  return { x: -42, y: -108, w: 84, h: 120 };
+}
+
 /** 每人最多装几件改装件。有上限才有取舍，否则无脑堆一个人 */
 export const MOD_SLOTS_PER_HERO = 3;
 

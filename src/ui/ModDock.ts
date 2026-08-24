@@ -109,7 +109,7 @@ export class ModDock extends PIXI.Container {
     bg.beginFill(h ? 0x1c1610 : 0x12100c, dim ? 0.45 : 0.94)
       .drawRoundedRect(0, 0, SLOT_W, SLOT_H, 12)
       .endFill();
-    bg.lineStyle(picked || (installing && canTake) ? 3 : 1.5, edge, dim ? 0.3 : 0.9)
+    bg.lineStyle(picked ? 5 : installing && canTake ? 3 : 1.5, edge, dim ? 0.3 : 0.95)
       .drawRoundedRect(0, 0, SLOT_W, SLOT_H, 12)
       .lineStyle(0);
     box.addChild(bg);

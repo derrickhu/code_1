@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { placeHero } from '@/balance/heroes';
+import { placeHero, swapSquad } from '@/balance/heroes';
 
 describe('叫人换位子', () => {
   it('没满就补进去', () => {
@@ -25,5 +25,18 @@ describe('叫人换位子', () => {
       squad: ['tiezhu', 'dachui', 'sanshen'],
       focus: 2,
     });
+  });
+
+  it('点两个人对调位子', () => {
+    expect(swapSquad(['sanshen', 'dachui', 'laoyanqiang'], 0, 1)).toEqual([
+      'dachui',
+      'sanshen',
+      'laoyanqiang',
+    ]);
+    expect(swapSquad(['sanshen', 'dachui', 'laoyanqiang'], 0, 0)).toEqual([
+      'sanshen',
+      'dachui',
+      'laoyanqiang',
+    ]);
   });
 });
