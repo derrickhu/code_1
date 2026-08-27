@@ -1,17 +1,20 @@
 /**
- * 观战层。数字和命中音在弹着点才出。
- * 出手走贴图 + 粒子，不每帧重画几何。
+ * 观战导演。只吃战斗事件和坐标，不画单位、不算伤害。
+ * 颜色 / 拖尾 / 落点全在 FxRecipe，粒子原语在 VfxKit。
  */
 import * as PIXI from 'pixi.js';
 import type { AttackFx, EnemyFx } from '@/balance/fx';
 import { projSprite } from '@/balance/fx';
 import { playSfx, buzz } from '@/core/SfxPlayer';
-import { fillContain, projTex, vfxTex } from '@/core/TextureLoader';
+import { fillContain, modTex, projTex, tex, vfxTex } from '@/core/TextureLoader';
+import { getPetProto } from '@/balance/pets';
 import type { BattleEvent } from '@/game/BattleEngine';
 import { VfxKit } from '@/fx/VfxKit';
+import { attackLook, enemyLook, playImpact, playMuzzle, shouldFly, shotFlight, skinLook, type FxLook, type ShotBody } from '@/fx/FxRecipe';
+import { contactAt, motionFor, releaseAt } from '@/fx/UnitActor';
 
-const MAX_FLOATS = 18;
-const MAX_SHOTS = 16;
+const MAX_FLOATS = 28;
+const MAX_SHOTS = 24;
 
 type ShotKind = AttackFx | EnemyFx;
 
@@ -35,6 +38,11 @@ interface ShotBit {
   kind: ShotKind;
   color: number;
   physical: boolean;
+  ribbon: boolean;
+  ribbonW: number;
+  loft: number;
+  spin: number;
+  shape: ShotBody;
   emit: number;
   done: boolean;
   land: () => void;
@@ -109,32 +117,42 @@ export class CombatFx {
       melee?: boolean;
       orb?: boolean;
       fx?: AttackFx;
+      /** 哪件破烂 / 哪个人的皮。电线和菜刀不能共用一张光 */
+      skin?: string;
       enemyFx?: EnemyFx;
       reachY?: number;
       meleeR?: number;
       baseY?: number;
       slowed?: boolean;
-      /** 装配回执：××装上了××：变成了×× */
+      /** 装配回执：只飘短名 */
       installLine?: string;
+      /** 东西真正打上了再回调，闪白不能比这一下早 */
+      onLand?: () => void;
+      byPet?: boolean;
     },
   ): void {
     const color = pos.color ?? 0xffffff;
     if (pos.meleeR && pos.meleeR > 0) this._meleeRadius = pos.meleeR;
     if (ev.kind === 'hit' && pos.ex !== undefined && pos.ey !== undefined) {
       if (pos.hx !== undefined && pos.hy !== undefined) {
-        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.fx, pos.melee, pos.orb);
+        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.fx, pos.melee, pos.orb, pos.onLand, pos.byPet, pos.skin);
       } else {
-        this._impactHero(ev, pos.ex, pos.ey, color);
+        this._impactHero(ev, pos.ex, pos.ey, color, pos.fx, pos.skin ? skinLook(pos.skin) : undefined);
+        pos.onLand?.();
       }
     }
     if (ev.kind === 'enemyHit' && pos.ex !== undefined && pos.ey !== undefined
       && pos.hx !== undefined && pos.hy !== undefined) {
-      this._spawnEnemyHit(ev, pos.ex, pos.ey, pos.hx, pos.hy, pos.enemyFx ?? 'claw');
+      this._spawnEnemyHit(ev, pos.ex, pos.ey, pos.hx, pos.hy, pos.enemyFx ?? 'claw', pos.onLand);
     }
     if (ev.kind === 'enemyDown' && pos.ex !== undefined && pos.ey !== undefined) {
       this._death(pos.ex, pos.ey, 0xffb070);
       playSfx('kill_pop', 80);
       this.hitStop = Math.max(this.hitStop, 0.045);
+      // 废品是打死人掉的，就得掉在尸体上，玩家才知道钱从哪来
+      if (ev.scrap > 0) {
+        this._spawnPlainFloat(`+${ev.scrap} 废品`, pos.ex, pos.ey + 16, 0xffd66b, 22, 0.55);
+      }
     }
     if (ev.kind === 'heroDown' && pos.hx !== undefined && pos.hy !== undefined) {
       this.downPulse = 0.4;
@@ -160,6 +178,14 @@ export class CombatFx {
     }
     if (ev.kind === 'skill' && pos.hx !== undefined && pos.hy !== undefined) {
       this._skillCallout(ev, { hx: pos.hx, hy: pos.hy, tx: pos.tx, ty: pos.ty });
+    }
+    if (ev.kind === 'petSummon' && pos.hx !== undefined && pos.hy !== undefined) {
+      const tint = ev.protoId === 'dog' ? 0xffb070 : ev.protoId === 'chicken' ? 0xffe08a : 0x9be08a;
+      this._kit.plate('flash', pos.hx, pos.hy + 18, { tint, s0: 0.4, s1: 1.05, life: 0.28 });
+      this._kit.ring(pos.hx, pos.hy + 18, tint, 0.36);
+      this._kit.spray(pos.hx, pos.hy + 18, { n: 8, tint, kind: 'glow', speed: 90, gy: -20 });
+      this._spawnPlainFloat(`${getPetProto(ev.protoId).name}来了`, pos.hx, pos.hy - 28, tint, 20, 0.55);
+      playSfx('hero_land', 40);
     }
     if (ev.kind === 'hit' && pos.slowed && pos.ex !== undefined && pos.ey !== undefined) {
       this._spawnPlainFloat('减速', pos.ex, pos.ey + 10, 0x86efac, 16, 0.4);
@@ -212,42 +238,18 @@ export class CombatFx {
       if (!s) continue;
       s.age += dt;
       const u = Math.min(1, s.age / s.fly);
-      const p = this._point(s, easeOut(u));
+      const p = this._point(s, u);
       const ang = Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
       this._drawShotBody(s, p, ang, u);
       if (s.spr) {
         s.spr.position.set(p.x, p.y);
-        s.spr.rotation = ang;
+        s.spr.rotation = s.spin > 0 ? s.spr.rotation + dt * s.spin : ang;
         s.spr.alpha = u < 0.08 ? u / 0.08 : 1;
       }
       s.emit += dt;
-      if (s.emit > 0.028 && u < 1 && !s.physical) {
+      if (s.emit > 0.018 && u < 1 && s.ribbon) {
         s.emit = 0;
-        this._kit.spray(p.x, p.y, {
-          n: 1,
-          tint: s.color,
-          kind: 'spark',
-          speed: 50,
-          life: 0.12,
-          scale: 0.2,
-          gy: 0,
-          dir: ang + Math.PI,
-          spread: 0.4,
-        });
-      }
-      if (s.emit > 0.04 && u < 1 && s.physical && s.kind === 'sniper') {
-        s.emit = 0;
-        this._kit.spray(p.x, p.y, {
-          n: 1,
-          tint: 0xc4b59a,
-          kind: 'glow',
-          speed: 20,
-          life: 0.1,
-          scale: 0.12,
-          gy: 40,
-          dir: ang + Math.PI,
-          spread: 0.3,
-        });
+        this._kit.ribbon(p.x, p.y, ang, s.color, s.ribbonW);
       }
       if (u >= 1 && !s.done) {
         s.done = true;
@@ -325,58 +327,41 @@ export class CombatFx {
     fx?: AttackFx,
     melee?: boolean,
     orb?: boolean,
+    onLand?: () => void,
+    byPet?: boolean,
+    skin?: string,
   ): void {
     const style: AttackFx = fx ?? (melee ? 'slash' : orb ? 'orb' : 'bolt');
-    const tint = ev.crit ? mix(color, 0xffd66b, 0.45) : color;
-    const land = (): void => this._impactHero(ev, x1, y1, color, style);
-    playSfx(`atk_${style}`, 90);
-    const ang = Math.atan2(y1 - y0, x1 - x0);
-    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const look = skin ? skinLook(skin) : attackLook(style);
+    const tint = ev.crit ? mix(look.tint, 0xffd66b, 0.4) : look.tint;
+    const land = (): void => {
+      this._impactHero(ev, x1, y1, color, style, look);
+      onLand?.();
+    };
+    const motion = motionFor(style);
+    const fly = shouldFly(look, !!melee);
+    const windup = byPet
+      ? 0.08
+      : fly ? releaseAt(motion) : contactAt(motion);
+    this._after(windup, () => {
+      playSfx(`atk_${style}`, 90);
+      const ang = Math.atan2(y1 - y0, x1 - x0);
+      const dist = Math.hypot(x1 - x0, y1 - y0);
+      playMuzzle(this._kit, look, x0, y0, ang);
 
-    if (style === 'slash') {
-      this._kit.plate('slash', x0, y0 - 8, { tint, rot: ang - 0.9, vr: 9, s0: 0.45, s1: 0.75, life: 0.14, a0: 0.7 });
-      this._kit.spray(x0, y0, { n: 4, tint, kind: 'spark', speed: 140, dir: ang, spread: 1.0 });
-      land();
-      return;
-    }
-    if (style === 'saw') {
-      this._kit.plate('saw', x0, y0 - 6, { tint: 0xffb070, vr: 16, s0: 0.4, s1: 0.7, life: 0.2, a0: 0.75 });
-      this._kit.spray(x0, y0, { n: 6, tint: 0xffc078, kind: 'spark', speed: 160, dir: ang, spread: 1.2 });
-      land();
-      return;
-    }
-    if (style === 'smash') {
-      const hx = x0 + (x1 - x0) * 0.72;
-      const hy = y0 + (y1 - y0) * 0.72;
-      this._kit.arc(x0, y0 - 18, hx, hy, 0xffe08a);
-      this._waits.push({
-        t: 0.22,
-        fn: () => {
-          this._kit.plate('smash', hx, hy, { tint: 0xffe08a, rot: ang, s0: 0.4, s1: 1.25, life: 0.22 });
-          this._kit.ring(hx, hy, 0xffe08a, 0.24);
-          this._kit.spray(hx, hy, { n: 8, tint: 0xffe08a, kind: 'spark', speed: 200, dir: ang, spread: 1.4 });
-          land();
-        },
+      if (!fly) {
+        this._kit.spray(x0, y0, { n: 5, tint, kind: 'spark', speed: 140, dir: ang, spread: 1.0 });
+        land();
+        return;
+      }
+      if (look.beam) this._kit.beam(x0, y0, x1, y1, tint, 0.18);
+      this._pushShot({
+        x0, y0, x1, y1, color: tint, kind: style,
+        fly: shotFlight(look, dist, !!melee),
+        look,
+        land,
       });
-      return;
-    }
-    if (style === 'pierce') {
-      this._kit.plate('pierce', (x0 + x1) / 2, (y0 + y1) / 2, {
-        tint: 0x9be7ff,
-        rot: ang,
-        s0: 0.85,
-        s1: 1.15,
-        sy0: 0.4,
-        sy1: 0.6,
-        life: 0.18,
-      });
-      this._pushShot({ x0, y0, x1, y1, color: 0x9be7ff, kind: 'pierce', fly: 0.12, land });
-      return;
-    }
-
-    const speed = style === 'sniper' ? 560 : style === 'poke' ? 480 : 420;
-    const fly = Math.min(0.48, Math.max(0.2, dist / speed));
-    this._pushShot({ x0, y0, x1, y1, color: tint, kind: style, fly, land });
+    });
   }
 
   private _spawnEnemyHit(
@@ -386,42 +371,44 @@ export class CombatFx {
     x1: number,
     y1: number,
     fx: EnemyFx,
+    onLand?: () => void,
   ): void {
-    const color = fx === 'beam' ? 0xc084fc : fx === 'spark' ? 0xfb923c : fx === 'bash' ? 0xcbd5e1 : 0xff6b5a;
-    playSfx(`enemy_${fx}`, 70);
-    const ang = Math.atan2(y1 - y0, x1 - x0);
-    if (fx === 'beam') {
-      this._kit.plate('beam', (x0 + x1) / 2, (y0 + y1) / 2, {
-        tint: color, rot: ang, s0: 0.55, s1: 0.9, life: 0.16,
+    const look = enemyLook(fx);
+    const color = look.tint;
+    const land = (): void => {
+      const through = ev.damage - ev.absorbed;
+      if (ev.absorbed > 0) {
+        this._spawnPlainFloat('抵挡', x1, y1 - 6, 0x7dd3fc, 18, 0.38);
+        this._kit.plate('shield', x1, y1, { tint: 0x7dd3fc, s0: 0.35, s1: 0.8, life: 0.22 });
+      }
+      if (through > 0) {
+        this._hurtHero(through, x1, y1);
+        playSfx('hit', 70);
+        this._enemyLand(fx, x1, y1);
+      }
+      if (ev.reflect > 0) {
+        this._kit.spray(x0, y0, { n: 5, tint: 0xff8a3a, kind: 'spark', speed: 120 });
+        this._spawnPlainFloat(`反伤 ${Math.round(ev.reflect)}`, x0, y0, 0xffb070, 20);
+      }
+      onLand?.();
+    };
+    this._after(releaseAt('lunge', 'enemy', false, true), () => {
+      playSfx(`enemy_${fx}`, 70);
+      const ang = Math.atan2(y1 - y0, x1 - x0);
+      playMuzzle(this._kit, look, x0, y0, ang);
+      if (look.beam) this._kit.beam(x0, y0, x1, y1, color, 0.16);
+      this._pushShot({
+        x0, y0, x1, y1, color, kind: fx,
+        fly: Math.min(0.32, shotFlight(look, Math.hypot(x1 - x0, y1 - y0))),
+        look,
+        land,
       });
-    } else if (fx === 'bash') {
-      this._kit.plate('smash', x1, y1, { tint: color, s0: 0.3, s1: 0.75, life: 0.14 });
-    } else if (fx === 'spark') {
-      this._kit.plate('pierce', (x0 + x1) / 2, (y0 + y1) / 2, {
-        tint: color, rot: ang, s0: 0.45, s1: 0.7, life: 0.12,
-      });
-    } else {
-      this._kit.plate('claw', x1, y1, { tint: color, rot: ang, s0: 0.4, s1: 0.75, life: 0.14 });
-    }
-    this._pushShot({
-      x0, y0, x1, y1, color, kind: fx, fly: fx === 'beam' ? 0.22 : 0.18,
-      land: () => {
-        const through = ev.damage - ev.absorbed;
-        if (ev.absorbed > 0) {
-          this._spawnPlainFloat('抵挡', x1, y1 - 6, 0x7dd3fc, 18, 0.38);
-          this._kit.plate('shield', x1, y1, { tint: 0x7dd3fc, s0: 0.35, s1: 0.8, life: 0.22 });
-        }
-        if (through > 0) {
-          this._hurtHero(through, x1, y1);
-          playSfx('hit', 70);
-          this._kit.spray(x1, y1, { n: 6, tint: 0xff6b5a, kind: 'spark', speed: 140 });
-        }
-        if (ev.reflect > 0) {
-          this._kit.spray(x0, y0, { n: 5, tint: 0xff8a3a, kind: 'spark', speed: 120 });
-          this._spawnPlainFloat(`反伤 ${Math.round(ev.reflect)}`, x0, y0, 0xffb070, 20);
-        }
-      },
     });
+  }
+
+  private _after(t: number, fn: () => void): void {
+    if (t <= 0) fn();
+    else this._waits.push({ t, fn });
   }
 
   private _pushShot(spec: {
@@ -432,37 +419,47 @@ export class CombatFx {
     color: number;
     kind: ShotKind;
     fly: number;
+    look?: FxLook;
     land: () => void;
   }): void {
     if (this._shots.length >= MAX_SHOTS) {
       const old = this._shots.shift();
-      if (old && !old.done) old.land();
       old?.body.destroy();
       old?.spr?.destroy();
     }
-    const physName = projSprite(spec.kind as AttackFx);
-    const physical = !!physName;
-    const tex = physical
-      ? projTex(physName)
-      : spec.kind === 'pierce' || spec.kind === 'beam' || spec.kind === 'spark'
-        ? vfxTex('pierce')
-        : spec.kind === 'claw' ? vfxTex('claw')
-          : spec.kind === 'bash' ? vfxTex('smash')
+    const energy = spec.kind === 'beam' || spec.kind === 'spark'
+      ? 'pierce'
+      : spec.kind === 'claw' ? 'claw'
+        : spec.kind === 'bash' ? 'smash'
+          : spec.look?.beam ? 'pierce'
             : null;
+    const physName = energy ? null : (spec.look?.proj ?? projSprite(spec.kind as AttackFx));
+    const physical = !!physName;
+    const shot = energy ? vfxTex(energy)
+      : physName ? (projTex(physName) ?? modTex(physName) ?? tex(`images/wep_${physName}.png`))
+        : null;
     let spr: PIXI.Sprite | null = null;
-    if (tex) {
-      spr = new PIXI.Sprite(tex);
+    if (shot) {
+      spr = new PIXI.Sprite(shot);
       spr.anchor.set(0.5);
-      if (!physical) spr.tint = spec.color;
+      spr.blendMode = energy ? PIXI.BLEND_MODES.ADD : PIXI.BLEND_MODES.NORMAL;
+      if (energy) spr.tint = spec.color;
       spr.position.set(spec.x0, spec.y0);
-      const native = Math.max(tex.width, 1);
-      const px = physical
-        ? spec.kind === 'sniper' ? 28 : spec.kind === 'bolt' ? 42 : spec.kind === 'poke' ? 48 : 36
-        : 64;
+      const native = Math.max(shot.width, 1);
+      const px = spec.look?.projPx
+        ?? (energy ? 48
+          : spec.kind === 'orb' ? 56
+            : spec.kind === 'slash' ? 52
+              : spec.kind === 'sniper' ? 36
+                : spec.kind === 'bolt' ? 40
+                  : spec.kind === 'poke' ? 46 : 34);
       spr.scale.set(px / native);
       this.layer.addChild(spr);
     }
     const body = new PIXI.Graphics();
+    body.blendMode = physical || spec.kind === 'orb' || spec.kind === 'wind' || spec.kind === 'blast'
+      ? PIXI.BLEND_MODES.NORMAL
+      : PIXI.BLEND_MODES.ADD;
     this.layer.addChild(body);
     this._shots.push({
       body,
@@ -476,6 +473,11 @@ export class CombatFx {
       kind: spec.kind,
       color: spec.color,
       physical,
+      ribbon: !!spec.look?.ribbon,
+      ribbonW: spec.look?.ribbonW ?? 0.5,
+      loft: spec.look?.loft ?? 0,
+      spin: spec.look?.spin ?? 0,
+      shape: spec.look?.body ?? (physical ? 'none' : 'bolt'),
       emit: 0,
       done: false,
       land: spec.land,
@@ -491,56 +493,99 @@ export class CombatFx {
     const g = s.body;
     g.clear();
     if (u >= 1) return;
-    if (s.physical) return;
     const fade = u < 0.08 ? u / 0.08 : 1;
+    if (!s.spr) {
+      this._drawFallbackProj(g, s, p, fade);
+      return;
+    }
+    if (s.shape === 'none' || s.kind === 'orb' || s.kind === 'wind' || s.kind === 'blast') return;
     const nx = Math.cos(ang);
     const ny = Math.sin(ang);
-    if (s.kind === 'orb' || s.kind === 'wind') {
-      const r = s.kind === 'wind' ? 20 : 15;
-      g.beginFill(s.color, 0.28 * fade).drawCircle(p.x, p.y, r + 6).endFill();
-      g.beginFill(s.color, 0.8 * fade).drawCircle(p.x, p.y, r * 0.45).endFill();
-      g.beginFill(0xffffff, 0.95 * fade).drawCircle(p.x - 3, p.y - 3, 3.4).endFill();
+    const len = s.kind === 'sniper' ? 72 : s.kind === 'pierce' || s.kind === 'beam' || s.kind === 'poke' ? 64 : 52;
+    g.lineStyle(10, s.color, 0.18 * fade);
+    g.moveTo(p.x - nx * len, p.y - ny * len);
+    g.lineTo(p.x, p.y);
+    g.lineStyle(3.2, 0xffffff, 0.7 * fade);
+    g.moveTo(p.x - nx * len * 0.55, p.y - ny * len * 0.55);
+    g.lineTo(p.x, p.y);
+    g.lineStyle(0);
+  }
+
+  /** 贴图没到也要看见东西在飞，不能只剩落点一团光 */
+  private _drawFallbackProj(
+    g: PIXI.Graphics,
+    s: ShotBit,
+    p: { x: number; y: number },
+    fade: number,
+  ): void {
+    if (s.kind === 'orb') {
+      g.beginFill(0xf5d0fe, 0.95 * fade).drawCircle(p.x, p.y, 13).endFill();
+      g.beginFill(0xc084fc, 0.85 * fade).drawCircle(p.x, p.y, 8).endFill();
+      return;
+    }
+    if (s.kind === 'sniper') {
+      g.beginFill(0xe8d4b0, 0.95 * fade).drawCircle(p.x, p.y, 7).endFill();
+      g.beginFill(0x8a7355, 0.9 * fade).drawCircle(p.x, p.y, 4).endFill();
+      return;
+    }
+    if (s.kind === 'wind') {
+      g.beginFill(0x86efac, 0.8 * fade).drawEllipse(p.x, p.y, 14, 7).endFill();
       return;
     }
     if (s.kind === 'blast') {
-      g.beginFill(0xff7a3a, 0.35 * fade).drawCircle(p.x, p.y, 16).endFill();
-      g.beginFill(0xfff4c4, 0.95 * fade).drawCircle(p.x, p.y, 6).endFill();
+      g.beginFill(0xff8a3a, 0.9 * fade).drawRoundedRect(p.x - 7, p.y - 10, 14, 20, 4).endFill();
       return;
     }
-    const len = s.kind === 'sniper' ? 40 : s.kind === 'poke' || s.kind === 'pierce' || s.kind === 'beam' ? 34 : 26;
-    g.lineStyle(12, s.color, 0.22 * fade);
-    g.moveTo(p.x - nx * len, p.y - ny * len);
-    g.lineTo(p.x + nx * 10, p.y + ny * 10);
-    g.lineStyle(3.4, 0xffffff, 0.95 * fade);
-    g.moveTo(p.x - nx * len * 0.75, p.y - ny * len * 0.75);
-    g.lineTo(p.x + nx * 8, p.y + ny * 8);
-    g.lineStyle(0);
-    g.beginFill(0xffffff, fade).drawCircle(p.x, p.y, 4).endFill();
+    if (s.kind === 'poke') {
+      g.lineStyle(5, 0x9bb8c4, 0.9 * fade);
+      g.moveTo(p.x - 16, p.y);
+      g.lineTo(p.x + 16, p.y);
+      g.lineStyle(0);
+      return;
+    }
+    if (s.kind === 'pierce') {
+      g.lineStyle(3, 0xc9a227, 0.9 * fade);
+      g.moveTo(p.x - 18, p.y);
+      g.lineTo(p.x + 18, p.y);
+      g.lineStyle(0);
+      g.beginFill(0xe8c84a, 0.8 * fade).drawCircle(p.x + 16, p.y, 3).endFill();
+      return;
+    }
+    if (s.kind === 'slash') {
+      g.beginFill(0x6b5a4a, 0.95 * fade).drawRoundedRect(p.x - 18, p.y - 5, 28, 9, 2).endFill();
+      g.beginFill(0xe8e0d4, 0.95 * fade).drawPolygon([
+        p.x + 8, p.y - 7,
+        p.x + 22, p.y,
+        p.x + 8, p.y + 7,
+      ]).endFill();
+      return;
+    }
+    g.beginFill(s.color, 0.9 * fade).drawCircle(p.x, p.y, 8).endFill();
+    g.beginFill(0xffffff, 0.55 * fade).drawCircle(p.x, p.y, 3).endFill();
   }
 
   private _impactHero(
     ev: Extract<BattleEvent, { kind: 'hit' }>,
     x: number,
     y: number,
-    color: number,
+    _color: number,
     fx: AttackFx = 'bolt',
+    lookArg?: FxLook,
   ): void {
     this._spawnHitFloat(ev, x, y);
     playSfx(ev.crit ? 'hit_counter' : `hit_${fx}`, ev.crit ? 50 : 80);
-    const tint = ev.crit ? 0xffd66b : color;
-    this._kit.plate('flash', x, y, { tint, s0: ev.crit ? 0.55 : 0.35, s1: ev.crit ? 1.15 : 0.8, life: 0.16 });
-    if (fx === 'blast') this._kit.plate('blast', x, y, { tint: 0xff8a3a, s0: 0.45, s1: 1.1, life: 0.22 });
-    if (fx === 'wind') this._kit.plate('wind', x, y, { tint: 0xc7f0ff, vr: 6, s0: 0.4, s1: 0.95, life: 0.24 });
-    if (fx === 'smash') this._kit.ring(x, y, 0xffe08a, 0.2);
-    this._kit.spray(x, y, {
-      n: ev.crit ? 14 : 8,
-      tint,
-      kind: 'spark',
-      speed: ev.crit ? 280 : 190,
-      life: 0.26,
-    });
-    this.hitStop = Math.max(this.hitStop, ev.crit ? 0.08 : fx === 'smash' || fx === 'blast' ? 0.06 : 0.035);
-    if (ev.crit || fx === 'smash' || fx === 'blast') buzz(ev.crit ? 'heavy' : 'medium');
+    const look = lookArg ?? attackLook(fx);
+    const stop = playImpact(this._kit, look, x, y, ev.crit);
+    this.hitStop = Math.max(this.hitStop, stop);
+    if (look.buzz) buzz(ev.crit ? 'heavy' : look.buzz);
+    else if (ev.crit) buzz('heavy');
+  }
+
+  private _enemyLand(fx: EnemyFx, x: number, y: number): void {
+    const look = enemyLook(fx);
+    const stop = playImpact(this._kit, look, x, y, false);
+    this.hitStop = Math.max(this.hitStop, stop);
+    if (look.buzz) buzz(look.buzz);
   }
 
   private _death(x: number, y: number, tint: number): void {
@@ -574,7 +619,13 @@ export class CombatFx {
   }
 
   private _point(s: ShotBit, t: number): { x: number; y: number } {
-    if (s.kind === 'orb' || s.kind === 'wind') {
+    if (s.loft > 0) {
+      return {
+        x: s.x0 + (s.x1 - s.x0) * t,
+        y: s.y0 + (s.y1 - s.y0) * t - Math.sin(t * Math.PI) * s.loft,
+      };
+    }
+    if (s.kind === 'orb' || s.kind === 'wind' || s.shape === 'orb') {
       const mx = (s.x0 + s.x1) / 2 + (s.y1 - s.y0) * 0.18;
       const my = (s.y0 + s.y1) / 2 - (s.x1 - s.x0) * 0.18;
       const u = 1 - t;
@@ -592,9 +643,17 @@ export class CombatFx {
   private _spawnHitFloat(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number): void {
     const first = this._firstHit;
     this._firstHit = false;
-    const size = first ? 56 : ev.crit ? 46 : 36;
-    const color = ev.crit || first ? 0xffe066 : 0xff9f3c;
-    this._spawnPlainFloat(String(Math.round(ev.damage)), x, y - 10, color, size, first ? 0.9 : ev.crit ? 0.72 : 0.6, ev.crit || first ? 1.15 : 1);
+    const size = first ? 64 : ev.crit ? 52 : 40;
+    const color = ev.crit || first ? 0xffe066 : 0xffb24a;
+    this._spawnPlainFloat(
+      String(Math.round(ev.damage)),
+      x,
+      y - 10,
+      color,
+      size,
+      first ? 0.95 : ev.crit ? 0.78 : 0.62,
+      ev.crit || first ? 1.22 : 1.06,
+    );
   }
 
   private _hurtHero(damage: number, x: number, y: number): void {
@@ -635,20 +694,16 @@ export class CombatFx {
     }
     const text = new PIXI.Text(msg, {
       fontFamily: 'sans-serif',
-      fontSize: 20,
+      fontSize: 26,
       fontWeight: 'bold',
       fill: 0xffe08a,
       stroke: 0x1a0c08,
-      strokeThickness: 5,
-      wordWrap: true,
-      wordWrapWidth: 300,
-      align: 'center',
-      lineHeight: 26,
+      strokeThickness: 6,
     });
     text.anchor.set(0.5);
     text.position.set(x, y);
     this.layer.addChild(text);
-    this._floats.push({ text, life: 1.1, max: 1.1, vy: -70, pop: 1.08 });
+    this._floats.push({ text, life: 0.7, max: 0.7, vy: -90, pop: 1.12 });
   }
 
   private _spawnFlash(name: string, x: number, y: number): void {
@@ -665,10 +720,6 @@ export class CombatFx {
     this.layer.addChild(text);
     this._flashes.push({ text, life: 0.4 });
   }
-}
-
-function easeOut(t: number): number {
-  return 1 - (1 - t) * (1 - t);
 }
 
 function mix(a: number, b: number, t: number): number {

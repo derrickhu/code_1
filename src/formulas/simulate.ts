@@ -22,6 +22,7 @@ import {
   installTargets,
   tick,
   type HeroUnit,
+  type LoseReason,
   type RunState,
 } from '../game/BattleEngine';
 
@@ -101,17 +102,25 @@ function chooseTarget(
     // 改射程的给近战：把只能贴脸的改造成能站后面输出的
     case 'rangeUp':
       return melee;
-    // 越挨越猛、反弹、加厚、站得起来，都是给挨刀那个人的
+    // 越挨越猛、反弹、加厚、站得起来、吸血，都是给挨刀那个人的
     case 'rageOnHurt':
     case 'thorns':
     case 'armorPct':
     case 'revive':
     case 'lifesteal':
       return front;
-    // 一片、穿透给射程长的，能同时覆盖更多敌人
+    // 控场、收割、一片、穿透给射程长的，能同时覆盖更多敌人
+    case 'slowOnHit':
+    case 'execute':
     case 'splash':
     case 'pierce':
       return ranged;
+    // 壳给远程：近战本来就挨打，这件的戏是「脆皮也敢挨一口」
+    case 'shield':
+      return ranged;
+    // 暖水瓶倒了没人灌，跟音响一样往后站
+    case 'heal':
+      return [...targets].sort((a, b) => b.slot - a.slot)[0];
     // 纯倍率给底子最硬的
     case 'frontMult':
     case 'heavySwing':
@@ -124,6 +133,22 @@ function chooseTarget(
     // 音响倒了光环停，别让脆皮站最前扛这件
     case 'teamHaste':
       return [...targets].sort((a, b) => b.slot - a.slot)[0];
+    // 小东西会跟主人学那一手（减速、带响、回血），所以先找有手艺的人教，
+    // 学不到东西时才退回按力气挑 —— 质变比量变值钱
+    case 'summon': {
+      // 小东西的攻击按主人算，还会跟主人学那一手，所以先找有手艺的人教；
+      // 同样有手艺就挑身上最空的 —— 装配位是稀缺资源，
+      // 独立单位吃不到主人的暴击重击那些乘区，占掉主输出的位子不值
+      const teachers = targets.filter(
+        (h) => h.stats.slowOnHit || h.stats.splash || h.stats.lifestealPct > 0,
+      );
+      if (teachers.length > 0) {
+        return [...teachers].sort(
+          (a, b) => a.mods.length - b.mods.length || b.stats.atk - a.stats.atk,
+        )[0];
+      }
+      return hardest;
+    }
     default:
       return fewest;
   }
@@ -164,12 +189,28 @@ function reorderForSaucer(state: RunState, strategy: PickStrategy): void {
 export interface SimConfig {
   strategy: PickStrategy;
   seed: number;
+  /**
+   * 钉一件必出。
+   *
+   * 用来单独量一件破烂的「装给谁」敏感度：同一件必出，只换装法，
+   * smart 与 random 拉开多少就是这一件本身挑不挑人。
+   * 整池混着跑量不出这个 —— 池子里多一件就会摊薄抽到强定位件的概率，
+   * 总差值反而会降，看不出新件本身好不好。
+   */
+  pinModId?: string;
+  /** 打第几档难度阶梯。0 是照旧 */
+  ladderLv?: number;
 }
 
 export interface SimResult {
   /** 打到第几波。cleared 为 true 时等于 TOTAL_WAVES */
   reachedWave: number;
   cleared: boolean;
+  /**
+   * 卡住的是被打穿还是推不动。调曲线时这两件事的解法相反：
+   * 队灭要降敌人输出，推不动要给玩家伤害，混在一起看只会来回拧。
+   */
+  loseReason?: LoseReason;
   durationMs: number;
   installs: number;
   /** 每个人身上装了什么，用来看构筑是否集中 */
@@ -180,7 +221,16 @@ export interface SimResult {
 const MAX_TICKS = 1200 * TOTAL_WAVES * 2;
 
 export function simulateRun(config: SimConfig): SimResult {
-  const state: RunState = createRun(config.seed);
+  const state: RunState = createRun(
+    config.seed,
+    0,
+    'ad',
+    config.pinModId ?? '',
+    undefined,
+    undefined,
+    '',
+    config.ladderLv ?? 0,
+  );
 
   let ticks = 0;
   let lastSaucerWave = 0;
@@ -213,6 +263,7 @@ export function simulateRun(config: SimConfig): SimResult {
   return {
     reachedWave: state.wave,
     cleared: state.phase === 'won',
+    loseReason: state.loseReason,
     durationMs: state.totalMs,
     installs: state.stats.installs,
     team: state.team.map((h) => ({

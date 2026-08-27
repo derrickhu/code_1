@@ -1,0 +1,18 @@
+Game UI prop sprite sheet, 2 columns x 2 rows, four equal square panels, thin pale gutter, flat pale warm gray backdrop (easy to cut out).
+
+Same cheap-fun sticker-chibi world as the village game: fat comic ink outlines, flat 6-8 colors, TWO-tone cel shade only.
+Palette: warm earth yellow, cement gray, rust red, mustard enamel, weathered wood, dirty cream.
+NOT premium fantasy UI, NOT glossy AAA HUD, NOT neon, NOT candy cute.
+
+Use the reference images for material and style only: rusted iron bar, hanging wood plaque, play plate, wood panel. Keep the same weathered comic look. Do not copy any text from the references.
+
+Each object sits centered in its cell, isolated, with a tiny contact shadow. Empty faces so we can print words later.
+NO TEXT, no labels, no letters, no numbers, no logos, no watermarks, no writing anywhere in the image.
+
+Row 1:
+1 RUST STAMP: a compact almost-square rusted iron plate, chunky rivets on four corners, ochre rim, dirty cream recessed center. Looks like a hardware-store stamp nailed to a wall. Readable at 160px wide.
+2 NAME PLATE: a small short weathered wood plank, mustard-chipped paint in the middle, two rusty nails, empty center. Horizontal, about 3:1. For a character name under feet.
+
+Row 2:
+3 SMALL IRON BUTTON: a medium horizontal rusted iron plate, two big bolt heads left and right, cream recessed center, ochre worn rim. Smaller and flatter than the big play plate. Clickable shop-door feel.
+4 TIP CHIP: a thin long wood chip / scrap slat, faded mustard paint, rusty nail heads, empty center. Narrow banner for one short sentence.

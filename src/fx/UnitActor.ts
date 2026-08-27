@@ -18,6 +18,31 @@ export function motionFor(fx: AttackFx): AtkMotion {
   return 'lunge';
 }
 
+/** 这一下真正出手的时刻，跟挥击关键帧对齐，特效不能比它早 */
+export function attackLife(motion: AtkMotion, kind: 'hero' | 'enemy', armed: boolean, framed: boolean): number {
+  if (kind === 'hero' && armed) {
+    return motion === 'crush' ? 0.52 : motion === 'sling' ? 0.55 : 0.46;
+  }
+  if (motion === 'crush') return 0.48;
+  if (framed) return 0.38;
+  return motion === 'sling' ? 0.34 : 0.26;
+}
+
+export function releaseAt(motion: AtkMotion, kind: 'hero' | 'enemy' = 'hero', armed = true, framed = false): number {
+  const life = attackLife(motion, kind, armed, framed);
+  if (motion === 'sling') return life * 0.4;
+  if (motion === 'recoil') return life * 0.3;
+  if (motion === 'crush') return life * 0.52;
+  return life * 0.34;
+}
+
+/** 近战刀口碰到人的时刻。比松手晚，落点不能早于这一下 */
+export function contactAt(motion: AtkMotion, kind: 'hero' | 'enemy' = 'hero', armed = true, framed = false): number {
+  const life = attackLife(motion, kind, armed, framed);
+  if (motion === 'sling' || motion === 'recoil') return releaseAt(motion, kind, armed, framed);
+  return life * 0.52;
+}
+
 /** 朝右：0 敌人，-π/2 天。绕拳头转，举起不超过头太多，命中不进地。 */
 export function swingKeyframes(motion: AtkMotion): { rest: number; up: number; hit: number } {
   if (motion === 'sling') return { rest: -Math.PI / 2, up: -0.25, hit: -2.05 };
@@ -186,11 +211,7 @@ export class UnitActor {
     }
 
     this._motion = motion;
-    this._atkLife = this._kind === 'hero' && this._armed
-      ? (motion === 'crush' ? 0.52 : motion === 'sling' ? 0.55 : 0.46)
-      : motion === 'crush' ? 0.48
-        : this._atk.length > 1 ? 0.38
-          : motion === 'sling' ? 0.34 : 0.26;
+    this._atkLife = attackLife(motion, this._kind, this._armed, this._atk.length > 1);
     this._atkT = 0;
     if (this._kind === 'hero' && this._armed) {
       this._play('idle', false);

@@ -61,6 +61,29 @@ export const COMBOS: readonly JunkCombo[] = [
     becomes: '倒了还能再躺着挨',
     extras: [{ kind: 'armorPct', value: 15 }, { kind: 'revive', hpPct: 70 }],
   },
+  {
+    id: 'coldwind',
+    parts: ['foam', 'blower'],
+    name: '冷风筒',
+    becomes: '一片人都走不动',
+    fx: 'wind',
+    extras: [{ kind: 'slowOnHit', slowPct: 18, durationMs: 600 }],
+  },
+  {
+    id: 'harvest',
+    parts: ['sickle', 'wire'],
+    name: '一溜割完',
+    becomes: '一条线上的全收了',
+    fx: 'pierce',
+    extras: [{ kind: 'execute', maxChain: 1 }],
+  },
+  {
+    id: 'bloodbag',
+    parts: ['sack', 'quilt'],
+    name: '厚血被',
+    becomes: '挨着打着自己回',
+    extras: [{ kind: 'lifesteal', healPct: 10 }],
+  },
 ];
 
 export function comboOf(modIds: readonly string[]): JunkCombo | undefined {

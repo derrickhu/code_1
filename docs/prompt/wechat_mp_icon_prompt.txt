@@ -1,0 +1,29 @@
+WeChat mini-game app icon, square 1:1, will be cropped to a perfect circle.
+
+ART STYLE — must match THIS game, not other apps:
+- 2D cheap vinyl sticker / sticker-chibi
+- Super-deformed, heads huge
+- Fat even black comic ink outlines, same weight everywhere
+- Flat 6-8 colors, TWO-tone cel shade only (light + one shadow block)
+- One highlight blob per big shape
+- Goofy earnest faces, cheap-fun, not cool heroes
+- ABSOLUTELY NOT 3D, NOT clay, NOT plastic toy, NOT C4D, NOT Pixar, NOT smooth subsurface, NOT studio lighting, NOT glossy app-store orb
+
+ICON COMPOSITION (circular-safe):
+- The hook is the CONFRONTATION: villager vs alien, two big heads
+- All important content inside the CENTER 75% circle
+- Corners are ONLY the flat background color
+- Large color blocks, few parts, readable at 144px
+- NO scene, NO village roofs, NO sci-fi city, NO sky gradient, NO split environment illustration
+
+SUBJECT:
+Left-center: Chinese village uncle. Mustard-ochre padded jacket as ONE shape. Rust-red wok / pot worn as helmet (the joke). Two simple oval eyes, tiny serious frown.
+Right-center: classic grey-violet alien. Huge smooth head, two oversized black oval eyes, skinny neck, dopey panicked.
+They bump at the exact center — pot lid vs alien forehead. That clash IS the icon.
+
+COLOR is how the two sides differ:
+- Uncle: warm earth yellow, rust red, tan
+- Alien: cold violet, chrome white, cyan-teal
+- Background: ONE flat pale warm gray (cement), so both pop
+
+NO TEXT, no labels, no letters, no numbers, no watermarks, no Chinese, no English.

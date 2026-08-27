@@ -1,0 +1,13 @@
+Game UI prop sprite sheet, 2 columns x 1 row, two equal wide panels, thin pale gutter, flat pale warm gray backdrop.
+
+Same cheap-fun sticker-chibi village game: fat comic ink outlines, flat 6-8 colors, TWO-tone cel shade only.
+Palette: gold mustard enamel, dirty cream, rust red, weathered iron rivets.
+NOT premium AAA, NOT neon, NOT glass, NOT purple.
+
+Use references for material only: rusted play plate, rust settle button. Do not copy any text.
+
+Left cell: WIDE rewarded-ad button, about 3.2:1. Thick mustard-gold enamel plate, rust peel rim, four rivets. LEFT side has a circular play badge: dark rust ring, cream disc, fat white play triangle pointing right. Rest of the face is EMPTY gold/cream for later text. Contact shadow. Isolated.
+
+Right cell: a single circular play badge only, same style, isolated, for overlay. Empty otherwise.
+
+NO TEXT, no labels, no captions, no writing, no Chinese, no numbers, no icons except the play triangle.

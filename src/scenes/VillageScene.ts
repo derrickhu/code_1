@@ -1,40 +1,46 @@
 /**
- * 村子主界面。对标 Brotato 解锁店 / 幸存者图鉴柜：
- * 主页只负责出村，废品站是能逛的货架房，图鉴是柜墙，不养人物等级。
+ * 村子主界面。对标向僵尸开炮 / 城主别慌张：
+ * 主页只负责出村，废品站买肉鸽成长，图鉴是破烂柜，技能局里自己出。
  */
 import * as PIXI from 'pixi.js';
+import { EventBus } from '@/core/EventBus';
 import { Game } from '@/core/Game';
+import { BgmPlayer } from '@/core/BgmPlayer';
+import { GMManager } from '@/core/GMManager';
 import type { Scene } from '@/core/SceneManager';
 import { SceneManager } from '@/core/SceneManager';
 import { bindPointerTap } from '@/minigame';
 import { RosterSheet, rosterSheetHeight } from '@/ui/RosterSheet';
 import {
-  BACK_DY,
-  SLOT_NAME,
   SQUAD_X,
   TEAM_SIZE,
   heroSpriteH,
-  slotHitBox,
-  slotScreenX,
-  slotScreenY,
 } from '@/balance/combat';
-import { DEFAULT_SQUAD, getHero, heroReachLine, placeHero, swapSquad } from '@/balance/heroes';
+import { DEFAULT_SQUAD, getHero, heroReachLine, placeHero } from '@/balance/heroes';
 import { UnitActor } from '@/fx/UnitActor';
-import { MODS, abilityTag, getMod, shortModName } from '@/balance/mods';
+import { MODS, MOD_STAR_MAX, abilityTag, getMod, masteredMod, shortModName, starMarks } from '@/balance/mods';
 import {
-  YARD_UNLOCKS,
-  availableMods,
+  GROWTH_BY_ID,
+  PILE_CAP,
+  YARD_GROWTH,
   goalLine,
-  isModUnlocked,
-  nextStartScrapCost,
+  nextModStarCost,
   nextYardGoal,
-  startScrapBonus,
+  type GrowthId,
 } from '@/balance/yard';
+import { ladderRule } from '@/balance/ladder';
+import { LAST_STAGE_ID, STAGE_COUNT, getStage } from '@/balance/stages';
+import { COMBOS } from '@/balance/combos';
 import {
-  buyStartScrap,
-  buyYardUnlock,
+  buyModStar,
+  buyYardGrowth,
+  collectPile,
   loadMemory,
   saveSquad,
+  setLadderLv,
+  setStageId,
+  settlePile,
+  type RunMemory,
 } from '@/core/RunMemory';
 import {
   addFitPortrait,
@@ -49,7 +55,7 @@ import {
   yardBgTex,
   type UiName,
 } from '@/core/TextureLoader';
-import { GOLD, coverSprite, fitSprite, goldBtn, plate } from '@/ui/paint';
+import { GOLD, copperRust, coverSprite, coverSpriteTop, fitSprite, goldBtn, ironSlab, label, nailCluster, nailRow, oldNail, plate, villagerColor } from '@/ui/paint';
 
 const INK = 0x2a160c;
 const CREAM = 0xfff4c4;
@@ -58,32 +64,22 @@ const CARD_W = 220;
 const CARD_H = 228;
 const GAP_X = 12;
 const GAP_Y = 10;
+/** 编队预览比局里大一圈，阵形才是焦点 */
+const STAGE_SCALE = 1.62;
+const STAGE_DX = 128;
+const STAGE_DY = 86;
 
-const TINT: Readonly<Record<string, number>> = {
-  tiezhu: 0xc4703a,
-  dachui: 0xd9a13b,
-  laoli: 0xb4553f,
-  erjiu: 0xa8823f,
-  sanshen: 0xd4736b,
-  laoyanqiang: 0x8f7a4a,
-};
-
-type HubPage = 'home' | 'squad' | 'book' | 'yard';
-
-function label(size: number, color = 0xffffff, bold = false): PIXI.Text {
-  return new PIXI.Text('', {
-    fontFamily: 'sans-serif',
-    fontSize: size,
-    fontWeight: bold ? 'bold' : 'normal',
-    fill: color,
-  });
-}
+type HubPage = 'home' | 'squad' | 'book' | 'yard' | 'stars' | 'combo';
+const HUB_PAGES: readonly HubPage[] = ['home', 'squad', 'book', 'yard', 'stars', 'combo'];
 
 export class VillageScene implements Scene {
   readonly name = 'village';
   readonly container = new PIXI.Container();
 
   private readonly _root = new PIXI.Container();
+  private readonly _layers = {} as Record<HubPage, PIXI.Container>;
+  private readonly _dirty = new Set<HubPage>(HUB_PAGES);
+  private _paint: PIXI.Container;
   private _page: HubPage = 'home';
   private _squad: string[] = [];
   private _focusSlot = 0;
@@ -92,17 +88,38 @@ export class VillageScene implements Scene {
   private _pulse = 0;
   private _playBtn: PIXI.Container | null = null;
   private _hotBuy: PIXI.Container | null = null;
+  private _starPage = 0;
+  private _bookPage = 0;
   private _artTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private _stageActors: UnitActor[] = [];
   private _sheet: RosterSheet | null = null;
+  private readonly _actors: Partial<Record<HubPage, UnitActor[]>> = {};
+  private readonly _playBtns: Partial<Record<HubPage, PIXI.Container | null>> = {};
+  private readonly _hotBuys: Partial<Record<HubPage, PIXI.Container | null>> = {};
+  private readonly _sheets: Partial<Record<HubPage, RosterSheet | null>> = {};
 
   constructor() {
     this.container.addChild(this._root);
+    for (const p of HUB_PAGES) {
+      const layer = new PIXI.Container();
+      layer.visible = false;
+      this._root.addChild(layer);
+      this._layers[p] = layer;
+    }
+    this._paint = this._layers.home;
+    EventBus.on('home:refresh', () => {
+      if (SceneManager.current?.name !== 'village') return;
+      this._staleAll();
+      this._rebuild(this._page);
+    });
     watchArt(() => {
       if (this._artTimer) clearTimeout(this._artTimer);
       this._artTimer = setTimeout(() => {
         this._artTimer = 0;
-        if (SceneManager.current?.name === 'village') this._render();
+        // 已经铺好的主页不要为换皮拆树：按下和抬起会落在两棵按钮上，出村开打就点不着
+        if (SceneManager.current?.name === 'village' && this._paint.children.length === 0) {
+          this._rebuild(this._page);
+        }
       }, 220);
     });
   }
@@ -112,16 +129,17 @@ export class VillageScene implements Scene {
     const mem = loadMemory();
     this._squad = mem.squadIds.length === TEAM_SIZE ? [...mem.squadIds] : [...DEFAULT_SQUAD];
     saveSquad(this._squad);
-    this._page = 'home';
     this._holdSlot = null;
     this._holdHero = null;
-    this._render();
+    this._staleAll();
+    this._rebuild('home');
+    BgmPlayer.play('village');
   }
 
   onExit(): void {
     saveSquad(this._squad);
-    this._clearSheet();
-    this._clearActors();
+    this._flushPages();
+    BgmPlayer.stop();
   }
 
   update(dt: number): void {
@@ -135,9 +153,18 @@ export class VillageScene implements Scene {
     }
   }
 
+  private _stale(...pages: HubPage[]): void {
+    for (const p of pages) this._dirty.add(p);
+  }
+
+  private _staleAll(): void {
+    for (const p of HUB_PAGES) this._dirty.add(p);
+  }
+
   private _clearSheet(): void {
     this._sheet?.destroy();
     this._sheet = null;
+    this._sheets[this._page] = null;
   }
 
   private _clearActors(): void {
@@ -145,17 +172,85 @@ export class VillageScene implements Scene {
       if (!a.view.destroyed) a.destroy();
     }
     this._stageActors = [];
+    this._actors[this._page] = [];
+  }
+
+  private _flushPages(): void {
+    this._clearSheet();
+    for (const list of Object.values(this._actors)) {
+      for (const a of list ?? []) {
+        if (!a.view.destroyed) a.destroy();
+      }
+    }
+    for (const p of HUB_PAGES) {
+      this._actors[p] = [];
+      this._playBtns[p] = null;
+      this._hotBuys[p] = null;
+      this._sheets[p] = null;
+      const layer = this._layers[p];
+      layer.removeChildren().forEach((c) => {
+        if (!c.destroyed) c.destroy({ children: true });
+      });
+      this._dirty.add(p);
+    }
+    this._stageActors = [];
+    this._playBtn = null;
+    this._hotBuy = null;
+    this._sheet = null;
+  }
+
+  private _showLayer(page: HubPage): void {
+    this._page = page;
+    this._paint = this._layers[page];
+    for (const p of HUB_PAGES) this._layers[p].visible = p === page;
+    this._stageActors = this._actors[page] ?? [];
+    this._playBtn = this._playBtns[page] ?? null;
+    this._hotBuy = this._hotBuys[page] ?? null;
+    this._sheet = this._sheets[page] ?? null;
+  }
+
+  private _rebuild(page: HubPage): void {
+    this._showLayer(page);
+    this._playBtn = null;
+    this._hotBuy = null;
+    this._clearSheet();
+    this._clearActors();
+    this._paint.removeChildren().forEach((c) => {
+      if (!c.destroyed) c.destroy({ children: true });
+    });
+    if (page === 'squad') this._renderSquad();
+    else if (page === 'book') this._renderBook();
+    else if (page === 'combo') this._renderCombo();
+    else if (page === 'yard') this._renderYard();
+    else if (page === 'stars') this._renderStars();
+    else this._renderHome();
+    this._actors[page] = this._stageActors;
+    this._playBtns[page] = this._playBtn;
+    this._hotBuys[page] = this._hotBuy;
+    this._sheets[page] = this._sheet;
+    this._dirty.delete(page);
   }
 
   private _height(): number {
     return Math.max(1334, Game.logicHeight || 1334);
   }
 
+  /** 换页只翻层。没脏的页直接显示，不再拆树重铺。 */
   private _open(page: HubPage): void {
+    if (this._page === 'home' && this._holdSlot !== null && page !== 'home') {
+      this._dirty.add('home');
+    }
     this._holdHero = null;
     if (page !== 'squad') this._holdSlot = null;
-    this._page = page;
-    this._render();
+    if (page === this._page) {
+      if (this._dirty.has(page)) this._rebuild(page);
+      return;
+    }
+    if (this._dirty.has(page) || this._layers[page].children.length === 0) {
+      this._rebuild(page);
+      return;
+    }
+    this._showLayer(page);
   }
 
   /** 场上只点「要换掉谁」。谁上阵只从名单里点。 */
@@ -164,23 +259,17 @@ export class VillageScene implements Scene {
     this._holdHero = null;
     this._holdSlot = next;
     this._focusSlot = next;
+    this._stale('home', 'squad');
     this._render();
   }
 
   private _tapHero(id: string): void {
-    const dest = this._holdSlot ?? this._focusSlot;
     const i = this._squad.indexOf(id);
-    if (i === dest) return;
     if (i >= 0) {
-      this._squad = swapSquad(this._squad, dest, i);
-      this._holdSlot = dest;
-      this._focusSlot = dest;
-      this._holdHero = null;
-      saveSquad(this._squad);
-      this._render();
+      this._tapSlot(i);
       return;
     }
-    this._seat(id, dest);
+    this._seat(id, this._holdSlot ?? this._focusSlot);
   }
 
   private _seat(id: string, slot: number): void {
@@ -190,6 +279,7 @@ export class VillageScene implements Scene {
     this._holdSlot = next.focus;
     this._holdHero = null;
     saveSquad(this._squad);
+    this._stale('home', 'squad');
     this._render();
   }
 
@@ -199,17 +289,19 @@ export class VillageScene implements Scene {
       return;
     }
     saveSquad(this._squad);
-    SceneManager.switchTo('battle', { heroIds: [...this._squad] });
+    const mem = loadMemory();
+    SceneManager.switchTo('battle', { heroIds: [...this._squad], stageId: mem.stageId });
   }
 
-  private _backdrop(h: number, dim = 0.2, art = villageBgTex()): void {
+  private _backdrop(h: number, dim = 0.2, art = villageBgTex(), fadeBottom = true): void {
     const bg = new PIXI.Graphics();
     const dirt = art;
     if (dirt?.baseTexture.valid) fillCover(bg, dirt, 0, 0, 750, h);
     else bg.beginFill(0x3a2a1c).drawRect(0, 0, 750, h).endFill();
     if (dim > 0) bg.beginFill(0x120a06, dim).drawRect(0, 0, 750, h).endFill();
-    bg.beginFill(0x120a06, 0.28).drawRect(0, 0, 750, 150).endFill();
-    bg.beginFill(0x120a06, 0.34).drawRect(0, h - 240, 750, 240).endFill();
+    bg.beginFill(0x120a06, 0.22).drawRect(0, 0, 750, 120).endFill();
+    if (fadeBottom) bg.beginFill(0x120a06, 0.34).drawRect(0, h - 240, 750, 240).endFill();
+    bg.eventMode = 'none';
     this._root.addChild(bg);
   }
 
@@ -233,19 +325,55 @@ export class VillageScene implements Scene {
 
   private _topBar(): number {
     const mem = loadMemory();
-    const top = Math.max(Game.safeTop, 80);
-    const cy = top + 24;
-    fitSprite(this._root, uiTex('scrap_pile'), 52, cy, 56, 52);
-    this._woodChip(220, cy, 250, 52, `废品堆 ${mem.yardScrap}`, 20);
-    this._woodChip(
-      560,
-      cy,
-      280,
-      52,
-      mem.highestWave > 0 ? `最高第 ${mem.highestWave} 波` : '还没出过村',
-      20,
-    );
-    return top + 68;
+    const pile = settlePile();
+    const top = Math.max(Game.safeTop, 24);
+    const barH = 68;
+    const cy = top + barH / 2;
+    if (!coverSprite(this._root, uiTex('iron_bar'), 0, top, 750, barH, 0)) {
+      const g = new PIXI.Graphics();
+      ironSlab(g, 0, top, 750, barH, 0);
+      this._root.addChild(g);
+    }
+    const barRust = new PIXI.Graphics();
+    copperRust(barRust, 0, top, 750, barH);
+    this._root.addChild(barRust);
+    const barNails = new PIXI.Graphics();
+    nailCluster(barNails, 42, cy, 6, 3);
+    nailCluster(barNails, 708, cy, 6, 11);
+    this._root.addChild(barNails);
+    fitSprite(this._root, uiTex('scrap_pile'), 46, cy, 50, 46);
+    const scrap = this._stroke(20, CREAM, '#1a1008', 4);
+    scrap.anchor.set(0, 0.5);
+    scrap.position.set(78, cy);
+    scrap.text = `废品堆 ${mem.yardScrap}`;
+    this._root.addChild(scrap);
+    if (pile.pileScrap > 0) {
+      const badge = new PIXI.Graphics();
+      badge.beginFill(0xc44a24).drawCircle(66, top + 14, 14).endFill();
+      badge.lineStyle(2, 0xfff4c4, 0.85).drawCircle(66, top + 14, 14).lineStyle(0);
+      const n = this._stroke(12, CREAM, '#1a1008', 3);
+      n.anchor.set(0.5);
+      n.position.set(66, top + 14);
+      n.text = pile.pileScrap >= PILE_CAP ? '满' : `+${pile.pileScrap}`;
+      this._root.addChild(badge, n);
+      const hit = new PIXI.Container();
+      hit.eventMode = 'static';
+      hit.cursor = 'pointer';
+      hit.hitArea = new PIXI.Rectangle(0, top, 340, barH);
+      this._root.addChild(hit);
+      bindPointerTap(hit, () => {
+        if (collectPile().got > 0) {
+          this._staleAll();
+          this._render();
+        }
+      });
+    }
+    const prog = this._stroke(20, CREAM, '#1a1008', 4);
+    prog.anchor.set(1, 0.5);
+    prog.position.set(726, cy);
+    prog.text = `${Math.max(1, mem.stageTop)}/${STAGE_COUNT}`;
+    this._root.addChild(prog);
+    return top + barH + 8;
   }
 
   private _titlePlaque(cx: number, cy: number, title: string, tag: string): void {
@@ -262,6 +390,14 @@ export class VillageScene implements Scene {
     s.position.set(cx, cy + 32);
     s.text = tag;
     this._root.addChild(s);
+    if (GMManager.isRuntimeAllowed) {
+      const hit = new PIXI.Container();
+      hit.eventMode = 'static';
+      hit.hitArea = new PIXI.Rectangle(-180, -50, 360, 100);
+      hit.position.set(cx, cy);
+      this._root.addChild(hit);
+      bindPointerTap(hit, () => GMManager.onTitleTap());
+    }
   }
 
   private _playPlate(
@@ -276,9 +412,8 @@ export class VillageScene implements Scene {
     const play = new PIXI.Container();
     play.eventMode = 'static';
     play.interactiveChildren = false;
-    const hitW = Math.min(380, maxW * 0.76);
-    const hitH = Math.min(92, maxH * 0.46);
-    play.hitArea = new PIXI.Rectangle(-hitW / 2, -hitH / 2, hitW, hitH);
+    // 热区跟铁板一样大。以前只留中间一条，贴图进来后点铁板四周像没反应
+    play.hitArea = new PIXI.Rectangle(-maxW * 0.48, -maxH * 0.36, maxW * 0.96, maxH * 0.72);
     if (!fitSprite(play, uiTex('play_plate'), 0, 0, maxW, maxH)) {
       const g = new PIXI.Graphics();
       goldBtn(g, -maxW * 0.38, -maxH * 0.22, maxW * 0.76, maxH * 0.44);
@@ -304,7 +439,7 @@ export class VillageScene implements Scene {
   ): void {
     const box = new PIXI.Container();
     box.eventMode = 'static';
-    box.hitArea = new PIXI.Rectangle(-108, -150, 216, 230);
+    box.hitArea = new PIXI.Rectangle(-100, -88, 200, 210);
     if (!fitSprite(box, uiTex(icon), 0, -36, 200, 168)) {
       const g = new PIXI.Graphics();
       goldBtn(g, -104, -70, 208, 140);
@@ -328,17 +463,7 @@ export class VillageScene implements Scene {
   }
 
   private _render(): void {
-    this._playBtn = null;
-    this._hotBuy = null;
-    this._clearSheet();
-    this._clearActors();
-    this._root.removeChildren().forEach((c) => {
-      if (!c.destroyed) c.destroy({ children: true });
-    });
-    if (this._page === 'squad') this._renderSquad();
-    else if (this._page === 'book') this._renderBook();
-    else if (this._page === 'yard') this._renderYard();
-    else this._renderHome();
+    this._rebuild(this._page);
   }
 
   private _renderHome(): void {
@@ -348,22 +473,87 @@ export class VillageScene implements Scene {
     }
     const h = this._height();
     const mem = loadMemory();
-    this._backdrop(h, 0.12);
+    this._backdrop(h, 0.04, villageBgTex(), false);
     const y0 = this._topBar();
-    this._titlePlaque(375, y0 + 40, '村口大战外星人', '焊点村里破烂，把闲人改成猛货');
+    const hasLadder = mem.stageId >= LAST_STAGE_ID && mem.ladderTop > 0;
+    const dockH = hasLadder ? 600 : 548;
+    const dockTop = h - Math.max(Game.safeBottom, 8) - dockH;
+    this._drawDock(dockTop, h - dockTop);
 
-    const doorY = h - Game.safeBottom - 118;
-    const playY = Math.min(doorY - 280, Math.max(y0 + 430, Math.round(h * 0.58)));
-    const frontY = Math.min(playY - 230, Math.max(y0 + 280, Math.round(h * 0.4)));
+    const lowest = dockTop - 44;
+    const frontY = lowest - STAGE_DY;
+    this._drawSquadStage(Math.max(y0 + 200, frontY), lowest + 8);
+    const hint = this._stroke(16, CREAM, '#1a1008', 4);
+    hint.anchor.set(0.5);
+    hint.position.set(375, lowest);
+    hint.text = '点人换阵';
+    this._root.addChild(hint);
 
-    this._woodChip(375, frontY - 128, 560, 36, '点人换阵。出村开打前确认一次', 16);
-    this._drawSquadStage(frontY);
-    this._playBtn = this._playPlate(375, playY, '出村开打', () => this._open('squad'));
-    const goal = nextYardGoal(mem.yardScrap, mem.unlockedMods, mem.startScrapLv);
-    const pool = availableMods(mem.unlockedMods).length;
-    this._shopDoor('door_squad', '叫人', '看看各人的活', 135, doorY, () => this._open('squad'));
-    this._shopDoor('door_yard', '废品站', goalLine(goal), 375, doorY, () => this._open('yard'));
-    this._shopDoor('door_book', '图鉴', `池子 ${pool}/${MODS.length}`, 615, doorY, () => this._open('book'));
+    // 钉子在 dockTop+26，关卡条再往下，别和「点人换阵」叠在坞沿上
+    let y = dockTop + 88;
+    this._stageBar(y, mem);
+    y += 72;
+    if (hasLadder) {
+      this._ladderBar(y, mem);
+      y += 62;
+    }
+    this._playBtn = this._playPlate(375, y + 52, '出村开打', () => this._open('squad'), 640, 160, 36);
+    const goal = nextYardGoal(mem.yardScrap, mem.growth, mem.modStars);
+    const yardSub = goal.kind !== 'done' && goal.afford ? '能买' : '';
+    const navY = h - Math.max(Game.safeBottom, 10) - 108;
+    this._navTile('nav_squad', '叫人', '', 140, navY, () => this._open('squad'));
+    this._navTile('nav_yard', '废品站', yardSub, 375, navY, () => this._open('yard'));
+    this._navTile('nav_book', '图鉴', `${MODS.length}件`, 610, navY, () => this._open('book'));
+  }
+
+  private _drawDock(top: number, h: number): void {
+    const tall = h + 28;
+    if (!coverSpriteTop(this._root, uiTex('iron_dock'), 0, top, 750, tall, 22)) {
+      const g = new PIXI.Graphics();
+      ironSlab(g, 0, top, 750, tall, 20);
+      this._root.addChild(g);
+    }
+    const rust = new PIXI.Graphics();
+    copperRust(rust, 12, top + 8, 726, tall - 24);
+    this._root.addChild(rust);
+    const nails = new PIXI.Graphics();
+    nailRow(nails, 0, top + 26, 750, 9);
+    oldNail(nails, 40 + (Math.sin(2.1) * 8), top + tall - 40, 7.5, 21);
+    oldNail(nails, 708 + (Math.cos(1.4) * 10), top + tall - 34, 8.5, 22);
+    this._root.addChild(nails);
+  }
+
+  private _navTile(
+    icon: UiName,
+    title: string,
+    sub: string,
+    x: number,
+    y: number,
+    onTap: () => void,
+  ): void {
+    const box = new PIXI.Container();
+    box.eventMode = 'static';
+    box.hitArea = new PIXI.Rectangle(-96, -86, 192, 196);
+    if (!fitSprite(box, uiTex(icon), 0, -16, 168, 168)) {
+      const g = new PIXI.Graphics();
+      ironSlab(g, -80, -80, 160, 160, 18);
+      box.addChild(g);
+    }
+    const t = this._stroke(20, CREAM, '#1a1008', 4);
+    t.anchor.set(0.5);
+    t.position.set(0, 78);
+    t.text = title;
+    box.addChild(t);
+    if (sub) {
+      const s = this._stroke(13, 0xffe08a, '#1a1008', 3);
+      s.anchor.set(0.5);
+      s.position.set(0, 100);
+      s.text = sub.startsWith('能买') ? `● ${sub}` : sub;
+      box.addChild(s);
+    }
+    box.position.set(x, y);
+    this._root.addChild(box);
+    bindPointerTap(box, onTap);
   }
 
   private _renderHomeEdit(): void {
@@ -372,70 +562,100 @@ export class VillageScene implements Scene {
     const y0 = this._topBar();
     const slot = this._holdSlot ?? 0;
     const who = this._squad[slot] ? getHero(this._squad[slot]!).name : '空位';
-    this._woodChip(375, y0 + 28, 600, 48, `要换掉：${SLOT_NAME[slot]}  ${who}`, 24);
-    this._woodChip(375, y0 + 68, 620, 32, '喘气的是要换掉的。下面点谁上阵', 15);
+    this._woodChip(375, y0 + 20, 520, 40, `换掉 ${who}`, 26);
 
     const barY = h - Game.safeBottom - 72;
-    const frontY = y0 + 200;
-    this._drawSquadStage(frontY);
-
-    const sheetY = frontY + BACK_DY + 44;
-    const room = Math.max(220, barY - 96 - sheetY);
-    this._mountSheet(20, sheetY, 710, Math.min(rosterSheetHeight(), room));
+    const frontY = y0 + 268;
+    const sheetY = frontY + STAGE_DY + 36;
+    this._drawSquadStage(frontY, sheetY - 4);
+    const room = Math.max(120, barY - 88 - sheetY);
+    this._mountSheet(16, sheetY, 718, Math.min(rosterSheetHeight(), room));
 
     this._playPlate(200, barY, '换完了', () => {
       this._holdSlot = null;
       this._holdHero = null;
+      this._stale('home', 'squad');
       this._render();
     }, 300, 110, 22);
     this._playBtn = this._playPlate(550, barY, '出村开打', () => this._launch(), 300, 110, 22);
   }
 
-  private _editHint(): string {
-    if (this._holdSlot !== null) {
-      const id = this._squad[this._holdSlot];
-      const who = id ? getHero(id).name : '空位';
-      return `要换掉${SLOT_NAME[this._holdSlot]} ${who}。下面点谁上阵`;
-    }
-    return '点上面要换掉的人，下面点谁上阵';
+  private _stageX(slot: number): number {
+    if (slot === 1) return SQUAD_X - STAGE_DX;
+    if (slot === 2) return SQUAD_X + STAGE_DX;
+    return SQUAD_X;
   }
 
-  private _drawSquadStage(frontY: number): void {
+  private _stageY(slot: number, frontY: number): number {
+    return slot <= 0 ? frontY : frontY + STAGE_DY;
+  }
+
+  private _drawSquadStage(frontY: number, clipBottom?: number): void {
     const hold = this._holdSlot;
-    const drawOrder = [1, 2, 0];
-    for (const slot of drawOrder) {
+    // 后排先画。侧边两人在前，点重叠处换的是眼前这个，不是半透明那个。
+    for (const slot of [0, 1, 2]) {
       const id = this._squad[slot];
-      const x = slotScreenX(slot);
-      const feet = slotScreenY(slot, frontY);
+      const x = this._stageX(slot);
+      const feet = this._stageY(slot, frontY);
       if (id) {
         const hero = getHero(id);
+        const hot = hold === slot;
         const actor = new UnitActor();
         actor.bindHero(id);
-        actor.place(x, feet, heroSpriteH(hero.hp));
+        actor.place(x, feet, heroSpriteH(hero.hp) * (hot ? STAGE_SCALE + 0.18 : STAGE_SCALE));
         actor.faceToward(SQUAD_X);
-        actor.holdPulse = hold === slot;
-        actor.view.alpha = hold !== null && hold !== slot ? 0.72 : 1;
-        actor.view.eventMode = 'none';
+        actor.holdPulse = hot;
+        actor.view.alpha = hold !== null && !hot ? 0.55 : 1;
+        actor.view.eventMode = 'static';
+        actor.view.cursor = 'pointer';
+        actor.view.interactiveChildren = false;
         actor.view.zIndex = 20 - slot;
         this._root.addChild(actor.view);
         this._stageActors.push(actor);
         actor.update(0);
+        actor.view.hitArea = this._squadHitBox(slot, feet, clipBottom);
+        bindPointerTap(actor.view, () => this._tapSlot(slot));
+        if (hot) {
+          const call = this._stroke(26, GOLD, '#1a1008', 6);
+          call.eventMode = 'none';
+          call.anchor.set(0.5, 0);
+          call.position.set(x, feet + 14);
+          call.text = hero.name;
+          this._root.addChild(call);
+        }
       } else {
         const empty = this._stroke(16, 0x8a90a8, '#1a1008', 3);
+        empty.eventMode = 'none';
         empty.anchor.set(0.5);
         empty.position.set(x, feet - 36);
         empty.text = '空';
         this._root.addChild(empty);
+        const hit = new PIXI.Container();
+        hit.eventMode = 'static';
+        hit.cursor = 'pointer';
+        hit.position.set(x, feet);
+        hit.hitArea = this._squadHitBox(slot, feet, clipBottom);
+        this._root.addChild(hit);
+        bindPointerTap(hit, () => this._tapSlot(slot));
       }
-
-      const box = slotHitBox(slot);
-      const hit = new PIXI.Container();
-      hit.eventMode = 'static';
-      hit.position.set(x, feet);
-      hit.hitArea = new PIXI.Rectangle(box.x, box.y, box.w, box.h);
-      this._root.addChild(hit);
-      bindPointerTap(hit, () => this._tapSlot(slot));
     }
+  }
+
+  /**
+   * 相对脚底。按村子立绘放大，左右两块互不重叠，中间留给后排；
+   * 底边卡在花名册上方，避免点脚边被名单整块吃掉。
+   */
+  private _squadHitBox(slot: number, feetY: number, clipBottom?: number): PIXI.Rectangle {
+    const box = slot === 1
+      ? new PIXI.Rectangle(-118, -236, 196, 272)
+      : slot === 2
+        ? new PIXI.Rectangle(-78, -236, 196, 272)
+        : new PIXI.Rectangle(-78, -256, 156, 288);
+    if (clipBottom != null) {
+      const maxH = clipBottom - feetY - box.y;
+      if (maxH < box.height) box.height = Math.max(48, maxH);
+    }
+    return box;
   }
 
   private _mountSheet(x: number, y: number, w: number, h: number): void {
@@ -453,133 +673,194 @@ export class VillageScene implements Scene {
     const sub = this._stroke(16, 0xffd66b, '#2a160c', 4);
     sub.anchor.set(0.5);
     sub.position.set(375, y0 + 64);
-    sub.text = '点货架上的破烂，买进下一局的池子';
+    sub.text = '破烂局里自己出。成长改规则，升星改抽到的强度';
     this._root.addChild(sub);
 
-    const goal = nextYardGoal(mem.yardScrap, mem.unlockedMods, mem.startScrapLv);
+    const goal = nextYardGoal(mem.yardScrap, mem.growth, mem.modStars);
     this._woodChip(375, y0 + 104, 560, 40, goalLine(goal), 18);
 
     const cardW = 338;
-    const cardH = 248;
-    const gap = 12;
+    const cardH = 196;
+    const gap = 10;
     const startX = (750 - cardW * 2 - gap) / 2;
     const startY = y0 + 136;
-    YARD_UNLOCKS.forEach((u, i) => {
-      const owned = mem.unlockedMods.includes(u.modId);
-      const afford = !owned && mem.yardScrap >= u.cost;
-      const card = this._shelfCard(u.modId, owned, afford, u.cost, mem.yardScrap);
+    YARD_GROWTH.forEach((def, i) => {
+      const lv = mem.growth[def.id];
+      const cost = def.costs[lv];
+      const maxed = cost === undefined;
+      const afford = !maxed && mem.yardScrap >= cost;
+      const card = this._growthCard(def.id, lv, cost, mem.yardScrap, afford, maxed);
       card.position.set(startX + (i % 2) * (cardW + gap), startY + Math.floor(i / 2) * (cardH + gap));
       this._root.addChild(card);
-      if (!owned) {
+      if (!maxed) {
         bindPointerTap(card, () => {
-          if (!buyYardUnlock(u.modId)) return;
+          if (!buyYardGrowth(def.id)) return;
+          this._stale('home', 'squad', 'book', 'stars', 'combo');
           this._render();
         });
       }
       if (afford && !this._hotBuy) this._hotBuy = card;
     });
 
-    const pocketY = startY + 2 * (cardH + gap) + 8;
-    const nextCost = nextStartScrapCost(mem.startScrapLv);
-    const pocket = this._pocketCard(mem.startScrapLv, nextCost, mem.yardScrap);
-    pocket.position.set(36, pocketY);
-    this._root.addChild(pocket);
-    if (nextCost !== undefined) {
-      bindPointerTap(pocket, () => {
-        if (!buyStartScrap()) return;
-        this._render();
-      });
-      if (mem.yardScrap >= nextCost && !this._hotBuy) this._hotBuy = pocket;
-    }
-
-    this._backDoor(h, '回村子');
+    this._playPlate(220, h - Game.safeBottom - 56, '回村子', () => this._open('home'), 300, 110, 22);
+    this._playPlate(530, h - Game.safeBottom - 56, '破烂升星', () => this._open('stars'), 300, 110, 22);
   }
 
-  private _shelfCard(
-    id: string,
-    owned: boolean,
-    afford: boolean,
-    cost: number,
+  private _growthCard(
+    id: GrowthId,
+    lv: number,
+    cost: number | undefined,
     have: number,
+    afford: boolean,
+    maxed: boolean,
   ): PIXI.Container {
-    const def = getMod(id);
+    const def = GROWTH_BY_ID[id];
     const w = 338;
-    const h = 248;
+    const h = 196;
     const card = new PIXI.Container();
-    card.eventMode = 'static';
+    card.eventMode = maxed ? 'none' : 'static';
     card.hitArea = new PIXI.Rectangle(0, 0, w, h);
-    const rim = owned ? 0x6fbf73 : afford ? GOLD : 0x5a5244;
+    const rim = maxed ? 0x6fbf73 : afford ? GOLD : 0x5a5244;
     if (!coverSprite(card, uiTex('wood_panel'), 0, 0, w, h, 16)) {
       const bg = new PIXI.Graphics();
       bg.beginFill(0x1c1610, 0.92).drawRoundedRect(0, 0, w, h, 16).endFill();
       card.addChild(bg);
     }
     const frame = new PIXI.Graphics();
-    frame.lineStyle(owned ? 5 : 3, rim, owned || afford ? 0.95 : 0.55)
+    frame.lineStyle(maxed || afford ? 5 : 3, rim, maxed || afford ? 0.95 : 0.55)
       .drawRoundedRect(3, 3, w - 6, h - 6, 14)
       .lineStyle(0);
     card.addChild(frame);
 
-    const tex = modTex(id);
-    if (tex?.baseTexture.valid && tex.width > 1) {
-      const g = new PIXI.Graphics();
-      fillContain(g, tex, w / 2, 108, owned || afford ? 96 : 82, owned || afford ? 96 : 82);
-      if (!owned) g.alpha = afford ? 0.95 : 0.38;
-      card.addChild(g);
-    }
-
-    const name = this._stroke(20, owned ? 0x9be08a : CREAM, '#1a1008', 4);
+    const name = this._stroke(22, maxed ? 0x9be08a : CREAM, '#1a1008', 4);
     name.anchor.set(0.5, 0);
-    name.position.set(w / 2, 116);
-    name.text = shortModName(def.name);
+    name.position.set(w / 2, 16);
+    name.text = `${def.name}  ${lv}/${def.costs.length}`;
     card.addChild(name);
 
-    const become = label(15, owned ? 0xc8f0c4 : 0xffe08a, true);
-    become.anchor.set(0.5, 0);
-    become.position.set(w / 2, 144);
-    become.style.wordWrap = true;
-    become.style.wordWrapWidth = w - 28;
-    become.style.align = 'center';
-    become.text = def.becomes;
-    card.addChild(become);
+    const now = label(15, maxed ? 0xc8f0c4 : 0xffe08a, true);
+    now.anchor.set(0.5, 0);
+    now.position.set(w / 2, 52);
+    now.style.wordWrap = true;
+    now.style.wordWrapWidth = w - 28;
+    now.style.align = 'center';
+    now.text = def.now(lv);
+    card.addChild(now);
 
-    const tag = this._stroke(18, owned ? 0x9be08a : afford ? GOLD : 0x8a90a8, '#1a1008', 4);
+    const pitch = label(14, CREAM, true);
+    pitch.anchor.set(0.5, 0);
+    pitch.position.set(w / 2, 92);
+    pitch.style.wordWrap = true;
+    pitch.style.wordWrapWidth = w - 28;
+    pitch.style.align = 'center';
+    pitch.text = def.pitch;
+    card.addChild(pitch);
+
+    const tag = this._stroke(18, maxed ? 0x9be08a : afford ? GOLD : 0x8a90a8, '#1a1008', 4);
     tag.anchor.set(0.5);
     tag.position.set(w / 2, h - 28);
-    tag.text = owned
-      ? '进池子了'
+    tag.text = maxed
+      ? '满了'
       : afford
-        ? `点一下买进池子 · ${cost}`
-        : `还差 ${cost - have}`;
+        ? `点一下 · ${def.next(lv)} · ${cost}`
+        : `还差 ${(cost ?? 0) - have}`;
     card.addChild(tag);
     return card;
   }
 
-  private _pocketCard(level: number, cost: number | undefined, have: number): PIXI.Container {
-    const w = 678;
-    const h = 92;
-    const card = new PIXI.Container();
-    card.eventMode = cost === undefined ? 'none' : 'static';
-    card.hitArea = new PIXI.Rectangle(0, 0, w, h);
-    const afford = cost !== undefined && have >= cost;
-    if (!coverSprite(card, uiTex('wood_panel'), 0, 0, w, h, 14)) {
-      plate(card.addChild(new PIXI.Graphics()), 0, 0, w, h, 14, 0.9);
+  private _renderStars(): void {
+    const h = this._height();
+    this._backdrop(h, 0.42);
+    const y0 = this._topBar();
+    const mem = loadMemory();
+    const have = mem.yardScrap;
+    const per = 6;
+    const pages = Math.max(1, Math.ceil(MODS.length / per));
+    this._starPage = Math.max(0, Math.min(pages - 1, this._starPage));
+    const slice = MODS.slice(this._starPage * per, this._starPage * per + per);
+
+    this._woodChip(375, y0 + 10, 620, 36, `破烂升星  ${this._starPage + 1}/${pages}`, 22);
+    const tip = label(14, CREAM);
+    tip.anchor.set(0.5);
+    tip.position.set(375, y0 + 48);
+    tip.text = '升星不改定位。下次抽到同一件，数字更猛';
+    this._root.addChild(tip);
+
+    const cardW = 220;
+    const cardH = 210;
+    const gapX = 16;
+    const gapY = 14;
+    const startX = 375 - (cardW * 3 + gapX * 2) / 2;
+    const startY = y0 + 70;
+    slice.forEach((mod, i) => {
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const stars = mem.modStars[mod.id] ?? 0;
+      const card = this._starCard(mod.id, stars, have);
+      card.position.set(startX + col * (cardW + gapX), startY + row * (cardH + gapY));
+      this._root.addChild(card);
+      const cost = nextModStarCost(stars);
+      if (cost !== undefined && have >= cost) {
+        bindPointerTap(card, () => {
+          if (!buyModStar(mod.id)) return;
+          this._stale('home', 'yard', 'book');
+          this._render();
+        });
+      }
+    });
+
+    const btnY = h - Game.safeBottom - 56;
+    if (pages > 1) {
+      this._playPlate(140, btnY, '上一页', () => {
+        this._starPage = Math.max(0, this._starPage - 1);
+        this._render();
+      }, 200, 96, 22);
+      this._playPlate(610, btnY, '下一页', () => {
+        this._starPage = Math.min(pages - 1, this._starPage + 1);
+        this._render();
+      }, 200, 96, 22);
     }
-    fitSprite(card, uiTex('scrap_pile'), 48, 46, 64, 58);
+    this._playPlate(375, btnY, '回废品站', () => this._open('yard'), 220, 96, 22);
+  }
+
+  private _starCard(id: string, stars: number, have: number): PIXI.Container {
+    const w = 220;
+    const h = 210;
+    const cost = nextModStarCost(stars);
+    const maxed = stars >= MOD_STAR_MAX;
+    const afford = cost !== undefined && have >= cost;
+    const shown = masteredMod(getMod(id), stars);
+    const card = new PIXI.Container();
+    card.eventMode = 'static';
+    card.hitArea = new PIXI.Rectangle(0, 0, w, h);
+
+    const frame = new PIXI.Graphics();
+    frame.beginFill(maxed ? 0x2a3a22 : afford ? 0x3a2a18 : 0x2a241c);
+    frame.drawRoundedRect(0, 0, w, h, 16);
+    frame.endFill();
+    frame.lineStyle(4, maxed ? 0x6a9a4a : afford ? GOLD : 0x5a5040);
+    frame.drawRoundedRect(2, 2, w - 4, h - 4, 14);
+    card.addChild(frame);
+
     const name = this._stroke(20, CREAM, '#1a1008', 4);
-    name.position.set(88, 16);
-    name.text = cost === undefined
-      ? `开局口袋 +${startScrapBonus(level)} · 满了`
-      : `开局口袋 +${startScrapBonus(level)} → +${startScrapBonus(level + 1)}`;
+    name.anchor.set(0.5, 0);
+    name.position.set(w / 2, 12);
+    name.text = `${shortModName(shown.name)}${starMarks(stars)}`;
     card.addChild(name);
-    const pitch = label(15, 0xffe08a, true);
-    pitch.position.set(88, 50);
-    pitch.text = cost === undefined ? '下一局零钱已经够花' : '买的是开场口袋里先有的零钱';
-    card.addChild(pitch);
-    const tag = this._stroke(18, cost === undefined ? 0x9be08a : afford ? GOLD : 0x8a90a8, '#1a1008', 4);
-    tag.anchor.set(1, 0.5);
-    tag.position.set(w - 22, h / 2);
-    tag.text = cost === undefined ? '满了' : afford ? `点一下 · ${cost}` : `还差 ${cost - have}`;
+
+    const body = label(13, 0xffe08a, true);
+    body.anchor.set(0.5, 0);
+    body.position.set(w / 2, 48);
+    body.style.wordWrap = true;
+    body.style.wordWrapWidth = w - 20;
+    body.style.align = 'center';
+    body.text = shown.desc;
+    card.addChild(body);
+
+    const tag = this._stroke(16, maxed ? 0x9be08a : afford ? GOLD : 0x8a90a8, '#1a1008', 4);
+    tag.anchor.set(0.5);
+    tag.position.set(w / 2, h - 24);
+    tag.text = maxed ? '满星' : afford ? `升一星 · ${cost}` : `还差 ${(cost ?? 0) - have}`;
     card.addChild(tag);
     return card;
   }
@@ -588,21 +869,201 @@ export class VillageScene implements Scene {
     const h = this._height();
     this._backdrop(h, 0.38);
     const y0 = this._topBar();
-    this._woodChip(375, y0 + 26, 560, 52, '确认这仨', 28);
-    const sub = this._stroke(16, 0xffd66b, '#2a160c', 4);
-    sub.anchor.set(0.5);
-    sub.position.set(375, y0 + 62);
-    sub.text = this._editHint();
-    this._root.addChild(sub);
+    const who = this._holdSlot !== null && this._squad[this._holdSlot]
+      ? getHero(this._squad[this._holdSlot]!).name
+      : '';
+    const mem = loadMemory();
+    const lv = mem.ladderLv;
+    const head = who ? `换掉 ${who}` : lv > 0 ? `确认这仨 · 第${lv}档 ${ladderRule(lv).name}` : '确认这仨';
+    this._woodChip(375, y0 + 18, 480, 40, head, 26);
 
-    const frontY = y0 + 188;
-    this._drawSquadStage(frontY);
     const doneY = h - Game.safeBottom - 72;
-    const sheetY = frontY + BACK_DY + 40;
-    const room = Math.max(220, doneY - 96 - sheetY);
-    this._mountSheet(20, sheetY, 710, Math.min(rosterSheetHeight(), room));
+    const frontY = y0 + 268;
+    const sheetY = frontY + STAGE_DY + 36;
+    this._drawSquadStage(frontY, sheetY - 4);
+    const room = Math.max(120, doneY - 88 - sheetY);
+    this._mountSheet(16, sheetY, 718, Math.min(rosterSheetHeight(), room));
     this._playPlate(200, doneY, '回村子', () => this._open('home'), 300, 110, 22);
     this._playBtn = this._playPlate(550, doneY, '出村开打', () => this._launch(), 300, 110, 22);
+  }
+
+  /** 主线关卡。城主别慌张写法：1-3，左右换已解锁的关 */
+  private _stageBar(y: number, mem: RunMemory): void {
+    const stage = getStage(mem.stageId);
+    const box = new PIXI.Container();
+    const t = this._stroke(28, CREAM, '#1a1008', 6);
+    t.anchor.set(0.5);
+    t.position.set(0, -12);
+    t.text = `${stage.label}  ${stage.name}`;
+    box.addChild(t);
+    const sub = this._stroke(15, 0xffd66b, '#1a1008', 4);
+    sub.anchor.set(0.5);
+    sub.position.set(0, 18);
+    sub.text = stage.pitch;
+    box.addChild(sub);
+    box.position.set(375, y);
+    this._root.addChild(box);
+    const prev = new PIXI.Container();
+    prev.eventMode = mem.stageTop > 1 ? 'static' : 'none';
+    prev.alpha = mem.stageTop > 1 ? 1 : 0.35;
+    prev.hitArea = new PIXI.Rectangle(-48, -36, 96, 72);
+    prev.position.set(64, y);
+    const pl = this._stroke(36, CREAM, '#1a1008', 6);
+    pl.anchor.set(0.5);
+    pl.text = '‹';
+    prev.addChild(pl);
+    bindPointerTap(prev, () => {
+      setStageId(mem.stageId <= 1 ? mem.stageTop : mem.stageId - 1);
+      this._stale('squad');
+      this._render();
+    });
+    const next = new PIXI.Container();
+    next.eventMode = mem.stageTop > 1 ? 'static' : 'none';
+    next.alpha = mem.stageTop > 1 ? 1 : 0.35;
+    next.hitArea = new PIXI.Rectangle(-48, -36, 96, 72);
+    next.position.set(686, y);
+    const nr = this._stroke(36, CREAM, '#1a1008', 6);
+    nr.anchor.set(0.5);
+    nr.text = '›';
+    next.addChild(nr);
+    bindPointerTap(next, () => {
+      setStageId(mem.stageId >= mem.stageTop ? 1 : mem.stageId + 1);
+      this._stale('squad');
+      this._render();
+    });
+    this._root.addChild(prev, next);
+  }
+
+  /**
+   * 选打哪一档。**打服照旧那一档之前根本不露出** ——
+   * 局外功能一上来全开会把因难度流失的节点提前，这条是分批解锁的一部分。
+   */
+  private _ladderBar(y: number, mem: RunMemory): void {
+    if (mem.ladderTop <= 0) return;
+    const r = ladderRule(mem.ladderLv);
+    const head = mem.ladderLv === 0 ? '难度：照旧' : `难度：第${mem.ladderLv}档 ${r.name}`;
+    const box = new PIXI.Container();
+    const t = this._stroke(20, CREAM, '#1a1008', 5);
+    t.anchor.set(0, 0.5);
+    t.position.set(-248, -10);
+    t.text = head;
+    box.addChild(t);
+    const sub = this._stroke(14, 0xffd66b, '#2a160c', 4);
+    sub.anchor.set(0, 0.5);
+    sub.position.set(-248, 13);
+    sub.text = r.pitch;
+    box.addChild(sub);
+    const tip = this._stroke(15, CREAM, '#2a160c', 4);
+    tip.anchor.set(1, 0.5);
+    tip.position.set(250, 0);
+    tip.text = mem.ladderTop >= 1 ? '点一下换档 ▸' : '';
+    box.addChild(tip);
+    box.position.set(375, y);
+    box.hitArea = new PIXI.Rectangle(-268, -30, 536, 60);
+    if (mem.ladderTop >= 1) {
+      box.eventMode = 'static';
+      box.cursor = 'pointer';
+      bindPointerTap(box, () => {
+        const next = mem.ladderLv >= mem.ladderTop ? 0 : mem.ladderLv + 1;
+        setLadderLv(next);
+        this._stale('squad');
+        this._render();
+      });
+    } else {
+      box.eventMode = 'none';
+    }
+    this._root.addChild(box);
+  }
+
+  /**
+   * 村里那堆废品。攒着的时候才露出，收完就消失 ——
+   * 空着挂个「0」在首页只是噪音。
+   */
+  private _pileChip(mem: RunMemory, y: number): void {
+    const now = settlePile();
+    if (now.pileScrap <= 0) return;
+    const full = now.pileScrap >= PILE_CAP;
+    const box = new PIXI.Container();
+    const g = new PIXI.Graphics();
+    g.beginFill(0x000000, 0.4).drawRoundedRect(-150, -26, 300, 52, 13).endFill();
+    box.addChild(g);
+    const t = this._stroke(19, full ? 0xffd66b : CREAM, '#2a160c', 5);
+    t.anchor.set(0.5);
+    t.position.set(0, -7);
+    t.text = `废品堆攒了 ${now.pileScrap}${full ? '（满了）' : ''}`;
+    box.addChild(t);
+    const sub = this._stroke(14, CREAM, '#2a160c', 4);
+    sub.anchor.set(0.5);
+    sub.position.set(0, 14);
+    sub.text = '点一下搬回来';
+    box.addChild(sub);
+    box.position.set(375, y + 132);
+    box.eventMode = 'static';
+    box.cursor = 'pointer';
+    bindPointerTap(box, () => {
+      const got = collectPile().got;
+      if (got > 0) this._render();
+    });
+    this._root.addChild(box);
+  }
+
+  /**
+   * 合体图鉴。纯收集，不加战力。
+   *
+   * **没见过的那几个不给配方**，只留一个问号 —— combos.ts 定的调子是
+   * 「玩家看见的是这两件叠一起出事了」，把配方摊在柜子上就变成背表了。
+   */
+  private _renderCombo(): void {
+    const h = this._height();
+    const mem = loadMemory();
+    this._backdrop(h, 0.4);
+    const y0 = this._topBar();
+    const seen = new Set(mem.seenCombos);
+    this._woodChip(375, y0 + 28, 520, 56, `凑出来过  ${seen.size}/${COMBOS.length}`, 26);
+    const sub = this._stroke(16, 0xffd66b, '#2a160c', 4);
+    sub.anchor.set(0.5);
+    sub.position.set(375, y0 + 64);
+    sub.text = '两件破烂焊在同一个人身上，有时候会出事';
+    this._root.addChild(sub);
+
+    const y = y0 + 96;
+    const gap = 12;
+    const w = Math.floor((750 - 72 - gap) / 2);
+    const tall = 132;
+    const x0 = (750 - (w * 2 + gap)) / 2;
+    COMBOS.forEach((c, i) => {
+      const own = seen.has(c.id);
+      const box = new PIXI.Container();
+      const g = new PIXI.Graphics();
+      g.beginFill(own ? 0x3c2a18 : 0x241609, own ? 0.94 : 0.72)
+        .drawRoundedRect(0, 0, w, tall, 14)
+        .endFill();
+      g.lineStyle(3, own ? GOLD : 0x000000, own ? 0.7 : 0.28)
+        .drawRoundedRect(0, 0, w, tall, 14);
+      box.addChild(g);
+      const name = this._stroke(22, own ? CREAM : 0x8a7255, '#2a160c', 5);
+      name.anchor.set(0.5);
+      name.position.set(w / 2, 34);
+      name.text = own ? c.name : '？？？';
+      box.addChild(name);
+      const line = this._stroke(15, own ? 0xffd66b : 0x6f5a41, '#2a160c', 4);
+      line.anchor.set(0.5);
+      line.position.set(w / 2, 66);
+      line.text = own ? c.becomes : '还没凑出来';
+      box.addChild(line);
+      if (own) {
+        const parts = this._stroke(14, CREAM, '#2a160c', 4);
+        parts.anchor.set(0.5);
+        parts.position.set(w / 2, 98);
+        parts.text = c.parts.map((p) => shortModName(getMod(p).name)).join(' ＋ ');
+        box.addChild(parts);
+      }
+      box.position.set(x0 + (i % 2) * (w + gap), y + Math.floor(i / 2) * (tall + 10));
+      this._root.addChild(box);
+    });
+
+    this._playPlate(220, h - Game.safeBottom - 56, '回破烂柜', () => this._open('book'), 300, 110, 22);
+    this._backDoor(h, '回村子', 530);
   }
 
   private _renderBook(): void {
@@ -610,55 +1071,49 @@ export class VillageScene implements Scene {
     const mem = loadMemory();
     this._backdrop(h, 0.4);
     const y0 = this._topBar();
-    const ownN = availableMods(mem.unlockedMods).length;
-    this._woodChip(375, y0 + 28, 520, 56, `村里破烂柜  ${ownN}/${MODS.length}`, 26);
+    this._woodChip(375, y0 + 28, 520, 56, `村里破烂柜  ${MODS.length} 件都能抽`, 26);
     const sub = this._stroke(16, 0xffd66b, '#2a160c', 4);
     sub.anchor.set(0.5);
     sub.position.set(375, y0 + 64);
-    sub.text = '绿的在池子里。灰的点一下去废品站搬';
+    sub.text = '开打就在池子里。废品站给抽到的件升星';
     this._root.addChild(sub);
 
+    const per = 16;
+    const pages = Math.max(1, Math.ceil(MODS.length / per));
+    this._bookPage = Math.max(0, Math.min(pages - 1, this._bookPage));
+    const slice = MODS.slice(this._bookPage * per, this._bookPage * per + per);
     let y = y0 + 88;
-    const starters = MODS.filter((m) => !YARD_UNLOCKS.some((u) => u.modId === m.id));
-    const shop = YARD_UNLOCKS.map((u) => getMod(u.modId));
-
-    this._woodChip(375, y + 6, 360, 28, '村里本来就有', 15);
-    y += 28;
-    const tiny = 160;
+    const gutter = 36;
+    const innerW = 750 - gutter * 2;
     const tGap = 10;
-    const tStart = (750 - tiny * 4 - tGap * 3) / 2;
-    starters.forEach((m, i) => {
-      const box = this._bookTile(m.id, true, m.becomes, shortModName(m.name), tiny, 118);
-      box.position.set(tStart + (i % 4) * (tiny + tGap), y + Math.floor(i / 4) * 128);
+    const tiny = Math.floor((innerW - tGap * 3) / 4);
+    const tinyH = 118;
+    const tRow = tinyH + 10;
+    const tStart = (750 - (tiny * 4 + tGap * 3)) / 2;
+    slice.forEach((m, i) => {
+      const stars = mem.modStars[m.id] ?? 0;
+      const title = `${shortModName(m.name)}${starMarks(stars)}`;
+      const box = this._bookTile(m.id, true, m.becomes, title, tiny, tinyH);
+      box.position.set(tStart + (i % 4) * (tiny + tGap), y + Math.floor(i / 4) * tRow);
       this._root.addChild(box);
     });
-    y += Math.ceil(starters.length / 4) * 128 + 8;
+    if (pages > 1) {
+      const btnY = h - Game.safeBottom - 56;
+      this._playPlate(80, btnY, '‹', () => {
+        this._bookPage = Math.max(0, this._bookPage - 1);
+        this._render();
+      }, 88, 88, 28);
+      this._playPlate(670, btnY, '›', () => {
+        this._bookPage = Math.min(pages - 1, this._bookPage + 1);
+        this._render();
+      }, 88, 88, 28);
+    }
 
-    this._woodChip(375, y + 6, 360, 28, '废品站搬来的', 15);
-    y += 28;
-    const wide = 338;
-    const tall = 156;
-    const wStart = (750 - wide * 2 - 12) / 2;
-    shop.forEach((m, i) => {
-      const own = isModUnlocked(m.id, mem.unlockedMods);
-      const lock = YARD_UNLOCKS.find((u) => u.modId === m.id);
-      const box = this._bookTile(
-        m.id,
-        own,
-        own ? m.becomes : `废品站 ${lock?.cost ?? 0} · ${m.becomes}`,
-        own ? shortModName(m.name) : '？',
-        wide,
-        tall,
-      );
-      box.position.set(wStart + (i % 2) * (wide + 12), y + Math.floor(i / 2) * (tall + 10));
-      if (!own) {
-        box.eventMode = 'static';
-        bindPointerTap(box, () => this._open('yard'));
-      }
-      this._root.addChild(box);
-    });
-
-    this._playPlate(220, h - Game.safeBottom - 56, '去废品站', () => this._open('yard'), 300, 110, 22);
+    if (mem.seenCombos.length > 0) {
+      this._playPlate(220, h - Game.safeBottom - 56, '看合体', () => this._open('combo'), 300, 110, 22);
+    } else {
+      this._playPlate(220, h - Game.safeBottom - 56, '去废品站', () => this._open('yard'), 300, 110, 22);
+    }
     this._backDoor(h, '回村子', 530);
   }
 
@@ -671,25 +1126,40 @@ export class VillageScene implements Scene {
     h: number,
   ): PIXI.Container {
     const box = new PIXI.Container();
+    const radius = 14;
     const bg = new PIXI.Graphics();
-    bg.beginFill(own ? 0x1c1610 : 0x12100c, 0.92).drawRoundedRect(0, 0, w, h, 14).endFill();
-    bg.lineStyle(2, own ? 0x6fbf73 : 0x5a5244, own ? 0.85 : 0.5).drawRoundedRect(0, 0, w, h, 14).lineStyle(0);
+    bg.beginFill(own ? 0x1c1610 : 0x12100c, 0.92).drawRoundedRect(0, 0, w, h, radius).endFill();
+    bg.lineStyle(2, own ? 0x6fbf73 : 0x5a5244, own ? 0.85 : 0.5).drawRoundedRect(0, 0, w, h, radius).lineStyle(0);
     box.addChild(bg);
+
+    const wide = w > 200;
+    const pad = 10;
+    const nameReserve = wide ? 0 : 36;
     const tex = modTex(id);
-    const iconX = w > 200 ? 52 : w / 2;
-    const iconY = w > 200 ? 88 : 58;
     if (tex?.baseTexture.valid && tex.width > 1) {
       const g = new PIXI.Graphics();
-      fillContain(g, tex, iconX, iconY, own ? 72 : 60, own ? 72 : 60);
+      if (wide) {
+        const colW = 78;
+        const max = Math.min(own ? 56 : 48, colW - 8, h - pad * 2);
+        fillContain(g, tex, pad + colW / 2, (h + max) / 2, max, max);
+      } else {
+        const max = Math.min(own ? 56 : 48, w - pad * 2, h - nameReserve - pad);
+        fillContain(g, tex, w / 2, pad + max, max, max);
+      }
       g.alpha = own ? 1 : 0.32;
-      box.addChild(g);
+      const mask = new PIXI.Graphics();
+      mask.beginFill(0xffffff).drawRoundedRect(3, 3, w - 6, h - 6, radius - 2).endFill();
+      mask.eventMode = 'none';
+      g.mask = mask;
+      box.addChild(g, mask);
     }
-    const name = this._stroke(w > 200 ? 18 : 14, own ? CREAM : 0x8a90a8, '#1a1008', 3);
-    name.anchor.set(w > 200 ? 0 : 0.5, 0);
-    name.position.set(w > 200 ? 96 : w / 2, w > 200 ? 12 : h - 36);
+
+    const name = this._stroke(wide ? 18 : 14, own ? CREAM : 0x8a90a8, '#1a1008', 3);
+    name.anchor.set(wide ? 0 : 0.5, 0);
+    name.position.set(wide ? 96 : w / 2, wide ? 12 : h - nameReserve);
     name.text = title;
     box.addChild(name);
-    if (w > 200) {
+    if (wide) {
       const tip = label(14, own ? 0xffe08a : 0x8a90a8, true);
       tip.position.set(96, 44);
       tip.style.wordWrap = true;
@@ -709,7 +1179,7 @@ export class VillageScene implements Scene {
     const card = new PIXI.Container();
     card.eventMode = 'static';
     card.hitArea = new PIXI.Rectangle(0, 0, CARD_W, CARD_H);
-    const color = TINT[id] ?? GOLD;
+    const color = villagerColor(id);
     const faceH = 128;
     const bg = new PIXI.Graphics();
     bg.beginFill(0xfff6df).drawRoundedRect(0, 0, CARD_W, CARD_H, 18).endFill();

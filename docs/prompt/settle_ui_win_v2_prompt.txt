@@ -1,0 +1,27 @@
+Vertical mobile game WIN settlement UI mockup, portrait 9:16 WeChat minigame.
+
+Game: Chinese village vs aliens. Dumb-cool cartoon, fat comic ink outlines, flat 6-8 colors, two-tone cel shade.
+NOT dark fantasy, NOT premium glass, NOT purple neon, NOT generic dark card overlay.
+
+USE REFERENCES for materials and characters only:
+- village dusk alley as full-bleed background
+- hanging wooden chain plaque for the BIG title (yellow paint face)
+- rusted play-plate (cream center, rust peel, mustard bolt rim) for the loot card and primary button
+- rusted iron bar for thin secondary strips
+- blue crate scrap pile icon
+- three villager portraits
+
+HIERARCHY (this is the point of the revision):
+1. Victory title is the first punch: one LARGE hanging wood plaque dead-center at the top. The three Chinese characters 整挺好 sit exactly in the middle of the yellow painted face, not high, not left, not on the chains.
+2. Wave stamp is SMALL, tucked to the right of the plaque, not competing.
+3. Three villagers stand in the middle road, slightly smaller than now, leaving air above the loot.
+4. The SECOND punch is the loot: one BIG cream rust play-plate in the lower-middle. Huge gold +30, scrap crate icon, 进废品堆. 村里现有 62 is tiny on the right. This plate is wider and taller than any button.
+5. One muted caption under the loot, small: 改了 0 件 · 最高第 10 波
+6. ONE primary action: a slightly smaller play-plate 下一关 1-3
+7. ONE thin iron strip for ads: 看完下局带 20 · 再翻一件破烂
+8. Footer pair only: 回村子 / 再来一局, same size, same height, generous gap above home indicator.
+
+Spacing: clear empty dusk-road bands between title / people / loot / buttons. No stacked competing plates. No paragraph of stats.
+
+Text on props must be readable, centered on each plate's painted face.
+Keep the same weathered comic village look.

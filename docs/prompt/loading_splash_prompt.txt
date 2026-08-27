@@ -1,0 +1,19 @@
+Vertical 9:16 full-bleed mobile game LOADING SPLASH, edge-to-edge, no borders, no frames, no UI chrome.
+
+ART STYLE — this game only:
+- 2D cheap vinyl sticker-chibi
+- Fat even black comic ink outlines
+- Flat 6-8 colors, TWO-tone cel shade only, one highlight blob per big shape
+- Cheap-fun, NOT 3D, NOT clay, NOT Pixar, NOT premium painterly, NOT photoreal
+
+WORLD: Chinese small-town village entrance at dusk, 土味打高科技. Warm earth yellow, cement gray, plastic blue, rust red vs distant cold violet-cyan alien glow.
+
+COMPOSITION:
+- Upper third: CLEAR dusk sky, teal fading to warm peach. Leave this airy so a title can sit on top. ONE distant tiny UFO / cold violet glow on the horizon only.
+- Mid: village hardware-store and scrap piles frame LEFT and RIGHT. CENTER: a stocky village uncle with a rust-red pot lid helmet facing a classic grey-violet alien, two big heads, the clash. They are the hook, large readable silhouettes, not a crowd.
+- Lower third: packed yellow-brown dirt / worn cement, DARKER and EMPTIER, no characters, no props in the bottom-center. This area is reserved for a progress bar overlay.
+
+CRITICAL:
+NO TEXT, no labels, no letters, no numbers, no Chinese, no English, no logos, no watermarks.
+NO UI, NO buttons, NO progress bars, NO phone frames.
+NO extra villagers, NO city skyline, NO split-screen.

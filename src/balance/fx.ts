@@ -4,6 +4,7 @@
  */
 
 import { comboOf } from './combos';
+import { MOD_SLOT } from './gear';
 import type { HeroDef } from './heroes';
 import type { ModDef } from './mods';
 
@@ -23,6 +24,12 @@ export type AttackFx =
 /** 外星人打人的那一下 */
 export type EnemyFx = 'claw' | 'bash' | 'spark' | 'beam';
 
+/** 栓狗、穿戴不改这一下怎么飞 */
+const FX_SKIP = new Set([
+  'helmet', 'quilt', 'steelplate', 'pressurecooker',
+  'dogleash', 'chickenfeed', 'holler',
+]);
+
 const MOD_FX: Readonly<Record<string, AttackFx>> = {
   pipe: 'poke',
   weight: 'smash',
@@ -30,12 +37,27 @@ const MOD_FX: Readonly<Record<string, AttackFx>> = {
   wire: 'pierce',
   chainsaw: 'saw',
   firecracker: 'blast',
-  // 钢板站前排靠金圈说话；出手仍是挥砍，但要和没装的人分得开
   steelplate: 'slash',
-  // 高压锅越挨越猛：出手改成重砸，层数条已经在身上
   pressurecooker: 'smash',
   pot: 'smash',
   speaker: 'orb',
+  helmet: 'slash',
+  quilt: 'slash',
+  dogleash: 'slash',
+  chickenfeed: 'slash',
+  holler: 'orb',
+  sickle: 'slash',
+  foam: 'wind',
+  sack: 'slash',
+  shovel: 'poke',
+  battery: 'bolt',
+  slingshot: 'sniper',
+  stool: 'smash',
+  chili: 'blast',
+  fridge: 'smash',
+  gascan: 'blast',
+  thermos: 'orb',
+  bell: 'orb',
 };
 
 const HERO_FX: Readonly<Record<string, AttackFx>> = {
@@ -54,15 +76,40 @@ const ENEMY_FX: Readonly<Record<string, EnemyFx>> = {
   saucer: 'beam',
 };
 
-/** 后装的破烂覆盖起手。钢板 / 头盔只改站位，不改这一下怎么飞 */
-export function resolveAttackFx(def: HeroDef, mods: readonly ModDef[]): AttackFx {
-  const comboFx = comboOf(mods.map((m) => m.id))?.fx;
-  if (comboFx) return comboFx;
+/** 这一下用哪件破烂的皮。穿戴 / 栓狗不改飞法 */
+export function resolveFxSkin(def: HeroDef, mods: readonly ModDef[]): string {
+  const combo = comboOf(mods.map((m) => m.id));
+  if (combo?.fx) return combo.id;
   for (let i = mods.length - 1; i >= 0; i -= 1) {
-    const fx = MOD_FX[mods[i]!.id];
-    if (fx) return fx;
+    const id = mods[i]!.id;
+    if (FX_SKIP.has(id)) continue;
+    const slot = MOD_SLOT[id];
+    if (slot && slot !== 'hand') continue;
+    if (MOD_FX[id]) return id;
   }
-  return HERO_FX[def.id] ?? (def.range <= 1 ? 'slash' : 'bolt');
+  return def.id;
+}
+
+export function fxFamilyOf(skin: string): AttackFx {
+  const comboFx = COMBOS_FX[skin];
+  if (comboFx) return comboFx;
+  const mod = MOD_FX[skin];
+  if (mod) return mod;
+  return HERO_FX[skin] ?? 'slash';
+}
+
+const COMBOS_FX: Readonly<Record<string, AttackFx>> = {
+  longsaw: 'saw',
+  doorcannon: 'smash',
+  windcrack: 'blast',
+  beatrack: 'pierce',
+  coldwind: 'wind',
+  harvest: 'pierce',
+};
+
+/** 后装的破烂覆盖起手。钢板 / 头盔 / 棉被只改站位，不改这一下怎么飞 */
+export function resolveAttackFx(def: HeroDef, mods: readonly ModDef[]): AttackFx {
+  return fxFamilyOf(resolveFxSkin(def, mods));
 }
 
 export function resolveEnemyFx(enemyId: string): EnemyFx {
@@ -81,5 +128,6 @@ export function projSprite(fx: AttackFx): string | null {
   if (fx === 'poke') return 'pipe';
   if (fx === 'blast') return 'cracker';
   if (fx === 'wind') return 'leaf';
+  if (fx === 'slash') return 'cleaver';
   return null;
 }

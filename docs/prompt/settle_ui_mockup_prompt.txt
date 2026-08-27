@@ -1,0 +1,36 @@
+Vertical mobile game SETTLEMENT UI mockup, portrait 9:16, WeChat minigame.
+
+Game: Chinese village vs aliens. Dumb-cool cartoon, fat comic ink outlines, flat 6-8 colors, two-tone cel shade, cheap sticker look.
+NOT dark fantasy, NOT premium glass UI, NOT purple neon, NOT generic dark card overlay.
+
+USE REFERENCES for materials:
+- village dusk alley as the full-bleed background (keep sunset road, blue brick, scrap piles)
+- hanging wooden chain plaque for the title
+- rusted iron bar with rivets for the scrap reward strip
+- weathered play-plate (cream center, rust peel, mustard bolt rim) for the primary button
+- blue crate scrap pile icon for the reward
+- three villager portraits standing on the dirt (big heads, comic outlines)
+
+LAYOUT (top to bottom, phone screen):
+1. Background: village dusk lane, slightly warm-dimmed, still readable. No solid black veil.
+2. Top: hanging wood title plaque slightly LEFT of center, mustard painted board, exact Chinese text: 这套配崩了
+   A small rusted iron stamp overlaps the RIGHT of the plaque, exact text: 第 10 波
+3. Under title, a thin wood chip, exact text: 本局靠铁柱的电锯
+4. A smaller rust stamp, cream letters, exact text: 下次把改猛的挪到前排
+5. MIDDLE STAGE: three villagers STAND on the cracked dirt road like a fight formation, not a list.
+   - Center-front: 铁柱, biggest, holding a chainsaw vibe, two tiny scrap icons (chainsaw, helmet) near his feet
+   - Left-back: 大锤
+   - Right-back: 老烟枪
+   Each has a small wood name plate at the feet with their Chinese name only.
+6. Below the trio: one rusted iron bar with rivets. Left: scrap crate icon. Cream bold text: 进废品堆 +48
+   Smaller cream text on the right of the same bar: 村里现有 112
+7. Tiny cream line: 改了 5 件 · 最高第 10 波
+8. BOTTOM:
+   - One LARGE play-plate button, exact text: 看完下局带 96 废品
+   - Two smaller rusted iron plates side by side: 回村子    再来一局
+   - Tiny gold line above the large button: 看一段，下局翻一件池外破烂
+
+Typography: bold hand-painted Chinese signage, cream on rust/wood, thick dark stroke. Readable. No English except none.
+Palette: warm earth yellow, cement gray, plastic blue, rust red, cream #fff4c4, gold #c9a46a. No purple UI chrome.
+
+This is a high-fidelity UI mockup WITH the Chinese text listed above. Keep all Chinese characters correct and complete.

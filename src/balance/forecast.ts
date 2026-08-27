@@ -8,22 +8,43 @@ import type { ModDef } from './mods';
 export type ForecastFit = 'good' | 'ok' | 'waste';
 
 export interface InstallForecast {
+  /** 选牌上可以写长一点。人头和底栏只用 tag */
   line: string;
+  tag: string;
   fit: ForecastFit;
 }
 
+const FIT_TAG: Record<ForecastFit, string> = {
+  good: '值',
+  ok: '能用',
+  waste: '浪费',
+};
+
+function pack(line: string, fit: ForecastFit, tag?: string): InstallForecast {
+  return { line, tag: tag ?? FIT_TAG[fit], fit };
+}
+
 export interface ForecastHero {
-  def: { name: string; hp: number; range: number; attackIntervalMs: number };
+  def: { name: string; hp: number; atk: number; range: number; attackIntervalMs: number };
   slot: number;
-  stats: { range: number; intervalMs: number };
+  stats: {
+    range: number;
+    intervalMs: number;
+    // 这三样是能教给小东西的「一手」，见 BattleEngine 的 PetUnit.learned
+    slowOnHit?: { slowPct: number; durationMs: number };
+    splash?: { damagePct: number; radius: number };
+    lifestealPct?: number;
+  };
   mods: readonly { id: string }[];
 }
 
 const THIN_HP = 1000;
+/** 王大锤 165、老烟枪 210 算「能打的」；铁柱 62、二舅 92 不算 */
+const PUNCHY_ATK = 150;
 
 export function installForecast(hero: ForecastHero, mod: ModDef): InstallForecast {
   const combo = comboIfAdd(hero.mods.map((m) => m.id), mod.id);
-  if (combo) return { line: `${hero.def.name}能叠出${combo.name}`, fit: 'good' };
+  if (combo) return pack(`${hero.def.name}能叠出${combo.name}`, 'good', combo.name);
 
   const melee = hero.stats.range <= 1;
   const front = hero.slot === 0;
@@ -33,48 +54,63 @@ export function installForecast(hero: ForecastHero, mod: ModDef): InstallForecas
   switch (mod.effect.kind) {
     case 'rangeUp':
       return melee
-        ? { line: '贴脸的能站后面捅了', fit: 'good' }
-        : { line: '他本来就够得着，浪费', fit: 'waste' };
+        ? pack('贴脸的能站后面捅了', 'good')
+        : pack('他本来就够得着，浪费', 'waste');
     case 'frontMult':
       return front
-        ? { line: '队首正好翻倍', fit: 'good' }
-        : { line: '站前排才翻倍，得换上去', fit: 'ok' };
+        ? pack('队首正好翻倍', 'good')
+        : pack('站前排才翻倍，得换上去', 'ok');
     case 'rageOnHurt':
       return thin
-        ? { line: '皮薄，还没叠就倒', fit: 'waste' }
-        : { line: '挨打叠层，给他扛', fit: 'good' };
+        ? pack('皮薄，还没叠就倒', 'waste')
+        : pack('挨打叠层，给他扛', 'good');
     case 'heavySwing':
       return fast
-        ? { line: '快手改成重炮', fit: 'good' }
-        : { line: '他已经慢，再绑更钝', fit: 'ok' };
+        ? pack('快手改成重炮', 'good')
+        : pack('他已经慢，再绑更钝', 'ok');
     case 'splash':
     case 'pierce':
       return melee
-        ? { line: '贴脸也能扫一片', fit: 'ok' }
-        : { line: '站后面扫一条线', fit: 'good' };
+        ? pack('贴脸也能扫一片', 'ok')
+        : pack('站后面扫一条线', 'good');
     case 'revive':
       return thin
-        ? { line: '脆皮敢站前了', fit: 'good' }
-        : { line: '肉的本来就抗揍', fit: 'ok' };
+        ? pack('脆皮敢站前了', 'good')
+        : pack('肉的本来就抗揍', 'ok');
     case 'thorns':
     case 'armorPct':
       return front
-        ? { line: '队首穿着才挨得到', fit: 'good' }
-        : { line: '后排挨不到几下', fit: 'ok' };
+        ? pack('队首穿着才挨得到', 'good')
+        : pack('后排挨不到几下', 'ok');
     case 'sawGrip':
       return melee
-        ? { line: '贴脸的更能锯', fit: 'good' }
-        : { line: '焊上就得贴脸打', fit: 'ok' };
+        ? pack('贴脸的更能锯', 'good')
+        : pack('焊上就得贴脸打', 'ok');
     case 'atkPct':
-      return { line: `${hero.def.name}装上更能打`, fit: 'ok' };
+      return pack(`${hero.def.name}装上更能打`, 'ok');
     case 'crit':
-      return { line: '打一窝小灰才值', fit: 'ok' };
+      return pack('打一窝小灰才值', 'ok');
     case 'teamHaste':
       return front
-        ? { line: '他倒了音响就停', fit: 'waste' }
-        : { line: '别让他站最前', fit: 'good' };
+        ? pack('他倒了音响就停', 'waste')
+        : pack('别让他站最前', 'good');
+    // 小东西按主人的力气咬，还会跟主人学那一手。血量一视同仁，所以
+    // 「装给谁」全看这两条 —— 这一件的三句话也就差得最远
+    case 'summon': {
+      const punchy = hero.def.atk >= PUNCHY_ATK;
+      const teaches = Boolean(
+        hero.stats.slowOnHit || hero.stats.splash || (hero.stats.lifestealPct ?? 0) > 0,
+      );
+      if (teaches) {
+        return punchy
+          ? pack('又有力气又有手艺，放出去照他的路子打', 'good')
+          : pack('跟他学得到那一手，咬着还带效果', 'good');
+      }
+      if (punchy) return pack('按他的力气咬，够凶', 'good');
+      return pack('他不凶又没手艺，放出来也软', 'waste');
+    }
     default:
-      return { line: mod.becomes, fit: 'ok' };
+      return pack(mod.becomes, 'ok');
   }
 }
 

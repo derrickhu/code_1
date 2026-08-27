@@ -5,8 +5,8 @@
 import * as PIXI from 'pixi.js';
 import { vfxTex } from '@/core/TextureLoader';
 
-const MAX_P = 72;
-const MAX_PLATE = 20;
+const MAX_P = 96;
+const MAX_PLATE = 36;
 
 interface Particle {
   spr: PIXI.Sprite;
@@ -100,6 +100,7 @@ export class VfxKit {
       sy1?: number;
       a0?: number;
       a1?: number;
+      add?: boolean;
     } = {},
   ): void {
     const tex = vfxTex(name) ?? vfxTex('glow');
@@ -108,7 +109,7 @@ export class VfxKit {
       const old = this._plates.shift();
       if (old) this._recycle(old.spr);
     }
-    const spr = this._take(tex);
+    const spr = this._take(tex, opts.add !== false);
     spr.position.set(x, y);
     spr.rotation = opts.rot ?? 0;
     spr.tint = opts.tint ?? 0xffffff;
@@ -143,6 +144,7 @@ export class VfxKit {
       scale?: number;
       dir?: number;
       spread?: number;
+      add?: boolean;
     } = {},
   ): void {
     const tex = vfxTex(opts.kind ?? 'spark') ?? vfxTex('glow');
@@ -159,7 +161,7 @@ export class VfxKit {
       }
       const a = base + (Math.random() - 0.5) * spread;
       const v = speed * (0.45 + Math.random() * 0.7);
-      const spr = this._take(tex);
+      const spr = this._take(tex, opts.add !== false);
       spr.position.set(x, y);
       spr.rotation = a;
       spr.tint = opts.tint ?? 0xfff1c2;
@@ -183,11 +185,67 @@ export class VfxKit {
   }
 
   puff(x: number, y: number, tint: number, scale = 0.7): void {
-    this.plate('glow', x, y, { tint, s0: scale * 0.4, s1: scale * 1.6, life: 0.16, a0: 0.9, a1: 0 });
+    this.plate('glow', x, y, { tint, s0: scale * 0.22, s1: scale * 0.7, life: 0.12, a0: 0.75, a1: 0 });
   }
 
-  ring(x: number, y: number, tint: number, life = 0.28): void {
-    this.plate('ring', x, y, { tint, s0: 0.25, s1: 1.8, life, a0: 0.95, a1: 0 });
+  ring(x: number, y: number, tint: number, life = 0.2): void {
+    this.plate('ring', x, y, { tint, s0: 0.1, s1: 0.36, life, a0: 0.8, a1: 0 });
+  }
+
+  /** 出手拖尾：头亮尾淡，飞出去的那条带子 */
+  ribbon(x: number, y: number, ang: number, tint: number, wide = 0.55): void {
+    this.plate('streak', x, y, {
+      tint,
+      rot: ang,
+      life: 0.18,
+      s0: wide,
+      s1: wide * 1.55,
+      sy0: 0.22,
+      sy1: 0.1,
+      a0: 0.92,
+    });
+    this.plate('glow', x, y, {
+      tint,
+      life: 0.12,
+      s0: wide * 0.35,
+      s1: wide * 0.7,
+      a0: 0.7,
+    });
+  }
+
+  /** 贯穿光柱：从出手点铺到落点，电线 / 飞碟用 */
+  beam(x0: number, y0: number, x1: number, y1: number, tint: number, life = 0.2): void {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy) || 1;
+    const ang = Math.atan2(dy, dx);
+    this.plate('pierce', (x0 + x1) / 2, (y0 + y1) / 2, {
+      tint,
+      rot: ang,
+      life,
+      s0: Math.min(2.4, len / 90),
+      s1: Math.min(2.8, len / 80),
+      sy0: 0.42,
+      sy1: 0.22,
+      a0: 0.95,
+    });
+    this.plate('streak', (x0 + x1) / 2, (y0 + y1) / 2, {
+      tint: 0xffffff,
+      rot: ang,
+      life: life * 0.7,
+      s0: Math.min(2.1, len / 100),
+      s1: Math.min(2.4, len / 90),
+      sy0: 0.16,
+      sy1: 0.08,
+      a0: 0.85,
+    });
+  }
+
+  /** 落点：星爆核 + 火星。不用软光圈当底，那种圆太假 */
+  burst(x: number, y: number, tint: number, scale = 1): void {
+    this.plate('flash', x, y, { tint, s0: 0.16 * scale, s1: 0.36 * scale, life: 0.1, a0: 0.85 });
+    this.plate('glow', x, y, { tint, s0: 0.1 * scale, s1: 0.26 * scale, life: 0.08, a0: 0.55 });
+    this.spray(x, y, { n: Math.max(3, Math.round(6 * scale)), tint, kind: 'spark', speed: 140 * scale, life: 0.16, scale: 0.18 });
   }
 
   /** 挥击弧：沿贝塞尔铺一串拖尾，锤子才读得出「抡」 */
@@ -218,7 +276,7 @@ export class VfxKit {
     }
   }
 
-  private _take(tex: PIXI.Texture): PIXI.Sprite {
+  private _take(tex: PIXI.Texture, add = true): PIXI.Sprite {
     const spr = this._pool.pop() ?? new PIXI.Sprite(tex);
     spr.texture = tex;
     spr.visible = true;
@@ -226,7 +284,7 @@ export class VfxKit {
     spr.scale.set(1);
     spr.rotation = 0;
     spr.anchor.set(0.5);
-    spr.blendMode = PIXI.BLEND_MODES.NORMAL;
+    spr.blendMode = add ? PIXI.BLEND_MODES.ADD : PIXI.BLEND_MODES.NORMAL;
     spr.tint = 0xffffff;
     this.root.addChild(spr);
     return spr;
@@ -235,7 +293,7 @@ export class VfxKit {
   private _recycle(spr: PIXI.Sprite): void {
     spr.visible = false;
     spr.parent?.removeChild(spr);
-    if (this._pool.length < 80) this._pool.push(spr);
+    if (this._pool.length < 110) this._pool.push(spr);
     else spr.destroy();
   }
 }

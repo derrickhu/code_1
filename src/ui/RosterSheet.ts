@@ -1,24 +1,19 @@
 /**
- * 可滚动花名册。场上只站三人，换谁从这份名单里点。
- * 人再多也只是往下划，不往主页上铺格子。
- *
- * 点击不走 bindPointerTap：名单自己的滚动和全局 tap 路由会抢同一根手指，
- * 底下一排（三婶）最容易被吃掉，看起来像点了没反应。
+ * 替补条。阵形是主角，名单只是一排小卡，人多往下划。
  */
 import * as PIXI from 'pixi.js';
-import { HEROES, getHero, heroReachLine } from '@/balance/heroes';
-import { abilityTag } from '@/balance/mods';
+import { HEROES, getHero } from '@/balance/heroes';
 import { Platform } from '@/core/PlatformService';
 import { addFitPortrait, heroTex } from '@/core/TextureLoader';
-import { designEventToLocal } from '@/minigame';
+import { bindPointerTap, designEventToLocal } from '@/minigame';
 import { getTouchCanvas } from '@/utils/touchCanvas';
 
 const GOLD = 0xc9a46a;
 const CREAM = 0xfff4c4;
-const COLS = 2;
-const CARD_W = 338;
-const CARD_H = 118;
-const GAP = 10;
+export const ROSTER_COLS = 3;
+export const ROSTER_CARD_W = 228;
+export const ROSTER_CARD_H = 96;
+export const ROSTER_GAP = 8;
 const SLOP = 14;
 
 const TINT: Readonly<Record<string, number>> = {
@@ -37,8 +32,8 @@ export interface RosterCell {
 }
 
 export function rosterSheetHeight(count = HEROES.length): number {
-  const rows = Math.ceil(count / COLS);
-  return rows * CARD_H + Math.max(0, rows - 1) * GAP;
+  const rows = Math.ceil(count / ROSTER_COLS);
+  return rows * ROSTER_CARD_H + Math.max(0, rows - 1) * ROSTER_GAP;
 }
 
 /** 视口本地坐标点中了哪张卡。scroll 为内容上移量（0 或负数）。 */
@@ -47,8 +42,8 @@ export function rosterCardAt(
   localY: number,
   scroll: number,
   cells: readonly RosterCell[],
-  cardW = CARD_W,
-  cardH = CARD_H,
+  cardW = ROSTER_CARD_W,
+  cardH = ROSTER_CARD_H,
 ): string | null {
   const y = localY - scroll;
   for (const cell of cells) {
@@ -75,7 +70,6 @@ export class RosterSheet {
   private _cells: RosterCell[] = [];
   private _onPick: ((id: string) => void) | null = null;
   private _detach: (() => void) | null = null;
-  private _wheelBound = false;
 
   place(
     x: number,
@@ -90,27 +84,31 @@ export class RosterSheet {
     this._h = h;
     this._onPick = onPick;
     this.view.position.set(x, y);
-    this.view.eventMode = 'none';
+    // passive：自己不抢点，孩子（卡）才能走 bindPointerTap。none 会把整棵子树掐死。
+    this.view.eventMode = 'passive';
     this._port.position.set(0, 0);
-    this._port.eventMode = 'none';
+    this._port.eventMode = 'passive';
     this._mask.eventMode = 'none';
+    this._mask.hitArea = new PIXI.Rectangle(0, 0, w, h);
     this._mask.clear();
     this._mask.beginFill(0xffffff).drawRect(0, 0, w, h).endFill();
-    this._inner.eventMode = 'none';
-    this._inner.mask = this._mask;
+    // 只当蒙版用，自己不能画出来。人刚好装下时 mask 会摘掉，这块白矩形就会盖住名单。
+    this._mask.renderable = false;
+    this._inner.eventMode = 'passive';
+    this._inner.mask = null;
     if (!this._port.parent) this.view.addChild(this._port);
     if (!this._inner.parent) this._port.addChild(this._inner);
     if (!this._mask.parent) this._port.addChild(this._mask);
 
     this._inner.removeChildren().forEach((c) => c.destroy({ children: true }));
-    const total = COLS * CARD_W + (COLS - 1) * GAP;
+    const total = ROSTER_COLS * ROSTER_CARD_W + (ROSTER_COLS - 1) * ROSTER_GAP;
     const x0 = (w - total) / 2;
     this._cells = [];
     HEROES.forEach((hero, i) => {
       const slot = squad.indexOf(hero.id);
       const card = this._card(hero.id, slot, slot >= 0 && slot === holdSlot);
-      const cx = x0 + (i % COLS) * (CARD_W + GAP);
-      const cy = Math.floor(i / COLS) * (CARD_H + GAP);
+      const cx = x0 + (i % ROSTER_COLS) * (ROSTER_CARD_W + ROSTER_GAP);
+      const cy = Math.floor(i / ROSTER_COLS) * (ROSTER_CARD_H + ROSTER_GAP);
       card.position.set(cx, cy);
       this._inner.addChild(card);
       this._cells.push({ id: hero.id, x: cx, y: cy });
@@ -120,6 +118,8 @@ export class RosterSheet {
     this._minScroll = Math.min(0, h - content);
     this._scroll = Math.max(this._minScroll, Math.min(0, this._scroll));
     this._inner.position.y = this._scroll;
+    // 6 人两行刚好装下时不要 mask：祖先 mask 会让小游戏 hitTest 把整卡判成点不中
+    this._inner.mask = this._minScroll < 0 ? this._mask : null;
     this._bindGesture();
   }
 
@@ -149,14 +149,8 @@ export class RosterSheet {
       this._lastY = p.y;
       this._nudge(dy);
     };
-    const onUp = (e: Event) => {
-      if (!this._dragging) return;
+    const onUp = (): void => {
       this._dragging = false;
-      if (this._moved > SLOP && this._minScroll < 0) return;
-      const p = designEventToLocal(this._port, e);
-      if (!this._inside(p.x, p.y)) return;
-      const id = rosterCardAt(p.x, p.y, this._scroll, this._cells);
-      if (id) this._onPick?.(id);
     };
 
     if (Platform.isMinigame) {
@@ -183,16 +177,23 @@ export class RosterSheet {
       };
     }
 
-    if (!this._wheelBound) {
-      this._wheelBound = true;
-      this._port.eventMode = 'static';
-      this._port.hitArea = new PIXI.Rectangle(0, 0, this._w, this._h);
-      this._port.on('wheel', (e: PIXI.FederatedWheelEvent) => {
-        this._nudge(-e.deltaY * 0.45);
-      });
-    } else {
-      this._port.hitArea = new PIXI.Rectangle(0, 0, this._w, this._h);
+    const onWheel = (e: Event): void => {
+      if (this._minScroll >= 0) return;
+      const p = designEventToLocal(this._port, e);
+      if (!this._inside(p.x, p.y)) return;
+      this._nudge(-(e as WheelEvent).deltaY * 0.45);
+    };
+    if (!Platform.isMinigame) {
+      canvas.addEventListener('wheel', onWheel, { passive: true });
     }
+    const prev = this._detach;
+    this._detach = () => {
+      prev?.();
+      if (!Platform.isMinigame) canvas.removeEventListener('wheel', onWheel);
+    };
+    // 自己不抢点。static + 整块 hitArea 会把点脚边、点人名的短按吃掉。
+    this.view.eventMode = 'passive';
+    this.view.hitArea = null;
   }
 
   private _inside(lx: number, ly: number): boolean {
@@ -207,55 +208,49 @@ export class RosterSheet {
   private _card(id: string, slot: number, hot: boolean): PIXI.Container {
     const hero = getHero(id);
     const box = new PIXI.Container();
-    box.eventMode = 'none';
+    box.eventMode = 'static';
+    box.cursor = 'pointer';
     box.interactiveChildren = false;
+    box.hitArea = new PIXI.Rectangle(0, 0, ROSTER_CARD_W, ROSTER_CARD_H);
+    bindPointerTap(box, () => this._onPick?.(id), {
+      // 两行刚好装下时不会滚，手指微抖不该吞掉短按
+      blockTap: () => this._minScroll < 0 && this._moved > SLOP,
+    });
     const bg = new PIXI.Graphics();
-    bg.beginFill(0x1c1610, slot >= 0 ? 0.92 : 0.78).drawRoundedRect(0, 0, CARD_W, CARD_H, 14).endFill();
-    bg.lineStyle(hot ? 5 : slot >= 0 ? 3 : 2, hot ? GOLD : slot >= 0 ? 0xc9a46a : 0x5a5244, 1)
-      .drawRoundedRect(2, 2, CARD_W - 4, CARD_H - 4, 12)
+    bg.beginFill(0x1c1610, hot ? 0.94 : slot >= 0 ? 0.72 : 0.58)
+      .drawRoundedRect(0, 0, ROSTER_CARD_W, ROSTER_CARD_H, 12)
+      .endFill();
+    bg.lineStyle(hot ? 4 : 2, hot ? GOLD : slot >= 0 ? 0x8a7a5a : 0x4a4438, 1)
+      .drawRoundedRect(1, 1, ROSTER_CARD_W - 2, ROSTER_CARD_H - 2, 11)
       .lineStyle(0);
     box.addChild(bg);
     const tex = heroTex(id);
     if (tex?.baseTexture.valid && tex.width > 1) {
-      addFitPortrait(box, tex, 8, 8, 72, 100, 10);
+      addFitPortrait(box, tex, 8, 8, 56, 80, 8);
     } else {
       const sw = new PIXI.Graphics();
-      sw.beginFill(TINT[id] ?? GOLD, 0.9).drawRoundedRect(16, 18, 56, 80, 12).endFill();
+      sw.beginFill(TINT[id] ?? GOLD, 0.9).drawRoundedRect(14, 16, 44, 64, 10).endFill();
       box.addChild(sw);
     }
     const name = new PIXI.Text(hero.name, {
       fontFamily: 'sans-serif',
-      fontSize: 22,
+      fontSize: 20,
       fontWeight: 'bold',
       fill: hot ? GOLD : CREAM,
       stroke: '#1a1008',
       strokeThickness: 4,
     });
-    name.position.set(90, 14);
+    name.position.set(72, 16);
     box.addChild(name);
-    const job = new PIXI.Text(
-      `${hero.job} · ${heroReachLine(hero.range)} · ${abilityTag(hero.skill)}`,
-      {
-        fontFamily: 'sans-serif',
-        fontSize: 15,
-        fontWeight: 'bold',
-        fill: 0xffe08a,
-      },
-    );
-    job.position.set(90, 46);
-    box.addChild(job);
-    const mark = new PIXI.Text(
-      slot >= 0 ? '已上阵' : '点他上阵',
-      {
-        fontFamily: 'sans-serif',
-        fontSize: 16,
-        fontWeight: 'bold',
-        fill: hot ? GOLD : slot >= 0 ? 0xffe08a : 0x9be08a,
-        stroke: '#1a1008',
-        strokeThickness: 3,
-      },
-    );
-    mark.position.set(90, 78);
+    const mark = new PIXI.Text(hot ? '要换掉' : slot >= 0 ? '已上阵' : '上阵', {
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: hot ? GOLD : slot >= 0 ? 0xc9b48a : 0x9be08a,
+      stroke: '#1a1008',
+      strokeThickness: 3,
+    });
+    mark.position.set(72, 52);
     box.addChild(mark);
     return box;
   }

@@ -3,7 +3,7 @@ import { HEROES } from '@/balance/heroes';
 import { ENEMY_PROTOS } from '@/balance/enemies';
 import { HAND_GEAR, isHandMod, resolveHandGear, wornModIds } from '@/balance/gear';
 import { CLIP_BODY, clipBody } from '@/fx/spriteBody';
-import { motionFor, swingKeyframes } from '@/fx/UnitActor';
+import { contactAt, motionFor, releaseAt, swingKeyframes } from '@/fx/UnitActor';
 
 describe('clipBody', () => {
   it('每个上场单位都有身体高度，避免出手按整帧压小', () => {
@@ -14,6 +14,15 @@ describe('clipBody', () => {
   it('大锤走重击抡砸，不走突刺', () => {
     expect(motionFor('smash')).toBe('crush');
     expect(motionFor('slash')).toBe('lunge');
+  });
+
+  it('松手比抡起来晚，抡砸最晚落地', () => {
+    expect(releaseAt('recoil')).toBeGreaterThan(0.1);
+    expect(releaseAt('lunge')).toBeGreaterThan(releaseAt('recoil'));
+    expect(releaseAt('sling')).toBeGreaterThan(0.2);
+    expect(releaseAt('crush')).toBeGreaterThan(releaseAt('sling'));
+    expect(contactAt('lunge')).toBeGreaterThan(releaseAt('lunge'));
+    expect(contactAt('crush')).toBeGreaterThan(releaseAt('lunge'));
   });
 
   it('抡砸不进地，弹弓往上弹', () => {

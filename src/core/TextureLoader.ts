@@ -14,6 +14,14 @@ const cache = new Map<string, PIXI.Texture>();
 const missing = new Set<string>();
 const inflight = new Set<string>();
 const readyWatchers = new Set<() => void>();
+const waiters = new Map<string, Array<(tex: PIXI.Texture | null) => void>>();
+
+function resolveWaiters(path: string, tex: PIXI.Texture | null): void {
+  const list = waiters.get(path);
+  if (!list) return;
+  waiters.delete(path);
+  for (const fn of list) fn(tex);
+}
 
 /** 贴图刚进缓存时通知，选人卡才能把色块换成立绘 */
 export function watchArt(fn: () => void): void {
@@ -49,7 +57,7 @@ export const VFX_FILES = [
   'claw', 'beam', 'shield', 'heal',
 ] as const;
 
-export const PROJ_FILES = ['pebble', 'needle', 'disc', 'pipe', 'cracker', 'leaf'] as const;
+export const PROJ_FILES = ['pebble', 'needle', 'disc', 'pipe', 'cracker', 'leaf', 'cleaver'] as const;
 
 export function projTex(name: string): PIXI.Texture | null {
   return tex(`images/proj_${name}.png`);
@@ -70,9 +78,20 @@ export const UI_FILES = [
   'door_squad',
   'door_yard',
   'door_book',
+  'nav_squad',
+  'nav_yard',
+  'nav_book',
+  'iron_dock',
+  'iron_bar',
+  'iron_nails',
   'scrap_pile',
   'wood_bar',
   'wood_panel',
+  'settle_stamp',
+  'settle_name',
+  'settle_btn',
+  'settle_chip',
+  'ad_btn',
 ] as const;
 
 export function bgTex(): PIXI.Texture | null {
@@ -93,24 +112,35 @@ export function uiTex(name: UiName): PIXI.Texture | null {
   return tex(`images/ui_${name}.png`);
 }
 
+/** Loading 首屏插画，须在主包，勿走 CDN */
+export const LOADING_SPLASH = 'images/loading_splash.jpg';
+
 /** 村子主页：局外件 + 立绘 + 局里那套闲置精灵（主页站位跟战场共用） */
-export function preloadVillageArt(): void {
-  kick(VILLAGE_BG);
-  kick(YARD_BG);
-  for (const n of UI_FILES) kick(`images/ui_${n}.png`);
+export function villageArtPaths(): string[] {
+  const paths = [VILLAGE_BG, YARD_BG];
+  for (const n of UI_FILES) paths.push(`images/ui_${n}.png`);
   for (const h of HEROES) {
-    kick(`images/hero_${h.id}.png`);
-    kick(`images/hero_${h.id}_grip.png`);
-    kick(`images/anim_${h.id}_idle_0.png`);
+    paths.push(`images/hero_${h.id}.png`);
+    paths.push(`images/hero_${h.id}_grip.png`);
+    paths.push(`images/anim_${h.id}_idle_0.png`);
   }
-  for (const id of STARTER_WEP_IDS) kick(`images/wep_${id}.png`);
-  for (const g of Object.values(HAND_GEAR)) kick(g.path);
-  for (const m of MODS) kick(`images/mod_${m.id}.png`);
+  for (const id of STARTER_WEP_IDS) paths.push(`images/wep_${id}.png`);
+  for (const g of Object.values(HAND_GEAR)) paths.push(g.path);
+  for (const m of MODS) paths.push(`images/mod_${m.id}.png`);
+  return paths;
+}
+
+export function preloadVillageArt(): void {
+  for (const p of villageArtPaths()) kick(p);
 }
 
 /** 进战斗场景时把切片要用的图全踢起来，避免第一波还在色块 */
 export function preloadBattleArt(): void {
   kick(BG_PATH);
+  kick(VILLAGE_BG);
+  for (const n of ['title_plaque', 'play_plate', 'iron_bar', 'scrap_pile', 'settle_stamp', 'settle_name', 'settle_btn', 'settle_chip', 'ad_btn'] as const) {
+    kick(`images/ui_${n}.png`);
+  }
   for (const h of HEROES) kick(`images/hero_${h.id}.png`);
   // 从原型表读而不是写死 id：上次改名就是漏在这行，敌人图整批加载不到
   for (const e of ENEMY_PROTOS) kick(`images/enemy_${e.id}.png`);
@@ -139,6 +169,17 @@ export function preloadBattleArt(): void {
   }
 }
 
+function finish(path: string, tex: PIXI.Texture | null): void {
+  inflight.delete(path);
+  if (tex) {
+    cache.set(path, tex);
+    notifyReady();
+  } else {
+    missing.add(path);
+  }
+  resolveWaiters(path, tex);
+}
+
 function kick(path: string): void {
   if (cache.has(path) || missing.has(path) || inflight.has(path)) return;
   inflight.add(path);
@@ -147,17 +188,12 @@ function kick(path: string): void {
   if (img) {
     img.onload = () => {
       try {
-        cache.set(path, new PIXI.Texture(PIXI.BaseTexture.from(img)));
-        notifyReady();
+        finish(path, new PIXI.Texture(PIXI.BaseTexture.from(img)));
       } catch {
-        missing.add(path);
+        finish(path, null);
       }
-      inflight.delete(path);
     };
-    img.onerror = () => {
-      missing.add(path);
-      inflight.delete(path);
-    };
+    img.onerror = () => finish(path, null);
     img.src = path;
     return;
   }
@@ -165,25 +201,47 @@ function kick(path: string): void {
   try {
     const t = PIXI.Texture.from(path);
     const ready = (): void => {
-      if (t.baseTexture.valid) {
-        cache.set(path, t);
-        notifyReady();
-      } else missing.add(path);
-      inflight.delete(path);
+      finish(path, t.baseTexture.valid ? t : null);
     };
     if (t.baseTexture.valid) {
       ready();
       return;
     }
     t.baseTexture.once('loaded', ready);
-    t.baseTexture.once('error', () => {
-      missing.add(path);
-      inflight.delete(path);
-    });
+    t.baseTexture.once('error', () => finish(path, null));
   } catch {
-    missing.add(path);
-    inflight.delete(path);
+    finish(path, null);
   }
+}
+
+/** 等一张图进缓存或确认缺失。Loading 进度条靠这个数。 */
+export function loadOne(path: string): Promise<PIXI.Texture | null> {
+  const hit = cache.get(path);
+  if (hit?.baseTexture.valid) return Promise.resolve(hit);
+  if (missing.has(path) && !inflight.has(path)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const list = waiters.get(path) ?? [];
+    list.push(resolve);
+    waiters.set(path, list);
+    kick(path);
+  });
+}
+
+export async function preloadPaths(
+  paths: readonly string[],
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<void> {
+  const list = [...new Set(paths)];
+  if (list.length === 0) {
+    onProgress?.(1, 1);
+    return;
+  }
+  let loaded = 0;
+  await Promise.all(list.map(async (path) => {
+    await loadOne(path);
+    loaded += 1;
+    onProgress?.(loaded, list.length);
+  }));
 }
 
 /**

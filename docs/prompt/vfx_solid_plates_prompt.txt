@@ -1,0 +1,15 @@
+4 isolated 2D game VFX sprites in a 2 columns x 2 rows grid, each cell one effect only, centered, filling most of the cell.
+
+PURE BLACK background in every cell. Additive-blend plates: black must stay black. Cinematic mobile-game VFX like Hades / Vampire Survivors impact plates. White-hot cores, textured energy, debris, sparks. NOT soft radial circles. NOT simple glowing orbs. NOT geometric rings.
+
+NO TEXT, no labels, no captions, no writing, no numbers, no UI, no frames, no visible grid lines, no characters, no weapons, no items.
+
+Top-left: irregular energy disc for a flying projectile — swirling speaker-wave ripples, jagged inner sparks, hot white core, cyan-violet fringes. Looks like a spinning saw of light, NOT a smooth ball.
+
+Top-right: four-point lens-flare bloom glow — sharp cross spikes, short needles between them, tiny spark shards. Soft bloom only around the core. NOT a circular gradient.
+
+Bottom-left: cracked shockwave ring seen from above — uneven thickness, broken segments, debris chips flying out, gold-white energy. Looks like pavement exploding. NOT a perfect halo circle.
+
+Bottom-right: long tapering motion-blur ribbon streak pointing up-right — hot white spine, gold-cyan edges, trailing sparks. Looks like a slash of speed. NOT a round glow.
+
+Each cell: lots of empty black around the effect so cells do not touch. High contrast, premium lighting, no muddy gray.

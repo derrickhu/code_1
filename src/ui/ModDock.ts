@@ -4,7 +4,9 @@
  * 不写「队首挨刀」这类说明——站位和金边已经说清楚了。
  */
 import * as PIXI from 'pixi.js';
+import { installForecast } from '@/balance/forecast';
 import { MOD_SLOTS_PER_HERO, SLOT_NAME, SLOT_VIEW_ORDER, TEAM_SIZE } from '@/balance/combat';
+import type { ModDef } from '@/balance/mods';
 import { abilityTag } from '@/balance/mods';
 import { fillContain, heroTex, modTex } from '@/core/TextureLoader';
 import { canInstallOn, heroAt, type HeroUnit, type RunState } from '@/game/BattleEngine';
@@ -51,10 +53,21 @@ export class ModDock extends PIXI.Container {
     this.position.set(0, y);
   }
 
+  /** 能焊的那几格轻轻喘，玩家才知道该点下面，不是再等一张弹层 */
+  pulse(): void {
+    const a = 0.35 + (Math.sin(Date.now() / 180) + 1) * 0.28;
+    for (const child of this.children) {
+      const glow = child instanceof PIXI.Container
+        ? child.children.find((c) => c.name === 'breathe')
+        : undefined;
+      if (glow) glow.alpha = a;
+    }
+  }
+
   refresh(state: RunState, selected: string | null): void {
     const show = state.team.length > 0 && state.phase !== 'picking';
     const sig = show
-      ? `${state.phase}|${selected ?? ''}|${state.team.map((h) =>
+      ? `${state.phase}|${state.pendingMod?.id ?? ''}|${selected ?? ''}|${state.team.map((h) =>
         `${h.def.id}:${h.slot}:${h.alive ? 1 : 0}:${h.mods.map((m) => m.id).join(',')}`).join(';')}`
       : '';
     if (sig === this._sig) {
@@ -67,15 +80,18 @@ export class ModDock extends PIXI.Container {
     if (!this.visible) return;
 
     const installing = state.phase === 'installing';
+    const pending = installing ? state.pendingMod : undefined;
     const plate = new PIXI.Graphics();
-    plate.beginFill(0x14110c, installing ? 0.92 : 0.82).drawRoundedRect(DOCK_X, 0, DOCK_W, DOCK_H, 16).endFill();
-    plate.lineStyle(1.5, GOLD, 0.35).drawRoundedRect(DOCK_X, 0, DOCK_W, DOCK_H, 16).lineStyle(0);
+    plate.beginFill(0x14110c, installing ? 0.94 : 0.82).drawRoundedRect(DOCK_X, 0, DOCK_W, DOCK_H, 16).endFill();
+    plate.lineStyle(installing ? 3 : 1.5, GOLD, installing ? 0.7 : 0.35)
+      .drawRoundedRect(DOCK_X, 0, DOCK_W, DOCK_H, 16)
+      .lineStyle(0);
     this.addChild(plate);
 
     SLOT_VIEW_ORDER.forEach((slotIndex, i) => {
       const hero = heroAt(state, slotIndex) ?? null;
-      const canTake = hero ? canInstallOn(hero) : false;
-      const card = this._slot(hero, slotIndex, selected === hero?.def.id, installing, canTake);
+      const canTake = !!pending && !!hero && canInstallOn(hero);
+      const card = this._slot(hero, slotIndex, selected === hero?.def.id, pending, canTake);
       card.position.set(DOCK_X + SLOT_PAD + i * (SLOT_W + SLOT_GAP), 8);
       this.addChild(card);
       if (hero && (!installing || canTake)) {
@@ -90,18 +106,20 @@ export class ModDock extends PIXI.Container {
     h: HeroUnit | null,
     order: number,
     picked: boolean,
-    installing: boolean,
+    pending: ModDef | undefined,
     canTake: boolean,
   ): PIXI.Container {
     const box = new PIXI.Container();
     box.eventMode = 'static';
+    const installing = !!pending;
     const dim = !h || (installing && !canTake);
     const live = !!h?.alive;
+    const forecast = h && pending && canTake ? installForecast(h, pending) : undefined;
     const edge = !h
       ? 0x3a3428
       : picked
         ? GOLD
-        : installing && canTake
+        : canTake
           ? 0x9be08a
           : 0x3a3428;
 
@@ -109,10 +127,18 @@ export class ModDock extends PIXI.Container {
     bg.beginFill(h ? 0x1c1610 : 0x12100c, dim ? 0.45 : 0.94)
       .drawRoundedRect(0, 0, SLOT_W, SLOT_H, 12)
       .endFill();
-    bg.lineStyle(picked ? 5 : installing && canTake ? 3 : 1.5, edge, dim ? 0.3 : 0.95)
+    bg.lineStyle(picked ? 5 : canTake ? 3.5 : 1.5, edge, dim ? 0.3 : 0.95)
       .drawRoundedRect(0, 0, SLOT_W, SLOT_H, 12)
       .lineStyle(0);
     box.addChild(bg);
+
+    if (canTake) {
+      const glow = new PIXI.Graphics();
+      glow.name = 'breathe';
+      glow.lineStyle(4, 0x9be08a, 1).drawRoundedRect(2, 2, SLOT_W - 4, SLOT_H - 4, 11).lineStyle(0);
+      glow.alpha = 0.55;
+      box.addChild(glow);
+    }
 
     if (!h) {
       const empty = text(16, 0x5a5244);
@@ -154,9 +180,13 @@ export class ModDock extends PIXI.Container {
     name.alpha = dim ? 0.5 : 1;
     box.addChild(name);
 
-    const role = text(14, GOLD);
+    const role = text(16, canTake
+      ? (forecast?.fit === 'waste' ? 0x8a90a8 : forecast?.fit === 'good' ? 0x9be08a : GOLD)
+      : GOLD);
     role.position.set(nameX, 36);
-    role.text = h.stats.range <= 1 ? `贴脸 · ${abilityTag(h.def.skill)}` : `射程 ${h.stats.range}`;
+    role.text = canTake && forecast
+      ? forecast.tag
+      : h.stats.range <= 1 ? `贴脸 · ${abilityTag(h.def.skill)}` : `射程 ${h.stats.range}`;
     role.alpha = dim ? 0.5 : 1;
     box.addChild(role);
 
@@ -165,21 +195,24 @@ export class ModDock extends PIXI.Container {
     for (let i = 0; i < MOD_SLOTS_PER_HERO; i += 1) {
       const mod = h.mods[i];
       const x = slotX + i * (MOD + 6);
+      const emptyHot = canTake && !mod && i === h.mods.length;
       const frame = new PIXI.Graphics();
-      frame.beginFill(mod ? 0x3d3320 : 0x2a2418, dim ? 0.4 : 0.95)
+      frame.beginFill(emptyHot ? 0x3d5a28 : mod ? 0x3d3320 : 0x2a2418, dim ? 0.4 : 0.95)
         .drawRoundedRect(x, slotY, MOD, MOD, 5)
         .endFill();
       if (mod) frame.lineStyle(1.5, GOLD, dim ? 0.4 : 0.95).drawRoundedRect(x, slotY, MOD, MOD, 5);
+      else if (emptyHot) frame.lineStyle(1.5, 0x9be08a, 0.95).drawRoundedRect(x, slotY, MOD, MOD, 5);
       box.addChild(frame);
 
-      const t = mod ? modTex(mod.id) : null;
+      const t = mod ? modTex(mod.id) : emptyHot && pending ? modTex(pending.id) : null;
       if (t?.baseTexture.valid && t.width > 1) {
         const icon = new PIXI.Graphics();
         fillContain(icon, t, x + MOD / 2, slotY + MOD - 2, MOD - 6, MOD - 6);
-        icon.alpha = dim ? 0.4 : 1;
+        icon.alpha = emptyHot ? 0.85 : dim ? 0.4 : 1;
         box.addChild(icon);
       }
-      if (mod && installing) {
+      // 装件时整张卡都是「焊给他」，不要再在小图标上挂拆件，免得点偏
+      if (mod && !installing) {
         const hit = new PIXI.Container();
         hit.eventMode = 'static';
         const pad = new PIXI.Graphics();
