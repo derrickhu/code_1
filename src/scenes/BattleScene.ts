@@ -356,6 +356,8 @@ export class BattleScene implements Scene {
     GMManager.unregisterInstantClear();
     this._gmSkip?.destroy({ children: true });
     this._gmSkip = null;
+    this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this._pick.eventMode = 'none';
     BgmPlayer.stop();
   }
 
@@ -385,7 +387,6 @@ export class BattleScene implements Scene {
       if (!occupant) return;
       const mod = s.pendingMod;
       if (!mod) return;
-      playSfx('ui_tap', 0);
       if (!installMod(s, occupant.def.id)) return;
       this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
       const dest = this._heroXY(occupant.def.id);
@@ -404,7 +405,6 @@ export class BattleScene implements Scene {
     }
 
     if (!this._canReorder()) return;
-    playSfx('ui_tap', 0);
     if (!this._selected) {
       if (occupant) this._selected = occupant.def.id;
       return;
@@ -436,7 +436,6 @@ export class BattleScene implements Scene {
       return;
     }
     if (!stripMod(this._state, hero.def.id, modIndex)) return;
-    playSfx('ui_tap', 0);
     this._say(`拆了${hero.def.name}的${piece.name}`);
     this._dock.refresh(this._state, this._selected);
     this._updateHud();
@@ -448,7 +447,6 @@ export class BattleScene implements Scene {
       return;
     }
     if (!rerollMods(this._state)) return;
-    playSfx('ui_tap', 0);
     this._renderPickCards();
     this._updateHud();
   }
@@ -1683,7 +1681,6 @@ export class BattleScene implements Scene {
 
   private _choose(opt: PickOption): void {
     const roster = isRosterPicking(this._state);
-    playSfx('ui_tap', 0);
     if (opt.kind === 'mod') {
       track('pick_choose', {
         wave: this._state.wave,

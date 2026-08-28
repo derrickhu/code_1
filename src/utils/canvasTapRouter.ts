@@ -3,8 +3,9 @@
  * 可选长按：按住达阈值且位移未超 slop 时触发 onLongPress，松手不再发 tap。
  */
 import { Platform } from '@/core/PlatformService';
+import { playSfx } from '@/core/SfxPlayer';
 import { clientEventToDesign } from './clientEventToDesign';
-import { containsDesignPoint, pickTopmostHit } from './hitTestDesign';
+import { containsDesignPoint, isOnStage, pickTopmostHit } from './hitTestDesign';
 import { deferAfterPointerEvent } from './deferAfterPointer';
 import { getTouchCanvas } from './touchCanvas';
 
@@ -13,13 +14,15 @@ const DEFAULT_LONG_PRESS_MS = 450;
 
 interface TapBinding {
   target: import('pixi.js').Container;
-  fn: () => void;
+  /** 收到本次 tap 的设计坐标。整块热区内部再分区（编队台选人）要用。 */
+  fn: (dx: number, dy: number) => void;
   guard?: () => boolean;
   blockTap?: () => boolean;
   /** 设计坐标额外过滤（如滚动列表视口外不响应） */
   pointGuard?: (dx: number, dy: number) => boolean;
   /** 为 true 时在 touchend 内同步执行（tt.addShortcut 等必须用户手势同步调用的 API） */
   sync?: boolean;
+  silent?: boolean;
   onLongPress?: () => void;
   longPressMs?: number;
 }
@@ -42,7 +45,8 @@ function clearHoldTimer(): void {
 }
 
 function pickBinding(dx: number, dy: number): TapBinding | null {
-  _bindings = _bindings.filter((b) => b.target.parent);
+  // 连 target.parent 都不看够：切场景后旧树整棵脱离舞台，parent 还在，会一直堆着。
+  _bindings = _bindings.filter((b) => b.target.parent && isOnStage(b.target));
   // 禁用态也要参与 hitTest，否则会穿透点到下层按钮（抽卡结果页点「确定」误触底层十连）
   const hits = _bindings.filter((b) =>
     containsDesignPoint(b.target, dx, dy)
@@ -105,26 +109,35 @@ function ensureInstalled(): void {
     _active = null;
     _longPressed = false;
     if (!act || wasLong) return;
-    const b = act.binding;
+    const p = clientEventToDesign(e);
+    const movedX = p.x - act.x;
+    const movedY = p.y - act.y;
+    if (movedX * movedX + movedY * movedY > TAP_SLOP * TAP_SLOP) return;
+    // 松手处再取一次最上层。选中后立绘放大，起点热区还钉在旧人身上。
+    const fresh = pickBinding(p.x, p.y) ?? act.binding;
+    const b = fresh.target.parent ? fresh : act.binding;
     if (!b.target.parent) return;
     if (b.guard && !b.guard()) return;
     if (b.blockTap?.()) return;
-    const p = clientEventToDesign(e);
-    const dx = p.x - act.x;
-    const dy = p.y - act.y;
-    if (dx * dx + dy * dy > TAP_SLOP * TAP_SLOP) return;
-    if (!containsDesignPoint(b.target, p.x, p.y)) return;
+    // 必须在 touchend 里同步播。丢进 setTimeout 微信当非手势，直接静音。
+    if (!b.silent) playSfx('ui_tap', 40);
     if (b.sync) {
-      try { b.fn(); } catch (err) { console.error('[canvasTapRouter sync]', err); }
+      try { b.fn(p.x, p.y); } catch (err) { console.error('[canvasTapRouter sync]', err); }
     } else {
-      deferAfterPointerEvent(b.fn);
+      deferAfterPointerEvent(() => b.fn(p.x, p.y));
     }
   }) as EventListener;
+
+  const onCancel = (): void => {
+    clearHoldTimer();
+    _active = null;
+    _longPressed = false;
+  };
 
   canvas.addEventListener('touchstart', _onStart, { passive: true });
   canvas.addEventListener('touchmove', _onMove, { passive: true });
   canvas.addEventListener('touchend', _onEnd);
-  canvas.addEventListener('touchcancel', _onEnd);
+  canvas.addEventListener('touchcancel', onCancel);
   _installed = true;
 }
 

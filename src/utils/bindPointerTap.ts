@@ -6,38 +6,43 @@
  */
 import * as PIXI from 'pixi.js';
 import { Platform } from '@/core/PlatformService';
-import { deferAfterPointerEvent } from './deferAfterPointer';
+import { playSfx } from '@/core/SfxPlayer';
 import { registerCanvasTap } from './canvasTapRouter';
+import { clientEventToDesign } from './clientEventToDesign';
+import { deferAfterPointerEvent } from './deferAfterPointer';
 
 const DEFAULT_LONG_PRESS_MS = 450;
 const HOLD_SLOP = 14;
 
 export function bindPointerTap(
   target: PIXI.Container,
-  fn: () => void,
+  /** 参数是本次 tap 的设计坐标；只关心「点了」的调用方直接忽略即可。 */
+  fn: (dx: number, dy: number) => void,
   opts?: {
     guard?: () => boolean;
     blockTap?: () => boolean;
     pointGuard?: (dx: number, dy: number) => boolean;
     sync?: boolean;
+    /** 不播点击音（长按菜单、全屏挡板） */
+    silent?: boolean;
     onLongPress?: () => void;
     longPressMs?: number;
   },
 ): void {
   let fired = false;
-  const run = (): void => {
+  const run = (dx: number, dy: number): void => {
     if (fired) return;
     if (opts?.guard && !opts.guard()) return;
     if (opts?.blockTap?.()) return;
     fired = true;
     if (opts?.sync) {
-      try { fn(); } catch (err) { console.error('[bindPointerTap sync]', err); }
+      try { fn(dx, dy); } catch (err) { console.error('[bindPointerTap sync]', err); }
       fired = false;
       return;
     }
     deferAfterPointerEvent(() => {
       fired = false;
-      fn();
+      fn(dx, dy);
     });
   };
 
@@ -52,6 +57,7 @@ export function bindPointerTap(
       blockTap: opts?.blockTap,
       pointGuard: opts?.pointGuard,
       sync: opts?.sync,
+      silent: opts?.silent,
       onLongPress: opts?.onLongPress,
       longPressMs: opts?.longPressMs,
     });
@@ -99,12 +105,14 @@ export function bindPointerTap(
     const dy = e.global.y - startY;
     if (dx * dx + dy * dy > HOLD_SLOP * HOLD_SLOP) clearHold();
   });
-  target.on('pointerup', () => {
+  target.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
     clearHold();
     if (!armed) return;
     armed = false;
     if (longPressed) return;
-    run();
+    const p = e.nativeEvent ? clientEventToDesign(e.nativeEvent) : { x: e.global.x, y: e.global.y };
+    if (!opts?.silent) playSfx('ui_tap', 40);
+    run(p.x, p.y);
   });
   target.on('pointerupoutside', () => {
     clearHold();

@@ -68,6 +68,12 @@ export class RosterSheet {
   private _w = 0;
   private _h = 0;
   private _cells: RosterCell[] = [];
+  private _cards: Array<{
+    id: string;
+    bg: PIXI.Graphics;
+    name: PIXI.Text;
+    mark: PIXI.Text;
+  }> = [];
   private _onPick: ((id: string) => void) | null = null;
   private _detach: (() => void) | null = null;
 
@@ -104,14 +110,16 @@ export class RosterSheet {
     const total = ROSTER_COLS * ROSTER_CARD_W + (ROSTER_COLS - 1) * ROSTER_GAP;
     const x0 = (w - total) / 2;
     this._cells = [];
+    this._cards = [];
     HEROES.forEach((hero, i) => {
       const slot = squad.indexOf(hero.id);
-      const card = this._card(hero.id, slot, slot >= 0 && slot === holdSlot);
+      const made = this._card(hero.id, slot, slot >= 0 && slot === holdSlot);
       const cx = x0 + (i % ROSTER_COLS) * (ROSTER_CARD_W + ROSTER_GAP);
       const cy = Math.floor(i / ROSTER_COLS) * (ROSTER_CARD_H + ROSTER_GAP);
-      card.position.set(cx, cy);
-      this._inner.addChild(card);
+      made.box.position.set(cx, cy);
+      this._inner.addChild(made.box);
       this._cells.push({ id: hero.id, x: cx, y: cy });
+      this._cards.push({ id: hero.id, bg: made.bg, name: made.name, mark: made.mark });
     });
 
     const content = rosterSheetHeight();
@@ -121,6 +129,17 @@ export class RosterSheet {
     // 6 人两行刚好装下时不要 mask：祖先 mask 会让小游戏 hitTest 把整卡判成点不中
     this._inner.mask = this._minScroll < 0 ? this._mask : null;
     this._bindGesture();
+  }
+
+  refresh(squad: readonly string[], holdSlot: number | null): void {
+    for (const card of this._cards) {
+      const slot = squad.indexOf(card.id);
+      const hot = slot >= 0 && slot === holdSlot;
+      this._paintCard(card.bg, slot, hot);
+      card.name.style.fill = hot ? GOLD : CREAM;
+      card.mark.text = hot ? '要换掉' : slot >= 0 ? '已上阵' : '上阵';
+      card.mark.style.fill = hot ? GOLD : slot >= 0 ? 0xc9b48a : 0x9be08a;
+    }
   }
 
   destroy(): void {
@@ -205,7 +224,22 @@ export class RosterSheet {
     this._inner.position.y = this._scroll;
   }
 
-  private _card(id: string, slot: number, hot: boolean): PIXI.Container {
+  private _paintCard(bg: PIXI.Graphics, slot: number, hot: boolean): void {
+    bg.clear();
+    bg.beginFill(0x1c1610, hot ? 0.94 : slot >= 0 ? 0.72 : 0.58)
+      .drawRoundedRect(0, 0, ROSTER_CARD_W, ROSTER_CARD_H, 12)
+      .endFill();
+    bg.lineStyle(hot ? 4 : 2, hot ? GOLD : slot >= 0 ? 0x8a7a5a : 0x4a4438, 1)
+      .drawRoundedRect(1, 1, ROSTER_CARD_W - 2, ROSTER_CARD_H - 2, 11)
+      .lineStyle(0);
+  }
+
+  private _card(id: string, slot: number, hot: boolean): {
+    box: PIXI.Container;
+    bg: PIXI.Graphics;
+    name: PIXI.Text;
+    mark: PIXI.Text;
+  } {
     const hero = getHero(id);
     const box = new PIXI.Container();
     box.eventMode = 'static';
@@ -215,14 +249,11 @@ export class RosterSheet {
     bindPointerTap(box, () => this._onPick?.(id), {
       // 两行刚好装下时不会滚，手指微抖不该吞掉短按
       blockTap: () => this._minScroll < 0 && this._moved > SLOP,
+      sync: true,
+      silent: true,
     });
     const bg = new PIXI.Graphics();
-    bg.beginFill(0x1c1610, hot ? 0.94 : slot >= 0 ? 0.72 : 0.58)
-      .drawRoundedRect(0, 0, ROSTER_CARD_W, ROSTER_CARD_H, 12)
-      .endFill();
-    bg.lineStyle(hot ? 4 : 2, hot ? GOLD : slot >= 0 ? 0x8a7a5a : 0x4a4438, 1)
-      .drawRoundedRect(1, 1, ROSTER_CARD_W - 2, ROSTER_CARD_H - 2, 11)
-      .lineStyle(0);
+    this._paintCard(bg, slot, hot);
     box.addChild(bg);
     const tex = heroTex(id);
     if (tex?.baseTexture.valid && tex.width > 1) {
@@ -252,6 +283,6 @@ export class RosterSheet {
     });
     mark.position.set(72, 52);
     box.addChild(mark);
-    return box;
+    return { box, bg, name, mark };
   }
 }

@@ -61,9 +61,26 @@ function insideAncestorMasks(target: PIXI.Container, dx: number, dy: number): bo
   return true;
 }
 
+/**
+ * 节点是否还挂在当前舞台上。
+ *
+ * 切场景只做 stage.removeChild(旧场景.container)，旧场景内部的节点 parent 仍在、
+ * visible 仍是 true，Pixi 的 worldVisible 也照样返回 true——它只看 visible 标志，
+ * 不管这棵树有没有连到舞台。于是上一局战斗的选卡热区会继续在村口抢点击，
+ * 把村口点人的整块热区压住（点人无反应、只有没被盖住的那个能选）。
+ */
+export function isOnStage(target: PIXI.Container): boolean {
+  const stage = Game.stage;
+  if (!stage) return true;
+  let cur: PIXI.Container = target;
+  while (cur.parent) cur = cur.parent as PIXI.Container;
+  return cur === stage;
+}
+
 export function containsDesignPoint(target: PIXI.Container, dx: number, dy: number): boolean {
   if (!target.parent || !target.visible || target.worldVisible === false) return false;
   if (target.eventMode === 'none') return false;
+  if (!isOnStage(target)) return false;
   if (!insideAncestorMasks(target, dx, dy)) return false;
 
   const local = designPointToContainerLocal(target, dx, dy);

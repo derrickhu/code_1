@@ -3,8 +3,8 @@
   "sfx": [
     {
       "name": "ui_tap",
-      "text": "single crisp ceramic-glass UI tap, tiny hard tick like a premium phone keyboard, sharp attack under 15ms, dry studio, no reverb, no wood, no frog, no animal, no voice, no music, no rubber",
-      "duration": 0.18,
+      "text": "loud crisp plastic UI button click, hard camera-shutter tick, sharp attack in first 15ms, dry close mic, no reverb, no wood thud, no frog, no animal, no voice, no music, no rubber, no silence",
+      "duration": 0.22,
       "output": "ui_tap.mp3"
     },
     {
