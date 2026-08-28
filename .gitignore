@@ -1,5 +1,8 @@
 node_modules/
 .bundle/
 build/
+dist/
+tmp/
 .DS_Store
 *.log
+*.tmp
