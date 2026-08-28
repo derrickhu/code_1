@@ -1,3 +1,4 @@
+import { scopedStorageKey } from '@/config/gameKeyScope';
 import { Platform } from '@/core/PlatformService';
 import type { RewardSource } from '@/balance/rewards';
 import {
@@ -19,7 +20,19 @@ import {
   migrateStageTop,
 } from '@/balance/stages';
 
-const KEY = 'code1_run_memory';
+const KEY = scopedStorageKey('run_memory');
+const LEGACY_KEY = 'code1_run_memory';
+
+function readRaw(): string | null {
+  const cur = Platform.getStorageSync(KEY);
+  if (cur) return cur;
+  const old = Platform.getStorageSync(LEGACY_KEY);
+  if (old) {
+    try { Platform.setStorageSync(KEY, old); } catch { /* 迁移失败下次再试 */ }
+    return old;
+  }
+  return null;
+}
 
 export interface RunMemory {
   highestWave: number;
@@ -92,7 +105,7 @@ function empty(): RunMemory {
 
 export function loadMemory(): RunMemory {
   try {
-    const raw = Platform.getStorageSync(KEY);
+    const raw = readRaw();
     if (!raw) return empty();
     const parsed = JSON.parse(raw) as RunMemory;
     return {

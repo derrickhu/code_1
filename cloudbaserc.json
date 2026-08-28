@@ -1,0 +1,20 @@
+{
+  "envId": "rosa-env-d7grf78r5dbd37323",
+  "functionRoot": "cloudfunctions",
+  "functions": [
+    {
+      "name": "cunkou-api",
+      "handler": "index.main",
+      "runtime": "Nodejs18.15",
+      "timeout": 15,
+      "memorySize": 256,
+      "installDependency": true,
+      "ignore": [
+        "node_modules/**",
+        "config.env",
+        ".env",
+        "*.local"
+      ]
+    }
+  ]
+}

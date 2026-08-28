@@ -1,0 +1,13 @@
+{
+  "name": "cunkou-api",
+  "version": "1.0.0",
+  "description": "cunkou CloudBase HTTP backend: login + save pull/push",
+  "main": "index.js",
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^3.5.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

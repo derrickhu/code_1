@@ -2,6 +2,7 @@
  * GM 调试。只在微信/抖音开发者工具里开；真机一律关掉。
  * 工具里自动激活。村子标题牌连点 5 次也能开。
  */
+import { scopedStorageKey } from '@/config/gameKeyScope';
 import { EventBus } from '@/core/EventBus';
 import { Platform } from '@/core/PlatformService';
 import { SceneManager } from '@/core/SceneManager';
@@ -9,7 +10,8 @@ import { DEFAULT_SQUAD } from '@/balance/heroes';
 import { CHAPTER_COUNT, STAGES_PER_CHAPTER, findStage, getStage } from '@/balance/stages';
 import { gmUnlockToStage, loadMemory } from '@/core/RunMemory';
 
-const GM_STORAGE_KEY = 'code1_gm';
+const GM_STORAGE_KEY = scopedStorageKey('gm');
+const GM_LEGACY_KEY = 'code1_gm';
 
 class GMManagerClass {
   private _enabled = false;
@@ -116,7 +118,7 @@ class GMManagerClass {
       return;
     }
     try {
-      const raw = Platform.getStorageSync(GM_STORAGE_KEY);
+      const raw = Platform.getStorageSync(GM_STORAGE_KEY) || Platform.getStorageSync(GM_LEGACY_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as { enabled?: boolean };
         this._enabled = !!parsed.enabled;

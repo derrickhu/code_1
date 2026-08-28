@@ -11,7 +11,7 @@ vi.mock('@/core/PlatformService', () => ({
   },
 }));
 
-const KEY = 'code1_run_memory';
+const KEY = 'cunkou_run_memory';
 
 import { LADDER_GATE_WAVE, LADDER_TOP } from '@/balance/ladder';
 import { LAST_STAGE_ID } from '@/balance/stages';

@@ -16,6 +16,7 @@
     "lab": "vite --config tools/anim-lab/vite.config.ts"
   },
   "dependencies": {
+    "@gp/analytics-sdk": "file:../game-analysis/packages/analytics-sdk",
     "@pixi/unsafe-eval": "^7.3.2",
     "pixi.js": "^7.3.2"
   },

@@ -3,9 +3,11 @@
  * 首局多带一件、翻废品站是局外，不挡十秒开场。
  * 插屏不做。日限见 docs/01-核心玩法循环.md §9。
  */
+import { scopedStorageKey } from '@/config/gameKeyScope';
 import { Platform } from '@/core/PlatformService';
 
-const KEY = 'code1_ad_day';
+const KEY = scopedStorageKey('ad_day');
+const LEGACY_KEY = 'code1_ad_day';
 
 export type AdPlacement = 'revive' | 'settleDouble' | 'dailyGift' | 'junkyard';
 
@@ -38,7 +40,7 @@ function empty(date = today()): DayBook {
 
 function load(): DayBook {
   try {
-    const raw = Platform.getStorageSync(KEY);
+    const raw = Platform.getStorageSync(KEY) || Platform.getStorageSync(LEGACY_KEY);
     if (!raw) return empty();
     const parsed = JSON.parse(raw) as DayBook;
     if (parsed.date !== today()) return empty();

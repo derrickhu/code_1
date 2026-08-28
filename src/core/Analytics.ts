@@ -1,7 +1,9 @@
 /**
  * 切片埋点。文档 §10 的事件必须先接上，否则卡关、装给谁、IPU 都没数可看。
- * 先落本地 + 宿主 reportEvent，不接支付、不发后端。
+ * 本地缓冲 + 宿主 reportEvent + 经分 SDK（未 init 时 SDK 静默跳过）。
  */
+import { scopedStorageKey } from '@/config/gameKeyScope';
+import { forwardBusinessTrack } from '@/analytics';
 import { Platform } from '@/core/PlatformService';
 
 export type TrackName =
@@ -22,7 +24,7 @@ export interface TrackedEvent {
   payload: Record<string, unknown>;
 }
 
-const KEY = 'code1_track';
+const KEY = scopedStorageKey('track');
 const MAX = 80;
 const buf: TrackedEvent[] = [];
 
@@ -36,6 +38,7 @@ export function track(name: TrackName, payload: Record<string, unknown> = {}): v
   } catch {
     /* 写失败不挡玩 */
   }
+  forwardBusinessTrack(name, payload);
 }
 
 export function recentEvents(): readonly TrackedEvent[] {

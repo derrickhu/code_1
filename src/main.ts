@@ -4,6 +4,9 @@
  * 先出标准 Loading（插画 + 进度条 + 健康游戏忠告），资源就绪再落村子。
  */
 import '@/core/pixiUnsafeEvalPatch';
+import { analytics, initAnalytics, setAnalyticsUserId } from '@/analytics';
+import { BASE_GAME_KEY } from '@/config/gameKeyScope';
+import { BackendService } from '@/core/BackendService';
 import { Game } from '@/core/Game';
 import { SceneManager } from '@/core/SceneManager';
 import { Platform } from '@/core/PlatformService';
@@ -29,6 +32,34 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+initAnalytics();
+
+if (typeof GameGlobal !== 'undefined') {
+  const prevError = GameGlobal.onError;
+  const prevReject = GameGlobal.onUnhandledRejection;
+  GameGlobal.onError = (msg: string) => {
+    console.error('[GlobalError]', msg);
+    try { prevError?.(msg); } catch { /* */ }
+    analytics.trackAppError(msg, { source: 'GameGlobal.onError' });
+  };
+  GameGlobal.onUnhandledRejection = (ev: { reason?: unknown }) => {
+    console.error('[UnhandledRejection]', ev?.reason || ev);
+    try { prevReject?.(ev); } catch { /* */ }
+    analytics.trackAppError(ev?.reason || ev, { source: 'unhandledRejection' });
+  };
+}
+
+async function bootBackend(): Promise<string> {
+  if (!BackendService.available) return '';
+  try {
+    await BackendService.ensureToken();
+    return BackendService.userId;
+  } catch (error) {
+    console.warn('[main] 后端登录失败（不挡玩）', error);
+    return '';
+  }
+}
+
 async function main(): Promise<void> {
   const canvas = GameGlobal?.canvas ?? null;
   if (!canvas) {
@@ -42,7 +73,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`[main] 启动 平台=${Platform.name} 版本=${__APP_VERSION__}`);
+  console.log(`[main] 启动 平台=${Platform.name} gameKey=${BASE_GAME_KEY} 版本=${__APP_VERSION__}`);
+  const userIdP = bootBackend();
 
   Game.stage.sortableChildren = true;
   const loading = new LoadingScreenOverlay();
@@ -84,8 +116,31 @@ async function main(): Promise<void> {
   // game.js 的启动超时诊断靠这个标记判断是否真的画出来了
   if (typeof GameGlobal !== 'undefined') GameGlobal.__gameRendered = true;
 
-  Platform.onHide(() => BgmPlayer.pause());
-  Platform.onShow(() => BgmPlayer.resume());
+  const userId = await userIdP;
+  if (userId) {
+    setAnalyticsUserId(userId);
+  } else {
+    console.warn('[main] 未拿到登录 userId，经分仅以 anonymous_id 上报');
+  }
+  analytics.trackSessionStart({
+    entry: 'main_boot',
+    with_user_id: !!userId,
+  });
+
+  let lastHideAt = 0;
+  Platform.onHide(() => {
+    BgmPlayer.pause();
+    analytics.trackSessionEnd('app-hide');
+    lastHideAt = Date.now();
+  });
+  Platform.onShow(() => {
+    BgmPlayer.resume();
+    if (lastHideAt > 0) {
+      analytics.trackAppShow({
+        background_ms: Date.now() - lastHideAt,
+      });
+    }
+  });
 }
 
 main().catch((e) => {

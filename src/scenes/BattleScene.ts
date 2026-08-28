@@ -342,6 +342,8 @@ export class BattleScene implements Scene {
       adMarkRunStart();
       track('run_start', {
         seed: this._state.seed,
+        stage_id: this._state.stageId,
+        ladder_lv: this._state.ladderLv,
         opening_heroes: this._state.team.map((h) => h.def.id),
       });
       this._fx.markLand(SQUAD_X, this._slotY(0));
@@ -895,6 +897,7 @@ export class BattleScene implements Scene {
     );
     const mem = bankToYard(deposited);
     track('run_end', {
+      stage_id: this._state.stageId,
       reached_wave: this._state.wave,
       cleared: this._state.phase === 'won',
       duration_ms: this._state.totalMs,
@@ -1715,6 +1718,8 @@ export class BattleScene implements Scene {
       adMarkRunStart();
       track('run_start', {
         seed: this._state.seed,
+        stage_id: this._state.stageId,
+        ladder_lv: this._state.ladderLv,
         opening_heroes: this._state.team.map((h) => h.def.id),
       });
       this._fx.markLand(SQUAD_X, this._slotY(0));

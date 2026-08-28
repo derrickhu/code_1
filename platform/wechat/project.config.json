@@ -1,7 +1,7 @@
 {
   "description": "村口大战外星人 · 微信小游戏。用微信开发者工具打开 build/wechat/",
   "projectname": "村口大战外星人",
-  "appid": "wx19255301c4f7232e",
+  "appid": "wx4afec790790030e8",
   "compileType": "game",
   "libVersion": "3.12.1",
   "isGameTourist": false,
