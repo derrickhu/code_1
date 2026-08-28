@@ -4,7 +4,7 @@
  */
 import * as PIXI from 'pixi.js';
 import { Game } from '@/core/Game';
-import { LOADING_SPLASH, tex } from '@/core/TextureLoader';
+import { LOADING_SPLASH, LOADING_TITLE, tex } from '@/core/TextureLoader';
 import { GOLD } from '@/ui/paint';
 
 const TITLE = '村口大战外星人';
@@ -19,6 +19,8 @@ const LOADING_LEGAL_TEXT = [
 ].join('\n');
 
 const TITLE_BELOW_SAFE = 22;
+const TITLE_MAX_W = 560;
+const TITLE_MAX_H = 220;
 const LEGAL_BOTTOM_INSET = 28;
 const BAR_ABOVE_LEGAL_GAP = 14;
 const LEGAL_FONT_SIZE = 13;
@@ -47,6 +49,7 @@ export class LoadingScreenOverlay extends PIXI.Container {
   private _bg = new PIXI.Graphics();
   private _footer = new PIXI.Graphics();
   private _splash: PIXI.Sprite | null = null;
+  private _titleLogo: PIXI.Sprite | null = null;
   private _title: PIXI.Text;
   private _barShadow = new PIXI.Graphics();
   private _track = new PIXI.Graphics();
@@ -145,7 +148,19 @@ export class LoadingScreenOverlay extends PIXI.Container {
       this._splash.position.set(this._lw * 0.5, this._lh * 0.5);
     }
 
-    this._title.position.set(this._lw * 0.5, Game.safeTop + TITLE_BELOW_SAFE);
+    if (this._titleLogo) {
+      const tex = this._titleLogo.texture;
+      const s = Math.min(TITLE_MAX_W / tex.width, TITLE_MAX_H / tex.height, 1);
+      this._titleLogo.scale.set(s);
+      this._titleLogo.position.set(
+        this._lw * 0.5,
+        Game.safeTop + TITLE_BELOW_SAFE + (tex.height * s) / 2,
+      );
+      this._title.visible = false;
+    } else {
+      this._title.visible = true;
+      this._title.position.set(this._lw * 0.5, Game.safeTop + TITLE_BELOW_SAFE);
+    }
 
     this._barW = Math.min(BAR_MAX_W, this._lw - BAR_PAD_X * 2);
     this._barX = (this._lw - this._barW) / 2;
@@ -187,6 +202,25 @@ export class LoadingScreenOverlay extends PIXI.Container {
     sp.zIndex = 1;
     this.addChildAt(sp, 1);
     this._splash = sp;
+    this._relayout();
+  }
+
+  /** 预载标题字标后调用。没图就继续用系统字兜底。 */
+  applyTitleTexture(): void {
+    const title = tex(LOADING_TITLE);
+    if (!title?.baseTexture.valid) return;
+
+    if (this._titleLogo) {
+      this.removeChild(this._titleLogo);
+      this._titleLogo.destroy();
+      this._titleLogo = null;
+    }
+
+    const sp = new PIXI.Sprite(title);
+    sp.anchor.set(0.5, 0.5);
+    sp.zIndex = 6;
+    this.addChild(sp);
+    this._titleLogo = sp;
     this._relayout();
   }
 

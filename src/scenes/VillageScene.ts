@@ -112,6 +112,8 @@ export class VillageScene implements Scene {
     this._paint = this._layers.home;
     EventBus.on('home:refresh', () => {
       if (SceneManager.current?.name !== 'village') return;
+      const mem = loadMemory();
+      this._squad = mem.squadIds.length === TEAM_SIZE ? [...mem.squadIds] : [...DEFAULT_SQUAD];
       this._staleAll();
       this._rebuild(this._page);
     });
@@ -608,6 +610,8 @@ export class VillageScene implements Scene {
 
     const lowest = dockTop - 44;
     const frontY = lowest - STAGE_DY;
+    const logo = fitSprite(this._paint, uiTex('title_logo'), 375, y0 + 92, 560, 168);
+    if (logo) logo.name = 'title-logo';
     this._drawSquadStage(Math.max(y0 + 200, frontY), lowest + 8);
     const hint = this._stroke(16, CREAM, '#1a1008', 4);
     hint.anchor.set(0.5);

@@ -1,0 +1,39 @@
+Game TITLE LOGOTYPE prototype sheet for a WeChat minigame.
+
+ART STYLE (this game only):
+- 2D cheap vinyl sticker-chibi
+- Fat even black comic ink outlines, same weight on every stroke
+- Flat 6-8 colors, TWO-tone cel shade only, one highlight blob per big shape
+- Cheap-fun village hardware-store mood, 土味打高科技
+- Palette: cream #FFF4C4, mustard enamel #E8A33D, gold #C9A46A, ink #2A160C,
+  rust red #C44A24, weathered wood brown, cement gray.
+  Tiny cold cyan UFO glow allowed ONLY as a small decoration, never as letter fill.
+FORBIDDEN: photoreal metal, neon bloom, purple gradient letters, pastel kawaii flowers,
+xianxia gold clouds, calligraphy brush, 3D PBR, Pixar, watermark, English.
+
+CANVAS: one vertical 3:4 sheet, flat solid #FF00FF magenta background everywhere,
+split into TWO equal horizontal halves by a thin dark midline. Each half is an isolated
+title logo, easy to cut out. Strong silhouette. Opaque fills only. No outer glow.
+
+TEXT (mandatory, exact glyphs, Simplified Chinese):
+村口大战外星人
+Never miss, add, or rearrange characters. No English.
+
+TOP HALF — Variant A 木牌店招:
+A wide weathered wooden village shop-sign hanging from two short rusty chains.
+Mustard-yellow painted face, chipped edges, rusty nails at four corners.
+Letters painted ON the board in two centered rows:
+  村口大战
+  外星人
+Cream fill #FFF4C4, thick ink outline, tiny rust chips on a couple strokes.
+Small pot-lid and wrench doodles at the left/right ends of the board, not covering glyphs.
+
+BOTTOM HALF — Variant B 贴纸字标:
+NO wooden board. Just the seven characters as fat vinyl sticker letters,
+two centered rows (村口大战 / 外星人), cream fill, mustard inner rim, fat black outline.
+Tiny decorations tucked beside letters only: one grey-violet UFO near 外,
+one rust-red pot-lid near 村. Letters must stay fully readable.
+Opaque sticker look, no glass, no glow.
+
+Hard bans both halves: no extra words, no UI frame, no phone, no progress bar,
+no people, no city skyline. Magenta must stay clean around the logo silhouette.

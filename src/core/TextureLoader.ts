@@ -73,6 +73,7 @@ const VILLAGE_BG = 'images/bg_village.jpg';
 const YARD_BG = 'images/bg_yard.jpg';
 
 export const UI_FILES = [
+  'title_logo',
   'title_plaque',
   'play_plate',
   'door_squad',
@@ -114,6 +115,8 @@ export function uiTex(name: UiName): PIXI.Texture | null {
 
 /** Loading 首屏插画，须在主包，勿走 CDN */
 export const LOADING_SPLASH = 'images/loading_splash.jpg';
+/** Loading / 村子主页标题字标，须在主包 */
+export const LOADING_TITLE = 'images/ui_title_logo.png';
 
 /** 村子主页：局外件 + 立绘 + 局里那套闲置精灵（主页站位跟战场共用） */
 export function villageArtPaths(): string[] {

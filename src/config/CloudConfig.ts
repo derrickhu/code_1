@@ -32,4 +32,23 @@ export const GAME_KEY = getScopedGameKey();
 export const BACKEND_TOKEN_KEY = scopedStorageKey('token');
 export const BACKEND_ANON_ID_KEY = scopedStorageKey('anon_id');
 
+/** 本地养成存档（与 SCOPED GAME_KEY 绑定） */
+export const SAVE_KEY = scopedStorageKey('run_memory');
+
+export const CLOUD_SYNC_SCHEMA_VERSION = 1;
+export const CLOUD_SYNC_META_KEY = scopedStorageKey('cloud_meta');
+
+/** 参与云同步的本地 storage key（value 为原始 JSON 字符串） */
+export const CLOUD_SYNC_ALLOWLIST = [SAVE_KEY] as const;
+
+export const CLOUD_SYNC_STARTUP_TIMEOUT_MS = 2500;
+export const CLOUD_SYNC_DEBOUNCE_MS = 1500;
+export const CLOUD_SYNC_BASE_DELAY_MS = 1500;
+export const CLOUD_SYNC_MAX_BACKOFF_MS = 30000;
+export const CLOUD_SYNC_MAX_FAIL_COUNT = 5;
+export const CLOUD_SYNC_RETRY_INTERVAL_MS = 60000;
+export const CLOUD_SYNC_LOG_THRESHOLD = 3;
+
+export type CloudSyncKey = typeof CLOUD_SYNC_ALLOWLIST[number];
+
 export { BASE_GAME_KEY, getScopedGameKey, scopedStorageKey } from '@/config/gameKeyScope';

@@ -1,4 +1,5 @@
-import { scopedStorageKey } from '@/config/gameKeyScope';
+import { SAVE_KEY } from '@/config/CloudConfig';
+import { PersistService } from '@/core/PersistService';
 import { Platform } from '@/core/PlatformService';
 import type { RewardSource } from '@/balance/rewards';
 import {
@@ -20,15 +21,15 @@ import {
   migrateStageTop,
 } from '@/balance/stages';
 
-const KEY = scopedStorageKey('run_memory');
+const KEY = SAVE_KEY;
 const LEGACY_KEY = 'code1_run_memory';
 
 function readRaw(): string | null {
-  const cur = Platform.getStorageSync(KEY);
+  const cur = PersistService.readRaw(KEY);
   if (cur) return cur;
   const old = Platform.getStorageSync(LEGACY_KEY);
   if (old) {
-    try { Platform.setStorageSync(KEY, old); } catch { /* 迁移失败下次再试 */ }
+    try { PersistService.writeRaw(KEY, old); } catch { /* 迁移失败下次再试 */ }
     return old;
   }
   return null;
@@ -217,12 +218,7 @@ export function saveRun(
     squadIds: prev.squadIds,
     nextGiftModId: prev.nextGiftModId,
   };
-  try {
-    Platform.setStorageSync(KEY, JSON.stringify(next));
-  } catch {
-    /* 模拟器偶发写失败，不挡再来一局 */
-  }
-  return next;
+  return persist(next);
 }
 
 export function consumeNextScrap(): { amount: number; source: RewardSource } {
@@ -230,12 +226,7 @@ export function consumeNextScrap(): { amount: number; source: RewardSource } {
   const amount = prev.nextScrap;
   const source = prev.nextScrapSource;
   if (amount <= 0) return { amount: 0, source };
-  const next: RunMemory = { ...prev, nextScrap: 0 };
-  try {
-    Platform.setStorageSync(KEY, JSON.stringify(next));
-  } catch {
-    /* */
-  }
+  persist({ ...prev, nextScrap: 0 });
   return { amount, source };
 }
 
@@ -243,45 +234,28 @@ export function consumeNextScrap(): { amount: number; source: RewardSource } {
 export function stashNextScrap(amount: number, source: RewardSource): RunMemory {
   const prev = loadMemory();
   const add = Math.max(0, Math.floor(amount));
-  const next: RunMemory = { ...prev, nextScrap: add, nextScrapSource: source };
-  try {
-    Platform.setStorageSync(KEY, JSON.stringify(next));
-  } catch {
-    /* */
-  }
-  return next;
+  return persist({ ...prev, nextScrap: add, nextScrapSource: source });
 }
 
 export function consumeNextPin(): string {
   const prev = loadMemory();
   const id = prev.nextPinModId;
   if (!id) return '';
-  const next: RunMemory = { ...prev, nextPinModId: '' };
-  try {
-    Platform.setStorageSync(KEY, JSON.stringify(next));
-  } catch {
-    /* */
-  }
+  persist({ ...prev, nextPinModId: '' });
   return id;
 }
 
 export function stashNextPin(modId: string): RunMemory {
   const prev = loadMemory();
-  const next: RunMemory = { ...prev, nextPinModId: modId };
-  try {
-    Platform.setStorageSync(KEY, JSON.stringify(next));
-  } catch {
-    /* */
-  }
-  return next;
+  return persist({ ...prev, nextPinModId: modId });
 }
 
 function persist(next: RunMemory): RunMemory {
   const out = { ...next, campaignRev: 2 };
   try {
-    Platform.setStorageSync(KEY, JSON.stringify(out));
+    PersistService.writeRaw(KEY, JSON.stringify(out));
   } catch {
-    /* */
+    /* 模拟器偶发写失败，不挡再来一局 */
   }
   return out;
 }

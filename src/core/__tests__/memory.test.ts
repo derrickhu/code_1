@@ -8,6 +8,9 @@ vi.mock('@/core/PlatformService', () => ({
     setStorageSync: (k: string, v: string) => {
       store.set(k, v);
     },
+    removeStorageSync: (k: string) => {
+      store.delete(k);
+    },
   },
 }));
 
