@@ -200,13 +200,22 @@ const ENEMY: Readonly<Record<EnemyFx, FxLook>> = {
   },
 };
 
+/**
+ * 每件家伙飞出去长什么样。**key 是家伙 id，不是村民 id** ——
+ * 手上拿什么由「村民 + 进化阶」决定（gear.handIdOf），所以皮也跟着家伙走：
+ * 电锯哥二阶换上电锯，屏幕上就该从菜刀的抛物线变成电锯的当场溅火。
+ *
+ * 这里只管「看起来怎么样」。「打起来怎么样」（motion、音效、是否飞行）
+ * 由 balance/fx.FX_BY_STAGE 那一层的 AttackFx 决定，两者刻意分开：
+ * 同一把弹弓在二阶「一发穿两个」，弹体还是石子，但行为已经是 pierce。
+ */
 const SKIN: Readonly<Record<string, Partial<FxLook>>> = {
-  tiezhu: { tint: 0xc4b8a0, instant: true, dry: true, swing: true, proj: undefined },
-  dachui: { tint: 0xc9a46a, instant: true, dry: true, swing: true, ring: false },
-  laoli: { tint: 0xd8c8b0, dry: true, proj: 'cleaver', projPx: 52, spin: 14, loft: 16 },
-  erjiu: { tint: 0x6a8aaa, dry: true, proj: 'needle', projPx: 40, loft: 8 },
-  sanshen: { tint: 0xa78b5a, dry: true, curve: true, proj: 'disc', projPx: 56, spin: 10 },
-  laoyanqiang: { tint: 0xc4b59a, dry: true, loft: 40, proj: 'pebble', projPx: 48 },
+  wrench: { tint: 0xc4b8a0, instant: true, dry: true, swing: true, proj: undefined },
+  hammer: { tint: 0xc9a46a, instant: true, dry: true, swing: true, ring: false },
+  cleaver: { tint: 0xd8c8b0, dry: true, proj: 'cleaver', projPx: 52, spin: 14, loft: 16 },
+  driver: { tint: 0x6a8aaa, dry: true, proj: 'needle', projPx: 40, loft: 8 },
+  radio: { tint: 0xa78b5a, dry: true, curve: true, proj: 'disc', projPx: 56, spin: 10 },
+  sling: { tint: 0xc4b59a, dry: true, loft: 40, proj: 'pebble', projPx: 48 },
   pipe: { tint: 0x8aa0aa, dry: true, proj: 'pipe', projPx: 48 },
   weight: { tint: 0x5c5346, dry: true, swing: true, loft: 22, proj: 'weight', projPx: 44, spin: 8, ring: false },
   blower: { tint: 0x7a9e7e, dry: true, curve: true, proj: 'leaf', projPx: 36 },
@@ -220,40 +229,6 @@ const SKIN: Readonly<Record<string, Partial<FxLook>>> = {
   firecracker: { tint: 0xe85a2a, dry: false, proj: 'cracker', projPx: 34 },
   pot: { tint: 0xb87333, dry: true, swing: true, loft: 20, proj: 'pot', projPx: 48, spin: 9, ring: false },
   speaker: { tint: 0x7c6a4a, dry: true, curve: true, proj: 'disc', projPx: 54, spin: 9 },
-  sickle: { tint: 0x8a9a4a, dry: true, loft: 14, proj: 'sickle', projPx: 48, spin: 12 },
-  foam: {
-    tint: 0xe8e8e0, dry: true, curve: true, proj: 'foam', projPx: 40,
-    plates: [{ name: 'glow', tint: 0xf4f4ee, s0: 0.16, s1: 0.3, life: 0.12 }],
-    spray: { n: 8, kind: 'glow', speed: 60, tint: 0xf4f4ee, gy: -10 },
-  },
-  sack: { tint: 0xa89060, dry: true, loft: 24, proj: 'sack', projPx: 44, spin: 6 },
-  shovel: { tint: 0x8b7355, dry: true, proj: 'shovel', projPx: 50, loft: 12 },
-  battery: {
-    tint: 0x3d6b4f, dry: true, proj: 'battery', projPx: 40,
-    plates: [{ name: 'bolt', tint: 0x86efac, s0: 0.26, s1: 0.3, life: 0.28 }],
-    spray: { n: 4, kind: 'spark', speed: 70, tint: 0x86efac },
-  },
-  slingshot: { tint: 0xb8a078, dry: true, loft: 40, proj: 'pebble', projPx: 48, beam: false, ribbon: false },
-  stool: { tint: 0x8b5a2b, dry: true, loft: 20, proj: 'stool', projPx: 46, spin: 8, ring: false },
-  chili: {
-    tint: 0xc43c2a, dry: true, loft: 18, proj: 'chili', projPx: 32,
-    plates: [{ name: 'glow', tint: 0xe07040, s0: 0.14, s1: 0.26, life: 0.1 }],
-    spray: { n: 8, kind: 'spark', speed: 70, tint: 0xc43c2a, gy: -20 },
-  },
-  fridge: { tint: 0x9aa8b0, dry: true, loft: 10, proj: 'fridge', projPx: 56, speed: 320, ring: false },
-  gascan: { tint: 0xe07020, proj: 'gascan', projPx: 42, loft: 14 },
-  thermos: { tint: 0xc45c4c, dry: true, loft: 20, proj: 'thermos', projPx: 40, spin: 7 },
-  bell: {
-    tint: 0xe8c84a, dry: true, loft: 16, proj: 'bell', projPx: 36, spin: 11,
-    plates: [{ name: 'flash', tint: 0xffe08a, s0: 0.12, s1: 0.22, life: 0.08 }],
-    spray: { n: 5, kind: 'spark', speed: 60, tint: 0xe8c84a },
-  },
-  longsaw: { tint: 0xe07030, instant: true },
-  doorcannon: { tint: 0xd4b45a, dry: true, swing: true, ring: false },
-  windcrack: { tint: 0xff7a3a, proj: 'cracker', projPx: 36, loft: 18 },
-  beatrack: { tint: 0x9a7a40, dry: true, beam: false, proj: 'disc', projPx: 48, spin: 10 },
-  coldwind: { tint: 0xc8d8d0, dry: true, curve: true, proj: 'foam', projPx: 40 },
-  harvest: { tint: 0x6a8a3a, dry: true, beam: false, proj: 'sickle', projPx: 48, spin: 12, loft: 12 },
 };
 
 export const ATTACK_FX: readonly AttackFx[] = [

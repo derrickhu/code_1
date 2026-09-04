@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACK_FX, ENEMY_FX, FX_SKINS, attackLook, enemyLook, shouldFly, shotFlight, skinLook } from '@/fx/FxRecipe';
 import { projSprite, resolveAttackFx, resolveFxSkin } from '@/balance/fx';
-import { getHero } from '@/balance/heroes';
-import { getMod, MODS } from '@/balance/mods';
+import { getVillager, VILLAGERS } from '@/balance/villagers';
+import { HAND_GEAR, handIdOf } from '@/balance/gear';
 
 describe('观战配方', () => {
   it('每种村民出手都有自己的色和落点，不共用一张光', () => {
@@ -69,16 +69,19 @@ describe('观战配方', () => {
     expect(projSprite('slash')).toBe('cleaver');
     expect(attackLook('slash').dry).toBe(true);
     expect(attackLook('slash').ribbon).toBeFalsy();
-    expect(resolveAttackFx(getHero('sanshen'), [])).toBe('orb');
-    expect(resolveAttackFx(getHero('sanshen'), [getMod('helmet'), getMod('quilt')])).toBe('orb');
-    expect(resolveAttackFx(getHero('erjiu'), [])).toBe('bolt');
-    expect(resolveAttackFx(getHero('laoli'), [])).toBe('slash');
-    expect(resolveFxSkin(getHero('laoli'), [])).toBe('laoli');
-    expect(resolveFxSkin(getHero('erjiu'), [getMod('wire')])).toBe('wire');
-    expect(resolveFxSkin(getHero('sanshen'), [getMod('dogleash')])).toBe('sanshen');
+    expect(resolveAttackFx(getVillager('sanshen'), 1)).toBe('orb');
+    expect(resolveAttackFx(getVillager('erjiu'), 1)).toBe('bolt');
+    expect(resolveAttackFx(getVillager('laoli'), 1)).toBe('slash');
+    // 进化换打法：电锯哥二阶拉响电锯，王大锤三阶扛来风镐
+    expect(resolveAttackFx(getVillager('dianju'), 1)).toBe('slash');
+    expect(resolveAttackFx(getVillager('dianju'), 2)).toBe('saw');
+    expect(resolveAttackFx(getVillager('dachui'), 3)).toBe('poke');
+    // 皮跟着手上那一件走，不跟着人走
+    expect(resolveFxSkin(getVillager('laoli'), 1)).toBe('cleaver');
+    expect(resolveFxSkin(getVillager('dianju'), 2)).toBe('chainsaw');
   });
 
-  it('每件出手破烂都有自己的皮，不共用一张光', () => {
+  it('每件家伙都有自己的皮，不共用一张光', () => {
     const tints = new Set<number>();
     for (const id of FX_SKINS) {
       const look = skinLook(id);
@@ -86,9 +89,17 @@ describe('观战配方', () => {
       tints.add(look.tint);
     }
     expect(tints.size).toBe(FX_SKINS.length);
-    const attackMods = MODS.filter((m) => !['helmet', 'quilt', 'steelplate', 'pressurecooker', 'dogleash', 'chickenfeed', 'holler'].includes(m.id));
-    for (const m of attackMods) {
-      expect(FX_SKINS.includes(m.id)).toBe(true);
+    // 皮表和家伙表必须一一对上，否则某个进化阶会退回默认那张光
+    for (const id of Object.keys(HAND_GEAR)) {
+      expect(FX_SKINS.includes(id), `家伙 ${id} 没有皮`).toBe(true);
+    }
+  });
+
+  it('每个村民的每一阶都能取到皮', () => {
+    for (const v of VILLAGERS) {
+      for (const st of [1, 2, 3]) {
+        expect(FX_SKINS.includes(handIdOf(v.id, st))).toBe(true);
+      }
     }
   });
 

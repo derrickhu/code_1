@@ -15,24 +15,24 @@ vi.mock('@/core/PlatformService', () => ({
 
 import { SAVE_KEY } from '@/config/CloudConfig';
 import { PersistService } from '@/core/PersistService';
-import { saveRun } from '@/core/RunMemory';
+import { settleStage } from '@/core/RunMemory';
 
 describe('云同步快照', () => {
   beforeEach(() => store.clear());
 
   it('写养成存档会标脏并打进 payload', () => {
-    saveRun(3, ['tiezhu'], { cleared: true, ladderLv: 0, combos: [], stageId: 1 });
+    settleStage(1, true, 3);
     expect(PersistService.isCloudDirty()).toBe(true);
     const snap = PersistService.exportCloudSnapshot();
     expect(snap.payloadKeys).toEqual([SAVE_KEY]);
-    expect(snap.payload[SAVE_KEY]).toContain('"highestWave":3');
+    expect(snap.payload[SAVE_KEY]).toContain('"stageTop":2');
   });
 
   it('空远端 payload 导入不会在本测试里被调用；本地档能单独导出', () => {
-    store.set(SAVE_KEY, JSON.stringify({ highestWave: 9, campaignRev: 2 }));
+    store.set(SAVE_KEY, JSON.stringify({ rev: 3, stageTop: 9 }));
     PersistService.touchCloudMeta(123);
     const snap = PersistService.exportCloudSnapshot();
     expect(snap.updatedAt).toBe(123);
-    expect(snap.payload[SAVE_KEY]).toContain('"highestWave":9');
+    expect(snap.payload[SAVE_KEY]).toContain('"stageTop":9');
   });
 });

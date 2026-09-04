@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { HEROES } from '@/balance/heroes';
-import { ENEMY_PROTOS } from '@/balance/enemies';
-import { HAND_GEAR, isHandMod, resolveHandGear, wornModIds } from '@/balance/gear';
+import { LEGACY_IDS, VILLAGERS } from '@/balance/villagers';
+import { ENEMIES } from '@/balance/stages';
+import { HAND_GEAR, handIdOf, resolveHandGear, wearOf } from '@/balance/gear';
 import { CLIP_BODY, clipBody } from '@/fx/spriteBody';
 import { contactAt, motionFor, releaseAt, swingKeyframes } from '@/fx/UnitActor';
 
 describe('clipBody', () => {
-  it('每个上场单位都有身体高度，避免出手按整帧压小', () => {
-    for (const h of HEROES) expect(CLIP_BODY[h.id]?.idle).toBeGreaterThan(80);
-    for (const e of ENEMY_PROTOS) expect(CLIP_BODY[e.id]?.idle).toBeGreaterThan(80);
+  it('有帧动画的单位都有身体高度，避免出手按整帧压小', () => {
+    // 只校验有帧动画的那几个。新加的 14 个村民还没有立绘，
+    // 走程序动作，不进 CLIP_BODY（见 TextureLoader.preloadBattleArt 的注释）
+    for (const id of LEGACY_IDS) expect(CLIP_BODY[id]?.idle).toBeGreaterThan(80);
+    for (const e of ENEMIES) {
+      if (CLIP_BODY[e.id]) expect(CLIP_BODY[e.id]?.idle).toBeGreaterThan(80);
+    }
   });
 
   it('大锤走重击抡砸，不走突刺', () => {
@@ -50,18 +54,36 @@ describe('clipBody', () => {
 });
 
 describe('手脚分层', () => {
-  it('每人有起手家伙，装手持破烂才换手上的', () => {
-    expect(resolveHandGear('dachui', []).id).toBe('hammer');
-    expect(resolveHandGear('dachui', ['helmet']).id).toBe('hammer');
-    expect(resolveHandGear('dachui', ['helmet', 'chainsaw']).id).toBe('chainsaw');
-    expect(resolveHandGear('tiezhu', ['pipe', 'quilt']).id).toBe('pipe');
+  it('手上拿什么跟着进化阶换', () => {
+    expect(resolveHandGear('dachui', 1).id).toBe('hammer');
+    expect(resolveHandGear('dachui', 2).id).toBe('hammer');
+    // 三阶「扛来工地的风镐」，家伙必须跟着 pitch 换
+    expect(resolveHandGear('dachui', 3).id).toBe('pipe');
+    expect(resolveHandGear('dianju', 1).id).toBe('cleaver');
+    expect(resolveHandGear('dianju', 2).id).toBe('chainsaw');
   });
 
-  it('头盔棉被钢板是穿的，不占手', () => {
-    expect(isHandMod('helmet')).toBe(false);
-    expect(isHandMod('chainsaw')).toBe(true);
-    expect(wornModIds(['helmet', 'chainsaw', 'quilt'], 'head')).toEqual(['helmet']);
-    expect(wornModIds(['helmet', 'chainsaw', 'quilt'], 'body')).toEqual(['quilt']);
+  it('每个村民三阶都在家伙表里，且贴图存在', () => {
+    for (const v of VILLAGERS) {
+      for (const st of [1, 2, 3]) {
+        const id = handIdOf(v.id, st);
+        expect(HAND_GEAR[id], `${v.name} 第 ${st} 阶的 ${id} 没有贴图`).toBeDefined();
+      }
+    }
+  });
+
+  /*
+   * §4.1 是硬约束：进化必须看得见。手上那一件 + 身上穿戴，
+   * 三阶之间至少得有一处不同，否则玩家花了 520 废铁 22 零件看不出变化。
+   */
+  it('每个村民的三阶轮廓都不一样', () => {
+    for (const v of VILLAGERS) {
+      const looks = [1, 2, 3].map((st) => {
+        const w = wearOf(v.id, v.lane, st);
+        return `${handIdOf(v.id, st)}|${w.head ?? ''}|${w.back ?? ''}|${w.body ?? ''}`;
+      });
+      expect(new Set(looks).size, `${v.name} 的三阶看起来一样`).toBe(3);
+    }
   });
 
   it('每件手持家伙都有贴图路径', () => {

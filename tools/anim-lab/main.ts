@@ -4,9 +4,9 @@
  */
 import * as PIXI from 'pixi.js';
 import type { AttackFx } from '@/balance/fx';
-import { HAND_GEAR, STARTER_HAND } from '@/balance/gear';
-import { HEROES } from '@/balance/heroes';
-import { getMod } from '@/balance/mods';
+import { resolveAttackFx } from '@/balance/fx';
+import { HAND_GEAR, handIdOf, wearOf } from '@/balance/gear';
+import { VILLAGERS, getVillager } from '@/balance/villagers';
 import { preloadBattleArt, watchArt } from '@/core/TextureLoader';
 import { motionFor, UnitActor } from '@/fx/UnitActor';
 
@@ -34,11 +34,15 @@ const HAND_CHOICES = [
   { id: 'wire', name: '电线' },
 ] as const;
 
-const WEAR_CHOICES = [
-  { id: 'helmet', name: '头盔' },
-  { id: 'quilt', name: '棉被' },
-  { id: 'steelplate', name: '钢板' },
-  { id: 'pressurecooker', name: '高压锅' },
+/**
+ * 穿戴不再手挑：这一版身上穿什么由「村民 + 进化阶」定死（gear.wearOf）。
+ * 预览台要看的就是**这三阶到底分不分得开**（§4.1 的硬约束），
+ * 所以这里挑的是阶，不是零件。
+ */
+const STAGE_CHOICES = [
+  { id: '1', name: '一阶' },
+  { id: '2', name: '二阶' },
+  { id: '3', name: '三阶' },
 ] as const;
 
 const GEAR_FX: Readonly<Record<string, AttackFx>> = {
@@ -91,35 +95,45 @@ app.stage.addChild(actor.view);
 
 let heroId = 'dachui';
 let handId = '';
-let worn = new Set<string>();
+let evoStage = 1;
 let faceRight = true;
 let auto = true;
 let acc = 0;
 
 function currentHand(): string {
-  return handId || STARTER_HAND[heroId] || 'wrench';
+  return handId || handIdOf(heroId, evoStage);
+}
+
+/** 这一阶实际用的打击特效。不传 handId 时就是局里那一下 */
+function currentFx(): AttackFx {
+  if (handId) return GEAR_FX[handId] ?? 'slash';
+  return resolveAttackFx(getVillager(heroId), evoStage);
 }
 
 function apply(): void {
-  const mods = [...worn];
-  actor.bindHero(heroId, mods);
-  actor.equip(mods, currentHand());
+  const v = getVillager(heroId);
+  actor.bindHero(v.id, v.lane, evoStage);
+  actor.equip(evoStage, handId || undefined);
   actor.place(FEET_X, FEET_Y, BODY);
   actor.faceToward(faceRight ? FEET_X + 200 : FEET_X - 200);
   dummy.position.set(faceRight ? 520 : 120, 250);
-  const fx = GEAR_FX[currentHand()] ?? 'slash';
-  const hero = HEROES.find((h) => h.id === heroId);
   const gear = HAND_GEAR[currentHand()];
+  const wear = wearOf(v.id, v.lane, evoStage);
+  const on = [wear.head, wear.back, wear.body].filter(Boolean).join(' + ') || '空手空身';
   const now = document.getElementById('now');
   if (now) {
-    now.textContent = `${hero?.name ?? heroId} · ${gear?.id ?? currentHand()} · ${MOTION_NAME[motionFor(fx)] ?? fx}`;
+    now.textContent = [
+      `${v.name} ${'一二三'[evoStage - 1]}阶「${v.evo[evoStage - 1]!.name}」`,
+      gear?.id ?? currentHand(),
+      on,
+      MOTION_NAME[motionFor(currentFx())] ?? currentFx(),
+    ].join(' · ');
   }
   paintButtons();
 }
 
 function swing(): void {
-  const fx = GEAR_FX[currentHand()] ?? 'slash';
-  actor.playAttack(dummy.x, dummy.y, motionFor(fx));
+  actor.playAttack(dummy.x, dummy.y, motionFor(currentFx()));
 }
 
 function paintButtons(): void {
@@ -128,14 +142,14 @@ function paintButtons(): void {
     const id = btn.dataset.id ?? '';
     if (kind === 'hero') btn.classList.toggle('on', id === heroId);
     if (kind === 'hand') btn.classList.toggle('on', id === handId);
-    if (kind === 'wear') btn.classList.toggle('on', worn.has(id));
+    if (kind === 'wear') btn.classList.toggle('on', id === String(evoStage));
     if (kind === 'face') btn.classList.toggle('on', id === (faceRight ? 'right' : 'left'));
   }
 }
 
 function mount(): void {
   const heroes = document.getElementById('heroes')!;
-  for (const h of HEROES) {
+  for (const h of VILLAGERS) {
     const b = document.createElement('button');
     b.textContent = h.name;
     b.dataset.kind = 'hero';
@@ -161,15 +175,13 @@ function mount(): void {
   }
 
   const wearBox = document.getElementById('worn')!;
-  for (const item of WEAR_CHOICES) {
+  for (const item of STAGE_CHOICES) {
     const b = document.createElement('button');
     b.textContent = item.name;
     b.dataset.kind = 'wear';
     b.dataset.id = item.id;
-    b.title = getMod(item.id).name;
     b.addEventListener('click', () => {
-      if (worn.has(item.id)) worn.delete(item.id);
-      else worn.add(item.id);
+      evoStage = Number(item.id);
       apply();
     });
     wearBox.appendChild(b);

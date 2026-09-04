@@ -2,10 +2,10 @@ import * as PIXI from 'pixi.js';
 import { bindPointerTap } from '@/minigame';
 import { Game } from '@/core/Game';
 import type { RunMemory } from '@/core/RunMemory';
-import type { LoseReason, RunState } from '@/game/BattleEngine';
+import { totalStars } from '@/core/RunMemory';
+import type { BattleState, Fighter, LoseReason } from '@/game/BattleEngine';
 import {
   heroTex,
-  modTex,
   uiTex,
   villageBgTex,
   watchArt,
@@ -18,19 +18,18 @@ const CREAM = 0xfff4c4;
 const GAP = 12;
 
 type SettleOpts = {
-  scrap: number;
+  /** 这一关结算给的废铁 */
   earned: number;
-  spent: number;
-  canDouble: boolean;
-  canJunkyard: boolean;
+  /** 村里现有废铁 */
+  scrap: number;
+  /** 这一关给了几发弹子 */
+  pellets: number;
   loseReason?: LoseReason;
-  /** 这一局叫什么。结算认这句，不认总伤害 */
+  /** 一句话说清这一关是怎么过 / 怎么崩的。结算认这句，不认总伤害 */
   identity?: string;
   nextMove?: string;
-  yardScrap?: number;
-  yardIn?: number;
-  yardGoal?: string;
   nextStageLabel?: string;
+  canDouble: boolean;
 };
 
 type Slot = {
@@ -38,9 +37,14 @@ type Slot = {
   draw: (cy: number) => void;
 };
 
-/** 看广告后带进下一局开场的废品，和 stashNextScrap 同一条式子 */
-function carryScrap(scrap: number): number {
-  return Math.max(16, scrap * 2);
+/** 看广告翻倍之后这一关一共给多少废铁 */
+function doubled(earned: number): number {
+  return Math.max(16, earned * 2);
+}
+
+/** ★★☆ 这种写法。结算页的主信息之一，不许只写「通关」 */
+function starMarks(stars: number): string {
+  return '★'.repeat(Math.max(0, stars)) + '☆'.repeat(Math.max(0, 3 - stars));
 }
 
 function stroke(size: number, fill: number, rim = '#1a1008', thick = 4): PIXI.Text {
@@ -75,24 +79,36 @@ function fillSprite(
   return spr;
 }
 
-function lineupXs(roster: { slot: number }[]): Map<number, number> {
-  const sorted = [...roster].sort((a, b) => a.slot - b.slot);
-  const n = sorted.length;
-  const out = new Map<number, number>();
-  if (n === 0) return out;
-  if (n === 1) {
-    out.set(sorted[0]!.slot, 375);
-    return out;
+/**
+ * 结算页最多站几个人。
+ *
+ * 满级能上 8 个，全画上去就成了一排小人 —— 反目标第二条要的是「脸认得出」，
+ * 8 张 90px 的立绘做不到。所以结算只挑 3 个讲故事的：
+ * 输了挑倒下的（他们就是故事），赢了挑阶数最高的（那是玩家的成果）。
+ */
+const SETTLE_CAST = 3;
+
+function castOf(team: readonly Fighter[], won: boolean): Fighter[] {
+  const pool = [...team];
+  if (!won) {
+    const fallen = pool.filter((f) => !f.alive);
+    if (fallen.length > 0) {
+      return fallen
+        .sort((a, b) => a.lane - b.lane || a.cell - b.cell)
+        .slice(0, SETTLE_CAST);
+    }
   }
-  if (n === 2) {
-    out.set(sorted[0]!.slot, 258);
-    out.set(sorted[1]!.slot, 492);
-    return out;
-  }
-  for (const h of sorted) {
-    out.set(h.slot, h.slot === 1 ? 198 : h.slot === 2 ? 552 : 375);
-  }
-  return out;
+  return pool
+    .sort((a, b) => b.evoStage - a.evoStage || b.stars - a.stars || a.lane - b.lane)
+    .slice(0, SETTLE_CAST);
+}
+
+/** 一排人横向铺开的 x。人少就往中间收，别贴着边站 */
+function lineupXs(n: number): number[] {
+  if (n <= 0) return [];
+  if (n === 1) return [375];
+  if (n === 2) return [258, 492];
+  return [198, 375, 552];
 }
 
 function standSprite(
@@ -113,19 +129,28 @@ function standSprite(
   return spr;
 }
 
+/** 底下那一行小字：这一关的成绩 + 全局进度 */
+function footLine(state: BattleState, memory: RunMemory, opts: SettleOpts): string {
+  const fallen = state.team.filter((f) => !f.alive).length;
+  return [
+    `上场 ${state.team.length} 人`,
+    fallen > 0 ? `倒了 ${fallen} 个` : '一个没倒',
+    opts.loseReason === undefined && state.leaked > 0 ? `漏 ${state.leaked}` : '',
+    `累计 ${totalStars(memory)} 星`,
+  ].filter(Boolean).join(' · ');
+}
+
 export class SettleOverlay extends PIXI.Container {
   private readonly _onReplay: () => void;
   private readonly _onDouble: () => Promise<boolean>;
-  private readonly _onJunkyard: () => Promise<boolean>;
   private readonly _onYard: () => void;
   private readonly _onNext: () => void;
   private _busy = false;
   private _tookDouble = false;
-  private _tookJunk = false;
   private _adPulse: PIXI.Container[] = [];
   private _pulseT = 0;
   private _held: {
-    state: RunState;
+    state: BattleState;
     memory: RunMemory;
     height: number;
     opts: SettleOpts;
@@ -134,14 +159,12 @@ export class SettleOverlay extends PIXI.Container {
   constructor(
     onReplay: () => void,
     onDouble: () => Promise<boolean>,
-    onJunkyard: () => Promise<boolean>,
     onYard: () => void,
     onNext: () => void,
   ) {
     super();
     this._onReplay = onReplay;
     this._onDouble = onDouble;
-    this._onJunkyard = onJunkyard;
     this._onYard = onYard;
     this._onNext = onNext;
     this.visible = false;
@@ -153,7 +176,7 @@ export class SettleOverlay extends PIXI.Container {
     });
   }
 
-  show(state: RunState, memory: RunMemory, height: number, opts: SettleOpts): void {
+  show(state: BattleState, memory: RunMemory, height: number, opts: SettleOpts): void {
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.visible = true;
     this._held = { state, memory, height, opts };
@@ -167,9 +190,9 @@ export class SettleOverlay extends PIXI.Container {
     }
 
     const top = Math.max(Game.safeTop, 28);
-    const title = '整挺好';
+    const title = '守住了';
 
-    const roster = [...state.team].sort((a, b) => a.slot - b.slot);
+    const cast = castOf(state.team, true);
     const plaque = fitted('title_plaque', 700, 380);
     const plaqueY = top + plaque.h * 0.48;
     fitSprite(this, uiTex('title_plaque'), 375, plaqueY, 700, 380);
@@ -179,10 +202,17 @@ export class SettleOverlay extends PIXI.Container {
     titleTx.text = title;
     this.addChild(titleTx);
 
+    // 星评是主信息之一：三档要分得开，玩家才有理由回头重打
+    const starTx = stroke(38, GOLD, '#2a160c', 6);
+    starTx.anchor.set(0.5);
+    starTx.position.set(375, plaqueY + plaque.h * 0.3);
+    starTx.text = starMarks(state.stars);
+    this.addChild(starTx);
+
     if (opts.identity) {
       const idTx = stroke(20, GOLD, '#2a160c', 4);
       idTx.anchor.set(0.5);
-      idTx.position.set(375, plaqueY + plaque.h * 0.32);
+      idTx.position.set(375, plaqueY + plaque.h * 0.42);
       idTx.text = opts.identity;
       this.addChild(idTx);
     }
@@ -195,7 +225,7 @@ export class SettleOverlay extends PIXI.Container {
     const nextBtn = fitted('settle_btn', 400, 86);
     const footBtn = fitted('settle_btn', 300, 92);
     const namePlate = fitted('settle_name', 168, 48);
-    const carry = carryScrap(opts.scrap);
+    const carry = doubled(opts.earned);
     this._adPulse = [];
 
     const footerY = height - Game.safeBottom - 20 - footBtn.h / 2;
@@ -215,10 +245,7 @@ export class SettleOverlay extends PIXI.Container {
         const foot = stroke(16, 0xffe08a, '#1a1008', 3);
         foot.anchor.set(0.5);
         foot.position.set(375, cy);
-        foot.text = [
-          roster.length > 0 ? `改了 ${state.stats.installs} 件` : '一个人都没叫',
-          memory.highestWave > 0 ? `最高第 ${memory.highestWave} 波` : '',
-        ].filter(Boolean).join(' · ');
+        foot.text = footLine(state, memory, opts);
         this.addChild(foot);
       },
     });
@@ -227,32 +254,13 @@ export class SettleOverlay extends PIXI.Container {
       slots.push({
         h: adBtn.h,
         draw: (cy) => {
-          this._adBtn(375, cy, 640, 146, `看视频  下局开场带 ${carry}`, async () => {
+          this._adBtn(375, cy, 640, 146, `看视频  废铁翻倍拿 ${carry}`, async () => {
             if (this._busy) return;
             this._busy = true;
             const ok = await this._onDouble();
             this._busy = false;
             if (!ok) return;
             this._tookDouble = true;
-            if (this._held) {
-              this.show(this._held.state, this._held.memory, this._held.height, this._held.opts);
-            }
-          });
-        },
-      });
-    }
-
-    if (!this._tookJunk) {
-      slots.push({
-        h: adBtn.h * 0.92,
-        draw: (cy) => {
-          this._adBtn(375, cy, 620, 136, '看视频  翻一件池外破烂', async () => {
-            if (this._busy) return;
-            this._busy = true;
-            const ok = await this._onJunkyard();
-            this._busy = false;
-            if (!ok) return;
-            this._tookJunk = true;
             if (this._held) {
               this.show(this._held.state, this._held.memory, this._held.height, this._held.opts);
             }
@@ -292,28 +300,33 @@ export class SettleOverlay extends PIXI.Container {
     const feetY = nameBottom - namePlate.h;
     const nameCy = nameBottom - namePlate.h / 2;
 
-    const xs = lineupXs(roster);
-    for (const hero of roster) {
-      const x = xs.get(hero.slot) ?? 375;
-      const mid = hero.slot === 0 || roster.length === 1;
-      standSprite(this, heroTex(hero.def.id), x, feetY, mid ? 156 : 132, mid ? 184 : 156);
-      this._chip('settle_name', x, nameCy, 168, 48, hero.def.name, 17, CREAM);
-      hero.mods.forEach((m, k) => {
-        const n = hero.mods.length;
-        fitSprite(this, modTex(m.id), x + (k - (n - 1) / 2) * 36, feetY - 8, 32, 32);
-      });
-    }
+    const xs = lineupXs(cast.length);
+    cast.forEach((f, i) => {
+      const x = xs[i] ?? 375;
+      const mid = cast.length === 1 || i === 1;
+      standSprite(this, heroTex(f.def.id), x, feetY, mid ? 156 : 132, mid ? 184 : 156);
+      this._chip('settle_name', x, nameCy, 168, 48, f.def.name, 17, CREAM);
+      // 名牌下面写阶数和星，不写数值：玩家认的是「他进到几阶了」
+      const tag = stroke(15, 0xffe08a, '#1a1008', 3);
+      tag.anchor.set(0.5);
+      tag.position.set(x, nameCy + 34);
+      tag.text = `${'一二三'[f.evoStage - 1] ?? '一'}阶${f.stars > 0 ? ` ★${f.stars}` : ''}`;
+      this.addChild(tag);
+    });
   }
+
+  /** 底下那一行小字。写这一关的成绩和总进度，不写伤害统计 */
 
   /**
    * 失败结算按 settle_ui_lose_v2：歪匾、坐马路牙子、下一手是主信息、
    * 废品缩小、再来一局为主，没有广告。
    */
-  private _showLose(state: RunState, memory: RunMemory, height: number, opts: SettleOpts): void {
-    const roster = [...state.team].sort((a, b) => a.slot - b.slot);
+  private _showLose(state: BattleState, memory: RunMemory, height: number, opts: SettleOpts): void {
+    const cast = castOf(state.team, false);
     const top = Math.max(Game.safeTop, 20);
-    const title = opts.loseReason === 'timeout' ? '这波推不动' : '这套配崩了';
-    const hint = opts.nextMove || '下次换个人装试试';
+    // 两种败因要说得不一样：漏怪是「哪一路没挡住」，超时是「清不完」
+    const title = opts.loseReason === 'timeout' ? '清不完' : '让它们过去了';
+    const hint = opts.nextMove || '下次换个排法试试';
 
     const vignette = new PIXI.Graphics();
     vignette.beginFill(0x0a1220, 0.22).drawRect(0, 0, 750, 90).endFill();
@@ -341,7 +354,9 @@ export class SettleOverlay extends PIXI.Container {
     const waveTx = stroke(22, CREAM, '#1a1008', 4);
     waveTx.anchor.set(0.5);
     waveTx.position.set(stampX, stampY + 1);
-    waveTx.text = `第 ${state.wave} 波`;
+    waveTx.text = opts.loseReason === 'timeout'
+      ? `剩 ${state.foes.filter((e) => e.alive).length} 只`
+      : `漏了 ${state.leaked} 个`;
     this.addChild(waveTx);
 
     const hintH = 96;
@@ -357,55 +372,40 @@ export class SettleOverlay extends PIXI.Container {
     const lootCy = capCy - 18 - lootH / 2;
 
     const nameH = 46;
-    const modsH = 30;
+    const tagH = 30;
     const bandTop = hintCy + hintH / 2 + 18;
     const bandBottom = lootCy - lootH / 2 - 14;
-    const labelStack = 12 + nameH + 8 + modsH;
+    const labelStack = 12 + nameH + 8 + tagH;
     const sitH = Math.max(190, Math.min(260, bandBottom - labelStack - bandTop));
     const feetY = bandTop + sitH;
     this._drawCurb(48, feetY - 6, 654, 28);
 
-    const xs = lineupXs(roster);
-    for (const hero of roster) {
-      const x = xs.get(hero.slot) ?? 375;
-      const mid = hero.slot === 0 || roster.length === 1;
-      const spr = standSprite(
-        this,
-        heroTex(hero.def.id),
-        x,
-        feetY + 4,
-        mid ? 200 : 178,
-        sitH,
-      );
+    const xs = lineupXs(cast.length);
+    cast.forEach((f, i) => {
+      const x = xs[i] ?? 375;
+      const mid = cast.length === 1 || i === 1;
+      const spr = standSprite(this, heroTex(f.def.id), x, feetY + 4, mid ? 200 : 178, sitH);
       if (spr) spr.tint = 0xa8a29a;
       fillSprite(this, uiTex('settle_name'), x, feetY + 14 + nameH / 2, 168, nameH);
       const nameTx = stroke(18, CREAM, '#1a1008', 4);
       nameTx.anchor.set(0.5);
       nameTx.position.set(x, feetY + 14 + nameH / 2 + 1);
-      nameTx.text = hero.def.name;
+      nameTx.text = f.def.name;
       this.addChild(nameTx);
-      hero.mods.forEach((m, k) => {
-        const n = hero.mods.length;
-        fitSprite(
-          this,
-          modTex(m.id),
-          x + (k - (n - 1) / 2) * 32,
-          feetY + 14 + nameH + 8 + modsH / 2,
-          28,
-          28,
-        );
-      });
-    }
+      // 站哪一路要写出来。失败页的作用就是回答「我哪一路崩了」
+      const tag = stroke(16, 0xffb8b0, '#1a1008', 3);
+      tag.anchor.set(0.5);
+      tag.position.set(x, feetY + 14 + nameH + 8 + tagH / 2);
+      tag.text = `${'左中右'[f.lane] ?? '中'}路 第${f.cell + 1}格`;
+      this.addChild(tag);
+    });
 
     this._loseLoot(lootCy, { w: 660, h: lootH }, opts);
 
     const cap = stroke(18, CREAM, '#1a1008', 3);
     cap.anchor.set(0.5);
     cap.position.set(375, capCy);
-    cap.text = [
-      roster.length > 0 ? `改了 ${state.stats.installs} 件` : '一个人都没叫',
-      memory.highestWave > 0 ? `最高第 ${memory.highestWave} 波` : '',
-    ].filter(Boolean).join(' · ');
+    cap.text = footLine(state, memory, opts);
     this.addChild(cap);
 
     this._fillBtn(375, replayCy, 560, replayH, '再来一局', 28, () => this._onReplay());
@@ -422,19 +422,17 @@ export class SettleOverlay extends PIXI.Container {
 
   private _loseLoot(cy: number, size: { w: number; h: number }, opts: SettleOpts): void {
     fillSprite(this, uiTex('iron_bar'), 375, cy, size.w, size.h);
-    const got = opts.yardIn ?? opts.earned;
     fitSprite(this, uiTex('scrap_pile'), 375 - size.w * 0.36, cy, 56, 52);
     const plus = stroke(26, CREAM, '#1a1008', 4);
     plus.anchor.set(0, 0.5);
-    plus.text = `+${got} 进废品堆`;
+    // 输了也给弹子。空手回村的人不会再打第二次，而漏怪本身已经罚过一次了
+    plus.text = `+${opts.pellets} 发弹子`;
     plus.position.set(375 - size.w * 0.24, cy);
     this.addChild(plus);
     const have = stroke(16, CREAM, '#1a1008', 3);
     have.anchor.set(1, 0.5);
     have.position.set(375 + size.w * 0.4, cy);
-    have.text = opts.yardIn
-      ? `村里现有 ${opts.yardScrap ?? 0}`
-      : `花了 ${opts.spent} · 剩 ${opts.scrap}`;
+    have.text = `村里废铁 ${opts.scrap}`;
     this.addChild(have);
   }
 
@@ -442,7 +440,6 @@ export class SettleOverlay extends PIXI.Container {
     this.visible = false;
     this._busy = false;
     this._tookDouble = false;
-    this._tookJunk = false;
     this._adPulse = [];
     this._held = null;
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
@@ -457,24 +454,21 @@ export class SettleOverlay extends PIXI.Container {
 
   private _lootCard(cy: number, size: { w: number; h: number }, opts: SettleOpts): void {
     fillSprite(this, uiTex('play_plate'), 375, cy, size.w, size.h);
-    const got = opts.yardIn ?? opts.earned;
     fitSprite(this, uiTex('scrap_pile'), 375 - size.w * 0.34, cy + 4, 96, 88);
     const plus = stroke(58, GOLD, '#1a1008', 7);
     plus.anchor.set(0, 0.5);
-    plus.text = `+${got}`;
+    plus.text = `+${opts.earned}`;
     plus.position.set(375 - size.w * 0.18, cy);
     this.addChild(plus);
     const name = stroke(26, INK, '#fff4c4', 4);
     name.anchor.set(0, 0.5);
     name.position.set(plus.x + plus.width + 12, cy + 4);
-    name.text = '进废品堆';
+    name.text = `废铁 · +${opts.pellets} 发弹子`;
     this.addChild(name);
     const have = stroke(15, INK, '#fff4c4', 3);
     have.anchor.set(1, 0.5);
     have.position.set(375 + size.w * 0.38, cy + size.h * 0.24);
-    have.text = opts.yardIn
-      ? `村里现有 ${opts.yardScrap ?? 0}`
-      : `花了 ${opts.spent} · 剩 ${opts.scrap}`;
+    have.text = `村里废铁 ${opts.scrap}`;
     this.addChild(have);
   }
 

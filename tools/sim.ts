@@ -1,188 +1,144 @@
 /**
- * 数值回归工具：npm run sim
+ * 数值报表：npm run sim
  *
- * 要回答两个问题：
+ * 跑的是真引擎（game/BattleEngine），和护栏、和真机同一个 tick。
  *
- * 1. 卡关点是否稳定落在第 9 到 12 波（docs/00-体验目标.md §8）。
- * 2. **「装对人」值不值钱** —— smart（按破烂配人）对 random（随便装）的差值。
- *    差值不足 1 波，就是反目标第一条「这几件破烂装谁身上都一样」的数值证据，
- *    要回去改 mods.ts 的定位改写强度，而不是调曲线。
+ * 这里要回答四个问题，对应 docs/00-体验目标.md §8 留空的那三个阈值：
  *
- * 另外看 focus（全堆一个人）与 spread（平均分）：这两条差不多说明构筑没有形状，
- * 「把一个杂兵改造成怪物」就只是句口号。
+ *   1. 40 关推完多少天 —— 该和村庄满级的 ~19.5 天对得上。
+ *   2. 卡关点在哪儿 —— 该稳定落在每章第 4–5 关。
+ *   3. 布阵值多少个点 —— smart 对 dumb 的通关率差。差得少，
+ *      说明「谁放哪一格」是假决策，得回去改战场几何，不是调曲线。
+ *   4. 克制会不会变成运气惩罚 —— 换几个种子（= 换几套喊到的人）看最差那趟。
  */
+import { CELL_COUNT, LANE_COUNT } from '../src/balance/combat';
+import { STAGE_COUNT, stageEnemyCount } from '../src/balance/stages';
+import { assertWeights, DAILY_PELLETS, expectedPerDay } from '../src/balance/stall';
+import {
+  SQUAD_CAP_MAX, VILLAGE_LV_MAX, villageCumExp, villageMul,
+} from '../src/balance/village';
+import { LANE_NAME, VILLAGERS, assertRosterComplete } from '../src/balance/villagers';
+import { simulate, sweepStages, sweepStats, type SimResult } from '../src/formulas/simulate';
 
-import { MOD_SLOTS_PER_HERO, TOTAL_WAVES } from '../src/balance/combat';
-import { MAX_TEAM_SIZE, PICK_STRATEGIES } from '../src/balance/picker';
-import { WAVE_CURVE } from '../src/balance/enemies';
-import { simulateBatch, type BatchStats } from '../src/formulas/simulate';
+const DAYS = Number(process.env.DAYS ?? 60);
+const SEEDS = (process.env.SEEDS ?? '20260904,7,99,1234,555')
+  .split(',')
+  .map((s) => Number(s.trim()))
+  .filter((n) => Number.isFinite(n));
 
-const RUNS = Number(process.env.RUNS ?? 500);
-const TARGET_MIN = 9;
-const TARGET_MAX = 12;
-
-function bar(rate: number, width = 24): string {
-  const filled = Math.round(rate * width);
+function bar(rate: number, width = 20): string {
+  const filled = Math.max(0, Math.min(width, Math.round(rate * width)));
   return '█'.repeat(filled) + '·'.repeat(width - filled);
 }
 
-function pct(x: number): string {
-  return `${(x * 100).toFixed(1)}%`;
+function pad(n: number, w: number, d = 0): string {
+  return n.toFixed(d).padStart(w);
 }
 
-function printStats(s: BatchStats): void {
-  const inTarget = s.medianWave >= TARGET_MIN && s.medianWave <= TARGET_MAX;
-  const flag = inTarget ? '达标' : '偏离';
+/* ---------------- 自检 ---------------- */
+
+assertRosterComplete();
+assertWeights();
+
+console.log('== 结构自检 ==');
+console.log(
+  `村民 ${VILLAGERS.length} 人（5 门路 × 4 定位 方阵完整）· ` +
+  `战场 ${LANE_COUNT} 路 × ${CELL_COUNT} 格 = ${LANE_COUNT * CELL_COUNT} 格，最多上 ${SQUAD_CAP_MAX} 人` +
+  `（空 ${LANE_COUNT * CELL_COUNT - SQUAD_CAP_MAX} 格就是取舍）`,
+);
+console.log(`主线 ${STAGE_COUNT} 关 · 村庄满级 Lv.${VILLAGE_LV_MAX}（累计 ${villageCumExp(VILLAGE_LV_MAX)} 经验，面板 ×${villageMul(VILLAGE_LV_MAX).toFixed(2)}）`);
+
+/* ---------------- 摊子产出 ---------------- */
+
+console.log(`\n== 弹弓摊日产出（每天 ${DAILY_PELLETS} 发）==`);
+for (const lv of [1, 5, 10, 15, 20]) {
+  const y = expectedPerDay(lv);
   console.log(
-    `${s.strategy.padEnd(9)} 中位 ${String(s.medianWave).padStart(2)} 波 ` +
-      `[p25 ${s.p25Wave} / p75 ${s.p75Wave}] 均值 ${s.meanWave.toFixed(2)}  ` +
-      `通关率 ${pct(s.clearRate).padStart(6)}  均时 ${s.avgDurationSec.toFixed(0)}s  ${flag}`,
+    `Lv.${String(lv).padStart(2)}  经验 ${pad(y.exp, 6, 1)}  废铁 ${pad(y.scrap, 6, 1)}  ` +
+    `零件 ${pad(y.parts, 5, 1)}  工分 ${pad(y.credits, 5, 1)}`,
   );
 }
 
-/**
- * 改造密度：主体验「把杂兵改造成怪物」一局发生几次。
- *
- * 卡关波次达标不等于这一局好玩 —— 焊件数太少时，合体和每人 3 件的取舍
- * 都不会发生，玩家一局下来只是看着三个人站着打。这三个数就是那件事的度量。
- */
-function printDensity(all: readonly BatchStats[]): void {
-  console.log(`\n改造密度（装配上限每人 ${MOD_SLOTS_PER_HERO} 件 · 全队 ${MOD_SLOTS_PER_HERO * MAX_TEAM_SIZE} 件）`);
-  for (const s of all) {
+/* ---------------- 长线 ---------------- */
+
+function reportRun(sim: SimResult, label: string): void {
+  const chDays = sim.chapterDay
+    .map((d, i) => (d === undefined ? `${i + 1}章 —` : `${i + 1}章 D${d}`))
+    .join('  ');
+  console.log(`\n${label}  推到 ${sim.finalStage}/${STAGE_COUNT} 关` +
+    (sim.clearAllDay ? `，全通于 D${sim.clearAllDay}` : '，未通完'));
+  console.log(`  首达：${chDays}`);
+  console.log(`  村庄满级：${sim.villageDay[VILLAGE_LV_MAX - 1] ? `D${sim.villageDay[VILLAGE_LV_MAX - 1]}` : '未满'}`);
+
+  // 每 5 天一行
+  console.log('  天  村庄  关卡  人数/上场   废铁  零件  工分  卡在');
+  for (const d of sim.days) {
+    if (d.day % 5 !== 0 && d.day !== 1) continue;
     console.log(
-      `${s.strategy.padEnd(9)} 焊上 ${s.avgInstalls.toFixed(2)} 件  ` +
-        `最满一人 ${s.avgTopSlots.toFixed(2)} 件  ` +
-        `焊满过 ${pct(s.fullSlotRate).padStart(6)}  ` +
-        `出过合体 ${pct(s.comboRate).padStart(6)}`,
+      `  ${pad(d.day, 2)}  Lv.${pad(d.villageLv, 2)}  ${pad(d.stage, 4)}  ` +
+      `${pad(d.roster, 4)}/${d.cap}     ${pad(d.scrap, 5)} ${pad(d.parts, 5)} ${pad(d.credits, 5)}  ${d.stuckAt ?? '—'}`,
     );
   }
-  const smart = all.find((s) => s.strategy === 'smart');
-  if (smart) {
-    const cap = MOD_SLOTS_PER_HERO * MAX_TEAM_SIZE;
-    console.log(
-      `\nsmart 一局用掉 ${((smart.avgInstalls / cap) * 100).toFixed(0)}% 的装配容量 ——` +
-        (smart.avgInstalls >= cap * 0.8
-          ? ' 容量吃紧，「拆谁的给谁腾位」是真决策。'
-          : ' 容量远没用满，每人 3 件的取舍实际不存在。'),
-    );
-    console.log(
-      `合体出现率 ${pct(smart.comboRate)} ——` +
-        (smart.comboRate >= 0.6
-          ? ' 大多数局都能撞出「这两件叠一起出事了」。'
-          : ' 多数局一次都碰不到，合体系统等于没上线。'),
-    );
-  }
 }
 
-/**
- * 门路研发：局外买的那条线到底有没有伸进这一局。
- *
- * 什么都没研发 vs 满研发一条路，对比三件事：
- * 一局的牌有多偏向那条路（topLaneShare）、变强了多少（meanWave）、
- * 以及**装对人还值不值钱**（smart−random 的差）。
- * 第三条是护栏：研发把局里的决策抹平了，这条线就白做。
- */
-function printLanes(): void {
-  const one1 = { reach: 5, heavy: 0, stand: 0, rage: 0, band: 0 };
-  const two = { reach: 5, heavy: 0, stand: 5, rage: 0, band: 0 };
-  const plain = simulateBatch('smart', RUNS, 1);
-  const one = simulateBatch('smart', RUNS, 1, { laneLv: one1 });
-  const both = simulateBatch('smart', RUNS, 1, { laneLv: two });
-  const plainR = simulateBatch('random', RUNS, 1);
-  const oneR = simulateBatch('random', RUNS, 1, { laneLv: one1 });
-  console.log('\n门路研发');
+const runs = SEEDS.map((seed) => ({
+  seed,
+  smart: simulate({ days: DAYS, seed, place: 'smart' }),
+  dumb: simulate({ days: DAYS, seed, place: 'dumb' }),
+}));
+
+console.log(`\n== 长线（${DAYS} 天，${SEEDS.length} 个种子 = ${SEEDS.length} 套喊到的人）==`);
+reportRun(runs[0]!.smart, `种子 ${runs[0]!.seed}`);
+
+console.log('\n  种子间对比（布阵值多少天）');
+for (const r of runs) {
+  const s = r.smart.clearAllDay ? `D${r.smart.clearAllDay}` : `${r.smart.finalStage}关`;
+  const d = r.dumb.clearAllDay ? `D${r.dumb.clearAllDay}` : `${r.dumb.finalStage}关`;
   console.log(
-    `什么都没买   同路占比 ${pct(plain.topLaneShare).padStart(6)}  ` +
-      `均值 ${plain.meanWave.toFixed(2)} 波  通关率 ${pct(plain.clearRate).padStart(6)}`,
+    `  种子 ${String(r.seed).padStart(9)}  smart ${s.padStart(6)}  dumb ${d.padStart(6)}  ` +
+    `村庄 Lv.${pad(r.smart.days.at(-1)!.villageLv, 2)}  入伙 ${pad(r.smart.days.at(-1)!.roster, 2)} 人`,
   );
+}
+
+/* ---------------- 关卡扫描 ---------------- */
+
+console.log('\n== 关卡扫描（拿到达建议等级那天的真实存档打）==');
+for (const r of runs) {
+  const probes = sweepStages(r.smart);
+  const st = sweepStats(probes);
   console.log(
-    `满研发一路   同路占比 ${pct(one.topLaneShare).padStart(6)}  ` +
-      `均值 ${one.meanWave.toFixed(2)} 波  通关率 ${pct(one.clearRate).padStart(6)}`,
+    `\n种子 ${r.seed}：smart 通关 ${st.smartWinPct}%  dumb ${st.dumbWinPct}%  ` +
+    `布阵差 ${st.gapPct > 0 ? '+' : ''}${st.gapPct} 点`,
   );
-  console.log(
-    `满研发两路   同路占比 ${pct(both.topLaneShare).padStart(6)}  ` +
-      `均值 ${both.meanWave.toFixed(2)} 波  通关率 ${pct(both.clearRate).padStart(6)}`,
-  );
-  const allIn = simulateBatch('smart', RUNS, 1, {
-    laneLv: { reach: 5, heavy: 5, stand: 5, rage: 5, band: 5 },
+  console.log(`  失败原因：漏怪 ${st.leakPct}%  超时 ${st.timeoutPct}%`);
+  console.log(`  星评（占通关数）：★★★ ${st.starMix[0]}%  ★★ ${st.starMix[1]}%  ★ ${st.starMix[2]}%`);
+  console.log('  每章 smart 通关率');
+  st.byChapter.forEach((p, i) => {
+    console.log(`    ${i + 1} 章  ${bar(p / 100)} ${pad(p, 5, 1)}%`);
   });
-  console.log(
-    `五路全满     同路占比 ${pct(allIn.topLaneShare).padStart(6)}  ` +
-      `均值 ${allIn.meanWave.toFixed(2)} 波  通关率 ${pct(allIn.clearRate).padStart(6)}` +
-      (allIn.clearRate >= 0.9 ? '  ← 顶到天花板，该往难度档 / 后面的关放' : ''),
-  );
-  const lift = one.topLaneShare - plain.topLaneShare;
-  console.log(
-    `牌面偏向 +${(lift * 100).toFixed(1)} 个点 ——` +
-      (lift >= 0.04
-        ? ' 研发看得见：这一局的牌真的偏过去了。'
-        : ' 偏得太少，玩家说不出自己走的是哪条路。'),
-  );
-  console.log(
-    `买完不许更难：一路 ${pct(one.clearRate)} / 两路 ${pct(both.clearRate)} vs 白板 ${pct(plain.clearRate)} ——` +
-      (one.clearRate >= plain.clearRate && both.clearRate >= one.clearRate
-        ? ' 每一笔都在往上走。'
-        : ' 有一档买了反而更难，专精被自己的偏科反噬了。'),
-  );
-  // 门路和合体表故意不对齐：专精会挤掉跨路那 5 组，掉一点是预期的（见 lanes.ts 顶部）
-  console.log(
-    `出过合体 ${pct(plain.comboRate)} → ${pct(one.comboRate)}（满一路） → ${pct(both.comboRate)}（满两路）` +
-      '，专精挤掉跨路那几组，掉一点是预期的',
-  );
-  const gapPlain = plain.meanWave - plainR.meanWave;
-  const gapFull = one.meanWave - oneR.meanWave;
-  console.log(
-    `装对人的价值 ${gapPlain.toFixed(2)} → ${gapFull.toFixed(2)} 波 ——` +
-      (gapFull >= 1
-        ? ' 研发满了照样得装对人，局里的决策没被买掉。'
-        : ' 研发把局里的决策抹平了，等于花钱买掉玩法。'),
-  );
-}
-
-function main(): void {
-  console.log(`村口大战外星人 数值回归 · 每策略 ${RUNS} 局 · 目标中位卡关 ${TARGET_MIN}–${TARGET_MAX} 波`);
-  console.log(`当前曲线 hpGrowth=${WAVE_CURVE.hpGrowth} atkGrowth=${WAVE_CURVE.atkGrowth}\n`);
-
-  const all = PICK_STRATEGIES.map((st) => simulateBatch(st, RUNS));
-  for (const s of all) printStats(s);
-
-  printDensity(all);
-  printLanes();
-
-  const smart = all.find((s) => s.strategy === 'smart');
-  const random = all.find((s) => s.strategy === 'random');
-  const focus = all.find((s) => s.strategy === 'focus');
-  const spread = all.find((s) => s.strategy === 'spread');
-
-  // smart 与 random 选的牌倾向相同，唯一差别是装给谁，
-  // 因此这个差值就是「装对人」本身的决策价值
-  if (smart && random) {
-    const gap = smart.meanWave - random.meanWave;
-    const clearRatio = random.clearRate > 0 ? smart.clearRate / random.clearRate : Infinity;
-    console.log(
-      `\n装对人的价值：smart 平均多打 ${gap.toFixed(2)} 波，通关率是 random 的 ` +
-        `${Number.isFinite(clearRatio) ? `${clearRatio.toFixed(1)} 倍` : '数倍以上'} ——` +
-        (gap >= 1
-          ? ' 装给谁确实有回报。'
-          : ' 不足 1 波，撞上反目标第一条：破烂装谁身上都一样。'),
-    );
-  }
-  if (focus && spread) {
-    const gap = Math.abs(focus.meanWave - spread.meanWave);
-    console.log(
-      `构筑形状：全堆一个人 vs 平均分，相差 ${gap.toFixed(2)} 波 ——` +
-        (gap >= 0.8 ? ' 两种路线的手感确实不同。' : ' 差别太小，构筑没有形状。'),
-    );
-  }
-
-  console.log('\n逐波到达率（smart 策略）');
-  if (smart) {
-    for (let w = 0; w < TOTAL_WAVES; w += 1) {
-      const rate = smart.reachRate[w] ?? 0;
-      const marker = w + 1 >= TARGET_MIN && w + 1 <= TARGET_MAX ? '←目标区' : '';
-      console.log(`  第 ${String(w + 1).padStart(2)} 波 ${bar(rate)} ${pct(rate).padStart(6)} ${marker}`);
-    }
+  if (st.walls.length > 0) {
+    console.log(`  打不过：${st.walls.join(' ')}`);
   }
 }
 
-main();
+/* ---------------- 结论 ---------------- */
+
+console.log('\n== 逐关明细（种子 20260904）==');
+console.log('  关卡  村庄 人数/上场  主门路  只数   smart          dumb');
+for (const p of sweepStages(runs[0]!.smart)) {
+  const mark = (r: typeof p.smart): string => (r.won ? `通 ★${r.stars} ${pad(r.elapsedMs / 1000, 4, 0)}s` : `${r.reason === 'leak' ? '漏' : '超'} 漏${r.leaked} 剩${r.leftAlive}`.padEnd(11));
+  console.log(
+    `  ${p.stage.label.padEnd(4)}  Lv.${pad(p.atLv, 2)} ${pad(p.roster, 3)}/${p.cap}` +
+    `${p.capped ? '*' : ' '}   ${LANE_NAME[p.stage.mainLane].padEnd(5)} ${pad(stageEnemyCount(p.stage), 4)}  ` +
+    `${mark(p.smart).padEnd(13)}  ${mark(p.dumb)}`,
+  );
+}
+console.log('  （* = 长线里没推到这关，用的是满级存档）');
+
+const first = sweepStats(sweepStages(runs[0]!.smart));
+const clearDays = runs.map((r) => r.smart.clearAllDay).filter((d): d is number => d !== undefined);
+
+console.log('\n== 回填 §8 用的三个数 ==');
+console.log(`  1. 40 关推完：${clearDays.length === 0 ? '没有种子通完' : `D${Math.min(...clearDays)} ~ D${Math.max(...clearDays)}`}（目标对齐村庄满级 ~D20）`);
+console.log(`  2. 卡关点：见上面每章通关率，墙该在第 4–5 关`);
+console.log(`  3. 布阵差值：${first.gapPct} 点（太小说明布阵是假决策）`);

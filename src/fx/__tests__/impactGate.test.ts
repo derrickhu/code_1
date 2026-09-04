@@ -53,16 +53,20 @@ describe('落点门闩', () => {
   });
 });
 
+/*
+ * 皮的 key 这一版换成了**家伙 id**（gear.handIdOf），不再是村民 id 或改装件 id ——
+ * 手上拿什么由「村民 + 进化阶」决定，所以皮也跟着家伙走。
+ */
 describe('谁必须先飞再炸', () => {
-  it('锅 / 秤砣 / 碟有实物弹，近战也不能当场隔空炸', () => {
+  it('锅 / 秤砣 / 音响 / 弹弓有实物弹，近战也不能当场隔空炸', () => {
     expect(shouldFly(skinLook('pot'), true)).toBe(true);
     expect(shouldFly(skinLook('weight'), true)).toBe(true);
-    expect(shouldFly(skinLook('sanshen'), true)).toBe(true);
-    expect(shouldFly(skinLook('slingshot'), true)).toBe(true);
+    expect(shouldFly(skinLook('speaker'), true)).toBe(true);
+    expect(shouldFly(skinLook('sling'), true)).toBe(true);
   });
 
-  it('铁柱贴脸挥空拳才当场打完', () => {
-    expect(shouldFly(skinLook('tiezhu'), true)).toBe(false);
+  it('扳手贴脸挥就当场打完，隔着距离才要飞一下', () => {
+    expect(shouldFly(skinLook('wrench'), true)).toBe(false);
     expect(shouldFly(attackLook('slash'), true)).toBe(false);
     expect(shouldFly(attackLook('slash'), false)).toBe(true);
   });

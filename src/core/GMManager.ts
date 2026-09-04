@@ -6,9 +6,8 @@ import { scopedStorageKey } from '@/config/gameKeyScope';
 import { EventBus } from '@/core/EventBus';
 import { Platform } from '@/core/PlatformService';
 import { SceneManager } from '@/core/SceneManager';
-import { DEFAULT_SQUAD } from '@/balance/heroes';
-import { CHAPTER_COUNT, STAGES_PER_CHAPTER, findStage, getStage } from '@/balance/stages';
-import { gmUnlockToStage, loadMemory } from '@/core/RunMemory';
+import { CHAPTER_COUNT, findStage, getStage } from '@/balance/stages';
+import { gmUnlockToStage } from '@/core/RunMemory';
 
 const GM_STORAGE_KEY = scopedStorageKey('gm');
 const GM_LEGACY_KEY = 'code1_gm';
@@ -84,7 +83,7 @@ class GMManagerClass {
   unlockToStage(chapter: number, index: number): string {
     if (!this.isEnabled) return 'GM 未激活';
     const ch = Math.max(1, Math.min(CHAPTER_COUNT, Math.floor(chapter)));
-    const idx = Math.max(1, Math.min(STAGES_PER_CHAPTER, Math.floor(index)));
+    const idx = Math.max(1, Math.min(5, Math.floor(index)));
     const stage = findStage(ch, idx);
     if (!stage) return `无效关卡 ${ch}-${idx}`;
     gmUnlockToStage(stage.id);
@@ -97,12 +96,12 @@ class GMManagerClass {
     const msg = this.unlockToStage(chapter, index);
     if (msg.startsWith('GM') || msg.startsWith('无效')) return msg;
     const ch = Math.max(1, Math.min(CHAPTER_COUNT, Math.floor(chapter)));
-    const idx = Math.max(1, Math.min(STAGES_PER_CHAPTER, Math.floor(index)));
+    const idx = Math.max(1, Math.min(5, Math.floor(index)));
     const stage = findStage(ch, idx) ?? getStage(1);
-    const mem = loadMemory();
-    const squad = mem.squadIds.length === 3 ? mem.squadIds : [...DEFAULT_SQUAD];
     EventBus.emit('gm:close');
-    SceneManager.switchTo('battle', { heroIds: [...squad], stageId: stage.id });
+    // 上场名单由战斗场景自己从存档读（村民名单 + 村庄等级决定上几个），
+    // GM 只负责挑关。上一版在这儿传 squadIds，改成收集制之后没有「固定三人」了
+    SceneManager.switchTo('battle', { stageId: stage.id });
     return `${msg} → 已开战`;
   }
 

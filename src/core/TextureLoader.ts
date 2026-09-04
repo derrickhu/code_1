@@ -4,10 +4,9 @@
  * 没加载完或失败时返回 null，调用方继续用色块，不挡玩。
  */
 import * as PIXI from 'pixi.js';
-import { ENEMY_PROTOS } from '@/balance/enemies';
+import { ENEMIES } from '@/balance/stages';
 import { HAND_GEAR, STARTER_WEP_IDS } from '@/balance/gear';
-import { HEROES } from '@/balance/heroes';
-import { MODS } from '@/balance/mods';
+import { LEGACY_IDS, VILLAGERS } from '@/balance/villagers';
 import { Platform } from '@/core/PlatformService';
 import { SPARK_FLIP, VFX_FLIP, flipFiles, type FlipSpec } from '@/fx/Flipbook';
 
@@ -48,7 +47,8 @@ export function enemyTex(id: string): PIXI.Texture | null {
   return tex(`images/enemy_${id}.png`);
 }
 
-export function modTex(id: string): PIXI.Texture | null {
+/** 家伙的贴图。手上拿什么由村民 + 进化阶决定，见 gear.handIdOf */
+export function gearTex(id: string): PIXI.Texture | null {
   return tex(`images/mod_${id}.png`);
 }
 
@@ -169,14 +169,13 @@ export const LOADING_TITLE = 'images/ui_title_logo.png';
 export function villageArtPaths(): string[] {
   const paths = [VILLAGE_BG, YARD_BG];
   for (const n of UI_FILES) paths.push(`images/ui_${n}.png`);
-  for (const h of HEROES) {
-    paths.push(`images/hero_${h.id}.png`);
-    paths.push(`images/hero_${h.id}_grip.png`);
-    paths.push(`images/anim_${h.id}_idle_0.png`);
+  for (const v of VILLAGERS) paths.push(`images/hero_${v.id}.png`);
+  for (const id of LEGACY_IDS) {
+    paths.push(`images/hero_${id}_grip.png`);
+    paths.push(`images/anim_${id}_idle_0.png`);
   }
   for (const id of STARTER_WEP_IDS) paths.push(`images/wep_${id}.png`);
   for (const g of Object.values(HAND_GEAR)) paths.push(g.path);
-  for (const m of MODS) paths.push(`images/mod_${m.id}.png`);
   return paths;
 }
 
@@ -191,26 +190,28 @@ export function preloadBattleArt(): void {
   for (const n of ['title_plaque', 'play_plate', 'iron_bar', 'scrap_pile', 'settle_stamp', 'settle_name', 'settle_btn', 'settle_chip', 'ad_btn'] as const) {
     kick(`images/ui_${n}.png`);
   }
-  for (const h of HEROES) kick(`images/hero_${h.id}.png`);
+  for (const v of VILLAGERS) kick(`images/hero_${v.id}.png`);
   // 从原型表读而不是写死 id：上次改名就是漏在这行，敌人图整批加载不到
-  for (const e of ENEMY_PROTOS) kick(`images/enemy_${e.id}.png`);
-  for (const m of MODS) kick(`images/mod_${m.id}.png`);
+  for (const e of ENEMIES) kick(`images/enemy_${e.id}.png`);
   for (const n of VFX_FILES) kick(`images/vfx_${n}.png`);
   for (const p of flipFiles()) kick(p);
   for (const n of PROJ_FILES) kick(`images/proj_${n}.png`);
   kick('images/hero_dachui_grip.png');
   kick('images/fx_hammer.png');
-  for (const h of HEROES) kick(`images/hero_${h.id}_grip.png`);
   for (const id of STARTER_WEP_IDS) kick(`images/wep_${id}.png`);
   for (const g of Object.values(HAND_GEAR)) kick(g.path);
-  for (const h of HEROES) {
-    kick(`images/hero_${h.id}_atk.png`);
+  // 只有这 6 个人有帧动画和握点图，新加的 14 个先用立绘 + 程序动作。
+  // 别改成遍历 VILLAGERS：那会一次性发 14 × 9 张必然 404 的请求，
+  // 真机上把首屏加载拖慢，而画面上一点区别都没有
+  for (const id of LEGACY_IDS) {
+    kick(`images/hero_${id}_grip.png`);
+    kick(`images/hero_${id}_atk.png`);
     for (let i = 0; i < 4; i += 1) {
-      kick(`images/anim_${h.id}_idle_${i}.png`);
-      kick(`images/anim_${h.id}_atk_${i}.png`);
+      kick(`images/anim_${id}_idle_${i}.png`);
+      kick(`images/anim_${id}_atk_${i}.png`);
     }
   }
-  for (const e of ENEMY_PROTOS) {
+  for (const e of ENEMIES) {
     for (let i = 0; i < 4; i += 1) {
       kick(`images/anim_${e.id}_walk_${i}.png`);
       kick(`images/anim_${e.id}_atk_${i}.png`);

@@ -1,10 +1,9 @@
 /**
- * v2 三条护栏 + 结构自检。
+ * 三条护栏 + 结构自检。
  *
- * 这个文件跟 src/formulas/__tests__/simulate.test.ts **不互通**：
- * 那边钉的是上一版（改装件构筑、失败=队灭、一图 15 波），
- * 里面有两组共 20 条回归明文断言「失败条件是队灭，不是漏怪」，
- * 跟这一版正好相反。旧的会继续绿着直到旧引擎下线，别拿它的阈值判这边。
+ * 它们打的是**真引擎**（game/BattleEngine），不是旁边另写一套模型 ——
+ * 上一版有过 formulas/simulate 和引擎各算一套的时期，
+ * 结果护栏绿着而真机是坏的。模拟器和场景必须驱动同一个 tick。
  *
  * 三条护栏对应 docs/00-体验目标.md §8 那三个留空的阈值：
  *
@@ -17,20 +16,20 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ARMOR_K, dumbPlace, runBattle, smartPlace } from '../battle';
-import { simulate, poolOf, sweepStages, sweepStats } from '../sim';
+import { ARMOR_K, CELL_COUNT, LANE_COUNT, LEAK_ALLOW, cellPos } from '@/balance/combat';
+import { autoPlace, dumbPlace, runBattle } from '@/game/BattleEngine';
+import { simulate, poolOf, sweepStages, sweepStats } from '../simulate';
 import {
-  CELL_COUNT, LANE_COUNT, LEAK_ALLOW, STAGES, STAGE_COUNT,
-  cellPos, findStage, getStage, rateStars,
-} from '../stages';
-import { assertWeights, expectedPerDay } from '../stall';
+  STAGES, STAGE_COUNT, findStage, getStage, rateStars,
+} from '@/balance/stages';
+import { assertWeights, expectedPerDay } from '@/balance/stall';
 import {
   SQUAD_CAP_MAX, VILLAGE_LV_MAX, squadCap, villageCumExp, villageMul,
-} from '../village';
+} from '@/balance/village';
 import {
   COUNTERS, COUNTER_DOWN, COUNTER_UP, DEFAULT_SQUAD, LANES, ROLES,
   VILLAGERS, assertRosterComplete, getVillager, laneMul, statsOf,
-} from '../villagers';
+} from '@/balance/villagers';
 
 const SEEDS = [20260904, 7, 99, 1234, 555];
 const DAYS = 60;
@@ -145,7 +144,7 @@ describe('护栏 1：布阵没被买掉', () => {
     const pool = DEFAULT_SQUAD.map((id) => ({
       villager: getVillager(id), evoStage: 1, stars: 0,
     }));
-    const place = smartPlace(pool, stage, 3);
+    const place = autoPlace(pool, stage, 3);
     expect(place).toHaveLength(3);
 
     const spawnLanes = new Set(stage.waves.flatMap((w) => w.groups.map((g) => g.lane)));
@@ -209,7 +208,7 @@ describe('护栏 2：克制不是运气惩罚', () => {
     const stacked = poolOf(l).filter((c) => c.villager.lane === counter);
     // 方阵完整，所以克制门路一定凑得出 4 个定位
     expect(stacked.length).toBeGreaterThanOrEqual(3);
-    const res = runBattle(stage, smartPlace(stacked, stage, cap), mul);
+    const res = runBattle(stage, autoPlace(stacked, stage, cap), mul);
     expect(res.won, '只用克制门路就能过 8-5，克制变成了解题按钮').toBe(false);
   });
 });
@@ -322,7 +321,7 @@ describe('战斗模型是确定性的', () => {
   it('同样的布阵跑两遍结果完全一样', () => {
     const stage = findStage(5, 3)!;
     const l = runs[0]!.smart.endState;
-    const place = smartPlace(poolOf(l), stage, squadCap(l.villageLv));
+    const place = autoPlace(poolOf(l), stage, squadCap(l.villageLv));
     const a = runBattle(stage, place, villageMul(l.villageLv));
     const b = runBattle(stage, place, villageMul(l.villageLv));
     expect(a).toEqual(b);

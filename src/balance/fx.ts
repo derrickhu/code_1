@@ -1,12 +1,15 @@
 /**
  * 观战签名。战斗数字仍由引擎算，这里只回答「这一下长什么样、什么声」。
- * 每种破烂 / 每种外星人必须能和别的分清，否则改造等于没做。
+ *
+ * **每个村民的每一阶都必须能和别的分清。** 这不是美术偏好，
+ * 是 §4.1「进化改的是打法和形态，不是数值」的落地口：
+ * 玩家花了 400 废铁 18 零件把电锯哥喂到三阶，屏幕上得看出他换了家伙。
+ * 只把血量攻击调大的进化不做，所以这张表里凡是进化阶换了打法的，
+ * 特效也必须跟着换（弹弓叔 sniper→pierce、电锯哥 slash→saw、王大锤 smash→poke）。
  */
 
-import { comboOf } from './combos';
-import { MOD_SLOT } from './gear';
-import type { HeroDef } from './heroes';
-import type { ModDef } from './mods';
+import { handIdOf } from './gear';
+import type { Lane, VillagerDef } from './villagers';
 
 /** 村民打出去的那一下 */
 export type AttackFx =
@@ -24,92 +27,97 @@ export type AttackFx =
 /** 外星人打人的那一下 */
 export type EnemyFx = 'claw' | 'bash' | 'spark' | 'beam';
 
-/** 栓狗、穿戴不改这一下怎么飞 */
-const FX_SKIP = new Set([
-  'helmet', 'quilt', 'steelplate', 'pressurecooker',
-  'dogleash', 'chickenfeed', 'holler',
-]);
-
-const MOD_FX: Readonly<Record<string, AttackFx>> = {
-  pipe: 'poke',
-  weight: 'smash',
-  blower: 'wind',
-  wire: 'pierce',
-  chainsaw: 'saw',
-  firecracker: 'blast',
-  steelplate: 'slash',
-  pressurecooker: 'smash',
-  pot: 'smash',
-  speaker: 'orb',
-  helmet: 'slash',
-  quilt: 'slash',
-  dogleash: 'slash',
-  chickenfeed: 'slash',
-  holler: 'orb',
-  sickle: 'slash',
-  foam: 'wind',
-  sack: 'slash',
-  shovel: 'poke',
-  battery: 'bolt',
-  slingshot: 'sniper',
-  stool: 'smash',
-  chili: 'blast',
-  fridge: 'smash',
-  gascan: 'blast',
-  thermos: 'orb',
-  bell: 'orb',
+/**
+ * 每人三阶的打击特效。长度必须是 3。
+ *
+ * 同一阶里换了特效的那几个，对应 villagers.evo[].pitch 里写的形态变化 ——
+ * 两处必须同时改，否则「他明明换了家伙，打起来还是老样子」。
+ */
+const FX_BY_STAGE: Readonly<Record<string, readonly [AttackFx, AttackFx, AttackFx]>> = {
+  // 站远点打
+  guogai: ['smash', 'smash', 'smash'],
+  yuwang: ['wind', 'wind', 'pierce'],
+  laoyanqiang: ['sniper', 'pierce', 'pierce'],
+  labaye: ['orb', 'orb', 'orb'],
+  // 挨得住
+  tiezhu: ['slash', 'slash', 'smash'],
+  shimo: ['smash', 'smash', 'smash'],
+  miankuzhang: ['poke', 'poke', 'poke'],
+  erjiu: ['bolt', 'bolt', 'bolt'],
+  // 下手重
+  chengtuo: ['smash', 'smash', 'smash'],
+  dachui: ['smash', 'smash', 'poke'],
+  dianju: ['slash', 'saw', 'saw'],
+  shazhu: ['slash', 'slash', 'slash'],
+  // 越挨越猛
+  gaoyaguo: ['smash', 'blast', 'blast'],
+  gangban: ['slash', 'pierce', 'pierce'],
+  laoli: ['slash', 'slash', 'slash'],
+  bianpao: ['blast', 'blast', 'blast'],
+  // 带一帮人
+  qiangou: ['slash', 'slash', 'slash'],
+  jishi: ['wind', 'wind', 'wind'],
+  sanshen: ['orb', 'orb', 'orb'],
+  baowenhu: ['orb', 'orb', 'orb'],
 };
 
-const HERO_FX: Readonly<Record<string, AttackFx>> = {
-  tiezhu: 'slash',
-  dachui: 'smash',
-  laoli: 'slash',
-  erjiu: 'bolt',
-  sanshen: 'orb',
-  laoyanqiang: 'sniper',
+
+/** 门路的兜底特效。新加村民忘了进表时不至于全场一个样 */
+const LANE_FX: Readonly<Record<Lane, AttackFx>> = {
+  reach: 'sniper',
+  stand: 'slash',
+  heavy: 'smash',
+  rage: 'slash',
+  band: 'orb',
 };
 
 const ENEMY_FX: Readonly<Record<string, EnemyFx>> = {
-  grey: 'claw',
+  grunt: 'claw',
   cube: 'bash',
   canister: 'spark',
+  rusher: 'claw',
   saucer: 'beam',
+  armor: 'bash',
 };
 
-/** 这一下用哪件破烂的皮。穿戴 / 栓狗不改飞法 */
-export function resolveFxSkin(def: HeroDef, mods: readonly ModDef[]): string {
-  const combo = comboOf(mods.map((m) => m.id));
-  if (combo?.fx) return combo.id;
-  for (let i = mods.length - 1; i >= 0; i -= 1) {
-    const id = mods[i]!.id;
-    if (FX_SKIP.has(id)) continue;
-    const slot = MOD_SLOT[id];
-    if (slot && slot !== 'hand') continue;
-    if (MOD_FX[id]) return id;
-  }
-  return def.id;
+export function resolveAttackFx(def: VillagerDef, evoStage = 1): AttackFx {
+  const row = FX_BY_STAGE[def.id];
+  if (!row) return LANE_FX[def.lane];
+  const i = Math.max(0, Math.min(2, Math.floor(evoStage) - 1));
+  return row[i]!;
 }
+
+/**
+ * 这一下用哪一件家伙的皮。
+ *
+ * 皮跟着**手上那一件**走，而 AttackFx 跟着**进化阶**走，两者刻意分开：
+ * 弹弓叔二阶换成双股皮筋「一发穿两个」，弹体还是石子（皮不变），
+ * 但行为从 sniper 变成 pierce（家族变了）。
+ */
+export function resolveFxSkin(def: VillagerDef, evoStage = 1): string {
+  return handIdOf(def.id, evoStage);
+}
+
+/** 家伙自带的家族。skinLook 拿它当底子，场景会再传准确的 fx 覆盖 */
+const GEAR_FX: Readonly<Record<string, AttackFx>> = {
+  wrench: 'slash',
+  hammer: 'smash',
+  cleaver: 'slash',
+  driver: 'bolt',
+  radio: 'orb',
+  sling: 'sniper',
+  pipe: 'poke',
+  chainsaw: 'saw',
+  weight: 'smash',
+  pot: 'smash',
+  speaker: 'orb',
+  blower: 'wind',
+  firecracker: 'blast',
+  wire: 'pierce',
+};
 
 export function fxFamilyOf(skin: string): AttackFx {
-  const comboFx = COMBOS_FX[skin];
-  if (comboFx) return comboFx;
-  const mod = MOD_FX[skin];
-  if (mod) return mod;
-  return HERO_FX[skin] ?? 'slash';
-}
-
-const COMBOS_FX: Readonly<Record<string, AttackFx>> = {
-  longsaw: 'saw',
-  doorcannon: 'smash',
-  windcrack: 'blast',
-  beatrack: 'pierce',
-  coldwind: 'wind',
-  harvest: 'pierce',
-};
-
-/** 后装的破烂覆盖起手。钢板 / 头盔 / 棉被只改站位，不改这一下怎么飞 */
-export function resolveAttackFx(def: HeroDef, mods: readonly ModDef[]): AttackFx {
-  return fxFamilyOf(resolveFxSkin(def, mods));
+  return GEAR_FX[skin] ?? 'slash';
 }
 
 export function resolveEnemyFx(enemyId: string): EnemyFx {

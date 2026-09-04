@@ -1,8 +1,8 @@
 import * as PIXI from 'pixi.js';
 import { bindPointerTap } from '@/minigame';
 import { Game } from '@/core/Game';
-import { heroTex, modTex, uiTex, villageBgTex, watchArt } from '@/core/TextureLoader';
-import type { HeroUnit } from '@/game/BattleEngine';
+import { heroTex, uiTex, villageBgTex, watchArt } from '@/core/TextureLoader';
+import type { Fighter } from '@/game/BattleEngine';
 import { fitSprite, label } from '@/ui/paint';
 
 const INK = 0x2a160c;
@@ -11,8 +11,10 @@ const RUST = 0x8b2e1f;
 const MUTED = 0xc8b89a;
 
 type Held = {
-  team: HeroUnit[];
-  wave: number;
+  /** 场上的人。倒下的排在前面，他们才是这一刻的主角 */
+  team: Fighter[];
+  /** 漏了几个（判负那一刻正好等于 LEAK_ALLOW） */
+  leaked: number;
   remaining: number;
   height: number;
 };
@@ -60,24 +62,25 @@ function standSprite(
   return spr;
 }
 
-function lineupXs(roster: { slot: number }[]): Map<number, number> {
-  const sorted = [...roster].sort((a, b) => a.slot - b.slot);
-  const n = sorted.length;
-  const out = new Map<number, number>();
-  if (n === 0) return out;
-  if (n === 1) {
-    out.set(sorted[0]!.slot, 375);
-    return out;
-  }
-  if (n === 2) {
-    out.set(sorted[0]!.slot, 248);
-    out.set(sorted[1]!.slot, 502);
-    return out;
-  }
-  for (const h of sorted) {
-    out.set(h.slot, h.slot === 1 ? 188 : h.slot === 2 ? 562 : 375);
-  }
-  return out;
+/**
+ * 弹窗上最多画三个人。满级上场 8 个，全画上来脸就认不出了（反目标第二条）。
+ *
+ * 挑谁：先挑倒下的 —— 判负那一刻玩家最想看见的是「谁没顶住」。
+ * 都还站着（漏怪判负时很常见，怪从空路直接溜过去了）就挑最靠前的三个。
+ */
+const CAST = 3;
+
+function castOf(team: readonly Fighter[]): Fighter[] {
+  const fallen = team.filter((f) => !f.alive);
+  const pick = fallen.length > 0 ? fallen : [...team];
+  return pick.sort((a, b) => a.cell - b.cell || a.lane - b.lane).slice(0, CAST);
+}
+
+function lineupXs(n: number): number[] {
+  if (n <= 0) return [];
+  if (n === 1) return [375];
+  if (n === 2) return [248, 502];
+  return [188, 375, 562];
 }
 
 /**
@@ -101,21 +104,21 @@ export class ReviveOverlay extends PIXI.Container {
     Game.ticker.add(() => this._tickPulse());
     watchArt(() => {
       if (!this.visible || !this._held) return;
-      this.show(this._held.team, this._held.wave, this._held.remaining, this._held.height);
+      this.show(this._held.team, this._held.leaked, this._held.remaining, this._held.height);
     });
   }
 
-  show(team: HeroUnit[], wave: number, remaining: number, height: number): void {
+  show(team: Fighter[], leaked: number, remaining: number, height: number): void {
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.visible = true;
     this._busy = false;
     this._pulse = null;
-    this._held = { team, wave, remaining, height };
+    this._held = { team, leaked, remaining, height };
     this.hitArea = new PIXI.Rectangle(0, 0, 750, height);
 
     this._coverBg(height);
 
-    const roster = [...team].sort((a, b) => a.slot - b.slot);
+    const cast = castOf(team);
     const top = Math.max(Game.safeTop, 20);
 
     const skipH = 72;
@@ -134,7 +137,7 @@ export class ReviveOverlay extends PIXI.Container {
     titleTx.anchor.set(0.5);
     titleTx.position.set(356, faceY);
     titleTx.rotation = tilt;
-    titleTx.text = '这套要散了';
+    titleTx.text = '快挡不住了';
     this.addChild(titleTx);
 
     const stampW = 196;
@@ -145,12 +148,14 @@ export class ReviveOverlay extends PIXI.Container {
     const waveTx = stroke(22, CREAM, '#1a1008', 4);
     waveTx.anchor.set(0.5);
     waveTx.position.set(stampX, stampY + 1);
-    waveTx.text = `第 ${wave} 波`;
+    waveTx.text = `漏了 ${leaked} 个`;
     this.addChild(waveTx);
 
     const hintH = 96;
     const hintCy = plaqueCy + plaqueH * 0.5 + 8 + hintH / 2;
-    this._caption(375, hintCy, 660, hintH, '看一段，全队原地站起来继续打\n这套改装还在。', 22);
+    // 说清换来什么：漏怪归零 + 场上清一半 + 倒下的站起来。
+    // 只写「继续打」会让人以为是从头再来，那笔广告就不值了
+    this._caption(375, hintCy, 660, hintH, '看一段，漏怪归零\n场上清掉一半，倒下的站起来', 22);
 
     const quotaH = 52;
     const quotaCy = hintCy + hintH / 2 + 12 + quotaH / 2;
@@ -163,48 +168,35 @@ export class ReviveOverlay extends PIXI.Container {
     this.addChild(quotaTx);
 
     const nameH = 46;
-    const modsH = 30;
+    const tagH = 30;
     const bandTop = quotaCy + quotaH / 2 + 20;
     const bandBottom = playCy - playH / 2 - 16;
-    const labelStack = 12 + nameH + 8 + modsH;
+    const labelStack = 12 + nameH + 8 + tagH;
     const sitH = Math.max(190, Math.min(260, bandBottom - labelStack - bandTop));
     const feetY = bandTop + sitH;
     this._drawCurb(48, feetY - 6, 654, 28);
 
-    const xs = lineupXs(roster);
-    for (const hero of roster) {
-      const x = xs.get(hero.slot) ?? 375;
-      const mid = hero.slot === 0 || roster.length === 1;
-      const spr = standSprite(
-        this,
-        heroTex(hero.def.id),
-        x,
-        feetY + 4,
-        mid ? 200 : 178,
-        sitH,
-      );
+    const xs = lineupXs(cast.length);
+    cast.forEach((f, i) => {
+      const x = xs[i] ?? 375;
+      const mid = cast.length === 1 || i === 1;
+      const spr = standSprite(this, heroTex(f.def.id), x, feetY + 4, mid ? 200 : 178, sitH);
       if (spr) {
         spr.tint = 0x9a948c;
-        spr.rotation = hero.slot === 1 ? -0.05 : hero.slot === 2 ? 0.05 : 0.02;
+        spr.rotation = i === 0 ? -0.05 : i === 2 ? 0.05 : 0.02;
       }
       fillSprite(this, uiTex('settle_name'), x, feetY + 14 + nameH / 2, 168, nameH);
       const nameTx = stroke(18, CREAM, '#1a1008', 4);
       nameTx.anchor.set(0.5);
       nameTx.position.set(x, feetY + 14 + nameH / 2 + 1);
-      nameTx.text = hero.def.name;
+      nameTx.text = f.def.name;
       this.addChild(nameTx);
-      hero.mods.forEach((m, k) => {
-        const n = hero.mods.length;
-        fitSprite(
-          this,
-          modTex(m.id),
-          x + (k - (n - 1) / 2) * 32,
-          feetY + 14 + nameH + 8 + modsH / 2,
-          28,
-          28,
-        );
-      });
-    }
+      const tag = stroke(16, MUTED, '#1a1008', 3);
+      tag.anchor.set(0.5);
+      tag.position.set(x, feetY + 14 + nameH + 8 + tagH / 2);
+      tag.text = `${'左中右'[f.lane] ?? '中'}路 第${f.cell + 1}格`;
+      this.addChild(tag);
+    });
 
     this._playBtn(375, playCy, 560, playH, () => {
       if (this._busy) return;

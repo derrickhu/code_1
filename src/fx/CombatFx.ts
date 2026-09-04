@@ -6,8 +6,7 @@ import * as PIXI from 'pixi.js';
 import type { AttackFx, EnemyFx } from '@/balance/fx';
 import { projSprite } from '@/balance/fx';
 import { playSfx, buzz } from '@/core/SfxPlayer';
-import { fillContain, modTex, projTex, tex, vfxTex } from '@/core/TextureLoader';
-import { getPetProto } from '@/balance/pets';
+import { fillContain, gearTex, projTex, tex, vfxTex } from '@/core/TextureLoader';
 import type { BattleEvent } from '@/game/BattleEngine';
 import { VfxKit } from '@/fx/VfxKit';
 import { attackLook, enemyLook, playImpact, playMuzzle, shouldFly, shotFlight, skinLook, type FxLook, type ShotBody } from '@/fx/FxRecipe';
@@ -151,15 +150,13 @@ export class CombatFx {
   ): void {
     const color = pos.color ?? 0xffffff;
     if (pos.meleeR && pos.meleeR > 0) this._meleeRadius = pos.meleeR;
+
     if (ev.kind === 'hit' && pos.ex !== undefined && pos.ey !== undefined) {
       const key = pos.enemyId !== undefined ? enemyImpactKey(pos.enemyId) : undefined;
       if (key) this._gate.begin(key);
       const landHit = (): void => {
         this._impactHero(ev, pos.ex!, pos.ey!, color, pos.fx, pos.skin ? skinLook(pos.skin) : undefined);
         if (pos.slowed) this._spawnPlainFloat('减速', pos.ex!, pos.ey! + 10, 0x86efac, 16, 0.4);
-        if (ev.heal && ev.heal > 0 && pos.hx !== undefined && pos.hy !== undefined) {
-          this._spawnPlainFloat(`+${Math.round(ev.heal)}`, pos.hx, pos.hy - 28, 0x86efac, 18, 0.4);
-        }
         pos.onLand?.();
         this._finishLand(key);
       };
@@ -169,7 +166,8 @@ export class CombatFx {
         landHit();
       }
     }
-    if (ev.kind === 'enemyHit' && pos.ex !== undefined && pos.ey !== undefined
+
+    if (ev.kind === 'foeHit' && pos.ex !== undefined && pos.ey !== undefined
       && pos.hx !== undefined && pos.hy !== undefined) {
       const key = pos.heroId ? heroImpactKey(pos.heroId) : undefined;
       if (key) this._gate.begin(key);
@@ -178,20 +176,18 @@ export class CombatFx {
         this._finishLand(key);
       });
     }
-    if (ev.kind === 'enemyDown' && pos.ex !== undefined && pos.ey !== undefined) {
+
+    if (ev.kind === 'foeDown' && pos.ex !== undefined && pos.ey !== undefined) {
       const key = pos.enemyId !== undefined ? enemyImpactKey(pos.enemyId) : undefined;
       const play = (): void => {
         this._death(pos.ex!, pos.ey!, 0xffb070);
         playSfx('kill_pop', 80);
         this.hitStop = Math.max(this.hitStop, 0.045);
-        // 废品是打死人掉的，就得掉在尸体上，玩家才知道钱从哪来
-        if (ev.scrap > 0) {
-          this._spawnPlainFloat(`+${ev.scrap} 废品`, pos.ex!, pos.ey! + 16, 0xffd66b, 22, 0.55);
-        }
       };
       if (!key || !this._gate.defer(key, play)) play();
     }
-    if (ev.kind === 'heroDown' && pos.hx !== undefined && pos.hy !== undefined) {
+
+    if (ev.kind === 'villagerDown' && pos.hx !== undefined && pos.hy !== undefined) {
       const key = pos.heroId ? heroImpactKey(pos.heroId) : undefined;
       const play = (): void => {
         this.downPulse = 0.4;
@@ -200,33 +196,31 @@ export class CombatFx {
       };
       if (!key || !this._gate.defer(key, play)) play();
     }
-    if (ev.kind === 'heroRevive' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.5, s1: 1.2, life: 0.32 });
-      this._kit.ring(pos.hx, pos.hy, 0xffd66b, 0.4);
-      this._kit.spray(pos.hx, pos.hy, { n: 10, tint: 0xffe08a, kind: 'spark', speed: 160 });
-      this._spawnPlainFloat('又站起来了', pos.hx, pos.hy - 46, 0xffd66b, 24, 0.7);
-      playSfx('hero_land', 0);
-    }
-    if (ev.kind === 'install' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.45, s1: 1.1, life: 0.28 });
-      this._kit.ring(pos.hx, pos.hy, 0xffd66b, 0.48);
-      this._kit.spray(pos.hx, pos.hy, { n: 8, tint: 0xffe08a, kind: 'spark', speed: 140 });
-      if (pos.installLine) {
-        this._spawnInstallFloat(pos.installLine, pos.hx, pos.hy - 52);
+
+    if (ev.kind === 'heal' && pos.tx !== undefined && pos.ty !== undefined) {
+      this._kit.plate('heal', pos.tx, pos.ty, { tint: 0x86efac, s0: 0.4, s1: 0.95, life: 0.32 });
+      this._kit.spray(pos.tx, pos.ty, { n: 7, tint: 0x86efac, kind: 'glow', speed: 80, gy: -40 });
+      if (ev.amount > 0) {
+        this._spawnPlainFloat(`+${Math.round(ev.amount)}`, pos.tx, pos.ty - 24, 0x86efac, 24, 0.5);
       }
-      playSfx('install_on', 0);
-      buzz('medium');
+      playSfx('skill', 160);
     }
-    if (ev.kind === 'skill' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._skillCallout(ev, { hx: pos.hx, hy: pos.hy, tx: pos.tx, ty: pos.ty });
-    }
-    if (ev.kind === 'petSummon' && pos.hx !== undefined && pos.hy !== undefined) {
-      const tint = ev.protoId === 'dog' ? 0xffb070 : ev.protoId === 'chicken' ? 0xffe08a : 0x9be08a;
-      this._kit.plate('flash', pos.hx, pos.hy + 18, { tint, s0: 0.4, s1: 1.05, life: 0.28 });
-      this._kit.ring(pos.hx, pos.hy + 18, tint, 0.36);
-      this._kit.spray(pos.hx, pos.hy + 18, { n: 8, tint, kind: 'glow', speed: 90, gy: -20 });
-      this._spawnPlainFloat(`${getPetProto(ev.protoId).name}来了`, pos.hx, pos.hy - 28, tint, 20, 0.55);
-      playSfx('hero_land', 40);
+
+    /*
+     * 漏怪要做得**比击杀更响**。它是这一版唯一的判负条件，
+     * 玩家必须能立刻回答「我刚才是哪一路崩的」——
+     * 上一版的失败是队灭，屏幕上人躺下就够明显了，漏怪没有这种天然可见性，
+     * 所以这里要靠一次红闪 + 一行字把它砸出来。少了它失败就变成莫名其妙。
+     */
+    if (ev.kind === 'leak' && pos.hx !== undefined && pos.hy !== undefined) {
+      this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xff5a5a, s0: 0.6, s1: 1.6, life: 0.4 });
+      this._kit.ring(pos.hx, pos.hy, 0xff5a5a, 0.6);
+      this._kit.spray(pos.hx, pos.hy, { n: 14, tint: 0xff7a7a, kind: 'spark', speed: 200, life: 0.4 });
+      this._spawnFlash('漏了一个', pos.hx, pos.hy - 40);
+      this.downPulse = 0.5;
+      this.hitStop = Math.max(this.hitStop, 0.07);
+      playSfx('hero_down', 0);
+      buzz('heavy');
     }
   }
 
@@ -368,7 +362,7 @@ export class CombatFx {
   ): void {
     const style: AttackFx = fx ?? (melee ? 'slash' : orb ? 'orb' : 'bolt');
     const look = skin ? skinLook(skin) : attackLook(style);
-    const tint = ev.crit ? mix(look.tint, 0xffd66b, 0.4) : look.tint;
+    const tint = ev.killed ? mix(look.tint, 0xffd66b, 0.4) : look.tint;
     const land = (): void => {
       onLand?.();
     };
@@ -398,7 +392,7 @@ export class CombatFx {
   }
 
   private _spawnEnemyHit(
-    ev: Extract<BattleEvent, { kind: 'enemyHit' }>,
+    ev: Extract<BattleEvent, { kind: 'foeHit' }>,
     x0: number,
     y0: number,
     x1: number,
@@ -409,19 +403,10 @@ export class CombatFx {
     const look = enemyLook(fx);
     const color = look.tint;
     const land = (): void => {
-      const through = ev.damage - ev.absorbed;
-      if (ev.absorbed > 0) {
-        this._spawnPlainFloat('抵挡', x1, y1 - 6, 0x7dd3fc, 18, 0.38);
-        this._kit.plate('shield', x1, y1, { tint: 0x7dd3fc, s0: 0.35, s1: 0.8, life: 0.22 });
-      }
-      if (through > 0) {
-        this._hurtHero(through, x1, y1);
+      if (ev.damage > 0) {
+        this._hurtHero(ev.damage, x1, y1);
         playSfx('hit', 70);
         this._enemyLand(fx, x1, y1);
-      }
-      if (ev.reflect > 0) {
-        if (!look.quiet) this._kit.spray(x0, y0, { n: 5, tint: 0xff8a3a, kind: 'spark', speed: 120 });
-        this._spawnPlainFloat(`反伤 ${Math.round(ev.reflect)}`, x0, y0, 0xffb070, 20);
       }
       onLand?.();
     };
@@ -481,7 +466,7 @@ export class CombatFx {
     const physName = energy ? null : (spec.look?.proj ?? projSprite(spec.kind as AttackFx));
     const physical = !!physName;
     const shot = energy ? vfxTex(energy)
-      : physName ? (projTex(physName) ?? modTex(physName) ?? tex(`images/wep_${physName}.png`))
+      : physName ? (projTex(physName) ?? gearTex(physName) ?? tex(`images/wep_${physName}.png`))
         : null;
     let spr: PIXI.Sprite | null = null;
     if (shot) {
@@ -634,12 +619,13 @@ export class CombatFx {
     lookArg?: FxLook,
   ): void {
     this._spawnHitFloat(ev, x, y);
-    playSfx(ev.crit ? 'hit_counter' : `hit_${fx}`, ev.crit ? 50 : 80);
+    // 会心下线了，强调改挂在「这一下打死了」上：收人头那一下最该被看见
+    playSfx(ev.killed ? 'hit_counter' : `hit_${fx}`, ev.killed ? 50 : 80);
     const look = lookArg ?? attackLook(fx);
-    const stop = playImpact(this._kit, look, x, y, ev.crit);
+    const stop = playImpact(this._kit, look, x, y, ev.killed);
     this.hitStop = Math.max(this.hitStop, stop);
-    if (look.buzz) buzz(ev.crit ? 'heavy' : look.buzz);
-    else if (ev.crit) buzz('heavy');
+    if (look.buzz) buzz(ev.killed ? 'heavy' : look.buzz);
+    else if (ev.killed) buzz('heavy');
   }
 
   private _enemyLand(fx: EnemyFx, x: number, y: number): void {
@@ -654,29 +640,6 @@ export class CombatFx {
     this._kit.ring(x, y, tint, 0.3);
     this._kit.spray(x, y, { n: 16, tint, kind: 'spark', speed: 260, life: 0.34, gy: 40 });
     this._kit.spray(x, y, { n: 6, tint, kind: 'glow', speed: 90, life: 0.3, scale: 0.5, gy: 20 });
-  }
-
-  private _skillCallout(
-    ev: Extract<BattleEvent, { kind: 'skill' }>,
-    pos: { hx: number; hy: number; tx?: number; ty?: number },
-  ): void {
-    if (ev.skillKind === 'shield') {
-      this._kit.plate('shield', pos.hx, pos.hy, { tint: 0x7dd3fc, s0: 0.4, s1: 1.05, life: 0.36 });
-      this._kit.ring(pos.hx, pos.hy, 0x7dd3fc, 0.32);
-      this._spawnPlainFloat(`+${Math.round(ev.amount ?? 0)} 护盾`, pos.hx, pos.hy - 40, 0x7dd3fc, 22, 0.55);
-      return;
-    }
-    if (ev.skillKind === 'heal') {
-      const x = pos.tx ?? pos.hx;
-      const y = pos.ty ?? pos.hy;
-      this._kit.plate('heal', x, y, { tint: 0x86efac, s0: 0.4, s1: 0.95, life: 0.32 });
-      this._kit.spray(x, y, { n: 7, tint: 0x86efac, kind: 'glow', speed: 80, gy: -40 });
-      if ((ev.amount ?? 0) > 0) this._spawnPlainFloat(`+${Math.round(ev.amount ?? 0)}`, x, y - 24, 0x86efac, 22, 0.5);
-      return;
-    }
-    this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.4, s1: 0.9, life: 0.2 });
-    this._spawnFlash(ev.skillName, pos.hx, pos.hy - 56);
-    playSfx('skill', 160);
   }
 
   private _point(s: ShotBit, t: number): { x: number; y: number } {
@@ -704,16 +667,16 @@ export class CombatFx {
   private _spawnHitFloat(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number): void {
     const first = this._firstHit;
     this._firstHit = false;
-    const size = first ? 64 : ev.crit ? 52 : 40;
-    const color = ev.crit || first ? 0xffe066 : 0xffb24a;
+    const size = first ? 64 : ev.killed ? 52 : 40;
+    const color = ev.killed || first ? 0xffe066 : 0xffb24a;
     this._spawnPlainFloat(
       String(Math.round(ev.damage)),
       x,
       y - 10,
       color,
       size,
-      first ? 0.95 : ev.crit ? 0.78 : 0.62,
-      ev.crit || first ? 1.22 : 1.06,
+      first ? 0.95 : ev.killed ? 0.78 : 0.62,
+      ev.killed || first ? 1.22 : 1.06,
     );
   }
 

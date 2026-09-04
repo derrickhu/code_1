@@ -181,6 +181,46 @@ export function evoOf(p: Progress, id: string): number {
   return Math.max(1, Math.min(3, Math.floor(p.evo[id] ?? 1)));
 }
 
+/**
+ * 喊一嗓子的结果。**喊到谁是随机的，玩家没得挑**（§4.3 不做概率池、不做定向）。
+ *
+ * 这个函数是真源，存档层和模拟器共用同一份 —— 上一版有过
+ * 「模拟器自己写一套掷骰」的时期，于是护栏证明的是模型而不是游戏。
+ */
+export interface CallResult {
+  id: string;
+  isNew: boolean;
+  /** 喊重了折多少废铁 */
+  scrap: number;
+  /** 喊重了给谁加了一颗星（可能没人可加，全满星时是 undefined） */
+  starTo?: string;
+}
+
+export function rollCall(
+  p: Progress,
+  callCount: number,
+  rng: () => number,
+  allIds: readonly string[],
+  starMax: number,
+): CallResult {
+  const owned = new Set(p.roster);
+  const missing = allIds.filter((id) => !owned.has(id));
+  const forceNew = callCount <= CALL_PITY_NEW;
+  const dupChance = p.roster.length / Math.max(1, allIds.length);
+
+  if (missing.length > 0 && (forceNew || rng() > dupChance)) {
+    const pick = missing[Math.floor(rng() * missing.length)]!;
+    return { id: pick, isNew: true, scrap: 0 };
+  }
+
+  // 喊重了：折废铁 + 给星最少的那个加一颗，别全堆在一个人身上
+  const low = [...p.roster]
+    .filter((id) => starsOf(p, id) < starMax)
+    .sort((a, b) => starsOf(p, a) - starsOf(p, b))[0];
+  const who = p.roster[Math.floor(rng() * Math.max(1, p.roster.length))] ?? low ?? '';
+  return { id: who, isNew: false, scrap: CALL_DUP_SCRAP, starTo: low };
+}
+
 export function starsOf(p: Progress, id: string): number {
   return Math.max(0, Math.floor(p.stars[id] ?? 0));
 }

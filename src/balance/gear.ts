@@ -2,6 +2,9 @@
  * 装备挂点。身体和家伙分层，才能换武器。
  *
  * 柄在拳里，头朝外。贴图里柄在哪、头朝哪，这里必须对上，否则锅会拿反。
+ *
+ * 手上拿什么由**村民 + 进化阶**决定，不再由焊在身上的改装件决定。
+ * 这是 §4.1 的硬要求：进化必须看得见，而「看得见」最直接的一笔就是换家伙。
  */
 
 export type GearSlot = 'hand' | 'head' | 'back' | 'body';
@@ -40,29 +43,39 @@ export const HAND_GEAR: Readonly<Record<string, HandGear>> = {
   wire: { id: 'wire', path: 'images/mod_wire.png', gripX: 0.46, gripY: 0.4, headLocal: 0.55, scale: 0.5 },
 };
 
-/** 改装件里哪些是手上换的家伙，哪些是穿/背的 */
-export const MOD_SLOT: Readonly<Record<string, GearSlot>> = {
-  pipe: 'hand',
-  chainsaw: 'hand',
-  weight: 'hand',
-  pot: 'hand',
-  speaker: 'hand',
-  blower: 'hand',
-  firecracker: 'hand',
-  wire: 'hand',
-  helmet: 'head',
-  quilt: 'body',
-  steelplate: 'body',
-  pressurecooker: 'back',
-};
-
-export const STARTER_HAND: Readonly<Record<string, string>> = {
-  tiezhu: 'wrench',
-  dachui: 'hammer',
-  laoli: 'cleaver',
-  erjiu: 'driver',
-  sanshen: 'radio',
-  laoyanqiang: 'sling',
+/**
+ * 每人三阶手上拿什么。长度必须是 3，且要和 villagers.evo[].pitch 对得上 ——
+ * pitch 写「换成双股皮筋」而这里还是同一把弹弓，那进化就只是数字变大。
+ *
+ * 贴图不够用时允许复用（村里的家伙本来就是同一堆破烂里翻出来的），
+ * 但**同一个人的三阶不许三张一样**，除非 pitch 里写的变化在身上其他位置。
+ */
+export const VILLAGER_HAND: Readonly<Record<string, readonly [string, string, string]>> = {
+  // 站远点打
+  guogai: ['pot', 'pot', 'pot'],
+  yuwang: ['wire', 'wire', 'wire'],
+  laoyanqiang: ['sling', 'sling', 'sling'],
+  labaye: ['speaker', 'speaker', 'speaker'],
+  // 挨得住
+  tiezhu: ['wrench', 'wrench', 'pot'],
+  shimo: ['weight', 'weight', 'weight'],
+  miankuzhang: ['pipe', 'pipe', 'pipe'],
+  erjiu: ['driver', 'wrench', 'wrench'],
+  // 下手重
+  chengtuo: ['weight', 'weight', 'weight'],
+  dachui: ['hammer', 'hammer', 'pipe'],
+  dianju: ['cleaver', 'chainsaw', 'chainsaw'],
+  shazhu: ['cleaver', 'cleaver', 'cleaver'],
+  // 越挨越猛
+  gaoyaguo: ['pot', 'pot', 'pot'],
+  gangban: ['wrench', 'wire', 'wire'],
+  laoli: ['cleaver', 'cleaver', 'cleaver'],
+  bianpao: ['firecracker', 'firecracker', 'firecracker'],
+  // 带一帮人
+  qiangou: ['pipe', 'pipe', 'pipe'],
+  jishi: ['blower', 'blower', 'blower'],
+  sanshen: ['radio', 'speaker', 'speaker'],
+  baowenhu: ['pot', 'pot', 'pot'],
 };
 
 /** 立绘那只出击拳，相对脚底。x 乘朝向，y 向上为负，单位是身体高度 */
@@ -75,22 +88,69 @@ export const HAND: Readonly<Record<string, { x: number; y: number }>> = {
   laoyanqiang: { x: 0.2, y: -0.5 },
 };
 
-export function isHandMod(modId: string): boolean {
-  return MOD_SLOT[modId] === 'hand';
+/**
+ * 这一阶身上穿 / 背 / 戴什么。手上那一件之外的第二条「进化看得见」的线。
+ *
+ * 一阶基本是空的、二阶多一件、三阶两件 —— 站在一排三个阶段的同一个人面前，
+ * 轮廓必须一眼分出来。§4.1 把这条写成了硬约束，别为了省事让三阶共用一套。
+ */
+export interface EvoWear {
+  head?: string;
+  back?: string;
+  body?: string;
 }
 
-export function wornModIds(modIds: readonly string[], slot: GearSlot): string[] {
-  return modIds.filter((id) => MOD_SLOT[id] === slot);
+/** 按门路给的兜底。新加村民没进 override 表时也有个像样的轮廓变化 */
+const WEAR_BY_LANE: Readonly<Record<string, readonly [EvoWear, EvoWear, EvoWear]>> = {
+  stand: [{}, { body: 'quilt' }, { body: 'steelplate', head: 'helmet' }],
+  heavy: [{}, { head: 'helmet' }, { head: 'helmet', back: 'weight' }],
+  rage: [{}, { back: 'pressurecooker' }, { back: 'pressurecooker', body: 'steelplate' }],
+  reach: [{}, { head: 'helmet' }, { head: 'helmet', back: 'pot' }],
+  band: [{}, { body: 'quilt' }, { body: 'quilt', back: 'speaker' }],
+};
+
+/** 逐人指定。写在这儿的都是 villagers.evo[].pitch 里点名了实物的 */
+const WEAR_OVERRIDE: Readonly<Record<string, readonly [EvoWear, EvoWear, EvoWear]>> = {
+  // 「顶着高压锅、背上弹簧床垫」
+  tiezhu: [
+    { body: 'quilt' },
+    { body: 'steelplate' },
+    { body: 'steelplate', head: 'helmet', back: 'pressurecooker' },
+  ],
+  // 「背着高压锅 → 加压阀 → 一排高压锅」
+  gaoyaguo: [
+    { back: 'pressurecooker' },
+    { back: 'pressurecooker', head: 'helmet' },
+    { back: 'pressurecooker', body: 'steelplate' },
+  ],
+  // 「一块钢板 → 带刺钢板 → 一身铁皮」
+  gangban: [
+    { body: 'steelplate' },
+    { body: 'steelplate', head: 'helmet' },
+    { body: 'steelplate', head: 'helmet', back: 'weight' },
+  ],
+  // 「挑着锅盖 → 双锅盖 → 锅盖阵」
+  guogai: [{ back: 'pot' }, { back: 'pot', head: 'helmet' }, { back: 'pot', body: 'steelplate' }],
+  // 「铁皮喇叭 → 电喇叭 → 大喇叭杆」
+  labaye: [{}, { back: 'speaker' }, { back: 'speaker', head: 'helmet' }],
+  // 「手提音响 → 落地音箱 → 整套音响」
+  sanshen: [{}, { back: 'speaker' }, { back: 'speaker', body: 'quilt' }],
+};
+
+export function wearOf(villagerId: string, lane: string, evoStage = 1): EvoWear {
+  const row = WEAR_OVERRIDE[villagerId] ?? WEAR_BY_LANE[lane] ?? WEAR_BY_LANE.stand!;
+  return row[Math.max(0, Math.min(2, Math.floor(evoStage) - 1))]!;
 }
 
-/** 手上这一件：后装的手持破烂盖过起手家伙 */
-export function resolveHandGear(heroId: string, modIds: readonly string[]): HandGear {
-  for (let i = modIds.length - 1; i >= 0; i -= 1) {
-    const id = modIds[i];
-    if (id && isHandMod(id) && HAND_GEAR[id]) return HAND_GEAR[id];
-  }
-  const starter = STARTER_HAND[heroId] ?? 'wrench';
-  return HAND_GEAR[starter] ?? HAND_GEAR.wrench!;
+/** 这一阶手上拿的那一件 */
+export function handIdOf(villagerId: string, evoStage = 1): string {
+  const row = VILLAGER_HAND[villagerId];
+  if (!row) return 'wrench';
+  return row[Math.max(0, Math.min(2, Math.floor(evoStage) - 1))]!;
+}
+
+export function resolveHandGear(villagerId: string, evoStage = 1): HandGear {
+  return HAND_GEAR[handIdOf(villagerId, evoStage)] ?? HAND_GEAR.wrench!;
 }
 
 export const STARTER_WEP_IDS = ['wrench', 'cleaver', 'driver', 'radio', 'sling'] as const;

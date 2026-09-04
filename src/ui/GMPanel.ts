@@ -5,7 +5,10 @@ import * as PIXI from 'pixi.js';
 import { Game } from '@/core/Game';
 import { EventBus } from '@/core/EventBus';
 import { GMManager } from '@/core/GMManager';
-import { CHAPTER_COUNT, STAGES_PER_CHAPTER, findStage } from '@/balance/stages';
+import { CHAPTER_COUNT, findStage } from '@/balance/stages';
+
+/** 每章五关。写死在这儿而不是从 stages 导，是因为它是关卡表的形状约定 */
+const PER_CHAPTER = 5;
 import { bindPointerTap } from '@/minigame';
 
 const PAD = 16;
@@ -144,7 +147,7 @@ export class GMPanel extends PIXI.Container {
     this._stepper(card, 12, rowY, stepW, '章', CHAPTER_COUNT, (n) => {
       this._jumpChapter = n;
     });
-    this._stepper(card, 20 + stepW, rowY, stepW, '关', STAGES_PER_CHAPTER, (n) => {
+    this._stepper(card, 20 + stepW, rowY, stepW, '关', PER_CHAPTER, (n) => {
       this._jumpIndex = n;
     });
     rowY += 52;
@@ -175,7 +178,7 @@ export class GMPanel extends PIXI.Container {
     card.addChild(unlock, enter);
     rowY += 60;
 
-    const hint = new PIXI.Text('解锁：目标关写进进度，前面的关都能选。开战：带当前三人直接进这一关。不改废品。', {
+    const hint = new PIXI.Text('解锁：目标关写进进度，前面的关都能选。开战：直接进这一关（上场名单和排法由存档决定）。不改资源。', {
       fontFamily: 'sans-serif',
       fontSize: 13,
       fill: C.muted,

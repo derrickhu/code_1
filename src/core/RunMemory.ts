@@ -1,387 +1,420 @@
+/**
+ * 存档：村民名单、进化、星级、村庄等级、四种资源、弹子、推图进度、布阵。
+ *
+ * 一条硬口径（§5）：**货币只有四种** —— 废铁 / 零件 / 工分 / 村庄经验。
+ * 弹子是次数不是货币，所以它跟资源分开存，也不进货币条。
+ * 想加第五种之前先回去看反目标第五条。
+ *
+ * 这一版把上一版的字段全换了（改装件、门路研发、难度阶梯、废品堆全部下线），
+ * 所以老存档不迁移、直接重置：`REV` 不匹配就当新档。
+ * 迁移的成本远高于收益 —— 上一版的养成对象（27 件破烂的星级）
+ * 在这一版压根不存在，硬折算只会折出一个玩家看不懂的开局。
+ */
 import { SAVE_KEY } from '@/config/CloudConfig';
 import { PersistService } from '@/core/PersistService';
-import { Platform } from '@/core/PlatformService';
-import type { RewardSource } from '@/balance/rewards';
 import {
-  PILE_CAP,
-  clampGrowth,
-  emptyGrowth,
-  nextGrowthCost,
-  pileGrowth,
-  refundModStars,
-  type GrowthId,
-  type GrowthLevels,
-} from '@/balance/yard';
+  PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST, PELLET_LOSE,
+  SETTLE_SCRAP, creditPity, mulberry32, pelletCap, pelletRegenMin, shoot,
+  type ShotResult,
+} from '@/balance/stall';
 import {
-  clampLanes,
-  emptyLanes,
-  laneOpen,
-  nextLaneCost,
-  type LaneId,
-  type LaneLevels,
-} from '@/balance/lanes';
-import { getMod } from '@/balance/mods';
-import { LADDER_TOP, ladderPassed } from '@/balance/ladder';
+  CALL_COST, addVillageExp, clampVillageLv, evoOf, nextEvoCost,
+  rollCall, squadCap, starsOf,
+  type Progress,
+} from '@/balance/village';
 import {
-  LAST_STAGE_ID,
-  clampPlayerStage,
-  inferStageTop,
-  migrateStageTop,
-} from '@/balance/stages';
+  DEFAULT_SQUAD, STAR_MAX, VILLAGERS, VILLAGER_BY_ID,
+} from '@/balance/villagers';
+import { STAGE_COUNT, clampStage } from '@/balance/stages';
+import { CELL_COUNT, LANE_COUNT } from '@/balance/combat';
 
 const KEY = SAVE_KEY;
-const LEGACY_KEY = 'code1_run_memory';
 
-function readRaw(): string | null {
-  const cur = PersistService.readRaw(KEY);
-  if (cur) return cur;
-  const old = Platform.getStorageSync(LEGACY_KEY);
-  if (old) {
-    try { PersistService.writeRaw(KEY, old); } catch { /* 迁移失败下次再试 */ }
-    return old;
-  }
-  return null;
+/** 存档格式版本。改字段就往上加一，老档直接重置 */
+const REV = 3;
+
+/** 战场上一个人的位置。存下来是为了下一关不用重排 */
+export interface Slot {
+  id: string;
+  lane: number;
+  cell: number;
 }
 
 export interface RunMemory {
-  highestWave: number;
-  seenHeroIds: string[];
-  /** 已废弃的累计堆。新局只用 nextScrap 带进开场 */
+  rev: number;
+
+  /* ---- 养成 ---- */
+  villageLv: number;
+  villageExp: number;
+  /** 已入伙的村民 id，按入伙顺序 */
+  roster: string[];
+  /** 每人几阶（1~3） */
+  evo: Record<string, number>;
+  /** 每人几颗星 */
+  stars: Record<string, number>;
   scrap: number;
-  /** 下一局开场带着的本局零钱。用完清零 */
-  nextScrap: number;
-  /** 带进下一局的那笔废品从哪来。现在只有广告双倍 */
-  nextScrapSource: RewardSource;
-  /** 翻废品站翻到的那件，下一局三选一必出 */
-  nextPinModId: string;
-  /** 村里废品堆。跨局花，买肉鸽成长 */
-  yardScrap: number;
-  /** 老存档字段。破烂不再解锁，读进来也不用 */
-  unlockedMods: string[];
-  /** 开局多带废品的档。跟 growth.pocket 同步 */
-  startScrapLv: number;
-  /** 废品站买的肉鸽成长 */
-  growth: GrowthLevels;
-  /** 门路研发。一条路出得更勤、也更猛 */
-  laneLv: LaneLevels;
-  /** 买了携带位之后，村里点好带哪一件出去 */
-  carryModId: string;
-  /** 老存档单件升星折回来的废品。村里报一次就清 */
-  starRefund: number;
-  /** 村子里点好的三人，进场直接用 */
-  squadIds: string[];
-  /** 看广告白送的那件，进场自动焊上 */
-  nextGiftModId: string;
-  /** 下一局打第几档难度阶梯 */
-  ladderLv: number;
-  /** 已经解锁到第几档。0 表示还没打服照旧那一档 */
-  ladderTop: number;
-  /** 见过的合体，用来点亮图鉴。只记 id，不存战力 */
-  seenCombos: string[];
-  /** 村里那堆废品上次结算到什么时候。离线自己涨 */
-  pileAtMs: number;
-  /** 已经涨出来还没收的那一堆 */
-  pileScrap: number;
-  /** 下一局打第几关。1 是村口 */
+  parts: number;
+  credits: number;
+
+  /* ---- 弹弓摊 ---- */
+  /** 手上还有几发 */
+  pellets: number;
+  /** 上次结算离线回弹的时刻 */
+  pelletAtMs: number;
+  /** 摊子的工分保底计数（离上次出工分过了几发） */
+  stallPity: number;
+  /** 今天摊子广告看了几次，以及那是哪一天 */
+  adCount: number;
+  adDay: string;
+
+  /* ---- 推图 ---- */
   stageId: number;
-  /** 已经解锁到第几关 */
   stageTop: number;
-  /** 2 = 40 关主线。用来把上一版 4 门迁过来 */
-  campaignRev: number;
+  /** 每关拿到过的最高星评 */
+  stageStars: Record<number, number>;
+
+  /* ---- 布阵 ---- */
+  /** 上一次的排法。开下一关时直接铺上 */
+  layout: Slot[];
+
+  /* ---- 其他 ---- */
+  /** 一共喊过几次人。前 4 次必出新人的保底靠它 */
+  callCount: number;
+  /** 见过的人，点亮图鉴用（含已经不在名单里的，虽然目前不会掉人） */
+  seenIds: string[];
 }
 
 function empty(): RunMemory {
   return {
-    highestWave: 0,
-    seenHeroIds: [],
+    rev: REV,
+    villageLv: 1,
+    villageExp: 0,
+    roster: [...DEFAULT_SQUAD],
+    evo: {},
+    stars: {},
     scrap: 0,
-    nextScrap: 0,
-    nextScrapSource: 'ad',
-    nextPinModId: '',
-    yardScrap: 0,
-    unlockedMods: [],
-    startScrapLv: 0,
-    growth: emptyGrowth(),
-    laneLv: emptyLanes(),
-    carryModId: '',
-    starRefund: 0,
-    squadIds: [],
-    nextGiftModId: '',
-    ladderLv: 0,
-    ladderTop: 0,
-    seenCombos: [],
-    pileAtMs: 0,
-    pileScrap: 0,
+    parts: 0,
+    credits: 0,
+    pellets: 6,
+    pelletAtMs: Date.now(),
+    stallPity: 0,
+    adCount: 0,
+    adDay: '',
     stageId: 1,
     stageTop: 1,
-    campaignRev: 2,
+    stageStars: {},
+    layout: [],
+    callCount: 0,
+    seenIds: [...DEFAULT_SQUAD],
   };
+}
+
+function validIds(raw: unknown, fallback: readonly string[]): string[] {
+  if (!Array.isArray(raw)) return [...fallback];
+  const out = raw.filter(
+    (id): id is string => typeof id === 'string' && VILLAGER_BY_ID[id] !== undefined,
+  );
+  return out.length > 0 ? [...new Set(out)] : [...fallback];
+}
+
+function numMap(raw: unknown, lo: number, hi: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!VILLAGER_BY_ID[k]) continue;
+    const n = Math.floor(Number(v) || 0);
+    if (n > lo) out[k] = Math.min(hi, n);
+  }
+  return out;
+}
+
+function validLayout(raw: unknown, roster: readonly string[]): Slot[] {
+  if (!Array.isArray(raw)) return [];
+  const owned = new Set(roster);
+  const used = new Set<string>();
+  const out: Slot[] = [];
+  for (const r of raw) {
+    const s = r as Partial<Slot>;
+    if (typeof s.id !== 'string' || !owned.has(s.id)) continue;
+    const lane = Math.floor(Number(s.lane) || 0);
+    const cell = Math.floor(Number(s.cell) || 0);
+    if (lane < 0 || lane >= LANE_COUNT || cell < 0 || cell >= CELL_COUNT) continue;
+    const key = `${lane},${cell}`;
+    if (used.has(key) || out.some((o) => o.id === s.id)) continue;
+    used.add(key);
+    out.push({ id: s.id, lane, cell });
+  }
+  return out;
 }
 
 export function loadMemory(): RunMemory {
   try {
-    const raw = readRaw();
+    const raw = PersistService.readRaw(KEY);
     if (!raw) return empty();
-    const parsed = JSON.parse(raw) as RunMemory;
-    // 单件升星下线：老存档买过的星原价折回废品，只折一次就落盘
-    const legacyStars = (parsed as { modStars?: Record<string, number> }).modStars;
-    const refund = refundModStars(legacyStars);
+    const p = JSON.parse(raw) as Partial<RunMemory>;
+    // 上一版的存档字段这一版全没有，硬折算只会折出看不懂的开局
+    if (Number(p.rev) !== REV) return empty();
+
+    const roster = validIds(p.roster, DEFAULT_SQUAD);
+    const stageTop = clampStage(p.stageTop);
     const mem: RunMemory = {
-      highestWave: Number(parsed.highestWave) || 0,
-      seenHeroIds: Array.isArray(parsed.seenHeroIds) ? parsed.seenHeroIds : [],
-      scrap: Math.max(0, Number(parsed.scrap) || 0),
-      nextScrap: Math.max(0, Number(parsed.nextScrap) || 0),
-      nextScrapSource: parsed.nextScrapSource === 'iap' || parsed.nextScrapSource === 'quest'
-        || parsed.nextScrapSource === 'free' || parsed.nextScrapSource === 'ad'
-        ? parsed.nextScrapSource
-        : 'ad',
-      nextPinModId: typeof parsed.nextPinModId === 'string' ? parsed.nextPinModId : '',
-      yardScrap: Math.max(0, Number(parsed.yardScrap) || 0) + refund,
-      unlockedMods: Array.isArray(parsed.unlockedMods)
-        ? parsed.unlockedMods.filter((id): id is string => typeof id === 'string')
-        : [],
-      startScrapLv: clampGrowth(parsed.growth, Number(parsed.startScrapLv) || 0).pocket,
-      growth: clampGrowth(parsed.growth, Number(parsed.startScrapLv) || 0),
-      laneLv: clampLanes(parsed.laneLv),
-      carryModId: validModId(parsed.carryModId),
-      starRefund: refund > 0 ? refund : Math.max(0, Number(parsed.starRefund) || 0),
-      squadIds: Array.isArray(parsed.squadIds)
-        ? parsed.squadIds.filter((id): id is string => typeof id === 'string').slice(0, 3)
-        : [],
-      nextGiftModId: typeof parsed.nextGiftModId === 'string' ? parsed.nextGiftModId : '',
-      ladderTop: clampLadder(parsed.ladderTop),
-      // 选中的档不许超过解锁到的档：老存档没这两个字段，一律从照旧开始
-      ladderLv: Math.min(clampLadder(parsed.ladderLv), clampLadder(parsed.ladderTop)),
-      seenCombos: Array.isArray(parsed.seenCombos)
-        ? parsed.seenCombos.filter((id): id is string => typeof id === 'string')
-        : [],
-      pileAtMs: Math.max(0, Number(parsed.pileAtMs) || 0),
-      pileScrap: Math.max(0, Number(parsed.pileScrap) || 0),
-      stageTop: migrateStageTop(
-        parsed.stageTop,
-        Number(parsed.highestWave) || 0,
-        Number((parsed as { campaignRev?: number }).campaignRev) || 0,
-      ),
-      stageId: (() => {
-        const top = migrateStageTop(
-          parsed.stageTop,
-          Number(parsed.highestWave) || 0,
-          Number((parsed as { campaignRev?: number }).campaignRev) || 0,
-        );
-        if (parsed.stageId == null) return 1;
-        return Math.min(clampPlayerStage(parsed.stageId), top);
+      rev: REV,
+      villageLv: clampVillageLv(p.villageLv),
+      villageExp: Math.max(0, Number(p.villageExp) || 0),
+      roster,
+      evo: numMap(p.evo, 1, 3),
+      stars: numMap(p.stars, 0, STAR_MAX),
+      scrap: Math.max(0, Number(p.scrap) || 0),
+      parts: Math.max(0, Number(p.parts) || 0),
+      credits: Math.max(0, Number(p.credits) || 0),
+      pellets: Math.max(0, Number(p.pellets) || 0),
+      pelletAtMs: Math.max(0, Number(p.pelletAtMs) || Date.now()),
+      stallPity: Math.max(0, Number(p.stallPity) || 0),
+      adCount: Math.max(0, Number(p.adCount) || 0),
+      adDay: typeof p.adDay === 'string' ? p.adDay : '',
+      stageTop,
+      stageId: Math.min(clampStage(p.stageId), stageTop),
+      stageStars: (() => {
+        const out: Record<number, number> = {};
+        const src = p.stageStars;
+        if (src && typeof src === 'object') {
+          for (const [k, v] of Object.entries(src as Record<string, unknown>)) {
+            const id = Number(k);
+            if (id >= 1 && id <= STAGE_COUNT) {
+              out[id] = Math.max(0, Math.min(3, Math.floor(Number(v) || 0)));
+            }
+          }
+        }
+        return out;
       })(),
-      campaignRev: 2,
+      layout: validLayout(p.layout, roster),
+      callCount: Math.max(0, Number(p.callCount) || 0),
+      seenIds: validIds(p.seenIds, roster),
     };
-    return refund > 0 ? persist(mem) : mem;
+    return mem;
   } catch {
     return empty();
   }
 }
 
-function clampLadder(v: unknown): number {
-  return Math.max(0, Math.min(LADDER_TOP, Math.floor(Number(v) || 0)));
-}
-
-function validModId(raw: unknown): string {
-  if (typeof raw !== 'string' || !raw) return '';
-  try {
-    return getMod(raw).id;
-  } catch {
-    return '';
-  }
-}
-
-export interface RunOutcome {
-  cleared: boolean;
-  /** 这一局打的哪一档 */
-  ladderLv: number;
-  /** 这一局在谁身上凑出过什么合体 */
-  combos: readonly string[];
-  /** 这一局打的哪一关 */
-  stageId?: number;
-}
-
-export function saveRun(
-  reachedWave: number,
-  heroIds: readonly string[],
-  outcome?: RunOutcome,
-): RunMemory {
-  const prev = loadMemory();
-  const seen = new Set(prev.seenHeroIds);
-  for (const id of heroIds) seen.add(id);
-  const combos = new Set(prev.seenCombos);
-  for (const id of outcome?.combos ?? []) combos.add(id);
-  // 打服了当前这一档才解锁下一档。只往上走，不会因为一局打崩掉回去
-  const lv = outcome?.ladderLv ?? prev.ladderLv;
-  const passed = outcome ? ladderPassed(reachedWave, outcome.cleared) : false;
-  const ladderTop = passed
-    ? Math.min(LADDER_TOP, Math.max(prev.ladderTop, lv + 1))
-    : prev.ladderTop;
-  const played = clampPlayerStage(outcome?.stageId ?? prev.stageId);
-  const stageTop = outcome?.cleared
-    ? Math.min(LAST_STAGE_ID, Math.max(prev.stageTop, played + 1))
-    : prev.stageTop;
-  const next: RunMemory = {
-    highestWave: Math.max(prev.highestWave, reachedWave),
-    seenHeroIds: [...seen],
-    seenCombos: [...combos],
-    ladderLv: Math.min(prev.ladderLv, ladderTop),
-    ladderTop,
-    stageId: outcome?.cleared
-      ? Math.min(stageTop, Math.max(prev.stageId, played + 1))
-      : Math.min(prev.stageId, stageTop),
-    stageTop,
-    campaignRev: 2,
-    pileAtMs: prev.pileAtMs,
-    pileScrap: prev.pileScrap,
-    scrap: prev.scrap,
-    nextScrap: prev.nextScrap,
-    nextScrapSource: prev.nextScrapSource,
-    nextPinModId: prev.nextPinModId,
-    yardScrap: prev.yardScrap,
-    unlockedMods: prev.unlockedMods,
-    startScrapLv: prev.startScrapLv,
-    growth: prev.growth,
-    laneLv: prev.laneLv,
-    carryModId: prev.carryModId,
-    starRefund: prev.starRefund,
-    squadIds: prev.squadIds,
-    nextGiftModId: prev.nextGiftModId,
-  };
-  return persist(next);
-}
-
-export function consumeNextScrap(): { amount: number; source: RewardSource } {
-  const prev = loadMemory();
-  const amount = prev.nextScrap;
-  const source = prev.nextScrapSource;
-  if (amount <= 0) return { amount: 0, source };
-  persist({ ...prev, nextScrap: 0 });
-  return { amount, source };
-}
-
-/** 看广告：把剩余废品带进下一局开场。source 留下给分账。 */
-export function stashNextScrap(amount: number, source: RewardSource): RunMemory {
-  const prev = loadMemory();
-  const add = Math.max(0, Math.floor(amount));
-  return persist({ ...prev, nextScrap: add, nextScrapSource: source });
-}
-
-export function consumeNextPin(): string {
-  const prev = loadMemory();
-  const id = prev.nextPinModId;
-  if (!id) return '';
-  persist({ ...prev, nextPinModId: '' });
-  return id;
-}
-
-export function stashNextPin(modId: string): RunMemory {
-  const prev = loadMemory();
-  return persist({ ...prev, nextPinModId: modId });
-}
-
 function persist(next: RunMemory): RunMemory {
-  const out = { ...next, campaignRev: 2 };
+  const out = { ...next, rev: REV };
   try {
     PersistService.writeRaw(KEY, JSON.stringify(out));
   } catch {
-    /* 模拟器偶发写失败，不挡再来一局 */
+    /* 模拟器偶发写失败，不挡继续玩 */
   }
   return out;
 }
 
-/** 打完一局，把收获倒进村里废品堆 */
-export function bankToYard(amount: number): RunMemory {
+/** 存档摊成引擎和面板都能读的 Progress */
+export function progressOf(mem: RunMemory): Progress {
+  return {
+    villageLv: mem.villageLv,
+    villageExp: mem.villageExp,
+    roster: mem.roster,
+    evo: mem.evo,
+    stars: mem.stars,
+    scrap: mem.scrap,
+    parts: mem.parts,
+    credits: mem.credits,
+  };
+}
+
+/** 这一局能上几个人 */
+export function capOf(mem: RunMemory): number {
+  return squadCap(mem.villageLv);
+}
+
+
+/* ---------------- 弹子 ---------------- */
+
+/**
+ * 把离线攒的弹子结算到现在。
+ *
+ * 只回到 pelletCap，不许越过 —— 弹子是次数，攒着不玩没有额外好处，
+ * 这是「每天回来打一会儿」和「攒一周一次性刷完」之间的那道闸。
+ */
+export function settlePellets(nowMs: number = Date.now()): RunMemory {
   const prev = loadMemory();
-  const add = Math.max(0, Math.floor(amount));
-  return persist({ ...prev, yardScrap: prev.yardScrap + add });
+  const cap = pelletCap(prev.villageLv);
+  if (prev.pelletAtMs <= 0) return persist({ ...prev, pelletAtMs: nowMs });
+  const perMs = pelletRegenMin(prev.villageLv) * 60_000;
+  const gained = Math.floor((nowMs - prev.pelletAtMs) / perMs);
+  if (gained <= 0) return prev;
+  const pellets = Math.min(cap, prev.pellets + gained);
+  return persist({
+    ...prev,
+    pellets,
+    // 余数留着，别让频繁进出把零头抹掉
+    pelletAtMs: prev.pelletAtMs + gained * perMs,
+  });
+}
+
+/** 打一发。没弹子返回 undefined */
+export function shootStall(nowMs: number = Date.now()): {
+  mem: RunMemory;
+  result: ShotResult;
+} | undefined {
+  const prev = settlePellets(nowMs);
+  if (prev.pellets <= 0) return undefined;
+
+  const rng = mulberry32((nowMs ^ (prev.pellets * 2654435761)) >>> 0);
+  const { result, pityCount } = shoot(rng, prev.villageLv, prev.stallPity);
+
+  const grown = addVillageExp(progressOf(prev), Math.round(result.gain.exp));
+  const mem = persist({
+    ...prev,
+    pellets: prev.pellets - 1,
+    stallPity: pityCount,
+    scrap: prev.scrap + Math.round(result.gain.scrap),
+    parts: prev.parts + Math.round(result.gain.parts),
+    credits: prev.credits + Math.round(result.gain.credits),
+    villageLv: grown.lv,
+    villageExp: grown.exp,
+  });
+  return { mem, result };
+}
+
+/** 摊子今天还能看几条广告 */
+export function stallAdLeft(nowMs: number = Date.now()): number {
+  const mem = loadMemory();
+  const today = new Date(nowMs).toDateString();
+  if (mem.adDay !== today) return PELLET_AD_DAILY;
+  return Math.max(0, PELLET_AD_DAILY - mem.adCount);
+}
+
+/** 看完广告白送弹子。日限满了返回 undefined */
+export function claimAdPellets(nowMs: number = Date.now()): RunMemory | undefined {
+  const prev = settlePellets(nowMs);
+  const today = new Date(nowMs).toDateString();
+  const count = prev.adDay === today ? prev.adCount : 0;
+  if (count >= PELLET_AD_DAILY) return undefined;
+  return persist({
+    ...prev,
+    // 广告给的弹子允许顶到上限之上，否则满仓时广告位就废了
+    pellets: prev.pellets + PELLET_AD,
+    adDay: today,
+    adCount: count + 1,
+  });
+}
+
+/* ---------------- 喊人 ---------------- */
+
+/**
+ * 花工分喊一嗓子。工分不够返回 undefined。
+ *
+ * 掷骰用的是 balance/village.rollCall —— 和模拟器同一份，
+ * 所以护栏里「手上正好没有克制这一章的门路」那种处境测的是真逻辑。
+ */
+export function callVillager(nowMs: number = Date.now()): {
+  mem: RunMemory;
+  got: string;
+  isNew: boolean;
+  starTo?: string;
+} | undefined {
+  const prev = loadMemory();
+  if (prev.credits < CALL_COST) return undefined;
+
+  const count = prev.callCount + 1;
+  const rng = mulberry32((nowMs ^ (count * 40503)) >>> 0);
+  const res = rollCall(progressOf(prev), count, rng, VILLAGERS.map((v) => v.id), STAR_MAX);
+
+  const roster = res.isNew ? [...prev.roster, res.id] : prev.roster;
+  const seen = new Set(prev.seenIds);
+  seen.add(res.id);
+  const stars = { ...prev.stars };
+  if (!res.isNew && res.starTo) {
+    stars[res.starTo] = starsOf(progressOf(prev), res.starTo) + 1;
+  }
+
+  const mem = persist({
+    ...prev,
+    credits: prev.credits - CALL_COST,
+    callCount: count,
+    roster,
+    stars,
+    scrap: prev.scrap + res.scrap,
+    seenIds: [...seen],
+  });
+  return { mem, got: res.id, isNew: res.isNew, starTo: res.starTo };
+}
+
+/* ---------------- 进化 ---------------- */
+
+/** 喂一阶。材料不够或已经三阶返回 undefined */
+export function buyEvo(id: string): RunMemory | undefined {
+  const prev = loadMemory();
+  if (!prev.roster.includes(id)) return undefined;
+  const now = evoOf(progressOf(prev), id);
+  const cost = nextEvoCost(now);
+  if (!cost) return undefined;
+  if (prev.scrap < cost.scrap || prev.parts < cost.parts) return undefined;
+  return persist({
+    ...prev,
+    scrap: prev.scrap - cost.scrap,
+    parts: prev.parts - cost.parts,
+    evo: { ...prev.evo, [id]: now + 1 },
+  });
+}
+
+/* ---------------- 推图 ---------------- */
+
+/** 换一关打。只能选已经解锁到的 */
+export function setStageId(id: number): RunMemory {
+  const prev = loadMemory();
+  return persist({ ...prev, stageId: Math.min(clampStage(id), prev.stageTop) });
+}
+
+/** 记下这一次的排法，下一关直接铺上 */
+export function saveLayout(layout: readonly Slot[]): RunMemory {
+  const prev = loadMemory();
+  return persist({ ...prev, layout: validLayout([...layout], prev.roster) });
 }
 
 /**
- * 研发一条门路。买的不是某一件，是这一整条路：
- * 出得更勤（发牌份量）+ 更猛（全路升星）。
+ * 打完一关。赢了解锁下一关、记最高星评，输赢都给弹子。
+ *
+ * 输了也给一发（PELLET_LOSE）：空手回村会让人干脆不打第二次，
+ * 而这一版的失败是「漏怪」，玩家本来就知道自己差在哪儿，不需要再罚一次。
  */
-export function buyLaneLv(id: LaneId): RunMemory | undefined {
+export function settleStage(
+  stageId: number,
+  won: boolean,
+  stars: number,
+): { mem: RunMemory; pellets: number; scrap: number } {
   const prev = loadMemory();
-  if (!laneOpen(id, prev.stageTop)) return undefined;
-  const now = prev.laneLv[id] ?? 0;
-  const cost = nextLaneCost(now);
-  if (cost === undefined || prev.yardScrap < cost) return undefined;
-  return persist({
+  const id = clampStage(stageId);
+  const first = won && !prev.stageStars[id];
+
+  const pellets = won
+    ? PELLET_CLEAR + (first ? PELLET_FIRST : 0)
+    : PELLET_LOSE;
+  const scrap = won ? SETTLE_SCRAP : 0;
+
+  const stageTop = won ? Math.min(STAGE_COUNT, Math.max(prev.stageTop, id + 1)) : prev.stageTop;
+  const best = Math.max(prev.stageStars[id] ?? 0, won ? stars : 0);
+
+  const mem = persist({
     ...prev,
-    yardScrap: prev.yardScrap - cost,
-    laneLv: { ...prev.laneLv, [id]: now + 1 },
+    pellets: prev.pellets + pellets,
+    scrap: prev.scrap + scrap,
+    stageTop,
+    stageId: won ? Math.min(stageTop, id + 1) : id,
+    stageStars: { ...prev.stageStars, [id]: best },
   });
+  return { mem, pellets, scrap };
 }
 
-/** 点好带哪一件出村。没买携带位就点不动，这里再兜一道 */
-export function setCarryMod(modId: string): RunMemory | undefined {
-  const prev = loadMemory();
-  if (prev.growth.carry <= 0) return undefined;
-  const id = validModId(modId);
-  if (!id) return undefined;
-  return persist({ ...prev, carryModId: prev.carryModId === id ? '' : id });
+/** 一共拿了多少颗星。图鉴和进度条用 */
+export function totalStars(mem: RunMemory): number {
+  return Object.values(mem.stageStars).reduce((a, b) => a + b, 0);
 }
 
-/** 折算返还只报一次，报完清掉 */
-export function clearStarRefund(): RunMemory {
-  const prev = loadMemory();
-  if (prev.starRefund <= 0) return prev;
-  return persist({ ...prev, starRefund: 0 });
-}
-
-export function buyYardGrowth(id: GrowthId): RunMemory | undefined {
-  const prev = loadMemory();
-  const lv = prev.growth[id];
-  const cost = nextGrowthCost(id, lv);
-  if (cost === undefined || prev.yardScrap < cost) return undefined;
-  const growth = { ...prev.growth, [id]: lv + 1 };
-  return persist({
-    ...prev,
-    yardScrap: prev.yardScrap - cost,
-    growth,
-    startScrapLv: growth.pocket,
-  });
-}
-
-export function saveSquad(ids: readonly string[]): RunMemory {
-  const prev = loadMemory();
-  const squadIds = [...ids].filter(Boolean).slice(0, 3);
-  return persist({ ...prev, squadIds });
-}
-
-export function consumeNextGift(): string {
-  const prev = loadMemory();
-  const id = prev.nextGiftModId;
-  if (!id) return '';
-  persist({ ...prev, nextGiftModId: '' });
-  return id;
-}
-
-export function stashNextGift(modId: string): RunMemory {
-  const prev = loadMemory();
-  return persist({ ...prev, nextGiftModId: modId });
-}
-
-/** 换一档打。只能选已经解锁到的档 */
-export function setLadderLv(lv: number): RunMemory {
-  const prev = loadMemory();
-  const want = Math.max(0, Math.min(LADDER_TOP, Math.floor(lv)));
-  return persist({ ...prev, ladderLv: Math.min(want, prev.ladderTop) });
-}
-
-/** 换一关打。只能选已经解锁到的关 */
-export function setStageId(id: number): RunMemory {
-  const prev = loadMemory();
-  const want = clampPlayerStage(id);
-  return persist({ ...prev, stageId: Math.min(want, prev.stageTop) });
-}
-
-/** GM：把目标关写进进度，这一关和前面的都能选。不改废品、不改阶梯。 */
+/** GM：把目标关写进进度。不改资源 */
 export function gmUnlockToStage(id: number): RunMemory {
   const prev = loadMemory();
-  const want = clampPlayerStage(id);
+  const want = clampStage(id);
   return persist({
     ...prev,
     stageTop: Math.max(prev.stageTop, want),
@@ -389,44 +422,26 @@ export function gmUnlockToStage(id: number): RunMemory {
   });
 }
 
-/**
- * 把村里那堆废品结算到现在。
- *
- * 只做「自己涨、一键收」：不做建筑、不做布局、不做产能升级 ——
- * 那会长成第二条玩法线，撞反目标里的「系统太多」。
- * 它的作用只有一个，给次日回访一个理由，顺带撑起一个局外广告点。
- */
-export function settlePile(nowMs: number = Date.now()): RunMemory {
+/** GM：白给资源，用来试后期的养成 */
+export function gmGrant(add: Partial<Pick<RunMemory,
+  'scrap' | 'parts' | 'credits' | 'pellets'>>): RunMemory {
   const prev = loadMemory();
-  if (prev.pileAtMs <= 0) return persist({ ...prev, pileAtMs: nowMs });
-  const grown = pileGrowth(prev.pileScrap, nowMs - prev.pileAtMs);
-  if (grown === prev.pileScrap && nowMs <= prev.pileAtMs) return prev;
-  return persist({ ...prev, pileScrap: grown, pileAtMs: nowMs });
+  return persist({
+    ...prev,
+    scrap: prev.scrap + (add.scrap ?? 0),
+    parts: prev.parts + (add.parts ?? 0),
+    credits: prev.credits + (add.credits ?? 0),
+    pellets: prev.pellets + (add.pellets ?? 0),
+  });
 }
 
-/** 看广告：把村里那堆直接催到上限。上限还是 PILE_CAP，不许越过 */
-export function fillPile(nowMs: number = Date.now()): RunMemory {
-  const settled = settlePile(nowMs);
-  if (settled.pileScrap >= PILE_CAP) return settled;
-  return persist({ ...settled, pileScrap: PILE_CAP, pileAtMs: nowMs });
+/** 摊子的工分保底还差几发。面板上要显示，否则保底等于不存在 */
+export function stallPityLeft(mem: RunMemory): number {
+  return Math.max(0, creditPity(mem.villageLv) - mem.stallPity);
 }
 
-/** 一键收。收完从零开始重新涨 */
-export function collectPile(nowMs: number = Date.now()): { mem: RunMemory; got: number } {
-  const settled = settlePile(nowMs);
-  const got = settled.pileScrap;
-  if (got <= 0) return { mem: settled, got: 0 };
-  return {
-    mem: persist({
-      ...settled,
-      yardScrap: settled.yardScrap + got,
-      pileScrap: 0,
-      pileAtMs: nowMs,
-    }),
-    got,
-  };
-}
-
-export function buyStartScrap(): RunMemory | undefined {
-  return buyYardGrowth('pocket');
+/** 结算广告翻倍补的那一笔。只加废铁，不碰其他资源 */
+export function addScrap(amount: number): RunMemory {
+  const prev = loadMemory();
+  return persist({ ...prev, scrap: prev.scrap + Math.max(0, Math.floor(amount)) });
 }

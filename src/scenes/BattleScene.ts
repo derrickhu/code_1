@@ -1,14 +1,20 @@
 /**
- * 战斗场景。
+ * 战斗场景：3 路 × 4 格的分路自动塔防。
  *
- * 渲染层不含任何战斗规则，只读 BattleEngine 的状态。规则改动一律回 BattleEngine。
+ * 渲染层不含任何战斗规则，只读 BattleEngine 的状态。规则改动一律回引擎。
  * 贴图缺失时退回色块，不挡玩。
  *
- * 画面的两条硬规矩（docs/00-体验目标.md 反目标第二、五条）：
+ * 画面的三条硬规矩（docs/00-体验目标.md §4.4 / 反目标）：
  *
- * 1. **上方大片空场不画任何格子。** 那是舞台，外星人走进来才开打。
- *    一旦在空场上铺格子或画防线，第一眼就会被认成塔防。
- * 2. **场上只有三个人，脸要认得出。** 所以名字、当前定位、身上的破烂都常驻显示。
+ * 1. **格子只在自家那 12 格上画，上方空场不画。** 空场是舞台，敌人走进来才开打。
+ *    上一版这条是「一个格子都不许画」（怕被认成塔防），本版承认塔防定位，
+ *    格子成了主决策的载体 —— 但空场那条留着，它管的是「战斗有没有舞台感」。
+ * 2. **底线必须画出来，而且要画得像一条线。** 漏怪是唯一的判负条件，
+ *    玩家得随时看得见「再漏几个就完了」。上一版刻意没有底线血条，
+ *    因为那会让人第一眼认成塔防；这一版反过来，看不见底线才是 bug。
+ * 3. **不给「推荐阵容一键上」。** §4.4 明确列为不做 —— 它会把主体验的决策整个替掉。
+ *    开局铺的是**玩家上一关自己的排法**（存档里的 layout），不是算出来的最优解；
+ *    只有全新存档才用一次 autoPlace 兜底，免得新手第一眼看到 12 个空格子。
  */
 
 import * as PIXI from 'pixi.js';
@@ -18,248 +24,110 @@ import { GMManager } from '@/core/GMManager';
 import { SceneManager, type Scene } from '@/core/SceneManager';
 import { bindPointerTap } from '@/minigame';
 import {
-  BACK_DY,
-  MELEE_REACH,
-  REAR_POS,
-  SLOT_NAME,
-  SPAWN_DIST,
-  SQUAD_X,
-  TICK_MS,
-  TEAM_SIZE,
-  STAGE_MS,
-  JAM_MS,
-  DOWN_RECOVER_MS,
-  heroSpriteH,
-  slotHitBox,
-  slotScreenX,
-  slotScreenY,
-  slotTagPos,
+  CELL_COUNT, GOAL_POS, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
+  cellHitBox, cellPos, cellScreenH, cellScreenY, laneScreenX,
+  posScreenY, villagerSpriteH,
 } from '@/balance/combat';
-import { comboIfAdd, comboOf, weldTalk } from '@/balance/combos';
-import { getWave, waveAsk } from '@/balance/enemies';
-import { weldVerdict } from '@/balance/forecast';
-import { runIdentity, settleIdentityLine } from '@/balance/runIdentity';
-import { REROLL_COST, STRIP_COST } from '@/balance/rewards';
-import { LAST_STAGE_ID, getStage, stageBeatMs, stageBeats, stageLocalWave } from '@/balance/stages';
+import { getStage, stageEnemyCount } from '@/balance/stages';
 import { resolveAttackFx, resolveEnemyFx, resolveFxSkin } from '@/balance/fx';
-import { DEFAULT_SQUAD } from '@/balance/heroes';
-import { abilityTag, getMod } from '@/balance/mods';
-import { type PickOption } from '@/balance/picker';
-import { DOCK_GAP, DOCK_H, ModDock } from '@/ui/ModDock';
-
-/** 局内顶栏：安全区下的内容高度（关卡一行 + 波次一行 + 底推进）。 */
-const HUD_PLATE_H = 104;
+import { LANE_NAME, ROLE_NAME, getVillager, statsOf } from '@/balance/villagers';
+import { BENCH_GAP, BENCH_H, BenchDock, LANE_TINT, type BenchItem } from '@/ui/BenchDock';
 import { ReviveOverlay } from '@/ui/ReviveOverlay';
 import { SettleOverlay } from '@/ui/SettleOverlay';
 import { CombatFx } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
 import { motionFor, UnitActor } from '@/fx/UnitActor';
-import { bgTex, fillCover, modTex, preloadBattleArt, uiTex, watchArt } from '@/core/TextureLoader';
+import { bgTex, fillCover, preloadBattleArt, uiTex, watchArt } from '@/core/TextureLoader';
 import { playSfx } from '@/core/SfxPlayer';
 import { track } from '@/core/Analytics';
 import {
-  bankToYard,
-  consumeNextGift,
-  consumeNextPin,
-  consumeNextScrap,
-  loadMemory,
-  saveRun,
-  saveSquad,
-  stashNextPin,
-  stashNextScrap,
+  addScrap, capOf, loadMemory, progressOf, saveLayout, settleStage,
+  type RunMemory, type Slot,
 } from '@/core/RunMemory';
-import {
-  canCarry,
-  goalLine,
-  nextYardGoal,
-  pickFrom,
-  pickNeed,
-  resolveRunGrowth,
-  scavMul,
-  shortModName,
-  startScrapBonus,
-  yardDeposit,
-} from '@/balance/yard';
+import { evoOf, starsOf, villageMul } from '@/balance/village';
 import { Platform } from '@/core/PlatformService';
 import {
-  adCanShow,
-  adIsFirstRunToday,
-  adMarkRunStart,
-  adRecord,
-  adRemaining,
-  type AdPlacement,
+  adCanShow, adMarkRunStart, adRecord, adRemaining, type AdPlacement,
 } from '@/core/AdDay';
+import { GOLD, fitSprite, hpBar, label, plate, queuePad, rangeArea } from '@/ui/paint';
 import {
-  GOLD,
-  coverSpriteBleed,
-  expBar,
-  fitSprite,
-  goldBtn,
-  hpBar,
-  label,
-  nailCluster,
-  plate,
-  queuePad,
-  rangeArea,
-  shieldMark,
-  villagerColor,
-} from '@/ui/paint';
-import { buildPickCard } from '@/ui/PickCard';
-import {
-  applyPick,
-  canInstallOn,
-  claimJunkyard,
-  claimOpeningGift,
-  createRun,
-  gmSkipWave,
-  heroReach,
-  heroAt,
-  installMod,
-  isRosterPicking,
-  placeInSlot,
-  rerollMods,
-  reviveAfterWipe,
-  stripMod,
-  teamInOrder,
-  tick,
-  type EnemyUnit,
-  type HeroUnit,
-  type PetUnit,
-  type RunState,
+  autoPlace, createBattle, foesAlive, gmWin, placeAt, placedOf, removeAt,
+  reviveAfterLeak, startFight, tick,
+  type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
 
-const PICK_CARD_W = 200;
-const PICK_CARD_H = 268;
-/** 开局 6 人一屏，两排三张，比波间三选一更扁 */
-const ROSTER_CARD_W = 216;
-const ROSTER_CARD_H = 278;
+/** 局内顶栏：安全区下的内容高度（关卡一行 + 波次/漏怪一行 + 底推进） */
+const HUD_PLATE_H = 104;
 
-function heroH(h: HeroUnit): number {
-  return heroSpriteH(h.def.hp);
-}
-
-function enemyH(e: EnemyUnit): number {
-  const base = e.proto.isBoss ? 100
-    : e.proto.id === 'canister' ? 82
-    : e.proto.id === 'grey' ? 58
-    : 70;
-  // 碎块画小一号，不然砸开方块兵之后满屏一样大的方块，玩家分不出哪个是刚裂出来的
-  return e.isShard ? Math.round(base * 0.62) : base;
-}
-
-/** 外星人横向散开，别叠成一根柱子。同一只怪每帧必须落在同一条道上 */
-function alienLaneX(id: number): number {
-  const spread = (id * 137) % 5;
-  return 300 + spread * 38;
-}
-
-/** 小东西散在自家人左右，别跟外星人那几条道对齐，一眼分得清哪边是自己的 */
-function petLaneX(id: number): number {
-  return SQUAD_X + (((id * 71) % 3) - 1) * 52;
+function enemyH(e: Foe): number {
+  if (e.def.id === 'armor') return 96;
+  if (e.def.id === 'canister') return 82;
+  if (e.def.id === 'grunt') return 58;
+  if (e.def.id === 'saucer') return 66;
+  return 70;
 }
 
 /**
- * 小东西一律比村民矮一截（村民 88 起）。
- * 这不是美术偏好，是「看戏要认得出脸」那条硬约束：
- * 画得一样大就会被当成第四个村民，上场 3 人这件事立刻糊掉。
+ * 同一路上的两个人横向错开一点，别叠成一根柱子。
+ *
+ * 只错开 ±18px：错太多会跑到隔壁路上去，「哪一路要崩」就看不出来了。
  */
-function petH(p: PetUnit): number {
-  return p.proto.id === 'chicken' ? 34 : p.proto.id === 'dog' ? 44 : 56;
+function jitterX(lane: number, cell: number): number {
+  return laneScreenX(lane) + ((cell % 2 === 0 ? -1 : 1) * 18);
 }
-
-/** 小东西统一色系：一眼看出是自家的，又跟村民各自的颜色区分开 */
-const PET_TINT: Readonly<Record<string, number>> = {
-  dog: 0xb98a4e,
-  chicken: 0xe8dcc0,
-  militia: 0xa9744f,
-};
 
 export class BattleScene implements Scene {
   readonly name = 'battle';
   readonly container = new PIXI.Container();
 
-  private _state: RunState = createRun(Date.now() >>> 0);
+  private _state: BattleState = createBattle(getStage(1), [], 3);
+  private _mem: RunMemory = loadMemory();
   private _accMs = 0;
 
   private readonly _field = new PIXI.Graphics();
   private readonly _unitLayer = new PIXI.Container();
-  private readonly _heroActors = new Map<string, UnitActor>();
-  private readonly _enemyActors = new Map<number, UnitActor>();
+  private readonly _villagerActors = new Map<string, UnitActor>();
+  private readonly _foeActors = new Map<number, UnitActor>();
   private readonly _nameLayer = new PIXI.Container();
   private readonly _hudChrome = new PIXI.Container();
   private readonly _hudPlate = new PIXI.Graphics();
   private readonly _hud = new PIXI.Container();
-  private readonly _pick = new PIXI.Container();
-  private readonly _dock = new ModDock(
-    (slot) => this._tapSlot(slot),
-    (slot, modIndex) => this._strip(slot, modIndex),
-  );
+  /** 布阵阶段的格子热区。开打后关掉 */
+  private readonly _cellHits: PIXI.Container[] = [];
+  private readonly _bench = new BenchDock((id) => this._tapBench(id));
+
   private readonly _settle = new SettleOverlay(
-    () => this._restartStage(this._state.stageId),
+    () => this._restart(this._state.stage.id),
     () => this._doubleSettle(),
-    () => this._settleJunkyard(),
     () => SceneManager.switchTo('village'),
-    () => this._restartStage(this._state.stageId + 1),
+    () => this._restart(this._state.stage.id + 1),
   );
   private readonly _revive = new ReviveOverlay(
     () => { void this._acceptRevive(); },
     () => this._giveUpRevive(),
   );
   private readonly _fx = new CombatFx();
-  private readonly _heroHits: PIXI.Container[] = [];
+  private readonly _vitals = new VisualVitals();
+
+  private readonly _stageName = label(24, GOLD, true);
+  private readonly _waveText = label(34, 0xfff4c4, true);
+  private readonly _leakText = label(26, 0xff9a8a, true);
+  private readonly _hintText = label(17, GOLD, true);
+  private readonly _timeBar = new PIXI.Graphics();
   private readonly _guide = label(26, 0xffd66b, true);
-
-  private readonly _waveText = label(40, 0xfff4c4, true);
-  private readonly _stageName = label(22, GOLD, true);
-  private readonly _waveBeat = label(18, 0xffe08a, true);
-  private readonly _scrapText = label(32, 0xfff4c4, true);
-  private readonly _hintText = label(16, GOLD, true);
-  private readonly _expBar = new PIXI.Graphics();
-  private readonly _expCaption = label(16, 0xffd66b, true);
-  private readonly _expText = label(16, 0xffd66b, true);
-  private _scrapIcon: PIXI.Sprite | null = null;
-  private readonly _installPlate = new PIXI.Graphics();
-  private readonly _installTitle = label(28, 0xfff4c4, true);
-  private readonly _installDesc = label(20, 0xd7dcee);
-  private readonly _inspectPlate = new PIXI.Graphics();
-  private readonly _inspectTitle = label(22, 0xffffff, true);
-  private readonly _inspectDesc = label(18, 0xd7dcee);
-
-  private _pickIdle = 0;
-  /** 选武器时先点的人。再点牌就直接焊，不用再等一张挡屏卡 */
-  private _installTarget: string | null = null;
-  private _guideLife = 0;
-  /** 已经播报过第几个刻度。刻度不再切 phase，靠这个去重 */
-  private _stageTold = 0;
-  private _settled = false;
-  private _baseScrap = 0;
-  private _selected: string | null = null;
-  private _pickShownKey = '';
-  private _runStarted = false;
-  private _openClock = 0;
-  private _openingHintSaid = false;
-  private _cardPulsed = false;
-  private _offerBusy = false;
-  private _pickArtTimer: ReturnType<typeof setTimeout> | 0 = 0;
+  private _startBtn: PIXI.Container | null = null;
   private _gmSkip: PIXI.Container | null = null;
 
+  private _guideLife = 0;
+  private _settled = false;
+  private _waveTold = 0;
+  private _startedAt = 0;
+
+  /** 上一逻辑帧的轴坐标，用来在 100ms 步长之间把走路插成滑步 */
+  private readonly _prevPos = new Map<number, number>();
   private readonly _hitFlash = new Map<number, number>();
   private readonly _hurtFlash = new Map<string, number>();
-  private readonly _vitals = new VisualVitals();
-  private readonly _lastEnemyXY = new Map<number, {
-    x: number;
-    y: number;
-    feetY: number;
-    h: number;
-    maxHp: number;
-    shellMax: number;
-  }>();
-  /** 上一逻辑帧的距离，用来在 100ms 步长之间把走路插成滑步 */
-  private readonly _prevDist = new Map<number, number>();
-  /** 小东西的那一份。它们的 id 和外星人是两套编号，表也得分开 */
-  private readonly _prevPetDist = new Map<number, number>();
-  private readonly _enemyKind = new Map<number, string>();
-  private readonly _rangeHint = label(18, GOLD, true);
+  private readonly _lastFoeXY = new Map<number, { x: number; y: number; feetY: number; h: number }>();
 
   /**
    * 布局按实际屏幕算，不能写死 1334。
@@ -267,12 +135,11 @@ export class BattleScene implements Scene {
    */
   private _lay = {
     top: 96,
-    fieldTop: 200,
-    fieldBottom: 1010,
-    /** 前排脚底。钉在底栏上方，不跟坐标轴均分 */
-    frontY: 930,
+    /** 敌人出场那条线（轴上的 pos 0） */
+    spawnY: 250,
+    /** 底线（轴上的 GOAL_POS）。敌人走过这里就是漏怪 */
+    goalY: 1000,
     height: 1334,
-    pxPerCell: 90,
   };
 
   constructor() {
@@ -281,28 +148,23 @@ export class BattleScene implements Scene {
     this.container.addChild(this._nameLayer);
     this.container.addChild(this._fx.layer);
     this.container.addChild(this._hud);
-    this.container.addChild(this._pick);
-    this._rangeHint.anchor.set(0.5);
-    this._rangeHint.visible = false;
-    this.container.addChild(this._rangeHint);
     this._computeLayout();
-    this._buildHeroHits();
-    // 底栏压在选牌层和场上热区上面：装件时没有挡屏卡，必须直接点得中下面的人
-    this.container.addChild(this._dock);
+    this._buildCellHits();
+    this.container.addChild(this._bench);
     this.container.addChild(this._revive);
     this.container.addChild(this._settle);
     this._buildHud();
     watchArt(() => {
-      // 贴图陆续到位时不要立刻拆掉卡：按下和抬起会落在两棵树上，点了没反应
       this._paintHudChrome();
-      if (this._state.phase === 'picking') this._refreshPickArt();
-      for (const [id, a] of this._heroActors) {
-        const hero = this._state.team.find((h) => h.def.id === id);
-        a.bindHero(id, hero?.mods.map((m) => m.id) ?? []);
+      for (const [uid, a] of this._villagerActors) {
+        const f = this._state.team.find((x) => x.uid === uid);
+        if (f) a.bindHero(f.def.id, f.def.lane, f.evoStage);
       }
-      for (const e of this._state.enemies) this._enemyActors.get(e.id)?.bindEnemy(e.proto.id);
+      for (const e of this._state.foes) this._foeActors.get(e.id)?.bindEnemy(e.def.id);
     });
   }
+
+  /* ---------------- 生命周期 ---------------- */
 
   onEnter(data?: unknown): void {
     preloadBattleArt();
@@ -312,576 +174,873 @@ export class BattleScene implements Scene {
     this._revive.hide();
     this._fx.reset();
     this._clearActors();
-    const mem = loadMemory();
-    const asked = data && typeof data === 'object' && 'heroIds' in data
-      ? (data as { heroIds: string[] }).heroIds
-      : undefined;
-    const squad = (asked?.length === TEAM_SIZE ? asked : mem.squadIds)
-      .filter((id, i, all) => !!id && all.indexOf(id) === i)
-      .slice(0, TEAM_SIZE);
-    const heroes = squad.length === TEAM_SIZE ? squad : [...DEFAULT_SQUAD];
-    saveSquad(heroes);
-    const carry = consumeNextScrap();
-    const bonus = startScrapBonus(mem.startScrapLv);
-    const pocket = carry.amount + bonus;
-    this._state = createRun(
-      Date.now() >>> 0,
-      pocket,
-      carry.amount > 0 ? carry.source : 'free',
-      consumeNextPin(),
-      undefined,
-      heroes,
-      consumeNextGift(),
-      mem.ladderLv,
-      (data && typeof data === 'object' && 'stageId' in data
-        ? (data as { stageId: number }).stageId
-        : mem.stageId),
-      resolveRunGrowth(mem.growth),
-      { laneLv: mem.laneLv, carryModId: canCarry(mem.growth) ? mem.carryModId : '' },
+
+    this._mem = loadMemory();
+    const stageId = data && typeof data === 'object' && 'stageId' in data
+      ? (data as { stageId: number }).stageId
+      : this._mem.stageId;
+    const stage = getStage(stageId);
+
+    const bench = this._benchOf(this._mem);
+    const cap = capOf(this._mem);
+    this._state = createBattle(
+      stage,
+      bench,
+      cap,
+      villageMul(this._mem.villageLv),
+      this._presetOf(this._mem, bench, stage, cap),
     );
-    this._clearSelect();
+
     this._accMs = 0;
+    this._settled = false;
+    this._waveTold = 0;
+    this._startedAt = 0;
+    this._guideLife = 0;
+    this._guide.visible = false;
+    this._prevPos.clear();
     this._hitFlash.clear();
     this._hurtFlash.clear();
+    this._lastFoeXY.clear();
     this._vitals.reset();
-    this._lastEnemyXY.clear();
-    this._prevDist.clear();
-    this._enemyKind.clear();
-    this._rangeHint.visible = false;
-    this._pickIdle = 0;
-    this._guideLife = 0;
-    this._stageTold = 0;
-    this._settled = false;
-    this._baseScrap = 0;
-    this._pickShownKey = '';
-    this._runStarted = false;
-    this._openClock = 0;
-    this._openingHintSaid = false;
-    this._cardPulsed = false;
-    this._offerBusy = false;
-    if (this._pickArtTimer) {
-      clearTimeout(this._pickArtTimer);
-      this._pickArtTimer = 0;
-    }
-    this._guide.visible = false;
-    if (this._state.phase === 'fighting') {
-      this._runStarted = true;
-      adMarkRunStart();
-      track('run_start', {
-        seed: this._state.seed,
-        stage_id: this._state.stageId,
-        ladder_lv: this._state.ladderLv,
-        opening_heroes: this._state.team.map((h) => h.def.id),
-      });
-      this._fx.markLand(SQUAD_X, this._slotY(0));
-    }
-    this._renderPickCards();
+    this._bench.select(null);
+
+    this._renderBench();
+    this._syncPhaseUi();
     this._mountGmSkip();
-    GMManager.registerInstantClear(() => this._gmSkipWave());
-    this._syncBattleBgm();
+    GMManager.registerInstantClear(() => this._gmWin());
+    BgmPlayer.play('battle');
+    // 开战前那一屏要说清「这一关敌人是什么门路」。§4.4：给提示，不给答案
+    this._say(`${stage.label} ${stage.name} · 来的是「${LANE_NAME[stage.mainLane]}」`);
   }
 
   onExit(): void {
     GMManager.unregisterInstantClear();
     this._gmSkip?.destroy({ children: true });
     this._gmSkip = null;
-    this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-    this._pick.eventMode = 'none';
+    this._bench.destroyDock();
     BgmPlayer.stop();
   }
 
-  private _showTeam(): boolean {
-    return this._state.team.length > 0 && !isRosterPicking(this._state);
-  }
-
-  /** 打着的时候才能调队列。装配阶段点人是装破烂，不是换位 */
-  private _canReorder(): boolean {
-    return this._state.team.length > 0 && this._state.phase === 'fighting';
-  }
-
-  private _clearSelect(): void {
-    this._selected = null;
-    this._installTarget = null;
-    this._accMs = 0;
-    this._dock.refresh(this._state, null);
-  }
-
-  private _highlightId(): string | null {
-    return this._selected ?? this._installTarget;
+  /** 手上所有人，按入伙顺序。已经站上格子的也留着，灰掉就行，位置别跳 */
+  private _benchOf(mem: RunMemory): Candidate[] {
+    const p = progressOf(mem);
+    const out: Candidate[] = [];
+    for (const id of mem.roster) {
+      // loadMemory 已经滤过非法 id，这里再兜一道：坏档不该白屏
+      try {
+        out.push({ villager: getVillager(id), evoStage: evoOf(p, id), stars: starsOf(p, id) });
+      } catch { /* 认不出的 id 直接跳过 */ }
+    }
+    return out;
   }
 
   /**
-   * 点一个站位。装配阶段是「装给这格的人」，选武器时先点人再点牌也能焊。
-   * 空位也能点：人少的时候可以把人往后撤，不用非跟谁换。
+   * 开局铺哪一套阵。
+   *
+   * 优先用**玩家上一关自己的排法**：那是「记住上次」，不是「推荐阵容」。
+   * 只有全新存档（layout 空）才用一次 autoPlace ——
+   * 新手第一眼不该是十二个空格子加一句「请布阵」，那撞「十秒可懂」。
    */
-  private _tapSlot(slot: number): void {
-    const s = this._state;
-    const occupant = heroAt(s, slot);
-    if (s.phase === 'installing') {
-      if (!occupant) return;
-      this._weldOn(occupant.def.id);
-      return;
-    }
-    if (s.phase === 'picking' && !isRosterPicking(s) && occupant) {
-      if (!canInstallOn(occupant)) {
-        this._say(`${occupant.def.name}装满了`);
-        return;
-      }
-      this._installTarget = occupant.def.id;
-      this._renderPickCards();
-      this._dock.refresh(s, this._highlightId());
-      this._say(`${occupant.def.name}，再点上面一件焊上`);
-      return;
-    }
-
-    if (!this._canReorder()) return;
-    if (!this._selected) {
-      if (occupant) this._selected = occupant.def.id;
-      return;
-    }
-    if (occupant?.def.id === this._selected) {
-      this._clearSelect();
-      return;
-    }
-    const mover = s.team.find((h) => h.def.id === this._selected);
-    const before = teamInOrder(s).map((h) => h.def.id);
-    if (mover && placeInSlot(s, mover.def.id, slot)) {
-      this._say(`${mover.def.name}站到${SLOT_NAME[slot] ?? '那个位置'}`);
-      track('queue_change', {
-        wave: s.wave,
-        order_before: before,
-        order_after: teamInOrder(s).map((h) => h.def.id),
+  private _presetOf(
+    mem: RunMemory,
+    bench: readonly Candidate[],
+    stage: ReturnType<typeof getStage>,
+    cap: number,
+  ): Placement[] {
+    if (mem.layout.length === 0) return autoPlace(bench, stage, cap);
+    const byId = new Map(bench.map((c) => [c.villager.id, c]));
+    const out: Placement[] = [];
+    for (const s of mem.layout) {
+      const c = byId.get(s.id);
+      if (!c || out.length >= cap) continue;
+      out.push({
+        villager: c.villager, lane: s.lane, cell: s.cell,
+        evoStage: c.evoStage, stars: c.stars,
       });
     }
-    this._clearSelect();
+    // 上次排的人这一关一个都用不上（换了存档、或者名单被清）时才兜底
+    return out.length > 0 ? out : autoPlace(bench, stage, cap);
   }
 
-  private _weldOn(heroId: string): boolean {
-    const s = this._state;
-    const mod = s.pendingMod;
-    const who = s.team.find((h) => h.def.id === heroId);
-    if (!mod || !who) return false;
-    const had = who.mods.map((m) => m.id);
-    const verdict = weldVerdict(who, mod);
-    if (!installMod(s, heroId)) return false;
-    this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-    this._pick.eventMode = 'none';
-    const dest = this._heroXY(heroId);
-    this._fx.flyMod(375, this._dock.y + 40, dest?.x ?? this._slotX(who.slot), dest?.y ?? this._slotY(who.slot), modTex(mod.id));
-    this._consumeEvents();
-    this._installTarget = null;
-    this._selected = null;
-    this._accMs = 0;
-    this._dock.refresh(s, null);
-    const talk = weldTalk(who.def.name, had, mod.id);
-    if (talk) this._say(talk, talk.includes('叠出') ? 4.2 : 3.2);
-    else if (verdict) this._say(verdict, 2.8);
-    track('mod_install', {
-      wave: s.wave,
-      mod_id: mod.id,
-      target_hero: who.def.id,
-      target_slot: who.slot,
-      target_mod_count: who.mods.length,
+  /* ---------------- 布阵 ---------------- */
+
+  private _placing(): boolean {
+    return this._state.phase === 'placing';
+  }
+
+  private _renderBench(): void {
+    const items: BenchItem[] = this._state.bench.map((c) => ({
+      id: c.villager.id,
+      evoStage: c.evoStage,
+      stars: c.stars,
+      placed: placedOf(this._state, c.villager.id) !== undefined,
+    }));
+    this._bench.renderList(items);
+  }
+
+  private _tapBench(id: string): void {
+    if (!this._placing()) return;
+    const on = placedOf(this._state, id);
+    if (on) {
+      // 已经在场上：点一下撤下来。省掉一个「撤下」按钮
+      removeAt(this._state, on.lane, on.cell);
+      this._bench.select(null);
+      playSfx('ui_tap', 0);
+      this._afterPlaceChange();
+      return;
+    }
+    this._bench.select(this._bench.selected === id ? null : id);
+    playSfx('ui_tap', 0);
+    this._renderBench();
+  }
+
+  private _tapCell(lane: number, cell: number): void {
+    if (!this._placing()) return;
+    const sitting = this._state.placed.find((p) => p.lane === lane && p.cell === cell);
+    const picked = this._bench.selected;
+
+    if (!picked) {
+      // 没选人时点格子 = 把这一格的人撤下来
+      if (sitting && removeAt(this._state, lane, cell)) {
+        playSfx('ui_tap', 0);
+        this._afterPlaceChange();
+      }
+      return;
+    }
+
+    if (!placeAt(this._state, picked, lane, cell)) {
+      Platform.showToast(
+        this._state.placed.length >= this._state.cap
+          ? `这一关只能上 ${this._state.cap} 个，先撤一个`
+          : '放不下',
+      );
+      return;
+    }
+    this._bench.select(null);
+    playSfx('install_on', 0);
+    this._afterPlaceChange();
+  }
+
+  private _afterPlaceChange(): void {
+    // 「玩家到底会不会重排」是这一版最关键的未知，所以每一笔都记
+    track('place_change', {
+      stage_id: this._state.stage.id,
+      placed: this._state.placed.length,
+      lanes: this._state.placed.map((p) => p.lane),
     });
-    return true;
-  }
-
-  private _strip(slot: number, modIndex: number): void {
-    const hero = heroAt(this._state, slot);
-    if (!hero) return;
-    const piece = hero.mods[modIndex];
-    if (!piece) return;
-    if (this._state.scrap < STRIP_COST) {
-      this._say(`拆一件要 ${STRIP_COST} 废品`);
-      return;
-    }
-    if (!stripMod(this._state, hero.def.id, modIndex)) return;
-    this._say(`拆了${hero.def.name}的${piece.name}`);
-    this._dock.refresh(this._state, this._highlightId());
+    this._renderBench();
+    this._drawField();
+    this._drawUnits();
     this._updateHud();
   }
 
-  private _reroll(): void {
-    if (this._state.freeRerollsLeft <= 0 && this._state.scrap < REROLL_COST) {
-      this._say(`重抽要 ${REROLL_COST} 废品`);
+  private _beginFight(): void {
+    if (!this._placing()) return;
+    if (this._state.placed.length === 0) {
+      Platform.showToast('先放几个人上去');
       return;
     }
-    if (!rerollMods(this._state)) return;
-    this._renderPickCards();
+    // 记下这一次的排法。下一关直接铺上，玩家不用每关从零摆
+    saveLayout(this._state.placed.map((p): Slot => ({
+      id: p.villager.id, lane: p.lane, cell: p.cell,
+    })));
+    startFight(this._state);
+    this._startedAt = Date.now();
+    adMarkRunStart();
+    track('run_start', {
+      stage_id: this._state.stage.id,
+      village_lv: this._mem.villageLv,
+      squad: this._state.team.map((f) => f.def.id),
+      lanes: this._state.team.map((f) => f.lane),
+    });
+    this._syncPhaseUi();
+    this._fx.markLand(laneScreenX(1), this._lay.goalY);
+    playSfx('hero_land', 0);
+    this._say('开打');
+  }
+
+  /** 布阵和开打两套 UI 的开关集中在这儿，别散到各处去 */
+  private _syncPhaseUi(): void {
+    const placing = this._placing();
+    this._bench.visible = placing;
+    if (this._startBtn) this._startBtn.visible = placing;
+    for (const hit of this._cellHits) hit.eventMode = placing ? 'static' : 'none';
+    this._drawField();
+    this._drawUnits();
     this._updateHud();
   }
 
-  private _say(msg: string, life = 2.8): void {
-    this._guide.text = msg;
-    this._guide.visible = true;
-    this._guideLife = life;
-  }
-
-  private _computeLayout(): void {
-    const height = Math.max(1334, Game.logicHeight || 1334);
-    const top = Math.max(Game.safeTop, 24);
-    const fieldTop = top + HUD_PLATE_H + 12;
-    // 底栏先钉死。小队抬高一点，别贴着人物面板。多出来的高度全给外星人走路。
-    const fieldBottom = height - Game.safeBottom - DOCK_H - DOCK_GAP;
-    const frontY = fieldBottom - 64 - BACK_DY;
-    this._lay = {
-      top,
-      fieldTop,
-      fieldBottom,
-      frontY,
-      height,
-      pxPerCell: Math.max(1, (frontY - fieldTop) / SPAWN_DIST),
-    };
-  }
-
-  /**
-   * 战场坐标 → 屏幕 Y。坐标越大越靠上（越靠外星人来的方向）。
-   * 对打线钉在底栏上方；上路（0→出场点）拉满空场。队尾只留薄薄一条，
-   * 够表现「推过去了」，不要在人脚下空出半屏土。
-   */
-  private _posToY(pos: number): number {
-    const min = REAR_POS - MELEE_REACH;
-    const { frontY, fieldBottom, pxPerCell } = this._lay;
-    if (pos >= 0) {
-      const t = Math.min(SPAWN_DIST, pos);
-      return frontY - t * pxPerCell;
-    }
-    const depth = Math.min(0, Math.max(min, pos));
-    const home = fieldBottom - frontY;
-    return frontY + (depth / min) * home;
-  }
-
-  private _slotY(slot: number): number {
-    return slotScreenY(slot, this._lay.frontY);
-  }
-
-  private _slotX(slot: number): number {
-    return slotScreenX(slot);
-  }
+  /* ---------------- 主循环 ---------------- */
 
   update(dt: number): void {
-    const s = this._state;
-
-    // 点中人时战斗停住：换位是想清楚的决定，但不弹窗打断看戏
-    if (this._selected) {
+    if (this._settle.visible || this._revive.visible) {
       this._fx.update(dt);
-      this._drawField();
-      this._tickActors(dt);
-      this._updateHud();
-      this._dock.pulse();
       return;
     }
 
-    if (this._fx.hitStop > 0) {
-      this._fx.hitStop = Math.max(0, this._fx.hitStop - dt);
-      this._fx.update(dt);
-      this._drawField();
-      this._tickActors(dt);
-      this._updateHud();
-      this._dock.pulse();
-      return;
-    }
-
-    if (!this._settled && !this._openingHintSaid) this._openClock += dt;
-    if (this._runStarted && !this._openingHintSaid && this._openClock >= 8) {
-      this._openingHintSaid = true;
-      this._say('外星人下来了，撑过 15 波');
-    }
-
-    if (s.phase === 'picking') {
-      if (this._pick.children.length === 0) this._renderPickCards();
-      if (isRosterPicking(s) && s.team.length === 0) {
-        if (this._openClock >= 1.5 && !this._cardPulsed) this._pulseRosterCards();
-        if (this._openClock >= 3) this._highlightFirstCard();
-      }
-    } else if (s.phase === 'installing') {
-      // 选完破烂就收掉挡屏卡：点下面的人焊上去。中间再铺一层人卡，
-      // 等于把「装给谁」从场上和底栏挪到一张陌生的弹层上，点不到也看不清战场。
-      if (this._pick.children.length > 0) {
-        this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-      }
-      this._pick.eventMode = 'none';
-    } else if (this._pick.children.length > 0) {
-      this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-    }
-    if (s.phase === 'fighting') {
-      // 按固定步长推进，与批量回归完全一致：掉帧只会让画面变慢，不会改变战斗结果
+    if (this._state.phase === 'fighting') {
       this._accMs += dt * 1000;
-      let guard = 0;
-      while (this._accMs >= TICK_MS && guard++ < 8) {
+      while (this._accMs >= TICK_MS && this._state.phase === 'fighting') {
         this._accMs -= TICK_MS;
-        this._rememberUnits();
-        const waveBefore = s.wave;
-        tick(s);
+        for (const e of this._state.foes) {
+          if (e.alive) this._prevPos.set(e.id, e.pos);
+        }
+        this._state.events.length = 0;
+        tick(this._state);
         this._consumeEvents();
-        // 经 tick 后 phase 可能已变，这里必须重新读状态
-        const phase = this._state.phase;
-        // 刻度推进不再切 phase（战场不断），所以要盯 wave 本身变没变
-        if (this._state.wave !== waveBefore) {
-          track('wave_clear', {
-            wave: waveBefore,
-            duration_ms: STAGE_MS,
-            alive_count: s.team.filter((h) => h.alive).length,
-          });
-        }
-        if (this._stageTold !== this._state.wave) {
-          this._stageTold = this._state.wave;
-          this._syncBattleBgm();
-        }
-        if (phase === 'picking') {
-          this._renderPickCards();
-          break;
-        }
-        if (phase === 'won' || phase === 'lost') {
-          this._endRun();
-          break;
-        }
       }
-    }
-
-    for (const [id, ms] of this._hitFlash) {
-      const left = ms - dt * 1000;
-      if (left <= 0) this._hitFlash.delete(id);
-      else this._hitFlash.set(id, left);
-    }
-    for (const [id, ms] of this._hurtFlash) {
-      const left = ms - dt * 1000;
-      if (left <= 0) this._hurtFlash.delete(id);
-      else this._hurtFlash.set(id, left);
-    }
-    if (this._guideLife > 0) {
-      this._guideLife -= dt;
-      this._guide.visible = this._guideLife > 0;
     }
 
     this._fx.update(dt);
+    this._tickFlash(dt);
+    this._tickGuide(dt);
     this._drawField();
-    this._tickActors(dt);
+    this._drawUnits(this._accMs / TICK_MS);
     this._updateHud();
-    this._dock.pulse();
+
+    for (const a of this._villagerActors.values()) a.update(dt);
+    for (const a of this._foeActors.values()) a.update(dt);
+
+    if (this._state.phase === 'won' || this._state.phase === 'lost') this._endRun();
   }
 
-  private _heroXY(heroId: string): { x: number; y: number } | undefined {
-    const h = this._state.team.find((x) => x.def.id === heroId);
-    if (!h) return undefined;
-    return { x: this._slotX(h.slot), y: this._slotY(h.slot) - heroH(h) * 0.45 };
-  }
-
-  private _visualDist(e: EnemyUnit): number {
-    const prev = this._prevDist.get(e.id);
-    if (prev === undefined) return e.dist;
-    const u = Math.max(0, Math.min(1, this._accMs / TICK_MS));
-    return prev + (e.dist - prev) * u;
-  }
-
-  private _enemyXY(id: number): { x: number; y: number } | undefined {
-    const e = this._state.enemies.find((x) => x.id === id);
-    if (e) return { x: alienLaneX(e.id), y: this._posToY(this._visualDist(e)) - enemyH(e) * 0.45 };
-    return this._lastEnemyXY.get(id);
-  }
-
-  private _rememberUnits(): void {
-    this._prevDist.clear();
-    const live = new Set<number>();
-    for (const e of this._state.enemies) {
-      live.add(e.id);
-      this._prevDist.set(e.id, e.dist);
-      this._enemyKind.set(e.id, e.proto.id);
-      this._vitals.seed(`e:${e.id}`, e.hp, e.shell);
-      this._lastEnemyXY.set(e.id, {
-        x: alienLaneX(e.id),
-        y: this._posToY(e.dist) - enemyH(e) * 0.45,
-        feetY: this._posToY(e.dist),
-        h: enemyH(e),
-        maxHp: e.maxHp,
-        shellMax: e.proto.shell?.hp ?? 0,
-      });
+  private _tickFlash(dt: number): void {
+    for (const [k, v] of this._hitFlash) {
+      const n = v - dt;
+      if (n <= 0) this._hitFlash.delete(k);
+      else this._hitFlash.set(k, n);
     }
-    for (const h of this._state.team) {
-      const key = `h:${h.def.id}`;
-      const shown = this._vitals.shown(key, { hp: -1, extra: 0 });
-      if (h.alive && shown.hp === 0 && h.hp > 0) {
-        this._vitals.seed(key, h.hp, h.shield, true);
-      } else {
-        this._vitals.seed(key, h.hp, h.shield);
-      }
+    for (const [k, v] of this._hurtFlash) {
+      const n = v - dt;
+      if (n <= 0) this._hurtFlash.delete(k);
+      else this._hurtFlash.set(k, n);
     }
-    for (const id of [...this._lastEnemyXY.keys()]) {
-      if (live.has(id) || this._fx.holdingEnemy(id)) continue;
-      this._lastEnemyXY.delete(id);
-      this._vitals.drop(`e:${id}`);
-    }
-    // 小东西的 id 和外星人各自从 1 开始，绝不能共用一张表，否则两边会互相顶掉
-    this._prevPetDist.clear();
-    for (const p of this._state.pets) this._prevPetDist.set(p.id, p.dist);
   }
+
+  /* ---------------- 事件 → 特效 ---------------- */
 
   private _consumeEvents(): void {
     for (const ev of this._state.events) {
+      if (ev.kind === 'waveStart') {
+        if (ev.wave > this._waveTold) {
+          this._waveTold = ev.wave;
+          playSfx('wave_in', 0);
+        }
+        continue;
+      }
+
       if (ev.kind === 'hit') {
-        // 狗咬的那一下也记在主人名下（归因要落在「装给谁」），
-        // 但不能让主人跟着凭空挥一刀 —— 伤害数字照飘，动作归狗
-        const attacker = ev.byPet
-          ? undefined
-          : this._state.team.find((h) => h.def.id === ev.heroId);
-        if (attacker && !ev.aoe) {
-          const actor = this._heroActors.get(ev.heroId);
-          const enemy = this._enemyXY(ev.enemyId);
-          if (actor && enemy) {
-            actor.playAttack(enemy.x, enemy.y, motionFor(resolveAttackFx(attacker.def, attacker.mods)));
-          }
-        }
-      }
-      if (ev.kind === 'enemyHit') {
-        this._enemyActors.get(ev.enemyId)?.playAttack(
-          this._heroXY(ev.heroId)?.x ?? 375,
-          this._heroXY(ev.heroId)?.y ?? this._lay.frontY,
-          'lunge',
-        );
-      }
-      if (ev.kind === 'install') {
-        const who = this._state.team.find((h) => h.def.id === ev.heroId);
-        const actor = this._heroActors.get(ev.heroId);
-        if (who && actor) {
-          actor.equip(who.mods.map((m) => m.id));
-          const foe = this._state.enemies[0];
-          const aim = foe ? this._enemyXY(foe.id) : { x: 520, y: this._lay.fieldTop + 180 };
-          if (aim) actor.playAttack(aim.x, aim.y, motionFor(resolveAttackFx(who.def, who.mods)));
-        }
-      }
-      if (ev.kind === 'heroRevive') {
-        const who = this._state.team.find((h) => h.def.id === ev.heroId);
-        if (who) this._vitals.seed(`h:${who.def.id}`, who.hp, who.shield, true);
-      }
-      if (ev.kind === 'heroDown') {
-        const who = this._state.team.find((h) => h.def.id === ev.heroId);
-        track('hero_down', {
-          wave: this._state.wave,
-          hero_id: ev.heroId,
-          slot: who?.slot ?? -1,
+        const f = this._state.team.find((x) => x.uid === ev.uid);
+        const e = this._state.foes.find((x) => x.id === ev.foeId);
+        if (!f) continue;
+        const hp = this._villagerXY(f);
+        const ep = e ? this._foeXY(e) : this._lastFoeXY.get(ev.foeId);
+        if (!ep) continue;
+        const fx = resolveAttackFx(f.def, f.evoStage);
+        this._actorFor(f).playAttack(ep.x, ep.y, motionFor(fx));
+        this._fx.consume(ev, {
+          hx: hp.x, hy: hp.y - hp.h * 0.5,
+          ex: ep.x, ey: ep.y - ep.h * 0.5,
+          color: LANE_TINT[f.def.lane],
+          fx,
+          skin: resolveFxSkin(f.def, f.evoStage),
+          melee: f.range <= 1,
+          enemyId: ev.foeId,
+          slowed: f.def.role === 'block' && !ev.killed,
+          onLand: () => {
+            this._hitFlash.set(ev.foeId, 0.12);
+            this._vitals.landEnemy(`e${ev.foeId}`, ev.damage);
+          },
         });
-        if (who?.slot === 0 && this._state.team.some((h) => h.alive)) {
-          this._say('队首倒了，点人换上去');
-        }
+        continue;
       }
 
-      const withHero = ev.kind === 'hit' || ev.kind === 'skill' || ev.kind === 'heroDown'
-        || ev.kind === 'enemyHit' || ev.kind === 'heroRevive' || ev.kind === 'install'
-        || ev.kind === 'petSummon';
-      const hero = withHero ? this._heroXY(ev.heroId) : undefined;
-      const enemy = ev.kind === 'hit' || ev.kind === 'enemyDown' || ev.kind === 'enemyHit'
-        ? this._enemyXY(ev.enemyId)
-        : undefined;
-      const attacker = ev.kind === 'hit' || ev.kind === 'skill'
-        ? this._state.team.find((h) => h.def.id === ev.heroId)
-        : undefined;
-      const color = attacker ? villagerColor(attacker.def.id) : 0xffffff;
-      const target = ev.kind === 'skill' && ev.targetId ? this._heroXY(ev.targetId) : undefined;
-      const melee = attacker ? attacker.stats.range <= 1 : false;
-      this._fx.consume(ev, {
-        hx: hero?.x,
-        hy: hero?.y,
-        ex: enemy?.x,
-        ey: enemy?.y,
-        tx: target?.x,
-        ty: target?.y,
-        color,
-        melee,
-        orb: attacker ? !!attacker.stats.splash : false,
-        fx: attacker ? resolveAttackFx(attacker.def, attacker.mods) : undefined,
-        skin: attacker ? resolveFxSkin(attacker.def, attacker.mods) : undefined,
-        enemyFx: ev.kind === 'enemyHit' || ev.kind === 'enemyDown'
-          ? resolveEnemyFx(
-            this._enemyKind.get(ev.enemyId)
-              ?? this._state.enemies.find((e) => e.id === ev.enemyId)?.proto.id
-              ?? 'grey',
-          )
-          : undefined,
-        reachY: attacker ? this._posToY(heroReach(attacker)) : undefined,
-        meleeR: attacker && melee
-          ? Math.max(56, Math.abs((hero?.y ?? 0) - this._posToY(heroReach(attacker))) + 10)
-          : undefined,
-        baseY: this._lay.fieldBottom,
-        slowed: ev.kind === 'hit' && !!attacker?.stats.slowOnHit,
-        installLine: ev.kind === 'install'
-          ? this._installLine(ev.heroId, ev.modId)
-          : undefined,
-        byPet: ev.kind === 'hit' ? !!ev.byPet : undefined,
-        enemyId: ev.kind === 'hit' || ev.kind === 'enemyDown' || ev.kind === 'enemyHit'
-          ? ev.enemyId
-          : undefined,
-        heroId: ev.kind === 'hit' || ev.kind === 'enemyHit' || ev.kind === 'heroDown'
-          || ev.kind === 'heroRevive' || ev.kind === 'skill' || ev.kind === 'install'
-          || ev.kind === 'petSummon'
-          ? ev.heroId
-          : undefined,
-        onLand: ev.kind === 'hit'
-          ? () => {
-            const foe = this._state.enemies.find((e) => e.id === ev.enemyId);
-            this._vitals.seed(`e:${ev.enemyId}`, (foe?.hp ?? 0) + ev.damage, foe?.shell ?? 0);
-            this._vitals.landEnemy(`e:${ev.enemyId}`, ev.damage);
-            if (ev.heal && ev.heal > 0) {
-              const who = this._state.team.find((h) => h.def.id === ev.heroId);
-              this._vitals.healHero(`h:${ev.heroId}`, ev.heal, who?.maxHp ?? 9999);
-            }
-            this._hitFlash.set(ev.enemyId, 120);
-            const actor = this._enemyActors.get(ev.enemyId);
-            actor?.flash(120);
-            const vis = this._vitals.shown(`e:${ev.enemyId}`, { hp: foe?.hp ?? 0, extra: foe?.shell ?? 0 });
-            if (!foe && vis.hp <= 0 && vis.extra <= 0) {
-              actor?.killOff();
-              this._fx.releaseEnemy(ev.enemyId);
-            }
-          }
-          : ev.kind === 'enemyHit'
-            ? () => {
-              const who = this._state.team.find((h) => h.def.id === ev.heroId);
-              const through = ev.damage - ev.absorbed;
-              this._vitals.seed(
-                `h:${ev.heroId}`,
-                (who?.hp ?? 0) + through,
-                (who?.shield ?? 0) + ev.absorbed,
-              );
-              this._vitals.landHero(`h:${ev.heroId}`, through, ev.absorbed);
-              this._hurtFlash.set(ev.heroId, 140);
-              this._heroActors.get(ev.heroId)?.flash(140);
-            }
-            : undefined,
-      });
+      if (ev.kind === 'foeHit') {
+        const e = this._state.foes.find((x) => x.id === ev.foeId);
+        const f = this._state.team.find((x) => x.uid === ev.uid);
+        if (!f) continue;
+        const ep = e ? this._foeXY(e) : this._lastFoeXY.get(ev.foeId);
+        if (!ep) continue;
+        const hp = this._villagerXY(f);
+        this._actorFor(f).faceToward(ep.x);
+        this._fx.consume(ev, {
+          ex: ep.x, ey: ep.y - ep.h * 0.5,
+          hx: hp.x, hy: hp.y - hp.h * 0.5,
+          enemyFx: resolveEnemyFx(e?.def.id ?? ''),
+          heroId: f.uid,
+          onLand: () => {
+            this._hurtFlash.set(f.uid, 0.14);
+            this._vitals.landHero(f.uid, ev.damage, 0);
+          },
+        });
+        continue;
+      }
+
+      if (ev.kind === 'heal') {
+        const f = this._state.team.find((x) => x.uid === ev.uid);
+        const t = this._state.team.find((x) => x.uid === ev.targetUid);
+        if (!f || !t) continue;
+        const tp = this._villagerXY(t);
+        this._vitals.healHero(t.uid, ev.amount, t.maxHp);
+        this._fx.consume(ev, { tx: tp.x, ty: tp.y - tp.h * 0.5 });
+        continue;
+      }
+
+      if (ev.kind === 'foeDown') {
+        const p = this._lastFoeXY.get(ev.foeId);
+        if (!p) continue;
+        this._fx.releaseEnemy(ev.foeId);
+        this._fx.consume(ev, { ex: p.x, ey: p.y - p.h * 0.5, enemyId: ev.foeId });
+        this._foeActors.get(ev.foeId)?.killOff();
+        continue;
+      }
+
+      if (ev.kind === 'villagerDown') {
+        const f = this._state.team.find((x) => x.uid === ev.uid);
+        if (!f) continue;
+        const p = this._villagerXY(f);
+        this._fx.consume(ev, { hx: p.x, hy: p.y - p.h * 0.5, heroId: f.uid });
+        this._actorFor(f).setDead(true);
+        this._vitals.drop(f.uid);
+        continue;
+      }
+
+      if (ev.kind === 'leak') {
+        // 漏怪的反馈钉在那条路的底线上，玩家才知道是哪一路漏的
+        this._fx.consume(ev, { hx: laneScreenX(ev.lane), hy: this._lay.goalY });
+        this._foeActors.get(ev.foeId)?.killOff();
+        this._say(`${'左中右'[ev.lane] ?? '中'}路漏了一个`);
+      }
     }
-    this._state.events.length = 0;
   }
 
-  private _gmSkipWave(): string {
-    if (this._settled || this._revive.visible) return '战斗已结束';
-    const from = this._state.wave;
-    const msg = gmSkipWave(this._state);
-    this._consumeEvents();
-    if (this._pick.children.length > 0 && this._state.phase !== 'picking') {
-      this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-    }
-    this._updateHud();
-    if (this._state.phase === 'won' || this._state.phase === 'lost') {
-      this._endRun();
-      return msg;
-    }
-    if (this._state.wave !== from) {
-      this._stageTold = this._state.wave;
-    }
-    this._syncBattleBgm();
-    return msg;
+  /* ---------------- 坐标 ---------------- */
+
+  private _computeLayout(): void {
+    const height = Game.designHeight;
+    const top = Math.max(Game.safeTop, 24);
+    const benchTop = height - Game.safeBottom - BENCH_H;
+    const goalY = benchTop - BENCH_GAP;
+    // 空场至少给 GOAL_POS 的三成高：舞台被压掉就看不出「走进来」这件事
+    const spawnY = Math.max(top + HUD_PLATE_H + 40, goalY - (goalY - top) * 0.94);
+    this._lay = { top, spawnY, goalY, height };
   }
 
-  /** 第 5 章起整关加压；前四章过半再切。 */
-  private _syncBattleBgm(): void {
-    const camp = getStage(this._state.stageId);
-    if (camp.chapter >= 5) {
-      BgmPlayer.play('battle_hot');
+  private _villagerXY(f: Fighter): { x: number; y: number; h: number } {
+    return {
+      x: jitterX(f.lane, f.cell),
+      y: cellScreenY(f.cell, this._lay.spawnY, this._lay.goalY),
+      h: villagerSpriteH(f.maxHp),
+    };
+  }
+
+  private _foeXY(e: Foe, frac = 0): { x: number; y: number; feetY: number; h: number } {
+    const prev = this._prevPos.get(e.id) ?? e.pos;
+    const pos = prev + (e.pos - prev) * Math.max(0, Math.min(1, frac));
+    const y = posScreenY(pos, this._lay.spawnY, this._lay.goalY);
+    // 同一路上的怪按 id 微微错开，不然一队铁罐会叠成一个
+    const x = laneScreenX(e.lane) + (((e.id * 37) % 5) - 2) * 14;
+    const p = { x, y, feetY: y, h: enemyH(e) };
+    this._lastFoeXY.set(e.id, p);
+    return p;
+  }
+
+  /* ---------------- 画战场 ---------------- */
+
+  private _drawField(): void {
+    const g = this._field;
+    g.clear();
+
+    const { spawnY, goalY } = this._lay;
+    const cellH = cellScreenH(spawnY, goalY);
+    const load = this._laneLoad();
+
+    // 背景。贴图没到就铺一层土色，别露出黑底
+    const bg = bgTex();
+    if (bg && bg.baseTexture.valid && bg.width > 1) {
+      fillCover(g, bg, 0, 0, 750, this._lay.height);
+    } else {
+      g.beginFill(0x2a2018).drawRect(0, 0, 750, this._lay.height).endFill();
+    }
+    // 顶底轻压一层，HUD 的字不糊进画里
+    g.beginFill(0x2a160c, 0.14).drawRect(0, 0, 750, spawnY - 12).endFill();
+
+    for (let lane = 0; lane < LANE_COUNT; lane += 1) {
+      const cx = laneScreenX(lane);
+      const x0 = cx - LANE_W / 2;
+
+      // 路的分隔。淡一点，别把格子画成棋盘
+      if (lane > 0) {
+        g.lineStyle(2, 0x000000, 0.16)
+          .moveTo(x0, spawnY).lineTo(x0, goalY).lineStyle(0);
+      }
+
+      // 这一路要来多少只。开战前必须看得见，这是布阵的主要依据
+      if (load[lane]! > 0) {
+        g.beginFill(0x8b2e1f, this._placing() ? 0.14 : 0.07)
+          .drawRect(x0 + 4, spawnY, LANE_W - 8, 10).endFill();
+      }
+
+      // 自家那 4 格
+      for (let cell = 0; cell < CELL_COUNT; cell += 1) {
+        const cy = cellScreenY(cell, spawnY, goalY);
+        const taken = this._state.placed.some((p) => p.lane === lane && p.cell === cell);
+        if (this._placing()) {
+          g.lineStyle(2, taken ? GOLD : 0x6a6a72, taken ? 0.8 : 0.45)
+            .drawRoundedRect(x0 + 10, cy - cellH * 0.78, LANE_W - 20, cellH * 0.86, 8)
+            .lineStyle(0);
+        } else if (taken) {
+          queuePad(g, jitterX(lane, cell), cy, { empty: false, hot: false, front: cell === 0 });
+        }
+      }
+    }
+
+    /*
+     * 布阵阶段给每个人画一层「够得到哪儿」。
+     *
+     * §8.1 记着那个 bug：上一版战场比射程长得多，后两格的人打不到任何东西，
+     * 而屏幕上完全看不出来 —— 上场人数从 3 涨到 8 几乎没换来输出。
+     * 现在射程和格距是对齐的，但玩家凭什么信？画出来，让他自己看见。
+     */
+    if (this._placing()) {
+      for (const p of this._state.placed) {
+        const st = statsOf(p.villager, p.evoStage, p.stars, this._state.villageMul);
+        const cy = cellScreenY(p.cell, spawnY, goalY);
+        const reachY = posScreenY(Math.max(0, cellPos(p.cell) - st.range), spawnY, goalY);
+        rangeArea(g, jitterX(p.lane, p.cell), cy, reachY, LANE_TINT[p.villager.lane], st.range <= 1);
+      }
+    }
+
+    // 底线。漏怪判负，所以这条线必须是画面上最实的一条
+    g.lineStyle(6, 0x8b2e1f, 0.9).moveTo(30, goalY).lineTo(720, goalY).lineStyle(0);
+    g.beginFill(0x8b2e1f, 0.1).drawRect(30, goalY, 690, 14).endFill();
+  }
+
+  private _laneLoad(): number[] {
+    const load = new Array<number>(LANE_COUNT).fill(0);
+    for (const w of this._state.stage.waves) {
+      for (const grp of w.groups) load[grp.lane % LANE_COUNT]! += grp.count;
+    }
+    return load;
+  }
+
+  private _buildCellHits(): void {
+    for (const hit of this._cellHits) hit.destroy();
+    this._cellHits.length = 0;
+    for (let lane = 0; lane < LANE_COUNT; lane += 1) {
+      for (let cell = 0; cell < CELL_COUNT; cell += 1) {
+        const box = new PIXI.Container();
+        box.eventMode = 'none';
+        this._cellHits.push(box);
+        this.container.addChild(box);
+        bindPointerTap(box, () => this._tapCell(lane, cell));
+      }
+    }
+    this._placeCellHits();
+  }
+
+  private _placeCellHits(): void {
+    const { spawnY, goalY } = this._lay;
+    const ch = cellScreenH(spawnY, goalY);
+    const box = cellHitBox(LANE_W, ch);
+    let i = 0;
+    for (let lane = 0; lane < LANE_COUNT; lane += 1) {
+      for (let cell = 0; cell < CELL_COUNT; cell += 1) {
+        const hit = this._cellHits[i]!;
+        i += 1;
+        hit.position.set(laneScreenX(lane), cellScreenY(cell, spawnY, goalY));
+        hit.hitArea = new PIXI.Rectangle(box.x, box.y, box.w, box.h);
+      }
+    }
+  }
+
+  /* ---------------- 画单位 ---------------- */
+
+  private _actorFor(f: Fighter): UnitActor {
+    let a = this._villagerActors.get(f.uid);
+    if (!a) {
+      a = new UnitActor();
+      a.bindHero(f.def.id, f.def.lane, f.evoStage);
+      this._unitLayer.addChild(a.view);
+      this._villagerActors.set(f.uid, a);
+    }
+    return a;
+  }
+
+  private _drawUnits(frac = 0): void {
+    this._nameLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
+
+    // 布阵阶段画的是 placed（还没变成 Fighter），开打后画 team
+    if (this._placing()) {
+      for (const p of this._state.placed) {
+        const x = jitterX(p.lane, p.cell);
+        const y = cellScreenY(p.cell, this._lay.spawnY, this._lay.goalY);
+        const uid = `pre:${p.villager.id}`;
+        let a = this._villagerActors.get(uid);
+        if (!a) {
+          a = new UnitActor();
+          a.bindHero(p.villager.id, p.villager.lane, p.evoStage);
+          this._unitLayer.addChild(a.view);
+          this._villagerActors.set(uid, a);
+        }
+        a.equip(p.evoStage);
+        a.place(x, y, villagerSpriteH(2000));
+        this._tag(p.villager.name, `${ROLE_NAME[p.villager.role]}`, x, y, LANE_TINT[p.villager.lane]);
+      }
+      this._reapActors(new Set(this._state.placed.map((p) => `pre:${p.villager.id}`)));
       return;
     }
-    const local = stageLocalWave(camp, this._state.wave);
-    const half = Math.floor(stageBeats(camp) / 2);
-    BgmPlayer.play(local > half ? 'battle_hot' : 'battle');
+
+    const live = new Set<string>();
+    for (const f of this._state.team) {
+      live.add(f.uid);
+      const p = this._villagerXY(f);
+      const a = this._actorFor(f);
+      this._vitals.seed(f.uid, f.hp, 0);
+      a.place(p.x, p.y, p.h);
+      a.holdPulse = this._hurtFlash.has(f.uid);
+      if (!f.alive) continue;
+      this._hpTag(f, p.x, p.y, p.h);
+    }
+    this._reapActors(live);
+
+    for (const e of this._state.foes) {
+      if (!e.alive) continue;
+      let a = this._foeActors.get(e.id);
+      if (!a) {
+        a = new UnitActor();
+        a.bindEnemy(e.def.id);
+        a.walkBob = true;
+        this._unitLayer.addChild(a.view);
+        this._foeActors.set(e.id, a);
+      }
+      this._vitals.seed(`e${e.id}`, e.hp, 0);
+      const p = this._foeXY(e, frac);
+      a.place(p.x, p.feetY, p.h);
+      a.holdPulse = this._hitFlash.has(e.id);
+      this._foeHp(e, p.x, p.feetY, p.h);
+    }
+    for (const [id, a] of [...this._foeActors]) {
+      if (this._state.foes.some((e) => e.id === id && e.alive)) continue;
+      // 还有弹体在飞向它就先留着摆在原地，否则「打到一个已经消失的东西」
+      if (this._fx.holdingEnemy(id)) {
+        const pose = this._lastFoeXY.get(id);
+        if (pose) a.place(pose.x, pose.feetY, pose.h);
+        continue;
+      }
+      a.destroy();
+      this._foeActors.delete(id);
+      this._prevPos.delete(id);
+      this._vitals.drop(`e${id}`);
+    }
+
+    // 深度排序：靠底线的画在上面，前后关系才对
+    this._unitLayer.children.sort((a, b) => a.y - b.y);
+  }
+
+  private _reapActors(live: ReadonlySet<string>): void {
+    for (const [uid, a] of [...this._villagerActors]) {
+      if (live.has(uid)) continue;
+      a.destroy();
+      this._villagerActors.delete(uid);
+    }
+  }
+
+  private _tag(name: string, role: string, x: number, feetY: number, tint: number): void {
+    const t = label(16, 0xfff4c4, true);
+    t.anchor.set(0.5);
+    t.position.set(x, feetY + 6);
+    t.text = name;
+    this._nameLayer.addChild(t);
+    const r = label(13, tint, true);
+    r.anchor.set(0.5);
+    r.position.set(x, feetY + 24);
+    r.text = role;
+    this._nameLayer.addChild(r);
+  }
+
+  /** 村民名字 + 血条。名字常驻是硬约束：场上得认得出脸（反目标第二条） */
+  private _hpTag(f: Fighter, x: number, feetY: number, h: number): void {
+    const g = new PIXI.Graphics();
+    // 条走观战层的血，不走引擎的血：弹体还在飞的时候不许先掉
+    const shown = this._vitals.shown(f.uid, { hp: f.hp, extra: 0 });
+    hpBar(g, x, feetY - h - 14, 68, shown.hp / f.maxHp, 0x86efac);
+    this._nameLayer.addChild(g);
+    const t = label(15, f.alive ? 0xfff4c4 : 0x8a8a92, true);
+    t.anchor.set(0.5);
+    t.position.set(x, feetY + 8);
+    t.text = f.def.name;
+    this._nameLayer.addChild(t);
+  }
+
+  private _foeHp(e: Foe, x: number, feetY: number, h: number): void {
+    const g = new PIXI.Graphics();
+    const shown = this._vitals.shown(`e${e.id}`, { hp: e.hp, extra: 0 });
+    hpBar(g, x, feetY - h - 12, 56, shown.hp / e.maxHp, 0xff8a6a);
+    if (e.slowMs > 0) {
+      g.beginFill(0x86efac, 0.8).drawCircle(x + 36, feetY - h - 9, 4).endFill();
+    }
+    this._nameLayer.addChild(g);
+  }
+
+  private _clearActors(): void {
+    for (const a of this._villagerActors.values()) a.destroy();
+    for (const a of this._foeActors.values()) a.destroy();
+    this._villagerActors.clear();
+    this._foeActors.clear();
+    this._nameLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
+  }
+
+  /* ---------------- HUD ---------------- */
+
+  private _buildHud(): void {
+    this._hud.addChild(this._hudChrome);
+    this._hudChrome.addChild(this._hudPlate);
+    for (const t of [this._stageName, this._waveText, this._leakText, this._hintText]) {
+      this._hud.addChild(t);
+    }
+    this._hud.addChild(this._timeBar);
+    this._guide.anchor.set(0.5);
+    this._guide.visible = false;
+    this._hud.addChild(this._guide);
+
+    this._startBtn = this._makeStartBtn();
+    this.container.addChild(this._startBtn);
+
+    this._paintHudChrome();
+    this._applyHudLayout();
+  }
+
+  private _makeStartBtn(): PIXI.Container {
+    const w = 300;
+    const h = 88;
+    const box = new PIXI.Container();
+    box.eventMode = 'static';
+    box.interactiveChildren = false;
+    box.hitArea = new PIXI.Rectangle(-w / 2, -h / 2, w, h);
+    if (!fitSprite(box, uiTex('settle_btn'), 0, 0, w, h)) {
+      const g = new PIXI.Graphics();
+      g.beginFill(0xc9a46a).drawRoundedRect(-w / 2, -h / 2, w, h, 12).endFill();
+      box.addChild(g);
+    }
+    const t = label(28, 0x2a160c, true);
+    t.anchor.set(0.5);
+    t.text = '开打';
+    box.addChild(t);
+    bindPointerTap(box, () => this._beginFight());
+    return box;
+  }
+
+  private _paintHudChrome(): void {
+    this._hudPlate.clear();
+    plate(this._hudPlate, 16, this._lay.top, 718, HUD_PLATE_H, 14);
+  }
+
+  private _applyHudLayout(): void {
+    const top = this._lay.top;
+    this._paintHudChrome();
+    this._stageName.anchor.set(0, 0.5);
+    this._stageName.position.set(36, top + 26);
+    this._waveText.anchor.set(1, 0.5);
+    this._waveText.position.set(714, top + 28);
+    this._leakText.anchor.set(0, 0.5);
+    this._leakText.position.set(36, top + 62);
+    this._hintText.anchor.set(1, 0.5);
+    this._hintText.position.set(714, top + 64);
+    this._guide.position.set(375, this._lay.spawnY - 34);
+    this._bench.place(this._lay.height - Game.safeBottom - BENCH_H);
+    if (this._startBtn) {
+      this._startBtn.position.set(375, this._lay.goalY - 56);
+    }
+    this._placeCellHits();
+  }
+
+  private _updateHud(): void {
+    const s = this._state;
+    this._stageName.text = `${s.stage.label} ${s.stage.name}`;
+
+    if (this._placing()) {
+      this._waveText.text = `上场 ${s.placed.length}/${s.cap}`;
+      this._leakText.text = `来 ${stageEnemyCount(s.stage)} 只 · ${s.stage.waves.length} 波`;
+      // 布阵阶段的提示是「敌人什么门路」，不是「你该放谁」
+      this._hintText.text = `敌方门路：${LANE_NAME[s.stage.mainLane]}`;
+      this._timeBar.clear();
+      return;
+    }
+
+    this._waveText.text = `第 ${Math.max(1, s.wave)}/${s.stage.waves.length} 波`;
+    this._leakText.text = `漏 ${s.leaked}/${LEAK_ALLOW}`;
+    this._hintText.text = `场上 ${foesAlive(s)} 只`;
+
+    // 时间条。超时只是兜底，所以它画得细，不抢底线那条的注意力
+    const frac = Math.min(1, s.elapsedMs / s.stage.timeLimitMs);
+    this._timeBar.clear();
+    this._timeBar.beginFill(0x000000, 0.35)
+      .drawRoundedRect(36, this._lay.top + HUD_PLATE_H - 14, 678, 6, 3).endFill();
+    this._timeBar.beginFill(frac > 0.85 ? 0xff7a5a : GOLD, 0.9)
+      .drawRoundedRect(36, this._lay.top + HUD_PLATE_H - 14, 678 * (1 - frac), 6, 3).endFill();
+  }
+
+  private _say(msg: string): void {
+    this._guide.text = msg;
+    this._guide.visible = true;
+    this._guideLife = 2.4;
+  }
+
+  private _tickGuide(dt: number): void {
+    if (!this._guide.visible) return;
+    this._guideLife -= dt;
+    if (this._guideLife <= 0) this._guide.visible = false;
+    else this._guide.alpha = Math.min(1, this._guideLife / 0.5);
+  }
+
+  /* ---------------- 结束 / 广告 ---------------- */
+
+  private _endRun(): void {
+    if (this._settled || this._revive.visible) return;
+    const s = this._state;
+
+    /*
+     * 复活广告只卖「漏了那一下重来」。
+     *
+     * 超时不卖：那是「清不完」，站起来再打还是清不完，卖了等于骗。
+     * §4.4 也据此要求漏怪必须是失败局的多数 —— 模拟器实测超时占 0~10%，
+     * 要是哪天涨到三成以上，先回去看曲线，不是在这儿放宽条件。
+     */
+    if (s.phase === 'lost' && s.loseReason === 'leak' && adCanShow('revive')) {
+      this._revive.show(s.team, s.leaked, adRemaining('revive'), this._lay.height);
+      playSfx('lose', 0);
+      return;
+    }
+    this._openSettle();
+  }
+
+  private async _watchAd(placement: AdPlacement): Promise<boolean> {
+    track('ad_show', { placement, stage_id: this._state.stage.id });
+    const ok = await Platform.showRewardedVideo();
+    track('ad_close', { placement, stage_id: this._state.stage.id, completed: ok });
+    return ok;
+  }
+
+  private async _acceptRevive(): Promise<void> {
+    const ok = await this._watchAd('revive');
+    if (!ok) {
+      // 广告没看完就留在弹窗上。直接掉进结算会让人以为「点了没反应」
+      this._revive.unlock();
+      Platform.showToast('没看完，挡不住');
+      return;
+    }
+    adRecord('revive');
+    reviveAfterLeak(this._state);
+    this._revive.hide();
+    this._consumeEvents();
+    this._updateHud();
+    this._say('缓过来了，接着挡');
+  }
+
+  private _giveUpRevive(): void {
+    this._revive.hide();
+    this._openSettle();
+  }
+
+  private _settleGot: { pellets: number; scrap: number } = { pellets: 0, scrap: 0 };
+
+  private _openSettle(): void {
+    if (this._settled) return;
+    this._settled = true;
+    const s = this._state;
+    const won = s.phase === 'won';
+
+    const res = settleStage(s.stage.id, won, s.stars);
+    this._mem = res.mem;
+    this._settleGot = { pellets: res.pellets, scrap: res.scrap };
+
+    track('run_end', {
+      stage_id: s.stage.id,
+      won,
+      stars: s.stars,
+      leaked: s.leaked,
+      lose_reason: s.loseReason ?? '',
+      elapsed_ms: s.elapsedMs,
+      play_ms: this._startedAt > 0 ? Date.now() - this._startedAt : 0,
+    });
+    playSfx(won ? 'win' : 'lose', 0);
+
+    const next = won ? getStage(s.stage.id + 1) : undefined;
+    this._settle.show(s, this._mem, this._lay.height, {
+      earned: res.scrap,
+      scrap: this._mem.scrap,
+      pellets: res.pellets,
+      loseReason: won ? undefined : s.loseReason,
+      identity: won ? this._winLine() : undefined,
+      nextMove: won ? undefined : this._loseHint(),
+      nextStageLabel: next && next.id !== s.stage.id ? next.label : undefined,
+      canDouble: adCanShow('settleDouble'),
+    });
+  }
+
+  /** 赢了那一句。说的是「这一关是怎么过的」，不是伤害统计 */
+  private _winLine(): string {
+    const s = this._state;
+    if (s.stars === 3) return '一个没漏，清得也快';
+    if (s.leaked > 0) return `漏了 ${s.leaked} 个，还是顶住了`;
+    const fallen = s.team.filter((f) => !f.alive).length;
+    return fallen > 0 ? `倒了 ${fallen} 个，线没断` : '清干净了，就是慢了点';
+  }
+
+  /**
+   * 输了给的下一手。**必须指向布阵或养成，不许说「再试一次」。**
+   *
+   * §4.4 的聪明感时刻要求玩家卡关后想的是「换人 / 换站位 / 喂大主力」，
+   * 而不是「回去刷村庄等级」。这句话是唯一能推他一把的地方。
+   */
+  private _loseHint(): string {
+    const s = this._state;
+    if (s.loseReason === 'timeout') {
+      return '挡住了但清不完，换两个「打」上来';
+    }
+    // 哪一路漏得最多就点那一路：失败原因必须落到具体一路上
+    const byLane = new Array<number>(LANE_COUNT).fill(0);
+    for (const w of s.stage.waves) {
+      for (const g of w.groups) byLane[g.lane % LANE_COUNT]! += g.count;
+    }
+    const mine = new Array<number>(LANE_COUNT).fill(0);
+    for (const f of s.team) mine[f.lane]! += 1;
+    let worst = -1;
+    let worstRatio = -1;
+    for (let l = 0; l < LANE_COUNT; l += 1) {
+      if (byLane[l]! <= 0) continue;
+      const ratio = byLane[l]! / (mine[l]! + 1);
+      if (ratio > worstRatio) { worstRatio = ratio; worst = l; }
+    }
+    if (worst < 0) return '换个排法试试';
+    const name = '左中右'[worst] ?? '中';
+    return mine[worst]! === 0
+      ? `${name}路一个人都没有，先补上`
+      : `${name}路人太少，加厚一格`;
+  }
+
+  private async _doubleSettle(): Promise<boolean> {
+    if (!adCanShow('settleDouble')) return false;
+    const ok = await this._watchAd('settleDouble');
+    if (!ok) return false;
+    adRecord('settleDouble');
+    // 翻倍补的是差额：settleStage 已经把基础那一份记进去了
+    const total = Math.max(16, this._settleGot.scrap * 2);
+    this._mem = addScrap(total - this._settleGot.scrap);
+    return true;
+  }
+
+  private _restart(stageId: number): void {
+    SceneManager.switchTo('battle', { stageId });
+  }
+
+  /* ---------------- GM ---------------- */
+
+  private _gmWin(): string {
+    if (this._state.phase !== 'fighting') return '还没开打';
+    gmWin(this._state);
+    return `${this._state.stage.label} 判赢`;
   }
 
   private _mountGmSkip(): void {
@@ -899,1211 +1058,14 @@ export class BattleScene implements Scene {
     const t = label(18, 0xffffff, true);
     t.anchor.set(0.5);
     t.position.set(w / 2, h / 2);
-    t.text = '跳过本波';
+    t.text = '直接过关';
     box.addChild(g, t);
-    const pos = this._gmSkipPos(w);
-    box.position.set(pos.x, pos.y);
-    bindPointerTap(box, () => {
-      Platform.showToast(this._gmSkipWave(), 'none');
-    });
+    box.position.set(
+      Math.min(734, Math.max(Game.contentRightX(8), 700)) - w,
+      this._lay.top + HUD_PLATE_H + 8,
+    );
+    bindPointerTap(box, () => Platform.showToast(this._gmWin(), 'none'));
     this.container.addChildAt(box, this.container.getChildIndex(this._settle));
     this._gmSkip = box;
   }
-
-  private _syncGmSkip(): void {
-    if (this._gmSkip) this._gmSkip.visible = !this._settled && !this._revive.visible;
-  }
-
-  /** 进度条和经验条下面、贴右边，别盖住顶上那条推进。 */
-  private _gmSkipPos(w: number): { x: number; y: number } {
-    const right = Math.min(734, Math.max(Game.contentRightX(8), 700));
-    return {
-      x: right - w,
-      y: this._lay.top + HUD_PLATE_H + 8,
-    };
-  }
-
-  private _endRun(): void {
-    if (this._settled || this._revive.visible) return;
-    const s = this._state;
-    if (s.phase === 'lost' && s.loseReason === 'wipe' && s.freeRevivesLeft > 0) {
-      s.freeRevivesLeft -= 1;
-      if (reviveAfterWipe(s)) {
-        this._consumeEvents();
-        this._say('村里给的一口气，这套还在');
-        return;
-      }
-    }
-    if (s.phase === 'lost' && s.loseReason === 'wipe' && adCanShow('revive')) {
-      this._revive.show(s.team, s.wave, adRemaining('revive'), this._lay.height);
-      playSfx('lose', 0);
-      return;
-    }
-    this._openSettle();
-  }
-
-  private async _watchAd(placement: AdPlacement): Promise<boolean> {
-    track('ad_show', { placement, wave: this._state.wave });
-    const ok = await Platform.showRewardedVideo();
-    track('ad_close', { placement, wave: this._state.wave, completed: ok });
-    return ok;
-  }
-
-  private _installLine(heroId: string, modId: string): string {
-    const who = this._state.team.find((h) => h.def.id === heroId);
-    const piece = getMod(modId);
-    const combo = who ? comboOf(who.mods.map((m) => m.id)) : undefined;
-    // 回执只飘一个短名。长句叠在人头和底栏上，谁也看不清
-    return combo ? `叠出${combo.name}` : piece.name;
-  }
-
-  private async _acceptRevive(): Promise<void> {
-    const ok = await this._watchAd('revive');
-    if (!ok) {
-      this._revive.unlock();
-      Platform.showToast('没看完，站不起来');
-      return;
-    }
-    adRecord('revive');
-    if (!reviveAfterWipe(this._state)) {
-      this._revive.hide();
-      this._openSettle();
-      return;
-    }
-    this._revive.hide();
-    this._consumeEvents();
-    this._updateHud();
-    this._say('又站起来了，这套还在');
-  }
-
-  private _giveUpRevive(): void {
-    this._revive.hide();
-    this._openSettle();
-  }
-
-  private async _doubleSettle(): Promise<boolean> {
-    if (!adCanShow('settleDouble')) return false;
-    const ok = await this._watchAd('settleDouble');
-    if (!ok) return false;
-    adRecord('settleDouble');
-    stashNextScrap(Math.max(16, this._baseScrap * 2), 'ad');
-    return true;
-  }
-
-  private _openSettle(): void {
-    if (this._settled) return;
-    this._settled = true;
-    this._baseScrap = this._state.scrap;
-    const deposited = yardDeposit(
-      this._state.wave,
-      this._baseScrap,
-      scavMul(loadMemory().growth),
-    );
-    const combos = this._state.team
-      .map((h) => comboOf(h.mods.map((m) => m.id))?.id)
-      .filter((id): id is string => !!id);
-    saveRun(
-      this._state.wave,
-      this._state.team.map((h) => h.def.id),
-      {
-        cleared: this._state.phase === 'won',
-        ladderLv: this._state.ladderLv,
-        stageId: this._state.stageId,
-        combos,
-      },
-    );
-    const mem = bankToYard(deposited);
-    const identity = runIdentity(this._state.team);
-    track('run_end', {
-      stage_id: this._state.stageId,
-      reached_wave: this._state.wave,
-      cleared: this._state.phase === 'won',
-      duration_ms: this._state.totalMs,
-      identity: identity.title,
-      identity_kind: identity.kind,
-      team_with_mods: this._state.team.map((h) => ({
-        id: h.def.id,
-        slot: h.slot,
-        mods: h.mods.map((m) => m.id),
-      })),
-      installs: this._state.stats.installs,
-    });
-    playSfx(this._state.phase === 'won' ? 'win' : 'lose', 0);
-    this._settle.show(this._state, mem, this._lay.height, {
-      scrap: this._baseScrap,
-      earned: this._state.scrapEarned,
-      spent: this._state.scrapSpent,
-      canDouble: adCanShow('settleDouble'),
-      canJunkyard: adCanShow('junkyard'),
-      loseReason: this._state.loseReason,
-      identity: settleIdentityLine(identity, this._state.phase === 'won'),
-      nextMove: this._state.phase === 'lost' ? loseNextMove(this._state) : '',
-      yardScrap: mem.yardScrap,
-      yardIn: deposited,
-      yardGoal: goalLine(nextYardGoal(mem.yardScrap, mem.growth, mem.laneLv)),
-      nextStageLabel: this._nextStageLabel(),
-    });
-  }
-
-  private _nextStageLabel(): string | undefined {
-    if (this._state.phase !== 'won') return undefined;
-    const nextId = this._state.stageId + 1;
-    if (nextId > LAST_STAGE_ID) return undefined;
-    return getStage(nextId).label;
-  }
-
-  private _restartStage(stageId: number): void {
-    if (stageId > LAST_STAGE_ID) {
-      SceneManager.switchTo('village');
-      return;
-    }
-    this.onEnter({
-      heroIds: this._state.team.map((h) => h.def.id),
-      stageId,
-    });
-  }
-
-  private async _settleJunkyard(): Promise<boolean> {
-    if (!adCanShow('junkyard')) return false;
-    const ok = await this._watchAd('junkyard');
-    if (!ok) return false;
-    adRecord('junkyard');
-    const mod = claimJunkyard(this._state);
-    if (!mod) return false;
-    stashNextPin(mod.id);
-    return true;
-  }
-
-  private _highlightFirstCard(): void {
-    const card = this._pick.children.find((c) => c.name === 'pick-card-0') as PIXI.Container | undefined;
-    if (!card || card.children.some((c) => c.name === 'idle-glow')) return;
-    const glow = new PIXI.Graphics();
-    glow.name = 'idle-glow';
-    const roster = isRosterPicking(this._state);
-    const w = roster ? ROSTER_CARD_W : PICK_CARD_W;
-    const h = roster ? ROSTER_CARD_H : PICK_CARD_H;
-    // 贴着卡边画，不能再往左上偏——旧尺寸 + (-6,-6) 会让第一张看起来没对齐
-    glow.lineStyle(5, GOLD, 0.95).drawRoundedRect(1, 1, w - 2, h - 2, 19);
-    card.addChild(glow);
-  }
-
-  // ── HUD ───────────────────────────────────────────────
-
-  private _buildHud(): void {
-    this._guide.anchor.set(0.5);
-    this._guide.visible = false;
-    this._guide.style.wordWrap = true;
-    this._guide.style.wordWrapWidth = 660;
-    this._guide.style.align = 'center';
-    this._guide.style.stroke = 0x2a160c;
-    this._guide.style.strokeThickness = 5;
-
-    for (const t of [this._installTitle, this._installDesc, this._inspectTitle, this._inspectDesc]) {
-      t.anchor.set(0.5, 0);
-      t.style.wordWrap = true;
-      t.style.wordWrapWidth = 640;
-      t.style.align = 'center';
-      t.visible = false;
-    }
-    this._installPlate.visible = false;
-    this._inspectPlate.visible = false;
-    for (const t of [
-      this._waveText, this._stageName, this._waveBeat,
-      this._scrapText, this._hintText, this._expCaption, this._expText,
-    ]) {
-      t.style.stroke = 0x2a160c;
-      t.style.strokeThickness = 4;
-    }
-    this._expCaption.text = '下一件';
-    this._waveText.anchor.set(0, 0.5);
-    this._stageName.anchor.set(0, 0.5);
-    this._waveBeat.anchor.set(0, 0.5);
-    this._hintText.anchor.set(0, 0.5);
-    this._scrapText.anchor.set(1, 0.5);
-    this._expCaption.anchor.set(0, 0.5);
-    this._expText.anchor.set(1, 0.5);
-
-    this._hud.addChild(
-      this._hudChrome,
-      this._hudPlate,
-      this._waveText,
-      this._stageName,
-      this._waveBeat,
-      this._scrapText,
-      this._hintText,
-      this._expBar,
-      this._expCaption,
-      this._expText,
-      this._installPlate,
-      this._installTitle,
-      this._installDesc,
-      this._inspectPlate,
-      this._inspectTitle,
-      this._inspectDesc,
-      this._guide,
-    );
-    this._paintHudChrome();
-    this._scrapIcon = fitSprite(this._hud, uiTex('scrap_pile'), 668, 0, 42, 38);
-    this._applyHudLayout();
-  }
-
-  /** 贴顶全宽的锈铁板。用原来那张锈铁贴图，圆角裁掉避免浮条。 */
-  private _paintHudChrome(): void {
-    this._hudChrome.removeChildren().forEach((c) => {
-      if (!c.destroyed) c.destroy({ children: true });
-    });
-    const h = this._lay.top + HUD_PLATE_H;
-    const slab = new PIXI.Graphics();
-    slab.beginFill(0x2a1810).drawRect(0, 0, 750, h).endFill();
-    this._hudChrome.addChild(slab);
-    coverSpriteBleed(this._hudChrome, uiTex('iron_bar'), 0, 0, 750, h, 1.34);
-    const nails = new PIXI.Graphics();
-    const { top } = this._lay;
-    nailCluster(nails, 22, top + 16, 6, 3);
-    nailCluster(nails, 728, top + 16, 6, 11);
-    nailCluster(nails, 22, h - 16, 6, 7);
-    nailCluster(nails, 728, h - 16, 6, 19);
-    this._hudChrome.addChild(nails);
-  }
-
-  /** 板上两栏：左关卡、右废品；右栏停在胶囊左侧。 */
-  private _hudGeom(): {
-    left: number;
-    right: number;
-    top: number;
-    row1: number;
-    row2: number;
-    plateBottom: number;
-  } {
-    const top = this._lay.top;
-    const left = 28;
-    const right = Math.min(722, Game.contentRightX(16));
-    return {
-      left,
-      right,
-      top,
-      row1: top + 28,
-      row2: top + 70,
-      plateBottom: top + HUD_PLATE_H,
-    };
-  }
-
-  /** 废品图标左缘。下一件跟它对齐。 */
-  private _scrapIconLeft(right: number): number {
-    const icon = this._scrapIcon;
-    if (icon) return icon.x - icon.width / 2;
-    return right - this._scrapText.width - 53;
-  }
-
-  private _placeHudTexts(): void {
-    const { left, right, row1, row2 } = this._hudGeom();
-    this._waveText.position.set(left, row1);
-    this._stageName.position.set(left + this._waveText.width + 12, row1);
-    this._waveBeat.position.set(left, row2);
-    this._hintText.position.set(left + this._waveBeat.width + 12, row2);
-    this._scrapText.position.set(right, row1);
-    if (this._scrapIcon) {
-      this._scrapIcon.position.set(right - this._scrapText.width - 32, row1);
-    }
-    this._expCaption.position.set(this._scrapIconLeft(right), row2);
-    this._expText.position.set(right, row2);
-  }
-
-  /** 三个人各一块点击区。跟村里同一套热区，互不重叠，前排才点得到。 */
-  private _buildHeroHits(): void {
-    for (const slot of [1, 2, 0]) {
-      const hit = new PIXI.Container();
-      hit.eventMode = 'static';
-      const box = slotHitBox(slot);
-      hit.hitArea = new PIXI.Rectangle(box.x, box.y, box.w, box.h);
-      bindPointerTap(hit, () => this._tapSlot(slot));
-      hit.name = `queue:${slot}`;
-      this._heroHits[slot] = hit;
-      this.container.addChild(hit);
-    }
-  }
-
-  private _applyHudLayout(): void {
-    this._paintHudChrome();
-    this._placeHudTexts();
-    const { top, fieldBottom } = this._lay;
-    this._dock.place(fieldBottom + DOCK_GAP);
-    if (this._gmSkip) {
-      const pos = this._gmSkipPos(148);
-      this._gmSkip.position.set(pos.x, pos.y);
-    }
-    this._guide.position.set(375, this._lay.frontY - 118);
-    this._installTitle.position.set(375, top + HUD_PLATE_H + 10);
-    this._installDesc.position.set(375, top + HUD_PLATE_H + 44);
-    this._inspectTitle.position.set(375, top + HUD_PLATE_H + 10);
-    this._inspectDesc.position.set(375, top + HUD_PLATE_H + 38);
-    this._layoutHeroHits();
-  }
-
-  private _layoutHeroHits(): void {
-    for (let slot = 0; slot < TEAM_SIZE; slot += 1) {
-      this._heroHits[slot]?.position.set(this._slotX(slot), this._slotY(slot));
-    }
-  }
-
-  private _updateHud(): void {
-    const s = this._state;
-    const opening = isRosterPicking(s);
-    this._hudChrome.visible = !opening;
-    this._waveText.visible = !opening;
-    this._stageName.visible = !opening;
-    this._waveBeat.visible = !opening;
-    this._scrapText.visible = !opening;
-    this._expCaption.visible = !opening;
-    if (this._scrapIcon) this._scrapIcon.visible = !opening;
-    const camp = getStage(s.stageId);
-    const local = stageLocalWave(camp, s.wave);
-    const beats = stageBeats(camp);
-    this._waveText.text = camp.label || camp.name || '校准';
-    this._stageName.text = camp.label ? camp.name : '';
-    const identity = runIdentity(s.team);
-    this._waveBeat.text = identity.kind === 'none'
-      ? `第${local}/${beats}波`
-      : `第${local}/${beats}波 · ${identity.title}`;
-    this._scrapText.text = `${s.scrap}`;
-
-    if (s.phase === 'won' || s.phase === 'lost') {
-      this._hintText.text = '';
-      if (this._selected) this._clearSelect();
-    } else if (s.phase === 'fighting' && s.jamMs > JAM_MS * 0.35) {
-      this._hintText.text = '拥堵';
-      this._hintText.tint = 0xff6b4a;
-    } else {
-      this._hintText.text = waveAsk(s.wave);
-      this._hintText.tint = GOLD;
-    }
-    this._hintText.visible = !opening && !!this._hintText.text;
-    this._placeHudTexts();
-
-    for (const hit of this._heroHits) {
-      hit.visible = this._showTeam();
-    }
-
-    this._hudPlate.clear();
-    this._expBar.clear();
-    this._expText.visible = false;
-    if (!opening) {
-      const { plateBottom } = this._hudGeom();
-      this._drawPush(plateBottom - 14);
-      this._drawExp();
-      if (
-        this._hintText.visible
-        && this._hintText.x + this._hintText.width > this._expCaption.x - 10
-      ) {
-        this._waveBeat.text = `第${local}/${beats}波`;
-        this._placeHudTexts();
-      }
-      if (
-        this._hintText.visible
-        && this._hintText.text !== '拥堵'
-        && this._hintText.x + this._hintText.width > this._expCaption.x - 10
-      ) {
-        this._hintText.text = getWave(s.wave).hint;
-        this._placeHudTexts();
-      }
-      if (this._hintText.text) {
-        const x = this._hintText.x - 8;
-        const y = this._hintText.y - 13;
-        const w = this._hintText.width + 16;
-        const g = this._hudPlate;
-        const warn = this._hintText.text === '拥堵';
-        g.beginFill(0x000000, 0.4).drawRoundedRect(x, y, w, 26, 8).endFill();
-        g.lineStyle(1.2, warn ? 0xff6b4a : GOLD, 0.55).drawRoundedRect(x, y, w, 26, 8).lineStyle(0);
-      }
-    }
-    this._showInstall();
-    this._showInspect();
-    if (this._selected) this._guide.visible = false;
-    this._dock.refresh(s, this._highlightId());
-    this._syncGmSkip();
-  }
-
-  /**
-   * 整局推进条。
-   *
-   * 战场不再一波一波断开，所以得有个东西告诉玩家「这条路走到哪了」。
-   * 它走满就是打完 —— 中间不会归零，这正是和从前波次号的区别。
-   */
-  private _drawPush(y: number): void {
-    const beat = stageBeatMs(getStage(this._state.stageId), STAGE_MS);
-    const span = Math.max(1, this._state.streamEndMs || this._state.lastWave * beat);
-    const p = Math.max(0, Math.min(1, this._state.totalMs / span));
-    const g = this._hudPlate;
-    const x = 18;
-    const w = 714;
-    const h = 5;
-    g.beginFill(0x1a1008, 0.7).drawRoundedRect(x, y, w, h, 2).endFill();
-    if (p > 0) {
-      const fillW = Math.max(4, w * p);
-      g.beginFill(GOLD, 0.95).drawRoundedRect(x, y, fillW, h, 2).endFill();
-      const mx = x + fillW;
-      const mid = y + h / 2;
-      g.beginFill(GOLD, 1).drawPolygon([mx, mid - 7, mx + 7, mid, mx, mid + 7, mx - 7, mid]).endFill();
-    }
-  }
-
-  /**
-   * 「还差多久捡下一件破烂」。
-   *
-   * 这条是杀敌唯一的即时回报：怪掉的经验在这里攒，攒满就当场发牌。
-   * 波次号只说明打到哪了，这条才说明再撑一会儿能得到什么。
-   */
-  private _drawExp(): void {
-    const s = this._state;
-    const need = pickNeed(s.level, s.growth.expPct);
-    this._expText.text = '';
-    this._expCaption.text = need === undefined ? '焊满了' : '下一件';
-    this._expCaption.visible = true;
-    this._placeHudTexts();
-    const { row2 } = this._hudGeom();
-    const x = this._expCaption.x + this._expCaption.width + 8;
-    const y = row2 - 5;
-    const barRight = 726;
-    const barW = Math.max(96, barRight - x);
-    if (need === undefined) {
-      expBar(this._expBar, x, y, barW, 1, true);
-      return;
-    }
-    const from = pickFrom(s.level, s.growth.expPct);
-    const span = Math.max(1, need - from);
-    expBar(this._expBar, x, y, barW, (s.exp - from) / span, false);
-  }
-
-  /** 装配阶段顶部横幅：这件破烂是什么、装上之后会变成什么 */
-  private _showInstall(): void {
-    const s = this._state;
-    const on = s.phase === 'installing' && !!s.pendingMod;
-    this._installPlate.visible = on;
-    this._installTitle.visible = on;
-    this._installDesc.visible = on;
-    this._installPlate.clear();
-    if (!on || !s.pendingMod) return;
-    const { top } = this._lay;
-    plate(this._installPlate, 40, top + HUD_PLATE_H + 8, 670, 80, 16, 0.9);
-    this._installTitle.text = s.pendingMod.name;
-    this._installDesc.text = '点下面的人';
-  }
-
-  private _showInspect(): void {
-    const hero = this._selected
-      ? this._state.team.find((h) => h.def.id === this._selected)
-      : undefined;
-    const on = !!hero && this._state.phase !== 'installing';
-    this._inspectPlate.visible = on;
-    this._inspectTitle.visible = on;
-    this._inspectDesc.visible = on;
-    this._inspectPlate.clear();
-    if (!hero || !on) return;
-    const { top } = this._lay;
-    plate(this._inspectPlate, 40, top + HUD_PLATE_H + 8, 670, 84, 16, 0.88);
-    this._inspectTitle.text = `${hero.def.name} · ${SLOT_NAME[hero.slot]}`;
-    this._inspectDesc.text = '再点前排 / 左后 / 右后换过去';
-  }
-
-  // ── 战场 ──────────────────────────────────────────────
-
-  private _drawField(): void {
-    const g = this._field;
-    g.clear();
-    const { fieldTop, fieldBottom } = this._lay;
-
-    const bg = bgTex();
-    if (bg && bg.baseTexture.valid && bg.width > 1) {
-      fillCover(g, bg, 0, 0, 750, this._lay.height);
-    } else {
-      g.beginFill(0x141726).drawRect(0, fieldTop - 20, 750, fieldBottom - fieldTop + 40).endFill();
-    }
-
-    // 顶底轻压，字不糊进画里
-    g.beginFill(0x2a160c, 0.12).drawRect(0, 0, 750, this._lay.top).endFill();
-    g.beginFill(0x2a160c, 0.18).drawRect(0, fieldBottom - 8, 750, this._lay.height - fieldBottom + 8).endFill();
-
-    // 有人倒下时全屏红闪一下。警报挂在倒人身上，不挂底线 —— 底线已经没有了
-    if (this._fx.downPulse > 0) {
-      g.beginFill(0x8c2b3a, this._fx.downPulse * 0.5).drawRect(0, 0, 750, this._lay.height).endFill();
-    }
-
-    this._drawQueuePads(g);
-
-    if (this._fx.landPulse > 0) {
-      g.beginFill(GOLD, this._fx.landPulse * 1.1).drawEllipse(SQUAD_X, this._slotY(0) + 8, 90, 22).endFill();
-    }
-
-    this._drawSelectedRange(g);
-
-    // 先画后排再画前排，前面的人压在后面的人身上
-    for (const h of [...teamInOrder(this._state)].reverse()) this._drawHero(g, h);
-    for (const p of this._state.pets) this._drawPet(g, p);
-    for (const e of this._state.enemies) this._drawEnemy(g, e);
-    this._drawHeldEnemyBars(g);
-    this._drawHeroNames();
-  }
-
-  private _clearActors(): void {
-    for (const a of this._heroActors.values()) a.destroy();
-    for (const a of this._enemyActors.values()) a.destroy();
-    this._heroActors.clear();
-    this._enemyActors.clear();
-    this._unitLayer.removeChildren();
-  }
-
-  private _syncActors(): void {
-    const liveH = new Set<string>();
-    if (this._showTeam()) {
-      for (const h of this._state.team) {
-        liveH.add(h.def.id);
-        let a = this._heroActors.get(h.def.id);
-        if (!a) {
-          a = new UnitActor();
-          a.bindHero(h.def.id, h.mods.map((m) => m.id));
-          this._heroActors.set(h.def.id, a);
-          this._unitLayer.addChild(a.view);
-        }
-        a.equip(h.mods.map((m) => m.id));
-        a.place(this._slotX(h.slot), this._slotY(h.slot), heroH(h));
-        a.setDead(!h.alive);
-        const picked = this._highlightId() === h.def.id;
-        a.holdPulse = picked;
-        a.view.alpha = this._highlightId() && !picked && h.alive ? 0.58 : 1;
-        a.view.zIndex = 20 - h.slot;
-      }
-    }
-    for (const [id, a] of [...this._heroActors]) {
-      if (liveH.has(id)) continue;
-      a.destroy();
-      this._heroActors.delete(id);
-    }
-
-    const liveE = new Set<number>();
-    for (const e of this._state.enemies) {
-      liveE.add(e.id);
-      let a = this._enemyActors.get(e.id);
-      if (!a) {
-        a = new UnitActor();
-        a.bindEnemy(e.proto.id);
-        this._enemyActors.set(e.id, a);
-        this._unitLayer.addChild(a.view);
-      }
-      a.place(alienLaneX(e.id), this._posToY(this._visualDist(e)), enemyH(e));
-      a.walkBob = this._state.phase === 'fighting';
-      a.view.zIndex = Math.round(e.dist * 10);
-    }
-    for (const [id, a] of [...this._enemyActors]) {
-      if (liveE.has(id)) continue;
-      if (this._fx.holdingEnemy(id)) {
-        const pose = this._lastEnemyXY.get(id);
-        if (pose) a.place(pose.x, pose.feetY, pose.h);
-        a.walkBob = !a.dead;
-        continue;
-      }
-      a.destroy();
-      this._enemyActors.delete(id);
-    }
-    this._unitLayer.sortableChildren = true;
-  }
-
-  private _tickActors(dt: number): void {
-    this._syncActors();
-    this._aimActors();
-    for (const a of this._heroActors.values()) a.update(dt);
-    for (const a of this._enemyActors.values()) a.update(dt);
-  }
-
-  /** 待机看向最近威胁，出手方向才跟战场轴对上 */
-  private _aimActors(): void {
-    const foes = this._state.enemies;
-    for (const h of this._state.team) {
-      const actor = this._heroActors.get(h.def.id);
-      if (!actor || foes.length === 0) continue;
-      let best = foes[0];
-      let bestD = Infinity;
-      const hx = this._slotX(h.slot);
-      for (const e of foes) {
-        const d = Math.abs(alienLaneX(e.id) - hx) + e.dist * 8;
-        if (d < bestD) {
-          bestD = d;
-          best = e;
-        }
-      }
-      actor.faceToward(alienLaneX(best.id));
-    }
-    for (const e of foes) {
-      const actor = this._enemyActors.get(e.id);
-      if (!actor) continue;
-      const live = this._state.team.filter((h) => h.alive);
-      if (live.length === 0) continue;
-      let best = live[0];
-      let bestD = Infinity;
-      const ex = alienLaneX(e.id);
-      for (const h of live) {
-        const d = Math.abs(this._slotX(h.slot) - ex);
-        if (d < bestD) {
-          bestD = d;
-          best = h;
-        }
-      }
-      actor.faceToward(this._slotX(best.slot));
-    }
-  }
-
-  private _drawQueuePads(g: PIXI.Graphics): void {
-    const show = this._showTeam();
-    for (let slot = 0; slot < TEAM_SIZE; slot += 1) {
-      const name = `pad:${slot}`;
-      let tag = this._nameLayer.children.find((c) => c.name === name) as PIXI.Text | undefined;
-      if (!tag) {
-        tag = label(14, GOLD, true);
-        tag.name = name;
-        tag.anchor.set(0.5, 0);
-        tag.style.stroke = 0x2a160c;
-        tag.style.strokeThickness = 3;
-        this._nameLayer.addChild(tag);
-      }
-      tag.visible = show;
-      if (!show) continue;
-
-      const x = this._slotX(slot);
-      const y = this._slotY(slot);
-      const occ = heroAt(this._state, slot);
-      const selected = this._selected
-        ? this._state.team.find((h) => h.def.id === this._selected)
-        : undefined;
-      const installing = this._state.phase === 'installing';
-      const pickingAssign = this._state.phase === 'picking' && !isRosterPicking(this._state);
-      const canTake = !!occ && (installing || pickingAssign) && canInstallOn(occ);
-      const moving = !!selected && this._canReorder() && selected.slot !== slot;
-      const mark = !occ || canTake || moving;
-      if (mark) {
-        queuePad(g, x, y, {
-          empty: !occ,
-          hot: canTake || moving,
-          front: false,
-        });
-      }
-      tag.visible = show && mark;
-      tag.text = SLOT_NAME[slot];
-      const tagAt = slotTagPos(slot, x, y);
-      tag.position.set(tagAt.x, tagAt.y);
-    }
-  }
-
-  private _drawSelectedRange(g: PIXI.Graphics): void {
-    const hero = this._selected
-      ? this._state.team.find((h) => h.def.id === this._selected)
-      : undefined;
-    if (!hero) {
-      this._rangeHint.visible = false;
-      return;
-    }
-    const x = this._slotX(hero.slot);
-    const feet = this._slotY(hero.slot);
-    const reachY = this._posToY(heroReach(hero));
-    const melee = hero.stats.range <= 1;
-    rangeArea(g, x, feet, reachY, villagerColor(hero.def.id), melee);
-    this._rangeHint.text = melee ? '只能贴脸打' : `打得到 ${hero.stats.range} 格外`;
-    const forward = Math.abs(feet - reachY);
-    this._rangeHint.position.set(x, melee ? feet - Math.max(52, forward * 0.9) - 20 : reachY);
-    this._rangeHint.visible = true;
-  }
-
-  private _drawHeroNames(): void {
-    const live = new Set<string>();
-    for (const h of teamInOrder(this._state)) {
-      live.add(h.def.id);
-      live.add(`${h.def.id}:tag`);
-      let name = this._nameLayer.children.find((c) => c.name === h.def.id) as PIXI.Text | undefined;
-      if (!name) {
-        name = label(16, 0xffffff, true);
-        name.name = h.def.id;
-        name.anchor.set(0.5, 1);
-        name.style.stroke = 0x0b0f18;
-        name.style.strokeThickness = 4;
-        this._nameLayer.addChild(name);
-      }
-      let tag = this._nameLayer.children.find((c) => c.name === `${h.def.id}:tag`) as PIXI.Text | undefined;
-      if (!tag) {
-        tag = label(13, GOLD, true);
-        tag.name = `${h.def.id}:tag`;
-        tag.anchor.set(0.5, 1);
-        tag.style.stroke = 0x0b0f18;
-        tag.style.strokeThickness = 3;
-        this._nameLayer.addChild(tag);
-      }
-      const x = this._slotX(h.slot);
-      const top = this._slotY(h.slot) - heroH(h) - 2;
-      name.text = h.mods.length > 0 ? `${h.def.name} +${h.mods.length}` : h.def.name;
-      const picked = this._highlightId() === h.def.id;
-      name.tint = !h.alive ? 0x6b7394 : picked ? GOLD : 0xffffff;
-      name.scale.set(picked ? 1.12 : 1);
-      name.position.set(x, top - 16);
-      if (this._state.phase === 'installing' && this._state.pendingMod && canInstallOn(h)) {
-        const combo = comboIfAdd(h.mods.map((m) => m.id), this._state.pendingMod.id);
-        tag.text = combo ? combo.name : '焊给他';
-        tag.tint = combo ? 0xffd66b : GOLD;
-      } else {
-        const combo = comboOf(h.mods.map((m) => m.id));
-        tag.text = combo
-          ? combo.name
-          : h.mods.length > 0
-            ? (h.mods[h.mods.length - 1]?.name ?? abilityTag(h.def.skill))
-            : abilityTag(h.def.skill);
-        tag.tint = h.alive ? 0xffd66b : 0x6b7394;
-      }
-      tag.position.set(x, top);
-    }
-    for (const c of [...this._nameLayer.children]) {
-      if (!c.name || c.name.startsWith('pad:')) continue;
-      if (!live.has(c.name)) c.destroy();
-    }
-  }
-
-  private _drawHero(g: PIXI.Graphics, h: HeroUnit): void {
-    const x = this._slotX(h.slot);
-    const feet = this._slotY(h.slot);
-    const size = heroH(h);
-
-    if (!h.alive) {
-      g.beginFill(0x000000, 0.4).drawEllipse(x, feet + 8, 34, 10).endFill();
-      // 躺着的人会自己爬起来，得让人看见还差多久。不画这条，玩家会以为
-      // 这人废了，跟着做出「反正没救了」的错判 —— 而实际上等他起来就行
-      const back = 1 - Math.max(0, Math.min(1, h.downMs / DOWN_RECOVER_MS));
-      hpBar(g, x, feet + 6, 52, back, GOLD);
-      return;
-    }
-
-    const assignable = (this._state.phase === 'installing' && !!this._state.pendingMod)
-      || (this._state.phase === 'picking' && !isRosterPicking(this._state));
-    if (assignable && canInstallOn(h)) {
-      g.lineStyle(3, GOLD, 0.9).drawEllipse(x, feet + 8, 52, 16).lineStyle(0);
-    }
-
-    // 越挨越猛：层数直接画成小竖条，玩家才知道高压锅在起作用
-    if (h.stats.ragePerHit > 0 && h.rageStacks > 0) {
-      for (let i = 0; i < h.rageStacks; i += 1) {
-        g.beginFill(0xff7a3a, 0.95);
-        g.drawRect(x - 34 - 0, feet - 18 - i * 6, 8, 4);
-        g.endFill();
-      }
-    }
-
-    const visH = this._vitals.shown(`h:${h.def.id}`, { hp: h.hp, extra: h.shield });
-    hpBar(g, x, feet + 6, 52, visH.hp / Math.max(1, h.maxHp), 0x4ade80);
-    if (visH.extra > 0) {
-      shieldMark(g, x - 36, feet + 17);
-      hpBar(g, x, feet + 14, 52, Math.min(1, visH.extra / Math.max(1, h.maxHp)), 0x7dd3fc);
-    }
-  }
-
-  private _drawEnemy(g: PIXI.Graphics, e: EnemyUnit): void {
-    const size = enemyH(e);
-    const x = alienLaneX(e.id);
-    const feet = this._posToY(this._visualDist(e));
-    const flashing = this._hitFlash.has(e.id);
-    if (flashing) g.beginFill(0xffffff, 0.2).drawEllipse(x, feet - size * 0.2, size * 0.35, 12).endFill();
-    if (e.slowMs > 0) {
-      g.lineStyle(2.2, 0x86efac, 0.75);
-      g.drawEllipse(x, feet - size * 0.4, size * 0.42, size * 0.28);
-      g.lineStyle(0);
-      g.beginFill(0x4ade80, 0.55);
-      g.drawCircle(x + size * 0.38, feet - size * 0.72, 5);
-      g.endFill();
-    }
-
-    // 壳。不画出来的话，玩家只会觉得这怪莫名其妙打不动
-    if (e.shell > 0) {
-      g.lineStyle(2.6, 0xcbd5e1, 0.9);
-      g.drawRoundedRect(x - size * 0.44, feet - size * 0.92, size * 0.88, size * 0.86, 6);
-      g.lineStyle(0);
-    }
-
-    // 扑上来的那一段给几道速度线，让「突然加速」看得见
-    const rush = e.proto.rush;
-    if (rush && e.dist <= rush.withinDist) {
-      g.lineStyle(2, 0xfca5a5, 0.55);
-      for (let i = 0; i < 3; i += 1) {
-        const lx = x - size * 0.3 + i * size * 0.3;
-        g.moveTo(lx, feet - size * 1.15);
-        g.lineTo(lx, feet - size * 0.95);
-      }
-      g.lineStyle(0);
-    }
-
-    const barW = Math.max(48, size * 0.7);
-    const visE = this._vitals.shown(`e:${e.id}`, { hp: e.hp, extra: e.shell });
-    hpBar(g, x, feet + 14, barW, visE.hp / Math.max(1, e.maxHp), 0xff6b6b);
-    if (visE.extra > 0 && e.proto.shell) {
-      hpBar(g, x, feet + 6, barW, visE.extra / Math.max(1, e.proto.shell.hp), 0xcbd5e1);
-    }
-  }
-
-  /** 弹还在路上的死人：引擎已经摘走了，条得跟画面血走，不能空着一个模型 */
-  private _drawHeldEnemyBars(g: PIXI.Graphics): void {
-    for (const [id, pose] of this._lastEnemyXY) {
-      if (this._state.enemies.some((e) => e.id === id)) continue;
-      if (!this._fx.holdingEnemy(id)) continue;
-      const vis = this._vitals.shown(`e:${id}`, { hp: 0, extra: 0 });
-      if (vis.hp <= 0 && vis.extra <= 0) continue;
-      const barW = Math.max(48, pose.h * 0.7);
-      hpBar(g, pose.x, pose.feetY + 14, barW, vis.hp / Math.max(1, pose.maxHp), 0xff6b6b);
-      if (vis.extra > 0 && pose.shellMax > 0) {
-        hpBar(g, pose.x, pose.feetY + 6, barW, vis.extra / pose.shellMax, 0xcbd5e1);
-      }
-    }
-  }
-
-  /**
-   * 小东西。用 Graphics 直接画，不走 UnitActor：
-   * 它们没有名字、不能点、不该有村民那套挑人高亮，共用一套演出反而会
-   * 让玩家以为能点它们。三种剪影必须一眼分得开 —— 狗横着、鸡圆的、乡亲站着。
-   */
-  private _drawPet(g: PIXI.Graphics, p: PetUnit): void {
-    const size = petH(p);
-    const x = petLaneX(p.id);
-    const feet = this._posToY(this._visualPetDist(p));
-    const tint = PET_TINT[p.proto.id] ?? 0xb98a4e;
-
-    g.beginFill(0x2a160c, 0.18);
-    g.drawEllipse(x, feet + 2, size * 0.34, size * 0.12);
-    g.endFill();
-
-    g.beginFill(tint);
-    if (p.proto.id === 'dog') {
-      // 横着的身子加一条翘尾巴：跑在最前面那个一定是狗
-      g.drawRoundedRect(x - size * 0.42, feet - size * 0.62, size * 0.84, size * 0.44, 7);
-      g.drawCircle(x + size * 0.42, feet - size * 0.72, size * 0.2);
-      g.endFill();
-      g.beginFill(tint);
-      g.drawPolygon([
-        x + size * 0.34, feet - size * 0.86,
-        x + size * 0.5, feet - size * 1.02,
-        x + size * 0.5, feet - size * 0.8,
-      ]);
-      g.endFill();
-      g.lineStyle(3, tint, 1);
-      g.moveTo(x - size * 0.42, feet - size * 0.56);
-      g.lineTo(x - size * 0.66, feet - size * 0.82);
-      g.lineStyle(0);
-    } else if (p.proto.id === 'chicken') {
-      g.drawEllipse(x, feet - size * 0.4, size * 0.36, size * 0.32);
-      g.drawCircle(x + size * 0.24, feet - size * 0.72, size * 0.2);
-      g.endFill();
-      g.beginFill(0xef4444);
-      g.drawCircle(x + size * 0.28, feet - size * 0.9, size * 0.08);
-      g.endFill();
-      g.beginFill(0xf59e0b);
-      g.drawPolygon([
-        x + size * 0.42, feet - size * 0.74,
-        x + size * 0.6, feet - size * 0.68,
-        x + size * 0.42, feet - size * 0.62,
-      ]);
-      g.endFill();
-    } else {
-      g.drawRoundedRect(x - size * 0.22, feet - size * 0.66, size * 0.44, size * 0.66, 6);
-      g.drawCircle(x, feet - size * 0.8, size * 0.2);
-      g.endFill();
-      // 手里那根棍子，说明他是来帮着打的
-      g.lineStyle(3.4, 0x8b5a2b, 1);
-      g.moveTo(x + size * 0.26, feet - size * 0.16);
-      g.lineTo(x + size * 0.34, feet - size * 0.92);
-      g.lineStyle(0);
-    }
-
-    hpBar(g, x, feet + 12, Math.max(30, size * 0.8), p.hp / Math.max(1, p.maxHp), 0xfbbf24);
-  }
-
-  /** 跟外星人一样在两帧之间插值，不然小东西会一格一格地跳 */
-  private _visualPetDist(p: PetUnit): number {
-    const prev = this._prevPetDist.get(p.id);
-    if (prev === undefined) return p.dist;
-    const u = Math.max(0, Math.min(1, this._accMs / TICK_MS));
-    return prev + (p.dist - prev) * u;
-  }
-
-  // ── 三选一 ────────────────────────────────────────────
-
-  private _refreshPickArt(): void {
-    if (this._pickArtTimer) clearTimeout(this._pickArtTimer);
-    this._pickArtTimer = setTimeout(() => {
-      this._pickArtTimer = 0;
-      if (this._state.phase === 'picking') this._renderPickCards();
-    }, 220);
-  }
-
-  /** 局内三选一落在顶栏和底坞中间，别贴着顶栏。开局叫人仍靠上。 */
-  private _modPickTitleY(): number {
-    const hudBottom = this._lay.top + HUD_PLATE_H;
-    const dockTop = this._lay.fieldBottom;
-    const cardTop = (hudBottom + dockTop) / 2 - PICK_CARD_H / 2;
-    const titleY = cardTop - 84;
-    const minY = hudBottom + 16;
-    const maxY = dockTop - 84 - PICK_CARD_H - 68;
-    return Math.max(minY, Math.min(titleY, maxY));
-  }
-
-  private _renderPickCards(): void {
-    this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-
-    const s = this._state;
-    if (s.phase !== 'picking' || s.pendingOptions.length === 0) return;
-
-    const roster = isRosterPicking(s);
-    this._pick.eventMode = roster ? 'static' : 'none';
-    if (!roster) {
-      // key 带上 level：同一波现在可能连升两级发两次牌
-      const key = `${s.level}:${s.wave}:${s.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : o.heroId)).join(',')}`;
-      if (this._pickShownKey !== key) {
-        this._pickShownKey = key;
-        this._installTarget = null;
-        track('pick_show', {
-          wave: s.wave,
-          level: s.level,
-          // 场上还有怪就说明这张牌是打到一半发的，日后要看这类打断能不能接受
-          mid_fight: s.enemies.length > 0,
-          options: s.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : o.heroId)),
-          kinds: s.pendingOptions.map((o) => (o.kind === 'mod' ? getMod(o.modId).kind : 'recruit')),
-        });
-      }
-    }
-
-    if (roster) {
-      const dim = new PIXI.Graphics();
-      dim.beginFill(0x2a160c, 0.38).drawRect(0, 0, 750, this._lay.height).endFill();
-      this._pick.addChild(dim);
-    }
-
-    const titleY = roster ? this._lay.fieldTop + 8 : this._modPickTitleY();
-
-    const title = label(roster ? 32 : 30, 0xfff4c4, true);
-    title.style.stroke = '#2a160c';
-    title.style.strokeThickness = 6;
-    title.anchor.set(0.5);
-    title.position.set(375, titleY);
-    // 牌是攒够经验当场发的，可能发在一波打到一半时，
-    // 所以标题说的是「为什么现在发牌」，而不是「下一波是什么」
-    title.text = roster ? '叫三个人来' : '攒够了，挑一件';
-    title.eventMode = 'none';
-    this._pick.addChild(title);
-
-    const names = s.team.map((h) => h.def.name);
-    const left = TEAM_SIZE - s.team.length;
-    const sub = label(roster ? 22 : 24, 0xfff1a8, true);
-    sub.style.stroke = '#2a160c';
-    sub.style.strokeThickness = 4;
-    sub.anchor.set(0.5);
-    sub.position.set(375, titleY + (roster ? 38 : 44));
-    sub.text = roster
-      ? names.length === 0
-        ? '点满三个先焊一件，点错再点一下取消'
-        : `已叫${names.join('、')} · 还差 ${left} 个`
-      : this._installTarget
-        ? `焊给${s.team.find((h) => h.def.id === this._installTarget)?.def.name ?? '他'} · 再点一件`
-        : '点人再点牌，或先点牌再点人';
-    sub.eventMode = 'none';
-    this._pick.addChild(sub);
-
-    if (roster) {
-      const cardW = ROSTER_CARD_W;
-      const cardH = ROSTER_CARD_H;
-      const gapX = 12;
-      const gapY = 10;
-      const cols = 3;
-      const totalW = cols * cardW + (cols - 1) * gapX;
-      const startX = (750 - totalW) / 2;
-      const startY = titleY + 68;
-      s.pendingOptions.forEach((opt, i) => {
-        const picked = opt.kind === 'recruit'
-          ? s.team.findIndex((h) => h.def.id === opt.heroId)
-          : -1;
-        const card = buildPickCard(opt, cardW, cardH, s.team, picked >= 0 ? picked : undefined, s.modStars);
-        card.name = `pick-card-${i}`;
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        card.position.set(startX + col * (cardW + gapX), startY + row * (cardH + gapY));
-        this._pick.addChild(card);
-        bindPointerTap(card, () => this._choose(opt));
-      });
-      this._renderSideOffers();
-      return;
-    }
-
-    const cardW = PICK_CARD_W;
-    const cardH = PICK_CARD_H;
-    const gap = 12;
-    const totalW = s.pendingOptions.length * cardW + (s.pendingOptions.length - 1) * gap;
-    const startX = (750 - totalW) / 2;
-
-    s.pendingOptions.forEach((opt, i) => {
-      const card = buildPickCard(opt, cardW, cardH, s.team, undefined, s.modStars);
-      card.name = `pick-card-${i}`;
-      card.position.set(startX + i * (cardW + gap), titleY + 84);
-      this._pick.addChild(card);
-      bindPointerTap(card, () => this._choose(opt));
-    });
-
-    const reroll = new PIXI.Container();
-    reroll.eventMode = 'static';
-    reroll.name = 'reroll-btn';
-    const rbg = new PIXI.Graphics();
-    goldBtn(rbg, -150, -28, 300, 56);
-    if (s.freeRerollsLeft <= 0 && s.scrap < REROLL_COST) rbg.alpha = 0.45;
-    const rl = label(20, GOLD, true);
-    rl.anchor.set(0.5);
-    rl.text = s.freeRerollsLeft > 0
-      ? `白翻一次 · 还剩 ${s.freeRerollsLeft}`
-      : `花 ${REROLL_COST} 废品换一批`;
-    reroll.addChild(rbg, rl);
-    reroll.position.set(375, titleY + 84 + cardH + 40);
-    this._pick.addChild(reroll);
-    bindPointerTap(reroll, () => this._reroll());
-  }
-
-  private _choose(opt: PickOption): void {
-    const roster = isRosterPicking(this._state);
-    if (opt.kind === 'mod') {
-      track('pick_choose', {
-        wave: this._state.wave,
-        mod_id: opt.modId,
-        kind: getMod(opt.modId).kind,
-        options: this._state.pendingOptions.map((o) => (o.kind === 'mod' ? o.modId : '')),
-      });
-    }
-    applyPick(this._state, opt);
-    this._accMs = 0;
-    this._pickIdle = 0;
-    if (isRosterPicking(this._state)) {
-      this._renderPickCards();
-      return;
-    }
-    if (this._state.phase === 'installing') {
-      this._guide.visible = false;
-      this._guideLife = 0;
-      if (this._installTarget && this._weldOn(this._installTarget)) {
-        if (roster) this._lockOpening(true);
-        return;
-      }
-      this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-      this._pick.eventMode = 'none';
-      if (roster) this._lockOpening();
-      else this._say(`${this._state.pendingMod?.name ?? '这件'}，点下面一个人焊上`);
-      return;
-    }
-    this._pick.removeChildren().forEach((c) => c.destroy({ children: true }));
-    if (roster && this._state.team.length >= TEAM_SIZE) {
-      this._lockOpening();
-    }
-  }
-
-  private _lockOpening(silent = false): void {
-    if (!this._runStarted) {
-      this._runStarted = true;
-      adMarkRunStart();
-      track('run_start', {
-        seed: this._state.seed,
-        stage_id: this._state.stageId,
-        ladder_lv: this._state.ladderLv,
-        opening_heroes: this._state.team.map((h) => h.def.id),
-      });
-      this._fx.markLand(SQUAD_X, this._slotY(0));
-    }
-    if (silent) return;
-    if (this._state.phase === 'installing' && this._state.pendingMod) {
-      this._say(`白送的${this._state.pendingMod.name}，点下面一个人`);
-    } else if (this._state.phase === 'picking') {
-      this._say('先焊一件再打第一波');
-    }
-  }
-
-  private _pulseRosterCards(): void {
-    this._cardPulsed = true;
-    for (const child of this._pick.children) {
-      if (!child.name?.startsWith('pick-card-')) continue;
-      const card = child as PIXI.Container;
-      if (card.children.some((c) => c.name === 'idle-pulse')) continue;
-      const glow = new PIXI.Graphics();
-      glow.name = 'idle-pulse';
-      glow.lineStyle(3, GOLD, 0.55).drawRoundedRect(4, 4, ROSTER_CARD_W - 8, ROSTER_CARD_H - 8, 16);
-      card.addChild(glow);
-    }
-  }
-
-  private _offerChip(title: string, x: number, y: number, onTap: () => void): PIXI.Container {
-    const chip = new PIXI.Container();
-    chip.eventMode = 'static';
-    const bg = new PIXI.Graphics();
-    goldBtn(bg, -148, -22, 296, 44);
-    const t = label(16, GOLD, true);
-    t.anchor.set(0.5);
-    t.text = title;
-    chip.addChild(bg, t);
-    chip.position.set(x, y);
-    bindPointerTap(chip, onTap);
-    return chip;
-  }
-
-  private _renderSideOffers(): void {
-    if (!isRosterPicking(this._state)) return;
-    const y = this._lay.height - 36 - 8;
-    const gifts = this._state.openingGifts;
-    if (gifts.length > 0) {
-      const note = label(16, GOLD, true);
-      note.anchor.set(0.5);
-      note.position.set(375, y - 88);
-      note.text = `开局带着：${gifts.map((m) => shortModName(m.name)).join('、')}`;
-      this._pick.addChild(note);
-    }
-    // 带一件出村不占广告位：带着也照样能看一段再多带一件
-    if (adCanShow('dailyGift') && adIsFirstRunToday() && gifts.length < 2) {
-      this._pick.addChild(this._offerChip('看一段，开局多带一件', 375, y - 48, () => {
-        void this._claimDailyGift();
-      }));
-    }
-    if (this._state.pinnedMods[0]) {
-      const note = label(16, 0xfff4c4, true);
-      note.anchor.set(0.5);
-      note.position.set(375, y);
-      note.text = `废品站：${this._state.pinnedMods[0].name}，下一手必出`;
-      this._pick.addChild(note);
-    } else if (adCanShow('junkyard')) {
-      this._pick.addChild(this._offerChip('翻废品站，看一件池外破烂', 375, y, () => {
-        void this._claimJunkyard();
-      }));
-    }
-  }
-
-  private async _claimDailyGift(): Promise<void> {
-    if (this._offerBusy || !adCanShow('dailyGift') || !adIsFirstRunToday()) return;
-    this._offerBusy = true;
-    const ok = await this._watchAd('dailyGift');
-    if (ok) {
-      adRecord('dailyGift');
-      const mod = claimOpeningGift(this._state);
-      if (mod) this._say(`开局多带${mod.name}，点满三人再装`);
-      this._renderPickCards();
-    }
-    this._offerBusy = false;
-  }
-
-  private async _claimJunkyard(): Promise<void> {
-    if (this._offerBusy || !adCanShow('junkyard')) return;
-    this._offerBusy = true;
-    const ok = await this._watchAd('junkyard');
-    if (ok) {
-      adRecord('junkyard');
-      const mod = claimJunkyard(this._state);
-      if (mod) this._say(`翻到${mod.name}：${mod.becomes}。下一手必出`);
-      this._renderPickCards();
-    }
-    this._offerBusy = false;
-  }
-}
-
-function loseNextMove(state: RunState): string {
-  if (state.stats.installs === 0) return '下次先捡破烂装身上，空着手打不过';
-  if (state.stats.queueMoves === 0) return '下次把改猛的挪到前排，站位也是构筑';
-  return '下次换个人装试试，别只靠重开碰运气';
 }

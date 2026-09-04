@@ -8,7 +8,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "sim": "tsx tools/sim.ts",
-    "sim2": "tsx tools/sim2.ts",
     "bundle": "vite build",
     "build:wechat": "CODE1_PLATFORM=wechat vite build",
     "build:douyin": "CODE1_PLATFORM=douyin vite build",

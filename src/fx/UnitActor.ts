@@ -3,7 +3,7 @@
  */
 import * as PIXI from 'pixi.js';
 import type { AttackFx } from '@/balance/fx';
-import { HAND, HAND_GEAR, resolveHandGear, wornModIds, type HandGear } from '@/balance/gear';
+import { HAND, HAND_GEAR, resolveHandGear, wearOf, type HandGear } from '@/balance/gear';
 import { enemyTex, heroTex, tex } from '@/core/TextureLoader';
 import { clipBody } from '@/fx/spriteBody';
 
@@ -94,6 +94,8 @@ export class UnitActor {
   private readonly _weapon = new PIXI.Sprite();
   private readonly _wear: PIXI.Sprite[] = [];
   private _id = '';
+  /** 门路。穿戴的兜底表按它取，见 gear.wearOf */
+  private _lane = 'stand';
   private _kind: 'hero' | 'enemy' = 'hero';
   private _idle: PIXI.Texture[] = [];
   private _walk: PIXI.Texture[] = [];
@@ -140,13 +142,14 @@ export class UnitActor {
     }
   }
 
-  bindHero(id: string, modIds: readonly string[] = []): void {
+  bindHero(id: string, lane: string, evoStage = 1): void {
     this._id = id;
+    this._lane = lane;
     this._kind = 'hero';
     this.walkBob = false;
     this._modKey = '';
     this._reload();
-    this.equip(modIds);
+    this.equip(evoStage);
   }
 
   bindEnemy(id: string): void {
@@ -159,12 +162,16 @@ export class UnitActor {
     this._reload();
   }
 
-  /** 换手上的家伙、穿上的破烂。handId 给预览台强行指定，局内不用传 */
-  equip(modIds: readonly string[], handId?: string): void {
+  /**
+   * 换手上的家伙和身上的穿戴。两者都跟着进化阶走，见 gear.handIdOf / gear.wearOf。
+   *
+   * handId 给预览台强行指定，局内不用传。
+   */
+  equip(evoStage = 1, handId?: string): void {
     if (this._kind !== 'hero') return;
-    const key = `${modIds.join(',')}|${handId ?? ''}`;
+    const key = `${evoStage}|${handId ?? ''}`;
     const forced = handId ? HAND_GEAR[handId] : undefined;
-    const gear = forced ?? resolveHandGear(this._id, modIds);
+    const gear = forced ?? resolveHandGear(this._id, evoStage);
     if (!this._armed || key !== this._modKey || gear.id !== this._gear?.id) {
       this._modKey = key;
       this._gear = gear;
@@ -179,7 +186,7 @@ export class UnitActor {
         this._arm.visible = false;
       }
     }
-    this._bindWear(modIds);
+    this._bindWear(evoStage);
     if (this._atkT < 0) this._holdRest();
   }
 
@@ -326,12 +333,15 @@ export class UnitActor {
     this.view.destroy({ children: true });
   }
 
-  private _bindWear(modIds: readonly string[]): void {
-    const worn = [
-      ...wornModIds(modIds, 'head').map((id) => ({ id, slot: 'head' as const })),
-      ...wornModIds(modIds, 'back').map((id) => ({ id, slot: 'back' as const })),
-      ...wornModIds(modIds, 'body').map((id) => ({ id, slot: 'body' as const })),
-    ];
+  private _bindWear(evoStage: number): void {
+    const wear = wearOf(this._id, this._lane, evoStage);
+    const worn = ([
+      ['head', wear.head],
+      ['back', wear.back],
+      ['body', wear.body],
+    ] as const)
+      .filter((r): r is readonly ['head' | 'back' | 'body', string] => Boolean(r[1]))
+      .map(([slot, id]) => ({ id, slot }));
     for (let i = 0; i < this._wear.length; i += 1) {
       const item = worn[i];
       const spr = this._wear[i]!;

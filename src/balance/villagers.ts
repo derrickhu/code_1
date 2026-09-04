@@ -87,7 +87,7 @@ interface RoleBase {
 /**
  * 射程是按战场几何定的，别单独调。
  *
- * 四格在 pos 2/3/4/5，敌人被最前面的人挡在 pos 1.5（见 stages.SPAWN_GAP）。
+ * 四格在 pos 2/3/4/5，敌人被最前面的人挡在 pos 1.5（见 combat.SPAWN_GAP）。
  * 每个定位的射程恰好够它**该站的那一格**打到挡点：
  *
  *   挨 range 1 → 站 cell 0（pos 2），够到 1.0
