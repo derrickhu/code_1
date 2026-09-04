@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MODS, formatEffect, masteredMod, scaleAbility } from '@/balance/mods';
+import { ECHO_MODS, MODS, RUN_MODS, formatEffect, masteredMod, scaleAbility } from '@/balance/mods';
 
 describe('破烂升星', () => {
   it('水管两星射程多一格，定位不变', () => {
@@ -19,5 +19,14 @@ describe('破烂升星', () => {
     expect(maxed.kind).toBe('slowOnHit');
     if (maxed.kind !== 'slowOnHit' || foam.effect.kind !== 'slowOnHit') return;
     expect(maxed.slowPct).toBeGreaterThan(foam.effect.slowPct);
+  });
+});
+
+describe('本局池', () => {
+  it('回声件还在表里，但不进本局抽', () => {
+    expect(ECHO_MODS.has('slingshot')).toBe(true);
+    expect(MODS.some((m) => m.id === 'slingshot')).toBe(true);
+    expect(RUN_MODS.some((m) => m.id === 'slingshot')).toBe(false);
+    expect(RUN_MODS.length).toBe(MODS.length - ECHO_MODS.size);
   });
 });

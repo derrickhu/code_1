@@ -18,14 +18,18 @@ const KEY = 'cunkou_run_memory';
 
 import { LADDER_GATE_WAVE, LADDER_TOP } from '@/balance/ladder';
 import { LAST_STAGE_ID } from '@/balance/stages';
-import { PILE_CAP, PILE_PER_HOUR } from '@/balance/yard';
+import { MOD_STAR_COSTS, PILE_CAP, PILE_PER_HOUR, emptyGrowth } from '@/balance/yard';
+import { emptyLanes } from '@/balance/lanes';
 import {
-  buyModStar,
+  buyLaneLv,
   buyYardGrowth,
+  clearStarRefund,
   collectPile,
+  fillPile,
   gmUnlockToStage,
   loadMemory,
   saveRun,
+  setCarryMod,
   setLadderLv,
   setStageId,
   settlePile,
@@ -93,7 +97,7 @@ describe('难度阶梯存档', () => {
     expect(m.ladderLv).toBe(0);
     expect(m.ladderTop).toBe(0);
     expect(m.yardScrap).toBe(120);
-    expect(m.modStars).toEqual({});
+    expect(m.laneLv).toEqual({ reach: 0, heavy: 0, stand: 0, rage: 0, band: 0 });
     expect(m.seenCombos).toEqual([]);
     expect(m.stageTop).toBe(6);
     expect(m.stageId).toBe(1);
@@ -160,12 +164,50 @@ describe('废品站养成', () => {
     expect(m?.yardScrap).toBe(55);
   });
 
-  it('破烂升星写进存档，假 id 买不了', () => {
-    write({ yardScrap: 50 });
-    const m = buyModStar('pipe');
-    expect(m?.modStars.pipe).toBe(1);
-    expect(m?.yardScrap).toBe(30);
-    expect(buyModStar('nope')).toBeUndefined();
+  it('门路研发写进存档，钱不够买不了', () => {
+    write({ yardScrap: 50, stageTop: 2 });
+    const m = buyLaneLv('reach');
+    expect(m?.laneLv.reach).toBe(1);
+    expect(m?.yardScrap).toBe(15);
+    write({ yardScrap: 10, laneLv: emptyLanes() });
+    expect(buyLaneLv('reach')).toBeUndefined();
+  });
+
+  it('还没打到那一关的门路，钱够也买不动', () => {
+    write({ yardScrap: 9999, stageTop: 1, laneLv: emptyLanes() });
+    expect(buyLaneLv('reach')).toBeUndefined();
+    write({ yardScrap: 9999, stageTop: 2, laneLv: emptyLanes() });
+    expect(buyLaneLv('reach')?.laneLv.reach).toBe(1);
+    expect(buyLaneLv('band')).toBeUndefined();
+  });
+
+  it('单件升星撤了，老存档买过的星原价折回废品，只折一次', () => {
+    store.set(KEY, JSON.stringify({ yardScrap: 30, modStars: { pipe: 2, quilt: 1 } }));
+    const refund = MOD_STAR_COSTS[0]! * 2 + MOD_STAR_COSTS[1]!;
+    const first = loadMemory();
+    expect(first.starRefund).toBe(refund);
+    expect(first.yardScrap).toBe(30 + refund);
+    // 再读一次不许再退一笔
+    const second = loadMemory();
+    expect(second.yardScrap).toBe(30 + refund);
+    expect(clearStarRefund().starRefund).toBe(0);
+    expect(loadMemory().yardScrap).toBe(30 + refund);
+  });
+
+  it('带哪件出村：先买携带位才点得动，再点一次是取消', () => {
+    write({ growth: { ...emptyGrowth(), carry: 0 } });
+    expect(setCarryMod('quilt')).toBeUndefined();
+    write({ growth: { ...emptyGrowth(), carry: 1 } });
+    expect(setCarryMod('quilt')?.carryModId).toBe('quilt');
+    expect(setCarryMod('quilt')?.carryModId).toBe('');
+    expect(setCarryMod('不存在的破烂')).toBeUndefined();
+  });
+
+  it('看广告催满那堆废品，也不许越过上限', () => {
+    write({ pileScrap: 5, pileAtMs: 1000 });
+    expect(fillPile(2000).pileScrap).toBe(PILE_CAP);
+    expect(fillPile(3000).pileScrap).toBe(PILE_CAP);
+    expect(collectPile(4000).got).toBe(PILE_CAP);
   });
 });
 

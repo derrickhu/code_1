@@ -161,6 +161,8 @@ export interface WaveDef {
    * 只写类型（集群 / 装甲 / 突击），不写「先拿小灰试」这种教人的话。
    */
   hint: string;
+  /** 这一波出的题。玩家该听见要扫、要破壳、还是要拖住 */
+  ask: string;
 }
 
 function s(enemyId: string, count: number, intervalMs = 600, delayMs = 0): WaveSpawn {
@@ -177,20 +179,20 @@ function s(enemyId: string, count: number, intervalMs = 600, delayMs = 0): WaveS
  */
 export const WAVES: readonly WaveDef[] = [
   // 开局三人已齐，第 1 波仍只出小灰，让玩家看清「他们自己会打」
-  { wave: 1, spawns: [s('grey', 7)], pressure: '多', hint: '集群' },
-  { wave: 2, spawns: [s('grey', 9, 500)], pressure: '多', hint: '集群' },
-  { wave: 3, spawns: [s('cube', 6)], pressure: '硬', hint: '分裂' },
-  { wave: 4, spawns: [s('cube', 6), s('grey', 6, 400, 3000)], pressure: '多', hint: '混合' },
-  { wave: 5, spawns: [s('cube', 7), s('canister', 2, 700, 4000)], pressure: '硬', hint: '装甲' },
-  { wave: 6, spawns: [s('grey', 12, 320)], pressure: '多', hint: '集群' },
-  { wave: 7, spawns: [s('saucer', 1), s('cube', 6, 600, 2500)], pressure: '硬', hint: '飞碟' },
-  { wave: 8, spawns: [s('cube', 10, 450), s('canister', 3, 800, 4500)], pressure: '硬', hint: '装甲' },
-  { wave: 9, spawns: [s('grey', 16, 280), s('canister', 3, 800, 5000)], pressure: '多', hint: '集群' },
-  { wave: 10, spawns: [s('canister', 4, 800), s('cube', 10, 500, 4000)], pressure: '硬', hint: '装甲' },
-  { wave: 11, spawns: [s('grey', 18, 260), s('cube', 10, 450, 5000)], pressure: '快', hint: '突击' },
-  { wave: 12, spawns: [s('canister', 5, 750), s('grey', 16, 280, 4500)], pressure: '硬', hint: '混合' },
-  { wave: 13, spawns: [s('saucer', 1), s('canister', 2, 800, 3000)], pressure: '硬', hint: '飞碟' },
-  { wave: 14, spawns: [s('cube', 8, 450), s('canister', 3, 800, 5000)], pressure: '硬', hint: '装甲' },
+  { wave: 1, spawns: [s('grey', 7)], pressure: '多', hint: '集群', ask: '一窝一窝的，得扫得开' },
+  { wave: 2, spawns: [s('grey', 9, 500)], pressure: '多', hint: '集群', ask: '还是一窝，软的清不完' },
+  { wave: 3, spawns: [s('cube', 6)], pressure: '硬', hint: '分裂', ask: '方块打碎还打，得连着收' },
+  { wave: 4, spawns: [s('cube', 6), s('grey', 6, 400, 3000)], pressure: '多', hint: '混合', ask: '小的加碎块，扫不开就堆' },
+  { wave: 5, spawns: [s('cube', 7), s('canister', 2, 700, 4000)], pressure: '硬', hint: '装甲', ask: '铁罐有壳，一下一下的打不动' },
+  { wave: 6, spawns: [s('grey', 12, 320)], pressure: '多', hint: '集群', ask: '小灰铺过来，得扫一片' },
+  { wave: 7, spawns: [s('saucer', 1), s('cube', 6, 600, 2500)], pressure: '硬', hint: '飞碟', ask: '飞碟打后排，脆的别站前' },
+  { wave: 8, spawns: [s('cube', 10, 450), s('canister', 3, 800, 4500)], pressure: '硬', hint: '装甲', ask: '壳多了，软手打出白字' },
+  { wave: 9, spawns: [s('grey', 16, 280), s('canister', 3, 800, 5000)], pressure: '多', hint: '集群', ask: '又多又有壳，光砸一个不够' },
+  { wave: 10, spawns: [s('canister', 4, 800), s('cube', 10, 500, 4000)], pressure: '硬', hint: '装甲', ask: '铁罐扎堆，得一下砸穿' },
+  { wave: 11, spawns: [s('grey', 18, 260), s('cube', 10, 450, 5000)], pressure: '快', hint: '突击', ask: '扑上来的，得拖住' },
+  { wave: 12, spawns: [s('canister', 5, 750), s('grey', 16, 280, 4500)], pressure: '硬', hint: '混合', ask: '壳和窝一起，配错就堆死' },
+  { wave: 13, spawns: [s('saucer', 1), s('canister', 2, 800, 3000)], pressure: '硬', hint: '飞碟', ask: '又打后排，脆皮换下去' },
+  { wave: 14, spawns: [s('cube', 8, 450), s('canister', 3, 800, 5000)], pressure: '硬', hint: '装甲', ask: '还是破壳的题' },
   // 终局刻意不做成数值墙：一个飞碟加三铁罐六方块，
   // 让打到第 15 波的玩家有真实通关概率。终局要的是高潮，不是劝退
   {
@@ -198,6 +200,7 @@ export const WAVES: readonly WaveDef[] = [
     spawns: [s('saucer', 1), s('canister', 2, 800, 3000), s('cube', 5, 450, 6000)],
     pressure: '硬',
     hint: '终局',
+    ask: '飞碟加铁罐，这局那套还在不在',
   },
 ];
 
@@ -206,20 +209,33 @@ export function waveHeadline(wave: number): string {
   return getWave(wave).hint;
 }
 
+/** 这一波出的题，给 HUD 和过场说 */
+export function waveAsk(wave: number): string {
+  return getWave(wave).ask;
+}
+
 /**
  * 强度曲线。这两个数是整个切片最需要回归的参数。
  *
- * 上限由改装件的成长空间决定：一局只发 7 件，装满也就把 3 个人抬到 3 至 4 倍。
- * 没有等级系统，改装件是唯一成长来源，所以曲线必须压到
- * 「15 波总成长与改装成长同量级、略高一线」，否则后段必出断崖。
+ * 上限由改装件的成长空间决定。没有等级系统，改装件是唯一成长来源，
+ * 所以曲线必须压到「15 波总成长与改装成长同量级、略高一线」，否则后段必出断崖。
  *
  * knee 之后换用更缓的成长：后段压力主要来自怪的数量与护甲（见 WAVES），
  * 血量再指数下去会变成硬墙。
+ *
+ * **lateGrowth 从 1.05 提到 1.09，是跟着发牌密度走的。** 这条曲线原先按
+ * 「一局发 7 件」校准，LEVEL_EXP 切密到 10 档后实测一局焊 8.0 件，
+ * 改装成长多出约四成，后段立刻松掉（通关率 15.8% → 35.8%）。
+ * 只动 late 段是因为前 8 波的到达率几乎没变，松的全在 knee 之后。
+ * 回归对齐结果：中位 11 波、通关率 14.4%，与提档前的 11 波 / 15.8% 同档，
+ * 但一局焊件数从 5.60 涨到 8.01。
+ *
+ * 这两个数与 LEVEL_EXP 是绑死的，改任何一边都要重跑 npm run sim。
  */
 export const WAVE_CURVE = {
   hpGrowth: 1.18,
   atkGrowth: 1.12,
-  lateGrowth: 1.05,
+  lateGrowth: 1.09,
   lateAtkGrowth: 1.02,
   knee: 7,
 } as const;

@@ -60,6 +60,7 @@ import {
 import { HEROES, getHero, type HeroDef } from '../balance/heroes';
 import {
   MODS,
+  MOD_STAR_MAX,
   getMod,
   isFamiliarMod,
   masteredMod,
@@ -69,6 +70,12 @@ import {
   type ModKind,
   type SummonSpec,
 } from '../balance/mods';
+import {
+  clampLanes,
+  drawMulFromLanes,
+  starsFromLanes,
+  type LaneLevels,
+} from '../balance/lanes';
 import { PET_CAP, PET_MAX_DIST, getPetProto, type PetProto } from '../balance/pets';
 import { CALIBRATE_STAGE_ID, getStage, stageBeatStart } from '../balance/stages';
 import {
@@ -115,19 +122,23 @@ function shuffled<T>(arr: readonly T[], rng: () => number): T[] {
 /** 前三手只抽村里的老件。新件后半局才进场，池子变大也不摊掉水管电锯 */
 const NEW_MOD_FROM_LEVEL = 4;
 
-function pickWeight(mod: ModDef, level: number): number {
+/**
+ * 一件破烂这一手的份量 = 老件加倍 × 门路研发倍数。
+ *
+ * 门路那一乘是局外养成唯一伸进发牌的手 —— 研发满一条路，
+ * 这一局的牌就明显偏向那条路，玩家能说出「我这号走的是打得开」。
+ * 倍数上限压在 2.75（见 lanes.ts），别让一条路把三选一刷成同款。
+ */
+function pickWeight(mod: ModDef, state: RunState): number {
   const base = modDrawWeight(mod);
-  if (!isFamiliarMod(mod.id) && level < NEW_MOD_FROM_LEVEL) return 0;
-  return base;
+  if (!isFamiliarMod(mod.id) && state.level < NEW_MOD_FROM_LEVEL) return 0;
+  return base * (state.laneDraw[mod.id] ?? 1);
 }
 
-function pickWeighted(
-  cands: readonly ModDef[],
-  rng: () => number,
-  level: number,
-): ModDef | undefined {
+function pickWeighted(cands: readonly ModDef[], state: RunState): ModDef | undefined {
   if (cands.length === 0) return undefined;
-  const weights = cands.map((m) => pickWeight(m, level));
+  const rng = state.rng;
+  const weights = cands.map((m) => pickWeight(m, state));
   let total = 0;
   for (const w of weights) total += w;
   if (total <= 0) return cands[Math.floor(rng() * cands.length)];
@@ -446,8 +457,13 @@ export interface RunState {
   pendingMod?: ModDef;
   /** 本局还没发出去的改装件。每件一局只出一次 */
   modPool: ModDef[];
-  /** 首局广告白送的那件，点满三人后先装再开打 */
-  openingGift?: ModDef;
+  /**
+   * 点满三人后先焊上再开打的那几件。
+   *
+   * 两个来源：村里买了携带位点好的「带一件出村」、局内广告白送。
+   * 做成数组是因为这两条会同时成立，只留一个就得砍掉一个广告位。
+   */
+  openingGifts: ModDef[];
   /** 翻废品站翻到的，下一手三选一必出 */
   pinnedMods: ModDef[];
   /** 本局零钱，打完作废 */
@@ -467,8 +483,10 @@ export interface RunState {
   freeRerollsLeft: number;
   luckLeft: number;
   freeRevivesLeft: number;
-  /** 本局破烂按村里升星放大 */
+  /** 本局破烂按门路研发升星放大。键是破烂 id，星从门路摊下来 */
   modStars: Readonly<Record<string, number>>;
+  /** 本局各件在三选一里的份量倍数，也从门路研发摊下来 */
+  laneDraw: Readonly<Record<string, number>>;
   /** 当前刻度已经过了多久。只用于进度显示，出怪看的是 totalMs */
   waveElapsedMs: number;
   /** 最后一只计划出场的时刻。短关进度条跟这条走，不跟空的节拍走 */
@@ -651,7 +669,7 @@ function modOptions(state: RunState): PickOption[] {
   const usedKinds = new Set<ModKind>();
   const take = (cands: readonly ModDef[]): ModDef | undefined => {
     const left = cands.filter((x) => !picked.includes(x));
-    return pickWeighted(left, state.rng, state.level);
+    return pickWeighted(left, state);
   };
 
   const pivot = take(pool.filter((m) => m.kind === 'pivot'));
@@ -679,11 +697,7 @@ function modOptions(state: RunState): PickOption[] {
 
 export function buildOptions(state: RunState): PickOption[] {
   if (state.luckLeft > 0 && state.pinnedMods.length === 0) {
-    const pivot = pickWeighted(
-      state.modPool.filter((m) => m.kind === 'pivot'),
-      state.rng,
-      state.level,
-    );
+    const pivot = pickWeighted(state.modPool.filter((m) => m.kind === 'pivot'), state);
     if (pivot) {
       state.modPool = state.modPool.filter((m) => m.id !== pivot.id);
       state.pinnedMods.push(pivot);
@@ -857,12 +871,14 @@ function takeFromPool(state: RunState, except: ReadonlySet<string>): ModDef | un
 
 /** 首局广告：白送一件，点满三人后先装再开打 */
 export function claimOpeningGift(state: RunState): ModDef | undefined {
-  if (state.openingGift) return state.openingGift;
   if (!isRosterPicking(state)) return undefined;
-  const except = new Set(state.pinnedMods.map((m) => m.id));
+  const except = new Set([
+    ...state.pinnedMods.map((m) => m.id),
+    ...state.openingGifts.map((m) => m.id),
+  ]);
   const pick = takeFromPool(state, except);
   if (!pick) return undefined;
-  state.openingGift = pick;
+  state.openingGifts.push(pick);
   return pick;
 }
 
@@ -870,7 +886,7 @@ export function claimOpeningGift(state: RunState): ModDef | undefined {
 export function claimJunkyard(state: RunState): ModDef | undefined {
   const except = new Set([
     ...state.pinnedMods.map((m) => m.id),
-    ...(state.openingGift ? [state.openingGift.id] : []),
+    ...state.openingGifts.map((m) => m.id),
   ]);
   const pick = takeFromPool(state, except);
   if (!pick) return undefined;
@@ -1001,6 +1017,14 @@ const scheduleCache = new WeakMap<RunState, { list: ScheduledSpawn[]; idx: numbe
 
 // ── 生命周期 ────────────────────────────────────────────
 
+/** 局外那几条养成线伸进这一局的全部东西。位置参数已经排满了，新的都走这里 */
+export interface RunMeta {
+  /** 门路研发等级。摊成每件的星级和抽取份量 */
+  laneLv?: LaneLevels;
+  /** 村里点好带出村的那件。进场直接焊，不占三选一 */
+  carryModId?: string;
+}
+
 export function createRun(
   seed: number,
   startingScrap = 0,
@@ -1012,12 +1036,13 @@ export function createRun(
   ladderLv = 0,
   stageId = CALIBRATE_STAGE_ID,
   growth: RunGrowth = DEFAULT_RUN_GROWTH,
-  modStars: Readonly<Record<string, number>> = {},
+  meta: RunMeta = {},
 ): RunState {
   const rng = makeRng(seed);
   const start = Math.max(0, Math.floor(startingScrap));
   const camp = getStage(stageId);
-  const stars = clampModStars(modStars);
+  const lanes = clampLanes(meta.laneLv);
+  const stars = clampModStars(starsFromLanes(lanes));
   const pool = availableMods(unlockedMods).map((m) => masteredMod(m, stars[m.id] ?? 0));
   if (pinModId && !pool.some((m) => m.id === pinModId)) {
     const extra = MODS.find((m) => m.id === pinModId);
@@ -1041,7 +1066,7 @@ export function createRun(
     pets: [],
     picks: [],
     pendingOptions: [],
-    openingGift: undefined,
+    openingGifts: [],
     pinnedMods: [],
     modPool: shuffled(pool, rng),
     scrap: start,
@@ -1056,6 +1081,7 @@ export function createRun(
     luckLeft: growth.luckPicks,
     freeRevivesLeft: growth.freeRevives,
     modStars: stars,
+    laneDraw: drawMulFromLanes(lanes),
     waveElapsedMs: 0,
     streamEndMs: 0,
     jamMs: 0,
@@ -1073,11 +1099,21 @@ export function createRun(
       state.pinnedMods.push(pinned);
     }
   }
-  if (giftModId) {
+  // 携带位买了才生效。带出去的那件按 carryStars 再白升几星，这是携带位第二级买的东西
+  const carryId = meta.carryModId ?? '';
+  if (carryId) {
+    const carried = state.modPool.find((m) => m.id === carryId);
+    const lift = Math.min(MOD_STAR_MAX, (stars[carryId] ?? 0) + growth.carryStars);
+    if (carried) {
+      state.modPool = state.modPool.filter((m) => m.id !== carryId);
+      state.openingGifts.push(growth.carryStars > 0 ? masteredMod(getMod(carryId), lift) : carried);
+    }
+  }
+  if (giftModId && giftModId !== carryId) {
     const gift = state.modPool.find((m) => m.id === giftModId)
       ?? masteredMod(getMod(giftModId), stars[giftModId] ?? 0);
     state.modPool = state.modPool.filter((m) => m.id !== gift.id);
-    state.openingGift = gift;
+    state.openingGifts.push(gift);
   }
   const squad = (heroIds ?? [])
     .filter((id, i, all) => HEROES.some((h) => h.id === id) && all.indexOf(id) === i)
@@ -1125,7 +1161,10 @@ export function applyPick(state: RunState, option: PickOption): void {
   state.picks.push(option.kind);
   state.pendingOptions = [];
 
-  const mod = getMod(option.modId);
+  // 一定要从池子里取那一份：池里的是带星的，getMod 拿回来的是白板。
+  // 拿错了，村里研发出来的星就在焊上的那一刻悄悄丢掉
+  const mod = state.modPool.find((m) => m.id === option.modId)
+    ?? masteredMod(getMod(option.modId), state.modStars[option.modId] ?? 0);
   state.modPool = state.modPool.filter((m) => m.id !== mod.id);
   if (installTargets(state).length === 0) {
     // 全员改装位已满，这件只能作废，接着打而不是卡在装配阶段
@@ -1153,24 +1192,27 @@ function bestGiftTarget(state: RunState, mod: ModDef): HeroUnit | undefined {
   }
 }
 
-/** 白送件直接焊上最能吃的人，进场不再多点一次 */
-function applyOpeningGift(state: RunState): boolean {
-  const gift = state.openingGift;
-  if (!gift) return false;
-  state.openingGift = undefined;
-  state.modPool = state.modPool.filter((m) => m.id !== gift.id);
-  const target = bestGiftTarget(state, gift);
-  if (!target) return false;
-  target.mods.push(gift);
-  refreshStats(target);
-  emit(state, { kind: 'install', heroId: target.def.id, modId: gift.id });
-  return true;
+/** 开场那几件直接焊上最能吃的人，进场不再多点一次 */
+function applyOpeningGifts(state: RunState): number {
+  const gifts = state.openingGifts;
+  state.openingGifts = [];
+  let done = 0;
+  for (const gift of gifts) {
+    state.modPool = state.modPool.filter((m) => m.id !== gift.id);
+    const target = bestGiftTarget(state, gift);
+    if (!target) continue;
+    target.mods.push(gift);
+    refreshStats(target);
+    emit(state, { kind: 'install', heroId: target.def.id, modId: gift.id });
+    done += 1;
+  }
+  return done;
 }
 
 /** 人齐了就开打。破烂等杀出经验再发，进场不要连选三轮 */
 function launchSquad(state: RunState, keepOrder = false): void {
   if (!keepOrder) arrangeOpeningTeam(state);
-  applyOpeningGift(state);
+  applyOpeningGifts(state);
   applyStartWelds(state);
   beginRun(state);
 }

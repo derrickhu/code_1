@@ -1,0 +1,17 @@
+8-frame 2D game VFX FLIPBOOK sprite sheet, 4 columns x 2 rows, equal cells, left-to-right then top-to-bottom.
+
+ONE slash impact evolving across 8 frames. Same camera, same center. Additive-blend plate: PURE BLACK background in every cell, black must stay black. White-hot core so the game can tint it.
+
+Frame story:
+1 contact: thin white crescent just appearing, small
+2 grow: crescent thickens, hot core
+3 peak: bright curved slash, short sparks at the edge
+4 hold: slash slightly opens, core still white
+5 break: arc fragments, energy peeling off
+6 fade: thinner broken crescent
+7 almost gone: a few streaks and specks
+8 last: mostly black, tiny dying specks
+
+Style: Hades / Vampire Survivors impact plate. Fat comic energy, textured streaks, NOT a soft radial circle, NOT a geometric ring, NOT a sticker zoom of one still. Cells do not bleed into each other. Plenty of black margin in each cell.
+
+NO TEXT, no labels, no captions, no numbers, no frames, no visible grid lines, no characters, no weapons.

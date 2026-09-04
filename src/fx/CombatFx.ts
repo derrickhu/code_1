@@ -11,10 +11,11 @@ import { getPetProto } from '@/balance/pets';
 import type { BattleEvent } from '@/game/BattleEngine';
 import { VfxKit } from '@/fx/VfxKit';
 import { attackLook, enemyLook, playImpact, playMuzzle, shouldFly, shotFlight, skinLook, type FxLook, type ShotBody } from '@/fx/FxRecipe';
+import { ImpactGate, enemyImpactKey, heroImpactKey, type ImpactKey } from '@/fx/ImpactGate';
 import { contactAt, motionFor, releaseAt } from '@/fx/UnitActor';
 
 const MAX_FLOATS = 28;
-const MAX_SHOTS = 24;
+const MAX_SHOTS = 40;
 
 type ShotKind = AttackFx | EnemyFx;
 
@@ -43,6 +44,7 @@ interface ShotBit {
   loft: number;
   spin: number;
   shape: ShotBody;
+  beam: boolean;
   emit: number;
   done: boolean;
   land: () => void;
@@ -77,6 +79,7 @@ export class CombatFx {
   hitStop = 0;
   private _meleeRadius = 72;
   private readonly _waits: { t: number; fn: () => void }[] = [];
+  private readonly _gate = new ImpactGate();
 
   constructor() {
     this.layer.addChild(this._kit.root);
@@ -100,8 +103,21 @@ export class CombatFx {
     this._flashes.length = 0;
     this._flies.length = 0;
     this._waits.length = 0;
+    this._gate.reset();
     this.layer.removeChildren();
     this.layer.addChild(this._kit.root);
+  }
+
+  holdingEnemy(id: number): boolean {
+    return this._gate.holding(enemyImpactKey(id));
+  }
+
+  /** 画面血见底：倒下淡出，后面几发打在空位上，不再钉着模型 */
+  releaseEnemy(id: number): void {
+    const key = enemyImpactKey(id);
+    for (const fn of this._gate.release(key)) fn();
+    this._gate.markLinger(key);
+    this._after(0.22, () => this._gate.clearLinger(key));
   }
 
   consume(
@@ -129,35 +145,60 @@ export class CombatFx {
       /** 东西真正打上了再回调，闪白不能比这一下早 */
       onLand?: () => void;
       byPet?: boolean;
+      enemyId?: number;
+      heroId?: string;
     },
   ): void {
     const color = pos.color ?? 0xffffff;
     if (pos.meleeR && pos.meleeR > 0) this._meleeRadius = pos.meleeR;
     if (ev.kind === 'hit' && pos.ex !== undefined && pos.ey !== undefined) {
-      if (pos.hx !== undefined && pos.hy !== undefined) {
-        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.fx, pos.melee, pos.orb, pos.onLand, pos.byPet, pos.skin);
-      } else {
-        this._impactHero(ev, pos.ex, pos.ey, color, pos.fx, pos.skin ? skinLook(pos.skin) : undefined);
+      const key = pos.enemyId !== undefined ? enemyImpactKey(pos.enemyId) : undefined;
+      if (key) this._gate.begin(key);
+      const landHit = (): void => {
+        this._impactHero(ev, pos.ex!, pos.ey!, color, pos.fx, pos.skin ? skinLook(pos.skin) : undefined);
+        if (pos.slowed) this._spawnPlainFloat('减速', pos.ex!, pos.ey! + 10, 0x86efac, 16, 0.4);
+        if (ev.heal && ev.heal > 0 && pos.hx !== undefined && pos.hy !== undefined) {
+          this._spawnPlainFloat(`+${Math.round(ev.heal)}`, pos.hx, pos.hy - 28, 0x86efac, 18, 0.4);
+        }
         pos.onLand?.();
+        this._finishLand(key);
+      };
+      if (pos.hx !== undefined && pos.hy !== undefined) {
+        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.fx, pos.melee, pos.orb, landHit, pos.byPet, pos.skin);
+      } else {
+        landHit();
       }
     }
     if (ev.kind === 'enemyHit' && pos.ex !== undefined && pos.ey !== undefined
       && pos.hx !== undefined && pos.hy !== undefined) {
-      this._spawnEnemyHit(ev, pos.ex, pos.ey, pos.hx, pos.hy, pos.enemyFx ?? 'claw', pos.onLand);
+      const key = pos.heroId ? heroImpactKey(pos.heroId) : undefined;
+      if (key) this._gate.begin(key);
+      this._spawnEnemyHit(ev, pos.ex, pos.ey, pos.hx, pos.hy, pos.enemyFx ?? 'claw', () => {
+        pos.onLand?.();
+        this._finishLand(key);
+      });
     }
     if (ev.kind === 'enemyDown' && pos.ex !== undefined && pos.ey !== undefined) {
-      this._death(pos.ex, pos.ey, 0xffb070);
-      playSfx('kill_pop', 80);
-      this.hitStop = Math.max(this.hitStop, 0.045);
-      // 废品是打死人掉的，就得掉在尸体上，玩家才知道钱从哪来
-      if (ev.scrap > 0) {
-        this._spawnPlainFloat(`+${ev.scrap} 废品`, pos.ex, pos.ey + 16, 0xffd66b, 22, 0.55);
-      }
+      const key = pos.enemyId !== undefined ? enemyImpactKey(pos.enemyId) : undefined;
+      const play = (): void => {
+        this._death(pos.ex!, pos.ey!, 0xffb070);
+        playSfx('kill_pop', 80);
+        this.hitStop = Math.max(this.hitStop, 0.045);
+        // 废品是打死人掉的，就得掉在尸体上，玩家才知道钱从哪来
+        if (ev.scrap > 0) {
+          this._spawnPlainFloat(`+${ev.scrap} 废品`, pos.ex!, pos.ey! + 16, 0xffd66b, 22, 0.55);
+        }
+      };
+      if (!key || !this._gate.defer(key, play)) play();
     }
     if (ev.kind === 'heroDown' && pos.hx !== undefined && pos.hy !== undefined) {
-      this.downPulse = 0.4;
-      this._death(pos.hx, pos.hy, 0x9aa4bf);
-      playSfx('hero_down', 0);
+      const key = pos.heroId ? heroImpactKey(pos.heroId) : undefined;
+      const play = (): void => {
+        this.downPulse = 0.4;
+        this._death(pos.hx!, pos.hy!, 0x9aa4bf);
+        playSfx('hero_down', 0);
+      };
+      if (!key || !this._gate.defer(key, play)) play();
     }
     if (ev.kind === 'heroRevive' && pos.hx !== undefined && pos.hy !== undefined) {
       this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xffd66b, s0: 0.5, s1: 1.2, life: 0.32 });
@@ -186,12 +227,6 @@ export class CombatFx {
       this._kit.spray(pos.hx, pos.hy + 18, { n: 8, tint, kind: 'glow', speed: 90, gy: -20 });
       this._spawnPlainFloat(`${getPetProto(ev.protoId).name}来了`, pos.hx, pos.hy - 28, tint, 20, 0.55);
       playSfx('hero_land', 40);
-    }
-    if (ev.kind === 'hit' && pos.slowed && pos.ex !== undefined && pos.ey !== undefined) {
-      this._spawnPlainFloat('减速', pos.ex, pos.ey + 10, 0x86efac, 16, 0.4);
-    }
-    if (ev.kind === 'hit' && ev.heal && ev.heal > 0 && pos.hx !== undefined && pos.hy !== undefined) {
-      this._spawnPlainFloat(`+${Math.round(ev.heal)}`, pos.hx, pos.hy - 28, 0x86efac, 18, 0.4);
     }
   }
 
@@ -335,7 +370,6 @@ export class CombatFx {
     const look = skin ? skinLook(skin) : attackLook(style);
     const tint = ev.crit ? mix(look.tint, 0xffd66b, 0.4) : look.tint;
     const land = (): void => {
-      this._impactHero(ev, x1, y1, color, style, look);
       onLand?.();
     };
     const motion = motionFor(style);
@@ -354,7 +388,6 @@ export class CombatFx {
         land();
         return;
       }
-      if (look.beam) this._kit.beam(x0, y0, x1, y1, tint, 0.18);
       this._pushShot({
         x0, y0, x1, y1, color: tint, kind: style,
         fly: shotFlight(look, dist, !!melee),
@@ -387,19 +420,22 @@ export class CombatFx {
         this._enemyLand(fx, x1, y1);
       }
       if (ev.reflect > 0) {
-        this._kit.spray(x0, y0, { n: 5, tint: 0xff8a3a, kind: 'spark', speed: 120 });
+        if (!look.quiet) this._kit.spray(x0, y0, { n: 5, tint: 0xff8a3a, kind: 'spark', speed: 120 });
         this._spawnPlainFloat(`反伤 ${Math.round(ev.reflect)}`, x0, y0, 0xffb070, 20);
       }
       onLand?.();
     };
     this._after(releaseAt('lunge', 'enemy', false, true), () => {
-      playSfx(`enemy_${fx}`, 70);
+      playSfx(`enemy_${fx}`, look.quiet ? 40 : 70);
       const ang = Math.atan2(y1 - y0, x1 - x0);
-      playMuzzle(this._kit, look, x0, y0, ang);
-      if (look.beam) this._kit.beam(x0, y0, x1, y1, color, 0.16);
+      if (!look.quiet) playMuzzle(this._kit, look, x0, y0, ang);
+      if (!shouldFly(look, !!look.instant)) {
+        land();
+        return;
+      }
       this._pushShot({
         x0, y0, x1, y1, color, kind: fx,
-        fly: Math.min(0.32, shotFlight(look, Math.hypot(x1 - x0, y1 - y0))),
+        fly: Math.min(0.4, shotFlight(look, Math.hypot(x1 - x0, y1 - y0))),
         look,
         land,
       });
@@ -409,6 +445,15 @@ export class CombatFx {
   private _after(t: number, fn: () => void): void {
     if (t <= 0) fn();
     else this._waits.push({ t, fn });
+  }
+
+  private _finishLand(key: ImpactKey | undefined): void {
+    if (!key) return;
+    const extra = this._gate.settle(key);
+    for (const fn of extra) fn();
+    if (extra.length === 0) return;
+    this._gate.markLinger(key);
+    this._after(0.22, () => this._gate.clearLinger(key));
   }
 
   private _pushShot(spec: {
@@ -424,15 +469,15 @@ export class CombatFx {
   }): void {
     if (this._shots.length >= MAX_SHOTS) {
       const old = this._shots.shift();
+      if (old && !old.done) old.land();
       old?.body.destroy();
       old?.spr?.destroy();
     }
-    const energy = spec.kind === 'beam' || spec.kind === 'spark'
+    const energy = spec.kind === 'beam' || spec.look?.beam
       ? 'pierce'
       : spec.kind === 'claw' ? 'claw'
         : spec.kind === 'bash' ? 'smash'
-          : spec.look?.beam ? 'pierce'
-            : null;
+          : null;
     const physName = energy ? null : (spec.look?.proj ?? projSprite(spec.kind as AttackFx));
     const physical = !!physName;
     const shot = energy ? vfxTex(energy)
@@ -457,7 +502,7 @@ export class CombatFx {
       this.layer.addChild(spr);
     }
     const body = new PIXI.Graphics();
-    body.blendMode = physical || spec.kind === 'orb' || spec.kind === 'wind' || spec.kind === 'blast'
+    body.blendMode = physical || spec.look?.dry || spec.kind === 'orb' || spec.kind === 'wind' || spec.kind === 'blast'
       ? PIXI.BLEND_MODES.NORMAL
       : PIXI.BLEND_MODES.ADD;
     this.layer.addChild(body);
@@ -478,6 +523,7 @@ export class CombatFx {
       loft: spec.look?.loft ?? 0,
       spin: spec.look?.spin ?? 0,
       shape: spec.look?.body ?? (physical ? 'none' : 'bolt'),
+      beam: !!spec.look?.beam,
       emit: 0,
       done: false,
       land: spec.land,
@@ -494,6 +540,20 @@ export class CombatFx {
     g.clear();
     if (u >= 1) return;
     const fade = u < 0.08 ? u / 0.08 : 1;
+    if (s.beam) {
+      const nx = Math.cos(ang);
+      const ny = Math.sin(ang);
+      g.lineStyle(8, s.color, 0.55 * fade);
+      g.moveTo(s.x0, s.y0);
+      g.lineTo(p.x, p.y);
+      g.lineStyle(3, 0xffffff, 0.75 * fade);
+      g.moveTo(s.x0 + nx * 8, s.y0 + ny * 8);
+      g.lineTo(p.x, p.y);
+      g.lineStyle(0);
+    }
+    if (s.physical && s.spr) {
+      g.beginFill(0x1a0c08, 0.38 * fade).drawCircle(p.x + 1, p.y + 5, 9).endFill();
+    }
     if (!s.spr) {
       this._drawFallbackProj(g, s, p, fade);
       return;
@@ -524,8 +584,9 @@ export class CombatFx {
       return;
     }
     if (s.kind === 'sniper') {
-      g.beginFill(0xe8d4b0, 0.95 * fade).drawCircle(p.x, p.y, 7).endFill();
-      g.beginFill(0x8a7355, 0.9 * fade).drawCircle(p.x, p.y, 4).endFill();
+      g.beginFill(0x1a0c08, 0.4 * fade).drawCircle(p.x + 1, p.y + 4, 10).endFill();
+      g.beginFill(0xe8d4b0, 0.98 * fade).drawCircle(p.x, p.y, 9).endFill();
+      g.beginFill(0x8a7355, 0.95 * fade).drawCircle(p.x - 1, p.y - 1, 5).endFill();
       return;
     }
     if (s.kind === 'wind') {

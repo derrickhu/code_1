@@ -4,12 +4,12 @@
  * 不写「队首挨刀」这类说明——站位和金边已经说清楚了。
  */
 import * as PIXI from 'pixi.js';
-import { installForecast } from '@/balance/forecast';
+import { comboIfAdd } from '@/balance/combos';
 import { MOD_SLOTS_PER_HERO, SLOT_NAME, SLOT_VIEW_ORDER, TEAM_SIZE } from '@/balance/combat';
 import type { ModDef } from '@/balance/mods';
 import { abilityTag } from '@/balance/mods';
 import { fillContain, heroTex, modTex } from '@/core/TextureLoader';
-import { canInstallOn, heroAt, type HeroUnit, type RunState } from '@/game/BattleEngine';
+import { canInstallOn, heroAt, isRosterPicking, type HeroUnit, type RunState } from '@/game/BattleEngine';
 import { bindPointerTap } from '@/minigame';
 import { GOLD } from '@/ui/paint';
 
@@ -65,7 +65,7 @@ export class ModDock extends PIXI.Container {
   }
 
   refresh(state: RunState, selected: string | null): void {
-    const show = state.team.length > 0 && state.phase !== 'picking';
+    const show = state.team.length > 0 && !isRosterPicking(state);
     const sig = show
       ? `${state.phase}|${state.pendingMod?.id ?? ''}|${selected ?? ''}|${state.team.map((h) =>
         `${h.def.id}:${h.slot}:${h.alive ? 1 : 0}:${h.mods.map((m) => m.id).join(',')}`).join(';')}`
@@ -80,6 +80,7 @@ export class ModDock extends PIXI.Container {
     if (!this.visible) return;
 
     const installing = state.phase === 'installing';
+    const pickingAssign = state.phase === 'picking' && !isRosterPicking(state);
     const pending = installing ? state.pendingMod : undefined;
     const plate = new PIXI.Graphics();
     plate.beginFill(0x14110c, installing ? 0.94 : 0.82).drawRoundedRect(DOCK_X, 0, DOCK_W, DOCK_H, 16).endFill();
@@ -90,7 +91,7 @@ export class ModDock extends PIXI.Container {
 
     SLOT_VIEW_ORDER.forEach((slotIndex, i) => {
       const hero = heroAt(state, slotIndex) ?? null;
-      const canTake = !!pending && !!hero && canInstallOn(hero);
+      const canTake = !!hero && canInstallOn(hero) && (!!pending || pickingAssign);
       const card = this._slot(hero, slotIndex, selected === hero?.def.id, pending, canTake);
       card.position.set(DOCK_X + SLOT_PAD + i * (SLOT_W + SLOT_GAP), 8);
       this.addChild(card);
@@ -114,7 +115,9 @@ export class ModDock extends PIXI.Container {
     const installing = !!pending;
     const dim = !h || (installing && !canTake);
     const live = !!h?.alive;
-    const forecast = h && pending && canTake ? installForecast(h, pending) : undefined;
+    const combo = h && pending && canTake
+      ? comboIfAdd(h.mods.map((m) => m.id), pending.id)
+      : undefined;
     const edge = !h
       ? 0x3a3428
       : picked
@@ -180,12 +183,10 @@ export class ModDock extends PIXI.Container {
     name.alpha = dim ? 0.5 : 1;
     box.addChild(name);
 
-    const role = text(16, canTake
-      ? (forecast?.fit === 'waste' ? 0x8a90a8 : forecast?.fit === 'good' ? 0x9be08a : GOLD)
-      : GOLD);
+    const role = text(16, canTake ? (combo ? 0xffd66b : GOLD) : GOLD);
     role.position.set(nameX, 36);
-    role.text = canTake && forecast
-      ? forecast.tag
+    role.text = canTake
+      ? (combo ? combo.name : '焊给他')
       : h.stats.range <= 1 ? `贴脸 · ${abilityTag(h.def.skill)}` : `射程 ${h.stats.range}`;
     role.alpha = dim ? 0.5 : 1;
     box.addChild(role);

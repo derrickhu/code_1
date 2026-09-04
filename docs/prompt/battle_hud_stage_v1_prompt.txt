@@ -1,0 +1,31 @@
+Mobile game BATTLE HUD mockup, vertical 9:16 WeChat minigame.
+
+Use the reference screenshot for the BATTLEFIELD and BOTTOM hero dock only:
+same sunset dirt path, same three villagers, same enemies, same three bottom character plates.
+Do NOT copy the current top-left "2 / 3" as the main number — that is the problem.
+
+ART STYLE: rustic village scrap-yard game, cheap sticker-chibi, fat comic ink,
+cream #FFF4C4, gold #C9A46A, ink #2A160C, rust iron bar. Industrial/utilitarian HUD.
+FORBIDDEN: purple glow, neon sci-fi HUD, English paragraphs, phone frame, watermark.
+
+THE FIX — top iron status bar must say WHICH STAGE you are on at a glance:
+
+Left block (the hero of the bar):
+- Big cream text: 1-2
+- Smaller gold text under or beside it: 村口
+This pair is the stage identity. Never hide it.
+
+Middle:
+- Three fat wave pips in a row (filled / filled / empty) meaning wave 2 of 3
+- Tiny caption: 第2波
+- Optional tiny mustard chip: 混合
+Do NOT make "2 / 3" the largest number on screen.
+
+Right:
+- scrap-pile icon + 15 (unlabeled number is ok if the icon is obvious)
+- thin exp bar under it, caption 下一件, no second giant fraction competing with 1-2
+
+No "跳过本波" in this player-facing mockup (that is a debug button).
+Keep bottom three hero plates as in the reference, do not add more text there.
+
+Readable at arm length. Stage label 1-2 村口 must be the first thing you read.

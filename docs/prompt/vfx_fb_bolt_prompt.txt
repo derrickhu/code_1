@@ -1,0 +1,17 @@
+8-frame 2D game VFX FLIPBOOK sprite sheet, 4 columns x 2 rows, equal cells, left-to-right then top-to-bottom.
+
+ONE electric puncture hit evolving across 8 frames. Same camera, same center. Additive-blend plate: PURE BLACK background in every cell. White-hot core for tinting.
+
+Frame story:
+1 contact: short white needle stab plus a pin-prick flash
+2 fork: two jagged branches
+3 peak: small lightning star, thin forks, white core
+4 snap: forks crack, sparks jump
+5 break: branches fragment
+6 fade: a few electric specks
+7 almost gone: two dim needles
+8 last: mostly black, one dying speck
+
+Style: dry wire / needle shock, small and sharp, NOT a huge thunder god blast, NOT a soft orb. Cells do not bleed. Black margin in each cell.
+
+NO TEXT, no labels, no captions, no numbers, no frames, no visible grid lines, no characters, no weapons.

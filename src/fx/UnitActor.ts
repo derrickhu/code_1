@@ -111,6 +111,8 @@ export class UnitActor {
   private _tilt = 0;
   private _flash = 0;
   private _dead = false;
+  private _off = false;
+  private _killFade = 0;
   private _breath = Math.random() * Math.PI * 2;
   private _armed = false;
   private _gear: HandGear | null = null;
@@ -228,8 +230,14 @@ export class UnitActor {
     this._flash = ms / 1000;
   }
 
+  get dead(): boolean {
+    return this._dead;
+  }
+
   setDead(dead: boolean): void {
     this._dead = dead;
+    this._off = false;
+    this._killFade = 0;
     if (dead) {
       this._anim.stop();
       this._anim.tint = 0x6b7394;
@@ -240,6 +248,18 @@ export class UnitActor {
     }
   }
 
+  /** 外星人被打穿：倒下并淡出，不要停在最后一帧 */
+  killOff(): void {
+    if (this._off) return;
+    this._dead = true;
+    this._off = true;
+    this._killFade = 0.22;
+    this._atkT = -1;
+    this._anim.stop();
+    this._arm.visible = false;
+    for (const s of this._wear) s.visible = false;
+  }
+
   update(dt: number): void {
     if (this._flash > 0) this._flash = Math.max(0, this._flash - dt);
     this._breath += dt * (this.holdPulse ? 3.6 : 2.1);
@@ -247,7 +267,13 @@ export class UnitActor {
     let oy = 0;
     let rot = 0;
 
-    if (this._dead) {
+    if (this._dead && this._off) {
+      this._killFade = Math.max(0, this._killFade - dt);
+      const u = this._killFade / 0.22;
+      rot = 1.05 * (1 - u);
+      this._anim.alpha = u;
+      this._anim.tint = 0x6b7394;
+    } else if (this._dead) {
       rot = 0.32;
       this._anim.alpha = 0.45;
     } else if (this._atkT >= 0) {
@@ -274,8 +300,13 @@ export class UnitActor {
       ? Math.sin(this._breath)
       : 0;
     const amp = this.holdPulse ? 0.07 : 0.018;
-    const sx = this._dead ? 1.12 : 1 - breath * (this.holdPulse ? 0.035 : 0.01);
-    const sy = this._dead ? 0.55 : 1 + breath * amp;
+    const killU = this._off ? this._killFade / 0.22 : 0;
+    const sx = this._off
+      ? 1 + (1 - killU) * 0.08
+      : this._dead ? 1.12 : 1 - breath * (this.holdPulse ? 0.035 : 0.01);
+    const sy = this._off
+      ? 1 - (1 - killU) * 0.28
+      : this._dead ? 0.55 : 1 + breath * amp;
     const bodyClip = this._kind === 'hero' && this._armed ? 'idle' : (this._clip || 'idle');
     const fit = this._h / clipBody(this._id, bodyClip, this._anim.texture.height || this._h);
     this._anim.scale.set(fit * sx * this._face, fit * sy);

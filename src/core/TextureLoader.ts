@@ -9,6 +9,7 @@ import { HAND_GEAR, STARTER_WEP_IDS } from '@/balance/gear';
 import { HEROES } from '@/balance/heroes';
 import { MODS } from '@/balance/mods';
 import { Platform } from '@/core/PlatformService';
+import { SPARK_FLIP, VFX_FLIP, flipFiles, type FlipSpec } from '@/fx/Flipbook';
 
 const cache = new Map<string, PIXI.Texture>();
 const missing = new Set<string>();
@@ -67,6 +68,44 @@ export function vfxTex(name: string): PIXI.Texture | null {
   return tex(`images/vfx_${name}.png`);
 }
 
+const flipCache = new Map<string, PIXI.Texture[]>();
+
+function sliceGrid(sheet: PIXI.Texture, spec: FlipSpec): PIXI.Texture[] {
+  const key = `${spec.file}:${sheet.baseTexture.uid}:${spec.cols}x${spec.rows}`;
+  const hit = flipCache.get(key);
+  if (hit) return hit;
+  const bw = sheet.baseTexture.width;
+  const bh = sheet.baseTexture.height;
+  const cw = Math.floor(bw / spec.cols);
+  const ch = Math.floor(bh / spec.rows);
+  const frames: PIXI.Texture[] = [];
+  for (let r = 0; r < spec.rows; r += 1) {
+    for (let c = 0; c < spec.cols; c += 1) {
+      frames.push(new PIXI.Texture(sheet.baseTexture, new PIXI.Rectangle(c * cw, r * ch, cw, ch)));
+    }
+  }
+  flipCache.set(key, frames);
+  return frames;
+}
+
+/** 落点序列。表还没进缓存时返回 null，调用方继续用单帧，不挡玩 */
+export function vfxFlipFrames(name: string): PIXI.Texture[] | null {
+  const spec = VFX_FLIP[name];
+  if (!spec) return null;
+  const sheet = tex(`images/vfx_${spec.file}.png`);
+  if (!sheet?.baseTexture.valid) return null;
+  return sliceGrid(sheet, spec);
+}
+
+/** 火星随机一档，没有表就退回旧 spark */
+export function vfxSparkFrame(): PIXI.Texture | null {
+  const sheet = tex(`images/vfx_${SPARK_FLIP.file}.png`);
+  if (!sheet?.baseTexture.valid) return vfxTex('spark');
+  const frames = sliceGrid(sheet, SPARK_FLIP);
+  if (frames.length === 0) return vfxTex('spark');
+  return frames[Math.floor(Math.random() * frames.length)] ?? vfxTex('spark');
+}
+
 /** 背景没有透明区，走 jpg：同画质下比 png 小一个数量级，首包容量卡得很死 */
 const BG_PATH = 'images/bg_battle.jpg';
 const VILLAGE_BG = 'images/bg_village.jpg';
@@ -88,6 +127,14 @@ export const UI_FILES = [
   'scrap_pile',
   'wood_bar',
   'wood_panel',
+  'growth_hands',
+  'growth_reroll',
+  'growth_luck',
+  'growth_starter',
+  'growth_pocket',
+  'growth_breath',
+  'growth_carry',
+  'growth_scav',
   'settle_stamp',
   'settle_name',
   'settle_btn',
@@ -149,6 +196,7 @@ export function preloadBattleArt(): void {
   for (const e of ENEMY_PROTOS) kick(`images/enemy_${e.id}.png`);
   for (const m of MODS) kick(`images/mod_${m.id}.png`);
   for (const n of VFX_FILES) kick(`images/vfx_${n}.png`);
+  for (const p of flipFiles()) kick(p);
   for (const n of PROJ_FILES) kick(`images/proj_${n}.png`);
   kick('images/hero_dachui_grip.png');
   kick('images/fx_hammer.png');

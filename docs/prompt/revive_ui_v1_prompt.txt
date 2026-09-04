@@ -1,0 +1,49 @@
+Vertical mobile game REVIVE / last-chance UI mockup, portrait 9:16 WeChat minigame.
+
+Game: Chinese village vs aliens. Dumb-cool cartoon, fat comic ink outlines, flat 6-8 colors, two-tone cel shade.
+NOT dark fantasy card overlay, NOT generic purple modal, NOT premium glass, NOT system sans-serif flat UI.
+
+This is the WIPE moment mid-battle: the team just fell. Player can watch an ad to stand everyone back up with all mods intact. It is urgent and dramatic, but still the same weathered village-comic world as win/lose settlement screens.
+
+USE REFERENCES for materials and mood only:
+- settle_ui_lose_v2: dusk alley tone, rust wood plaque, iron bars, cream text, no cigarettes
+- current ugly revive screenshot: replace the dark rounded card completely
+
+BACKGROUND:
+- Dimmed battle lane still visible: cobblestone road, alien wreckage, village fence far back
+- Heavy blue-gray vignette, dust in the air, one weak orange streetlight glow
+- Do NOT use bright gold celebration colors
+
+HEROES (middle band, behind UI props):
+- Three villagers have JUST collapsed on the road, not sitting proudly, not victory pose
+- Left: 弹弓叔 slumped on knees, slingshot dropped, mouth closed, NO cigarette
+- Center: 王大锤 lying against his mallet, bandaged, exhausted
+- Right: 三婶 collapsed beside her boombox radio
+- Tiny worn name plates near each: 弹弓叔 / 王大锤 / 三婶
+- Their installed junk mods still visible as small icons near them (pipes, tape, etc.)
+- Leave readable space in upper-middle for title props
+
+HIERARCHY top to bottom:
+1. TOP TITLE: one TILTED hanging wood plaque, chains slack, paint peeling. Dark rust-red hand-painted Chinese, NOT gold:
+   这套要散了
+   Small rust stamp nailed to the right: 第 10 波
+2. MAIN MESSAGE on a wide dark iron bar, cream letters, centered, larger than quota text:
+   看一段，全队原地站起来继续打
+   Second line smaller on same bar:
+   这套改装还在。
+3. QUOTA chip: thin rust stamp below message:
+   今日还能救 2 次
+4. PRIMARY ACTION: one LARGE worn cream rust play-plate button, mustard bolt rim, centered. Text:
+   看完继续打
+   A tiny subtle play-triangle icon on the left of the text, embossed not neon.
+5. SECONDARY SKIP: one quiet thin iron slat link below, smaller, muted cream-gray text:
+   算了，看结算
+
+COMPOSITION RULES:
+- No big dark rounded rectangle panel. Props float directly on the dimmed battlefield.
+- Clear vertical breathing room between title / message / quota / button / skip.
+- Button is the visual anchor, wider than tall, comic hardware-store feel.
+- Typography: hand-painted Chinese, thick dark stroke, readable.
+- Palette: dusk blue-gray, rust #8b2e1f, cream #fff4c4, ink #2a160c. Gold only as thin rim on the main button, not headline color.
+
+This is a UI mockup WITH the exact Chinese text above. No watermark.

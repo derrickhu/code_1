@@ -1,0 +1,13 @@
+4 isolated 2D game VFX spark particles in a 2 columns x 2 rows grid, equal cells.
+
+PURE BLACK background in every cell. Additive-blend: black must stay black. White-hot so the game can tint.
+
+Four DIFFERENT spark shapes, one per cell, each centered with black margin:
+Top-left: long thin streak, tapered, like a motion-blur needle
+Top-right: short fat ember flake, irregular
+Bottom-left: four-point tiny star flare, sharp
+Bottom-right: comma-shaped chip, slightly curved
+
+NOT soft radial circles. NOT the same shape four times. High contrast.
+
+NO TEXT, no labels, no captions, no numbers, no frames, no visible grid lines.

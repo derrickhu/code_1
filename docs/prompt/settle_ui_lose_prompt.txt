@@ -1,0 +1,28 @@
+Vertical mobile game FAILURE settlement UI mockup, portrait 9:16, WeChat minigame.
+
+Use the reference images for materials and background ONLY:
+- village dusk dirt road as full-bleed background (sunset, blue brick, scrap piles)
+- hanging wooden chain plaque (mustard peeled paint) for the title
+- rusted cream play-plate for loot card and footer buttons
+- gold/rust ad button with play triangle on the left
+Do NOT copy the dark gray revive modal. This screen replaces the battlefield overlay.
+
+HIERARCHY top to bottom:
+1. Background: same village dusk lane, slightly warm, no black veil, no purple UI chrome.
+2. Title punch: one hanging wood plaque near the top, slightly left. Exact Chinese on the yellow face: 这套配崩了
+   Small rust stamp overlapping the right of the plaque: 第 8 波
+3. Thin rusted iron bar under the plaque, cream letters: 下次换个人装试试
+4. MIDDLE: three villagers STAND on the cracked dirt, fight formation, not a card list.
+   - Center-front: 王大锤, biggest, wooden mallet, name plate 王大锤
+   - Left-back: 弹弓叔, slingshot, name plate 弹弓叔, NO cigarette, mouth closed
+   - Right-back: 三婶, boombox, name plate 三婶
+   Tiny scrap icons at their feet (2-3 rusty household items).
+5. SECOND punch: one WIDE cream rust play-plate. Left: blue scrap crate. Huge gold +27. Ink text 进废品堆. Tiny right: 村里现有 112
+6. Small cream caption: 改了 4 件 · 最高第 8 波
+7. One gold/rust ad button with play triangle: 看视频  下局开场带 54
+8. Footer pair, same size: 回村子    再来一局
+
+Typography: bold hand-painted Chinese signage, cream/gold on wood and rust, thick dark brown stroke. All Chinese must be complete and readable.
+Palette: warm earth yellow, cement gray, rust red, cream #fff4c4, gold #c9a46a, ink #2a160c. No purple glass UI.
+
+This is a high-fidelity UI mockup WITH the Chinese text listed above.

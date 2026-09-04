@@ -3,15 +3,23 @@ import { PersistService } from '@/core/PersistService';
 import { Platform } from '@/core/PlatformService';
 import type { RewardSource } from '@/balance/rewards';
 import {
+  PILE_CAP,
   clampGrowth,
-  clampModStars,
   emptyGrowth,
   nextGrowthCost,
-  nextModStarCost,
   pileGrowth,
+  refundModStars,
   type GrowthId,
   type GrowthLevels,
 } from '@/balance/yard';
+import {
+  clampLanes,
+  emptyLanes,
+  laneOpen,
+  nextLaneCost,
+  type LaneId,
+  type LaneLevels,
+} from '@/balance/lanes';
 import { getMod } from '@/balance/mods';
 import { LADDER_TOP, ladderPassed } from '@/balance/ladder';
 import {
@@ -54,8 +62,12 @@ export interface RunMemory {
   startScrapLv: number;
   /** 废品站买的肉鸽成长 */
   growth: GrowthLevels;
-  /** 破烂升星。抽到这件时按星放大 */
-  modStars: Record<string, number>;
+  /** 门路研发。一条路出得更勤、也更猛 */
+  laneLv: LaneLevels;
+  /** 买了携带位之后，村里点好带哪一件出去 */
+  carryModId: string;
+  /** 老存档单件升星折回来的废品。村里报一次就清 */
+  starRefund: number;
   /** 村子里点好的三人，进场直接用 */
   squadIds: string[];
   /** 看广告白送的那件，进场自动焊上 */
@@ -90,7 +102,9 @@ function empty(): RunMemory {
     unlockedMods: [],
     startScrapLv: 0,
     growth: emptyGrowth(),
-    modStars: {},
+    laneLv: emptyLanes(),
+    carryModId: '',
+    starRefund: 0,
     squadIds: [],
     nextGiftModId: '',
     ladderLv: 0,
@@ -109,7 +123,10 @@ export function loadMemory(): RunMemory {
     const raw = readRaw();
     if (!raw) return empty();
     const parsed = JSON.parse(raw) as RunMemory;
-    return {
+    // 单件升星下线：老存档买过的星原价折回废品，只折一次就落盘
+    const legacyStars = (parsed as { modStars?: Record<string, number> }).modStars;
+    const refund = refundModStars(legacyStars);
+    const mem: RunMemory = {
       highestWave: Number(parsed.highestWave) || 0,
       seenHeroIds: Array.isArray(parsed.seenHeroIds) ? parsed.seenHeroIds : [],
       scrap: Math.max(0, Number(parsed.scrap) || 0),
@@ -119,13 +136,15 @@ export function loadMemory(): RunMemory {
         ? parsed.nextScrapSource
         : 'ad',
       nextPinModId: typeof parsed.nextPinModId === 'string' ? parsed.nextPinModId : '',
-      yardScrap: Math.max(0, Number(parsed.yardScrap) || 0),
+      yardScrap: Math.max(0, Number(parsed.yardScrap) || 0) + refund,
       unlockedMods: Array.isArray(parsed.unlockedMods)
         ? parsed.unlockedMods.filter((id): id is string => typeof id === 'string')
         : [],
       startScrapLv: clampGrowth(parsed.growth, Number(parsed.startScrapLv) || 0).pocket,
       growth: clampGrowth(parsed.growth, Number(parsed.startScrapLv) || 0),
-      modStars: clampModStars(parsed.modStars),
+      laneLv: clampLanes(parsed.laneLv),
+      carryModId: validModId(parsed.carryModId),
+      starRefund: refund > 0 ? refund : Math.max(0, Number(parsed.starRefund) || 0),
       squadIds: Array.isArray(parsed.squadIds)
         ? parsed.squadIds.filter((id): id is string => typeof id === 'string').slice(0, 3)
         : [],
@@ -154,6 +173,7 @@ export function loadMemory(): RunMemory {
       })(),
       campaignRev: 2,
     };
+    return refund > 0 ? persist(mem) : mem;
   } catch {
     return empty();
   }
@@ -161,6 +181,15 @@ export function loadMemory(): RunMemory {
 
 function clampLadder(v: unknown): number {
   return Math.max(0, Math.min(LADDER_TOP, Math.floor(Number(v) || 0)));
+}
+
+function validModId(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw) return '';
+  try {
+    return getMod(raw).id;
+  } catch {
+    return '';
+  }
 }
 
 export interface RunOutcome {
@@ -214,7 +243,9 @@ export function saveRun(
     unlockedMods: prev.unlockedMods,
     startScrapLv: prev.startScrapLv,
     growth: prev.growth,
-    modStars: prev.modStars,
+    laneLv: prev.laneLv,
+    carryModId: prev.carryModId,
+    starRefund: prev.starRefund,
     squadIds: prev.squadIds,
     nextGiftModId: prev.nextGiftModId,
   };
@@ -267,21 +298,37 @@ export function bankToYard(amount: number): RunMemory {
   return persist({ ...prev, yardScrap: prev.yardScrap + add });
 }
 
-export function buyModStar(modId: string): RunMemory | undefined {
-  try {
-    getMod(modId);
-  } catch {
-    return undefined;
-  }
+/**
+ * 研发一条门路。买的不是某一件，是这一整条路：
+ * 出得更勤（发牌份量）+ 更猛（全路升星）。
+ */
+export function buyLaneLv(id: LaneId): RunMemory | undefined {
   const prev = loadMemory();
-  const now = prev.modStars[modId] ?? 0;
-  const cost = nextModStarCost(now);
+  if (!laneOpen(id, prev.stageTop)) return undefined;
+  const now = prev.laneLv[id] ?? 0;
+  const cost = nextLaneCost(now);
   if (cost === undefined || prev.yardScrap < cost) return undefined;
   return persist({
     ...prev,
     yardScrap: prev.yardScrap - cost,
-    modStars: { ...prev.modStars, [modId]: now + 1 },
+    laneLv: { ...prev.laneLv, [id]: now + 1 },
   });
+}
+
+/** 点好带哪一件出村。没买携带位就点不动，这里再兜一道 */
+export function setCarryMod(modId: string): RunMemory | undefined {
+  const prev = loadMemory();
+  if (prev.growth.carry <= 0) return undefined;
+  const id = validModId(modId);
+  if (!id) return undefined;
+  return persist({ ...prev, carryModId: prev.carryModId === id ? '' : id });
+}
+
+/** 折算返还只报一次，报完清掉 */
+export function clearStarRefund(): RunMemory {
+  const prev = loadMemory();
+  if (prev.starRefund <= 0) return prev;
+  return persist({ ...prev, starRefund: 0 });
 }
 
 export function buyYardGrowth(id: GrowthId): RunMemory | undefined {
@@ -355,6 +402,13 @@ export function settlePile(nowMs: number = Date.now()): RunMemory {
   const grown = pileGrowth(prev.pileScrap, nowMs - prev.pileAtMs);
   if (grown === prev.pileScrap && nowMs <= prev.pileAtMs) return prev;
   return persist({ ...prev, pileScrap: grown, pileAtMs: nowMs });
+}
+
+/** 看广告：把村里那堆直接催到上限。上限还是 PILE_CAP，不许越过 */
+export function fillPile(nowMs: number = Date.now()): RunMemory {
+  const settled = settlePile(nowMs);
+  if (settled.pileScrap >= PILE_CAP) return settled;
+  return persist({ ...settled, pileScrap: PILE_CAP, pileAtMs: nowMs });
 }
 
 /** 一键收。收完从零开始重新涨 */

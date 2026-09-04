@@ -9,13 +9,17 @@ import { Platform } from '@/core/PlatformService';
 const KEY = scopedStorageKey('ad_day');
 const LEGACY_KEY = 'code1_ad_day';
 
-export type AdPlacement = 'revive' | 'settleDouble' | 'dailyGift' | 'junkyard';
+export type AdPlacement =
+  | 'revive' | 'settleDouble' | 'dailyGift' | 'junkyard' | 'pileFill';
 
 const LIMIT: Readonly<Record<AdPlacement, number>> = {
   revive: 2,
   settleDouble: 5,
   dailyGift: 1,
   junkyard: 1,
+  // 村里那堆废品一键涨满。纯局外，不挡开场，一天一次 ——
+  // 它买的是次日回访那一下的即时满足，多给就变成挂机替代打一局了
+  pileFill: 1,
 };
 
 interface DayBook {
@@ -24,6 +28,7 @@ interface DayBook {
   settleDouble: number;
   dailyGift: number;
   junkyard: number;
+  pileFill: number;
   runsStarted: number;
 }
 
@@ -35,7 +40,9 @@ function today(): string {
 }
 
 function empty(date = today()): DayBook {
-  return { date, revive: 0, settleDouble: 0, dailyGift: 0, junkyard: 0, runsStarted: 0 };
+  return {
+    date, revive: 0, settleDouble: 0, dailyGift: 0, junkyard: 0, pileFill: 0, runsStarted: 0,
+  };
 }
 
 function load(): DayBook {
@@ -50,6 +57,7 @@ function load(): DayBook {
       settleDouble: Math.max(0, Number(parsed.settleDouble) || 0),
       dailyGift: Math.max(0, Number(parsed.dailyGift) || 0),
       junkyard: Math.max(0, Number(parsed.junkyard) || 0),
+      pileFill: Math.max(0, Number(parsed.pileFill) || 0),
       runsStarted: Math.max(0, Number(parsed.runsStarted) || 0),
     };
   } catch {

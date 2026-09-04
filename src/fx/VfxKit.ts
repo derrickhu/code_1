@@ -3,7 +3,8 @@
  * 不每帧重画几何，贴图没就绪时用 glow 核顶上，不挡玩。
  */
 import * as PIXI from 'pixi.js';
-import { vfxTex } from '@/core/TextureLoader';
+import { vfxFlipFrames, vfxSparkFrame, vfxTex } from '@/core/TextureLoader';
+import { VFX_FLIP, flipLife, flipFrameIndex } from '@/fx/Flipbook';
 
 const MAX_P = 96;
 const MAX_PLATE = 36;
@@ -17,10 +18,13 @@ interface Particle {
   vr: number;
   drag: number;
   gy: number;
-  s0: number;
-  s1: number;
+  sx0: number;
+  sx1: number;
+  sy0: number;
+  sy1: number;
   a0: number;
   a1: number;
+  faceVel: boolean;
 }
 
 interface Plate {
@@ -34,6 +38,8 @@ interface Plate {
   sy1: number;
   a0: number;
   a1: number;
+  frames: PIXI.Texture[] | null;
+  fps: number;
 }
 
 export class VfxKit {
@@ -60,9 +66,12 @@ export class VfxKit {
       p.vy += p.gy * dt;
       p.vx *= 1 - p.drag * dt;
       p.vy *= 1 - p.drag * dt;
-      p.spr.rotation += p.vr * dt;
-      const s = p.s0 + (p.s1 - p.s0) * t;
-      p.spr.scale.set(s);
+      if (p.faceVel) p.spr.rotation = Math.atan2(p.vy, p.vx);
+      else p.spr.rotation += p.vr * dt;
+      p.spr.scale.set(
+        p.sx0 + (p.sx1 - p.sx0) * t,
+        p.sy0 + (p.sy1 - p.sy0) * t,
+      );
       p.spr.alpha = p.a0 + (p.a1 - p.a0) * t;
       if (p.life <= 0) {
         this._recycle(p.spr);
@@ -76,8 +85,18 @@ export class VfxKit {
       const t = 1 - Math.max(0, p.life) / p.max;
       const e = 1 - (1 - t) * (1 - t);
       p.spr.rotation += p.vr * dt;
-      p.spr.scale.set(p.s0 + (p.s1 - p.s0) * e, p.sy0 + (p.sy1 - p.sy0) * e);
-      p.spr.alpha = p.a0 + (p.a1 - p.a0) * t;
+      if (p.frames && p.frames.length > 1) {
+        const elapsed = p.max - p.life;
+        const idx = flipFrameIndex(elapsed, p.fps, p.frames.length);
+        const frame = p.frames[idx];
+        if (frame && p.spr.texture !== frame) p.spr.texture = frame;
+        const hold = t < 0.78 ? 1 : 1 - (t - 0.78) / 0.22;
+        p.spr.alpha = p.a0 * Math.max(0, hold);
+        p.spr.scale.set(p.s0 + (p.s1 - p.s0) * e, p.sy0 + (p.sy1 - p.sy0) * e);
+      } else {
+        p.spr.scale.set(p.s0 + (p.s1 - p.s0) * e, p.sy0 + (p.sy1 - p.sy0) * e);
+        p.spr.alpha = p.a0 + (p.a1 - p.a0) * t;
+      }
       if (p.life <= 0) {
         this._recycle(p.spr);
         this._plates.splice(i, 1);
@@ -103,7 +122,9 @@ export class VfxKit {
       add?: boolean;
     } = {},
   ): void {
-    const tex = vfxTex(name) ?? vfxTex('glow');
+    const frames = vfxFlipFrames(name);
+    const spec = VFX_FLIP[name];
+    const tex = frames?.[0] ?? vfxTex(name) ?? vfxTex('glow');
     if (!tex) return;
     if (this._plates.length >= MAX_PLATE) {
       const old = this._plates.shift();
@@ -113,21 +134,35 @@ export class VfxKit {
     spr.position.set(x, y);
     spr.rotation = opts.rot ?? 0;
     spr.tint = opts.tint ?? 0xffffff;
-    const s0 = opts.s0 ?? 0.55;
-    const s1 = opts.s1 ?? 1.05;
-    spr.scale.set(s0);
+    let s0 = opts.s0 ?? 0.55;
+    let s1 = opts.s1 ?? 1.05;
+    let sy0 = opts.sy0 ?? s0;
+    let sy1 = opts.sy1 ?? s1;
+    let life = opts.life ?? 0.22;
+    if (frames && frames.length > 1 && spec) {
+      life = Math.max(life, flipLife(frames.length, spec.fps));
+      const mid = (s0 + s1) / 2;
+      // 格子留了黑边，略放大；几乎不缩放，靠帧在动
+      s0 = mid * 1.55;
+      s1 = mid * 1.68;
+      sy0 = (opts.sy0 ?? mid) * 1.55;
+      sy1 = (opts.sy1 ?? mid) * 1.68;
+    }
+    spr.scale.set(s0, sy0);
     spr.alpha = opts.a0 ?? 1;
     this._plates.push({
       spr,
-      life: opts.life ?? 0.22,
-      max: opts.life ?? 0.22,
-      vr: opts.vr ?? 0,
+      life,
+      max: life,
+      vr: frames && frames.length > 1 ? (opts.vr ?? 0) * 0.15 : opts.vr ?? 0,
       s0,
       s1,
-      sy0: opts.sy0 ?? s0,
-      sy1: opts.sy1 ?? s1,
+      sy0,
+      sy1,
       a0: opts.a0 ?? 1,
       a1: opts.a1 ?? 0,
+      frames: frames && frames.length > 1 ? frames : null,
+      fps: spec?.fps ?? 20,
     });
   }
 
@@ -147,18 +182,20 @@ export class VfxKit {
       add?: boolean;
     } = {},
   ): void {
-    const tex = vfxTex(opts.kind ?? 'spark') ?? vfxTex('glow');
-    if (!tex) return;
+    const kind = opts.kind ?? 'spark';
     const n = opts.n ?? 10;
     const speed = opts.speed ?? 220;
     const life = opts.life ?? 0.28;
     const spread = opts.spread ?? Math.PI * 2;
     const base = opts.dir ?? 0;
+    const stretch = kind !== 'glow';
     for (let i = 0; i < n; i += 1) {
       if (this._ps.length >= MAX_P) {
         const old = this._ps.shift();
         if (old) this._recycle(old.spr);
       }
+      const tex = (kind === 'spark' ? vfxSparkFrame() : vfxTex(kind)) ?? vfxTex('glow');
+      if (!tex) continue;
       const a = base + (Math.random() - 0.5) * spread;
       const v = speed * (0.45 + Math.random() * 0.7);
       const spr = this._take(tex, opts.add !== false);
@@ -166,20 +203,25 @@ export class VfxKit {
       spr.rotation = a;
       spr.tint = opts.tint ?? 0xfff1c2;
       const s = (opts.scale ?? 0.35) * (0.6 + Math.random() * 0.7);
-      spr.scale.set(s);
+      const along = stretch ? s * (1.25 + Math.min(1.5, v / 240)) : s;
+      const across = stretch ? s * 0.32 : s;
+      spr.scale.set(along, across);
       this._ps.push({
         spr,
         life: life * (0.7 + Math.random() * 0.5),
         max: life,
         vx: Math.cos(a) * v,
         vy: Math.sin(a) * v,
-        vr: (Math.random() - 0.5) * 8,
+        vr: stretch ? 0 : (Math.random() - 0.5) * 8,
         drag: 2.4,
         gy: opts.gy ?? 80,
-        s0: s,
-        s1: s * 0.2,
+        sx0: along,
+        sx1: along * 0.35,
+        sy0: across,
+        sy1: across * 0.2,
         a0: 0.95,
         a1: 0,
+        faceVel: stretch,
       });
     }
   }

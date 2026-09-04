@@ -1,6 +1,7 @@
 /**
- * 装配预告：同一件破烂装在三个人身上，说出三句不同的话。
- * 玩家点人之前就该看见「值 / 能用 / 浪费」，不要装完才懂。
+ * 装配预告：同一件破烂装在三个人身上，说法不一样。
+ * 点人之前不写值 / 浪费；焊完才用 weldVerdict 说。
+ * 选牌上只点名能叠出的合体（comboTeaser）。
  */
 import { comboIfAdd } from './combos';
 import type { ModDef } from './mods';
@@ -112,6 +113,14 @@ export function installForecast(hero: ForecastHero, mod: ModDef): InstallForecas
     default:
       return pack(mod.becomes, 'ok');
   }
+}
+
+/** 焊完再说。点人之前不写值 / 浪费 */
+export function weldVerdict(hero: ForecastHero, mod: ModDef): string | undefined {
+  const guess = installForecast(hero, mod);
+  if (guess.fit === 'waste') return `${hero.def.name}装这件不值：${guess.line}`;
+  if (guess.fit === 'good') return `${hero.def.name}对上了——${guess.line}`;
+  return undefined;
 }
 
 /** 选牌上点名：队里谁再拿这件能合体 */

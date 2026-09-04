@@ -1,0 +1,17 @@
+8-frame 2D game VFX FLIPBOOK sprite sheet, 4 columns x 2 rows, equal cells, left-to-right then top-to-bottom.
+
+ONE heavy ground smash evolving across 8 frames. Same camera, same center. Additive-blend plate: PURE BLACK background in every cell. White-hot core for tinting.
+
+Frame story:
+1 contact: small white flash on the ground plus a tiny cracked ring
+2 punch: ring opens, two short vertical spikes
+3 peak: bright impact star, broken ring, debris chips up
+4 burst: tallest spikes, white core, dust puffs
+5 settle: spikes shorten, ring breaks apart
+6 fade: debris falling, dimmer core
+7 almost gone: few chips and a faint ring scrap
+8 last: mostly black, two dying specks
+
+Style: Hades / Vampire Survivors heavy hit. Jagged, dusty, weighted. NOT a perfect halo, NOT a soft orb. Cells do not bleed. Black margin in each cell.
+
+NO TEXT, no labels, no captions, no numbers, no frames, no visible grid lines, no characters, no weapons.

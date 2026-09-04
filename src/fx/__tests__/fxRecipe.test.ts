@@ -36,13 +36,23 @@ describe('观战配方', () => {
     expect(skinLook('wire').dry).toBe(true);
     expect(skinLook('wire').proj).toBe('wire');
     expect(enemyLook('beam').beam).toBe(true);
+    expect(enemyLook('claw').quiet).toBe(true);
+    expect(enemyLook('claw').instant).toBe(true);
+    expect(enemyLook('claw').ribbon).toBeFalsy();
+    expect(enemyLook('bash').quiet).toBe(true);
+    expect(enemyLook('bash').instant).toBe(true);
+    expect(enemyLook('bash').plates[0]?.name).not.toBe('smash');
+    expect(enemyLook('spark').ribbon).toBeFalsy();
+    expect(shouldFly(enemyLook('claw'), true)).toBe(false);
+    expect(shouldFly(enemyLook('bash'), true)).toBe(false);
   });
 
   it('飞弹近了也要飞一会儿，不能出手立刻炸', () => {
     expect(shotFlight(attackLook('sniper'), 80)).toBeGreaterThanOrEqual(0.22);
     expect(shotFlight(attackLook('slash'), 80, true)).toBe(0);
     expect(shotFlight(attackLook('slash'), 80, false)).toBeGreaterThanOrEqual(0.22);
-    expect(shotFlight(attackLook('orb'), 80)).toBeGreaterThanOrEqual(0.28);
+    expect(shotFlight(attackLook('orb'), 80)).toBeGreaterThanOrEqual(0.34);
+    expect(shotFlight(attackLook('sniper'), 80)).toBeGreaterThanOrEqual(0.34);
     expect(shotFlight(attackLook('bolt'), 400)).toBeGreaterThan(0.2);
     expect(shouldFly(attackLook('orb'), false)).toBe(true);
     expect(shouldFly(attackLook('slash'), false)).toBe(true);

@@ -345,6 +345,17 @@ class PlatformServiceClass {
         return;
       }
 
+      // 开发者工具里也能 new 出广告实例，但关广告经常不带 isEnded，
+      // 联调会误判没看完。工具里走桩，真机才拉真实激励视频。
+      if (this.isDevtools) {
+        this.showToast('广告播放中…');
+        setTimeout(() => {
+          this.hideToast();
+          resolve(true);
+        }, 700);
+        return;
+      }
+
       let ad: any = null;
       try {
         ad = this._rewardedAd(adUnitId);

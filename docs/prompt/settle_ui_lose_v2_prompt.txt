@@ -1,0 +1,25 @@
+Vertical mobile game FAILURE settlement UI, portrait 9:16 WeChat minigame.
+
+This is NOT the win screen. Win is bright gold "整挺好" with heroes standing proud and a huge +scrap plate. THIS screen must feel like the build fell apart and you should try again.
+
+Use references for materials only (wood plaque, rust plates, village alley). Make the mood later dusk, cooler, dimmer, longer shadows. Do not copy the previous bright heroic lineup.
+
+HIERARCHY:
+1. Background: same village alley but after sunset, dusty blue-gray, warm leftover sky only at the far end. Not cheerful orange.
+2. Title: hanging wood plaque TILTED, paint more peeled, chain slack. Exact Chinese in dark rust-red, not gold: 这套配崩了
+   Small worn stamp: 第 8 波
+3. THE second punch is the next-try line, a wide dark iron bar, cream letters bigger than the scrap number: 下次换个人装试试
+4. MIDDLE: three villagers SIT or slump on the curb / dirt, tired, looking down or wiping sweat. Not heroic standing. Not victory poses.
+   Left: 弹弓叔 with slingshot on the ground, mouth closed, NO cigarette.
+   Center: 王大锤 sitting on the mallet, bandaged, tired.
+   Right: 三婶 sitting on the boombox, name plate 三婶.
+   Tiny name plates at feet.
+5. Scrap is SMALL and muted, a thin rust bar, not a celebration plate. Cream text: +27 进废品堆. Tiny: 村里现有 112. No huge gold number.
+6. Small caption: 改了 4 件 · 最高第 8 波
+7. ONE primary action, large worn play-plate: 再来一局
+8. ONE quieter iron plate beside or below, smaller: 回村子
+
+NO video button. NO play triangle. NO 看视频. Losing settlement has no ads.
+
+Typography: hand-painted Chinese, readable, thick dark stroke. Palette: dusk blue-gray, rust, cream #fff4c4, ink #2a160c. Gold only as a thin rim, not the hero color.
+This is a UI mockup WITH the Chinese text above.

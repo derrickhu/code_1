@@ -49,10 +49,11 @@ import {
   waveAtkMult,
   waveHpMult,
 } from '../../balance/enemies';
-import { installForecast } from '../../balance/forecast';
+import { installForecast, weldVerdict } from '../../balance/forecast';
 import { availableMods, isModUnlocked, yardDeposit } from '../../balance/yard';
 import { HEROES, getHero } from '../../balance/heroes';
-import { MODS, getMod } from '../../balance/mods';
+import { MODS, getMod, scaleAbility } from '../../balance/mods';
+import { LANE_LV_MAX, emptyLanes, laneStars } from '../../balance/lanes';
 import { PET_CAP, PET_MAX_DIST, PET_PROTOS } from '../../balance/pets';
 import { LADDER_TOP, ladderDownMult, ladderStageMs } from '../../balance/ladder';
 import { LEVEL_EXP, PICK_STRATEGIES, levelThreshold } from '../../balance/picker';
@@ -624,6 +625,7 @@ describe('改装件能改定位，而不只是加数值', () => {
     expect(melee.fit).toBe('good');
     expect(ranged.fit).toBe('waste');
     expect(melee.line).not.toBe(ranged.line);
+    expect(weldVerdict(unit('sanshen', 2), pipe)).toContain('不值');
   });
 
   it('接了根长水管把近战改成远程', () => {
@@ -880,6 +882,8 @@ describe('发牌规则', () => {
     expect(isModUnlocked('pipe', [])).toBe(true);
     expect(isModUnlocked('chainsaw', [])).toBe(true);
     expect(availableMods([]).some((m) => m.id === 'chainsaw')).toBe(true);
+    expect(availableMods([]).some((m) => m.id === 'slingshot')).toBe(false);
+    expect(availableMods([]).some((m) => m.id === 'shovel')).toBe(false);
     const s = createRun(61, 0, 'ad', '', []);
     expect(s.modPool.some((m) => m.id === 'chainsaw') || s.pinnedMods.some((m) => m.id === 'chainsaw')).toBe(true);
     expect(s.modPool.some((m) => m.id === 'pipe') || s.pinnedMods.some((m) => m.id === 'pipe')).toBe(true);
@@ -901,7 +905,7 @@ describe('发牌规则', () => {
       '',
       0,
       0,
-      { expPct: 0, freeRerolls: 0, luckPicks: 0, startWelds: 1, freeRevives: 0 },
+      { expPct: 0, freeRerolls: 0, luckPicks: 0, startWelds: 1, freeRevives: 0, carryStars: 0 },
     );
     expect(s.team.some((h) => h.mods.length > 0)).toBe(true);
   });
@@ -1448,6 +1452,7 @@ describe('波次编排', () => {
       const def = WAVES.find((x) => x.wave === w);
       expect(def).toBeDefined();
       expect(def!.hint.length).toBeGreaterThan(0);
+      expect(def!.ask.length).toBeGreaterThan(4);
       expect(['硬', '多', '快']).toContain(def!.pressure);
       for (const sp of def!.spawns) {
         expect((sp as unknown as Record<string, unknown>).element).toBeUndefined();
@@ -1610,5 +1615,137 @@ describe('整局回归', () => {
     expect(s.medianWave).toBeGreaterThanOrEqual(9);
     expect(s.medianWave).toBeLessThanOrEqual(12);
     expect(s.clearRate).toBeGreaterThan(0.08);
+  });
+});
+
+// ── 局外养成的护栏 ──────────────────────────────────────
+
+/**
+ * 这一组守的是局外那几条线「不许把局内玩法买掉」。
+ *
+ * 门路研发能让人变强，这是它存在的理由；但它一旦做到
+ * 「买完就不用挑人了」或者「买完反而更难」，这条线就该重做而不是调数。
+ */
+describe('门路研发的护栏', () => {
+  const oneLane = { reach: LANE_LV_MAX, heavy: 0, stand: 0, rage: 0, band: 0 };
+  const allLanes = {
+    reach: LANE_LV_MAX,
+    heavy: LANE_LV_MAX,
+    stand: LANE_LV_MAX,
+    rage: LANE_LV_MAX,
+    band: LANE_LV_MAX,
+  };
+
+  /**
+   * 主曲线永远按「什么都没买」校准。
+   *
+   * 默认不传养成，是因为一旦让基线跟着养成走，
+   * 卡关点那条回归就会随着每次改价目表一起飘。
+   */
+  it('不传养成时和白板一字不差，基线不会被养成带着飘', () => {
+    const bare = simulateRun({ strategy: 'smart', seed: 777 });
+    const zero = simulateRun({ strategy: 'smart', seed: 777, laneLv: emptyLanes() });
+    expect(zero).toEqual(bare);
+  });
+
+  /**
+   * 花了钱不许更难。
+   *
+   * 这条踩过一次真坑：门路研发原本只改发牌份量、不改数值，
+   * 结果专精一路等于把别路的强件从池子里挤走，
+   * 满研发之后通关率从 15% 掉到 7% —— 玩家花 595 废品买到了更难打。
+   */
+  it('买完只会更好打，不会更难', () => {
+    const plain = simulateBatch('smart', 120, 8080);
+    const one = simulateBatch('smart', 120, 8080, { laneLv: oneLane });
+    const all = simulateBatch('smart', 120, 8080, { laneLv: allLanes });
+    expect(one.clearRate).toBeGreaterThan(plain.clearRate);
+    expect(all.clearRate).toBeGreaterThanOrEqual(one.clearRate);
+  });
+
+  /** 五路全满也别把这一关打成过家家：还得留下往后面关卡走的理由 */
+  it('全满也不是通关必然，后面还有关要打', () => {
+    const all = simulateBatch('smart', 120, 8080, { laneLv: allLanes });
+    expect(all.clearRate).toBeLessThan(0.95);
+  });
+
+  /**
+   * 研发满了照样得装对人。
+   *
+   * 这条是反目标第一条在局外方向上的防线：养成把「装给谁」的差值买没了，
+   * 就等于花钱买掉了这个游戏的核心动作。
+   */
+  it('研发满了「装对人」还是值钱的', () => {
+    const smart = simulateBatch('smart', 120, 9090, { laneLv: allLanes });
+    const random = simulateBatch('random', 120, 9090, { laneLv: allLanes });
+    expect(smart.meanWave - random.meanWave).toBeGreaterThan(2.5);
+  });
+
+  /** 研发看得见：这一局的牌真的偏向研发过的那条路 */
+  it('研发过的那条路在牌面上占得更多', () => {
+    const plain = simulateBatch('smart', 120, 8080);
+    const one = simulateBatch('smart', 120, 8080, { laneLv: oneLane });
+    // 回声件退出本局池之后，白板已经更偏大路，满研一条的抬幅变薄，但仍得往上走
+    expect(one.topLaneShare).toBeGreaterThan(plain.topLaneShare + 0.01);
+  });
+});
+
+/**
+ * 焊上去的必须是带星的那一份。
+ *
+ * 这里守着一个真实踩过的坑：装配那一步曾经用 getMod 重新取件，
+ * 取回来的是白板 —— 村里研发出来的星在焊上的那一刻悄悄丢掉，
+ * 局外花的钱一分都没进这一局，而且这事在界面上完全看不出来。
+ */
+describe('村里研发的星要跟到战场上', () => {
+  const lanes = { reach: LANE_LV_MAX, heavy: 0, stand: 0, rage: 0, band: 0 };
+
+  it('三选一发出来的是带星的那一份', () => {
+    const s = createRun(4242, 0, 'ad', 'pipe', undefined, undefined, '', 0, undefined, undefined, {
+      laneLv: lanes,
+    });
+    const pinned = s.pinnedMods.find((m) => m.id === 'pipe');
+    expect(pinned).toBeDefined();
+    expect(pinned!.effect).toEqual(scaleAbility(getMod('pipe').effect, laneStars(LANE_LV_MAX)));
+  });
+
+  it('焊到人身上之后，星还在', () => {
+    const s = createRun(
+      4243, 0, 'ad', 'pipe', undefined,
+      ['tiezhu', 'dachui', 'laoyanqiang'], '', 0, undefined, undefined,
+      { laneLv: lanes },
+    );
+    runUntil(s, (x) => x.phase === 'installing');
+    expect(s.pendingMod?.id).toBe('pipe');
+    const who = installTargets(s)[0]!;
+    installMod(s, who.def.id);
+    const welded = who.mods.find((m) => m.id === 'pipe');
+    expect(welded).toBeDefined();
+    const raw = getMod('pipe').effect;
+    expect(welded!.effect).toEqual(scaleAbility(raw, laneStars(LANE_LV_MAX)));
+    expect(welded!.effect).not.toEqual(raw);
+  });
+
+  it('带一件出村：进场就已经焊在人身上了', () => {
+    const s = createRun(
+      4244, 0, 'ad', '', undefined,
+      ['tiezhu', 'dachui', 'laoyanqiang'], '', 0, undefined,
+      { expPct: 0, freeRerolls: 0, luckPicks: 0, startWelds: 0, freeRevives: 0, carryStars: 0 },
+      { carryModId: 'quilt' },
+    );
+    expect(s.team.some((h) => h.mods.some((m) => m.id === 'quilt'))).toBe(true);
+    expect(s.modPool.some((m) => m.id === 'quilt')).toBe(false);
+  });
+
+  it('携带位第二级：带出去那件白升一星', () => {
+    const s = createRun(
+      4245, 0, 'ad', '', undefined,
+      ['tiezhu', 'dachui', 'laoyanqiang'], '', 0, undefined,
+      { expPct: 0, freeRerolls: 0, luckPicks: 0, startWelds: 0, freeRevives: 0, carryStars: 1 },
+      { carryModId: 'quilt' },
+    );
+    const welded = s.team.flatMap((h) => h.mods).find((m) => m.id === 'quilt');
+    expect(welded).toBeDefined();
+    expect(welded!.effect).toEqual(scaleAbility(getMod('quilt').effect, 1));
   });
 });

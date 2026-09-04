@@ -340,6 +340,21 @@ export const MODS: readonly ModDef[] = [
   },
 ];
 
+/**
+ * 同类只留一件代表。这些还在表里，老档 / 皮能认，
+ * 本局池子和门路不再发 —— 发出来只会让「这件让谁变成什么」记不住。
+ */
+export const ECHO_MODS: ReadonlySet<string> = new Set([
+  'slingshot', 'stool', 'chili', 'fridge', 'gascan', 'bell', 'shovel',
+]);
+
+export function isRunMod(id: string): boolean {
+  return !ECHO_MODS.has(id);
+}
+
+/** 本局抽得到的那一份。村里柜子、发牌、门路都看这个 */
+export const RUN_MODS: readonly ModDef[] = MODS.filter((m) => isRunMod(m.id));
+
 export const MOD_BY_ID: Readonly<Record<string, ModDef>> = Object.fromEntries(
   MODS.map((m) => [m.id, m]),
 );

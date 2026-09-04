@@ -24,6 +24,8 @@ type SettleOpts = {
   canDouble: boolean;
   canJunkyard: boolean;
   loseReason?: LoseReason;
+  /** 这一局叫什么。结算认这句，不认总伤害 */
+  identity?: string;
   nextMove?: string;
   yardScrap?: number;
   yardIn?: number;
@@ -73,6 +75,26 @@ function fillSprite(
   return spr;
 }
 
+function lineupXs(roster: { slot: number }[]): Map<number, number> {
+  const sorted = [...roster].sort((a, b) => a.slot - b.slot);
+  const n = sorted.length;
+  const out = new Map<number, number>();
+  if (n === 0) return out;
+  if (n === 1) {
+    out.set(sorted[0]!.slot, 375);
+    return out;
+  }
+  if (n === 2) {
+    out.set(sorted[0]!.slot, 258);
+    out.set(sorted[1]!.slot, 492);
+    return out;
+  }
+  for (const h of sorted) {
+    out.set(h.slot, h.slot === 1 ? 198 : h.slot === 2 ? 552 : 375);
+  }
+  return out;
+}
+
 function standSprite(
   parent: PIXI.Container,
   texture: PIXI.Texture | null,
@@ -86,6 +108,7 @@ function standSprite(
   spr.anchor.set(0.5, 1);
   spr.scale.set(Math.min(maxW / texture.width, maxH / texture.height));
   spr.position.set(cx, feetY);
+  spr.eventMode = 'none';
   parent.addChild(spr);
   return spr;
 }
@@ -136,32 +159,35 @@ export class SettleOverlay extends PIXI.Container {
     this._held = { state, memory, height, opts };
     this.hitArea = new PIXI.Rectangle(0, 0, 750, height);
 
-    this._coverBg(height);
-
     const won = state.phase === 'won';
+    this._coverBg(height, !won);
+    if (!won) {
+      this._showLose(state, memory, height, opts);
+      return;
+    }
+
     const top = Math.max(Game.safeTop, 28);
-    const title = won
-      ? '整挺好'
-      : opts.loseReason === 'timeout'
-        ? '这波推不动'
-        : '这套配崩了';
+    const title = '整挺好';
 
     const roster = [...state.team].sort((a, b) => a.slot - b.slot);
     const plaque = fitted('title_plaque', 700, 380);
     const plaqueY = top + plaque.h * 0.48;
     fitSprite(this, uiTex('title_plaque'), 375, plaqueY, 700, 380);
-    const titleTx = stroke(won ? 56 : 34, won ? GOLD : CREAM, '#2a160c', 7);
+    const titleTx = stroke(56, GOLD, '#2a160c', 7);
     titleTx.anchor.set(0.5);
     titleTx.position.set(375, plaqueY + plaque.h * 0.15);
     titleTx.text = title;
     this.addChild(titleTx);
 
-    let infoBottom = plaqueY + plaque.h * 0.52;
-    if (!won && opts.nextMove) {
-      const bar = fitted('iron_bar', 560, 54);
-      this._caption(375, infoBottom + bar.h / 2, 560, 54, opts.nextMove, 16, CREAM);
-      infoBottom += bar.h + 8;
+    if (opts.identity) {
+      const idTx = stroke(20, GOLD, '#2a160c', 4);
+      idTx.anchor.set(0.5);
+      idTx.position.set(375, plaqueY + plaque.h * 0.32);
+      idTx.text = opts.identity;
+      this.addChild(idTx);
     }
+
+    const infoBottom = plaqueY + plaque.h * 0.52;
 
     const showNext = !!opts.nextStageLabel;
     const loot = { w: 710, h: 210 };
@@ -266,17 +292,150 @@ export class SettleOverlay extends PIXI.Container {
     const feetY = nameBottom - namePlate.h;
     const nameCy = nameBottom - namePlate.h / 2;
 
-    for (const slot of [1, 2, 0]) {
-      const hero = roster.find((h) => h.slot === slot);
-      if (!hero) continue;
-      const x = slot === 1 ? 198 : slot === 2 ? 552 : 375;
-      standSprite(this, heroTex(hero.def.id), x, feetY, slot === 0 ? 156 : 132, slot === 0 ? 184 : 156);
+    const xs = lineupXs(roster);
+    for (const hero of roster) {
+      const x = xs.get(hero.slot) ?? 375;
+      const mid = hero.slot === 0 || roster.length === 1;
+      standSprite(this, heroTex(hero.def.id), x, feetY, mid ? 156 : 132, mid ? 184 : 156);
       this._chip('settle_name', x, nameCy, 168, 48, hero.def.name, 17, CREAM);
       hero.mods.forEach((m, k) => {
         const n = hero.mods.length;
         fitSprite(this, modTex(m.id), x + (k - (n - 1) / 2) * 36, feetY - 8, 32, 32);
       });
     }
+  }
+
+  /**
+   * 失败结算按 settle_ui_lose_v2：歪匾、坐马路牙子、下一手是主信息、
+   * 废品缩小、再来一局为主，没有广告。
+   */
+  private _showLose(state: RunState, memory: RunMemory, height: number, opts: SettleOpts): void {
+    const roster = [...state.team].sort((a, b) => a.slot - b.slot);
+    const top = Math.max(Game.safeTop, 20);
+    const title = opts.loseReason === 'timeout' ? '这波推不动' : '这套配崩了';
+    const hint = opts.nextMove || '下次换个人装试试';
+
+    const vignette = new PIXI.Graphics();
+    vignette.beginFill(0x0a1220, 0.22).drawRect(0, 0, 750, 90).endFill();
+    vignette.beginFill(0x0a1220, 0.18).drawRect(0, height - 120, 750, 120).endFill();
+    vignette.eventMode = 'none';
+    this.addChild(vignette);
+
+    const plaqueW = 680;
+    const plaqueH = 280;
+    const plaqueCy = top + plaqueH * 0.46;
+    const tilt = -0.06;
+    const plaqueSpr = fitSprite(this, uiTex('title_plaque'), 360, plaqueCy, plaqueW, plaqueH);
+    if (plaqueSpr) plaqueSpr.rotation = tilt;
+    const faceY = plaqueCy + plaqueH * 0.1;
+    const titleTx = stroke(40, 0x8b2e1f, '#1a1008', 6);
+    titleTx.anchor.set(0.5);
+    titleTx.position.set(356, faceY);
+    titleTx.rotation = tilt;
+    titleTx.text = title;
+    this.addChild(titleTx);
+
+    const stampX = 568;
+    const stampY = faceY + 58;
+    fillSprite(this, uiTex('settle_stamp'), stampX, stampY, 196, 80);
+    const waveTx = stroke(22, CREAM, '#1a1008', 4);
+    waveTx.anchor.set(0.5);
+    waveTx.position.set(stampX, stampY + 1);
+    waveTx.text = `第 ${state.wave} 波`;
+    this.addChild(waveTx);
+
+    const hintH = 96;
+    const hintCy = plaqueCy + plaqueH * 0.5 + 8 + hintH / 2;
+    this._caption(375, hintCy, 660, hintH, hint, 22, CREAM);
+
+    const yardH = 72;
+    const replayH = 118;
+    const yardCy = height - Game.safeBottom - 18 - yardH / 2;
+    const replayCy = yardCy - yardH / 2 - 14 - replayH / 2;
+    const capCy = replayCy - replayH / 2 - 24;
+    const lootH = 88;
+    const lootCy = capCy - 18 - lootH / 2;
+
+    const nameH = 46;
+    const modsH = 30;
+    const bandTop = hintCy + hintH / 2 + 18;
+    const bandBottom = lootCy - lootH / 2 - 14;
+    const labelStack = 12 + nameH + 8 + modsH;
+    const sitH = Math.max(190, Math.min(260, bandBottom - labelStack - bandTop));
+    const feetY = bandTop + sitH;
+    this._drawCurb(48, feetY - 6, 654, 28);
+
+    const xs = lineupXs(roster);
+    for (const hero of roster) {
+      const x = xs.get(hero.slot) ?? 375;
+      const mid = hero.slot === 0 || roster.length === 1;
+      const spr = standSprite(
+        this,
+        heroTex(hero.def.id),
+        x,
+        feetY + 4,
+        mid ? 200 : 178,
+        sitH,
+      );
+      if (spr) spr.tint = 0xa8a29a;
+      fillSprite(this, uiTex('settle_name'), x, feetY + 14 + nameH / 2, 168, nameH);
+      const nameTx = stroke(18, CREAM, '#1a1008', 4);
+      nameTx.anchor.set(0.5);
+      nameTx.position.set(x, feetY + 14 + nameH / 2 + 1);
+      nameTx.text = hero.def.name;
+      this.addChild(nameTx);
+      hero.mods.forEach((m, k) => {
+        const n = hero.mods.length;
+        fitSprite(
+          this,
+          modTex(m.id),
+          x + (k - (n - 1) / 2) * 32,
+          feetY + 14 + nameH + 8 + modsH / 2,
+          28,
+          28,
+        );
+      });
+    }
+
+    this._loseLoot(lootCy, { w: 660, h: lootH }, opts);
+
+    const cap = stroke(18, CREAM, '#1a1008', 3);
+    cap.anchor.set(0.5);
+    cap.position.set(375, capCy);
+    cap.text = [
+      roster.length > 0 ? `改了 ${state.stats.installs} 件` : '一个人都没叫',
+      memory.highestWave > 0 ? `最高第 ${memory.highestWave} 波` : '',
+    ].filter(Boolean).join(' · ');
+    this.addChild(cap);
+
+    this._fillBtn(375, replayCy, 560, replayH, '再来一局', 28, () => this._onReplay());
+    this._fillBtn(375, yardCy, 360, yardH, '回村子', 20, () => this._onYard());
+  }
+
+  private _drawCurb(x: number, y: number, w: number, h: number): void {
+    const g = new PIXI.Graphics();
+    g.eventMode = 'none';
+    g.beginFill(0x3a3832, 0.92).drawRoundedRect(x, y, w, h, 6).endFill();
+    g.beginFill(0x5a564c, 0.55).drawRoundedRect(x + 6, y + 3, w - 12, 7, 3).endFill();
+    this.addChild(g);
+  }
+
+  private _loseLoot(cy: number, size: { w: number; h: number }, opts: SettleOpts): void {
+    fillSprite(this, uiTex('iron_bar'), 375, cy, size.w, size.h);
+    const got = opts.yardIn ?? opts.earned;
+    fitSprite(this, uiTex('scrap_pile'), 375 - size.w * 0.36, cy, 56, 52);
+    const plus = stroke(26, CREAM, '#1a1008', 4);
+    plus.anchor.set(0, 0.5);
+    plus.text = `+${got} 进废品堆`;
+    plus.position.set(375 - size.w * 0.24, cy);
+    this.addChild(plus);
+    const have = stroke(16, CREAM, '#1a1008', 3);
+    have.anchor.set(1, 0.5);
+    have.position.set(375 + size.w * 0.4, cy);
+    have.text = opts.yardIn
+      ? `村里现有 ${opts.yardScrap ?? 0}`
+      : `花了 ${opts.spent} · 剩 ${opts.scrap}`;
+    this.addChild(have);
   }
 
   hide(): void {
@@ -319,7 +478,7 @@ export class SettleOverlay extends PIXI.Container {
     this.addChild(have);
   }
 
-  private _coverBg(h: number): void {
+  private _coverBg(h: number, lose = false): void {
     const art = villageBgTex();
     if (art?.baseTexture.valid) {
       const spr = new PIXI.Sprite(art);
@@ -327,11 +486,17 @@ export class SettleOverlay extends PIXI.Container {
       spr.anchor.set(0.5, 0);
       spr.position.set(375, 0);
       spr.scale.set(scale);
+      if (lose) spr.tint = 0x6e7480;
       this.addChild(spr);
+      if (lose) {
+        const veil = new PIXI.Graphics();
+        veil.beginFill(0x0a1220, 0.32).drawRect(0, 0, 750, h).endFill();
+        this.addChild(veil);
+      }
       return;
     }
     const g = new PIXI.Graphics();
-    g.beginFill(0x3a2a1c).drawRect(0, 0, 750, h).endFill();
+    g.beginFill(lose ? 0x1c1e24 : 0x3a2a1c).drawRect(0, 0, 750, h).endFill();
     this.addChild(g);
   }
 
@@ -344,19 +509,19 @@ export class SettleOverlay extends PIXI.Container {
     size: number,
     fill: number,
   ): { w: number; h: number } {
-    const sizeNow = fitted('iron_bar', maxW, maxH);
-    fitSprite(this, uiTex('iron_bar'), cx, cy, maxW, maxH);
+    fillSprite(this, uiTex('iron_bar'), cx, cy, maxW, maxH);
     if (title) {
       const t = stroke(size, fill);
       t.anchor.set(0.5);
       t.position.set(cx, cy + 1);
       t.style.wordWrap = true;
-      t.style.wordWrapWidth = Math.max(160, sizeNow.w - 88);
+      t.style.wordWrapWidth = Math.max(200, maxW - 80);
       t.style.align = 'center';
+      t.style.lineHeight = size + 6;
       t.text = title;
       this.addChild(t);
     }
-    return sizeNow;
+    return { w: maxW, h: maxH };
   }
 
   private _chip(
@@ -434,6 +599,33 @@ export class SettleOverlay extends PIXI.Container {
     t.anchor.set(0.5);
     t.style.wordWrap = true;
     t.style.wordWrapWidth = Math.max(80, size.w * 0.72);
+    t.style.align = 'center';
+    t.text = title;
+    box.addChild(t);
+    this.addChild(box);
+    bindPointerTap(box, onTap);
+    return box;
+  }
+
+  private _fillBtn(
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    title: string,
+    font: number,
+    onTap: () => void,
+  ): PIXI.Container {
+    const box = new PIXI.Container();
+    box.eventMode = 'static';
+    box.interactiveChildren = false;
+    box.position.set(cx, cy);
+    box.hitArea = new PIXI.Rectangle(-w / 2, -h / 2, w, h);
+    fillSprite(box, uiTex('settle_btn'), 0, 0, w, h);
+    const t = stroke(font, INK, '#fff4c4', 4);
+    t.anchor.set(0.5);
+    t.style.wordWrap = true;
+    t.style.wordWrapWidth = Math.max(80, w * 0.72);
     t.style.align = 'center';
     t.text = title;
     box.addChild(t);

@@ -1,0 +1,23 @@
+Game UI icon sprite sheet, 3 columns x 2 rows, six equal square panels, thin pale gutter,
+flat pale warm gray backdrop (easy to cut out).
+
+Same cheap-fun sticker-chibi as the village scrap-yard game:
+fat even black comic ink outlines, flat 6-8 colors, TWO-tone cel shade only,
+one highlight blob per big shape.
+Palette: cream, mustard, rust red, cement gray, weathered wood, dirty iron, tiny cold cyan only on sparks.
+NOT premium fantasy, NOT neon, NOT candy cute, NOT photoreal.
+
+Each object sits centered in its cell, isolated, small contact shadow. No people.
+NO TEXT, no labels, no letters, no numbers, no logos, no watermarks, no writing on any surface.
+
+Row 1:
+1 HANDS: rusty analog stopwatch / kitchen timer, dented, one highlight, means "faster"
+2 REROLL: three chunky scrap-choice cards fanned, a rusty refresh swirl arrow around them
+3 LUCK: open wooden junk crate spilling a glowing lucky pipe / spring, means "good goods"
+
+Row 2:
+4 STARTER: welding spark on a rust-red pot lid, one white flash blob, means "weld first"
+5 POCKET: dented tin can stuffed with washers and scrap coins
+6 BREATH: village pot lid with one puff of cream steam, means "one free revive"
+
+Same outline weight and camera. Readable at 64px.

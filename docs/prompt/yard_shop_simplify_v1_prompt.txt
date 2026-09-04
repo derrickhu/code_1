@@ -1,0 +1,39 @@
+Mobile game UI mockup, vertical 9:16, WeChat minigame 750-wide feel.
+
+Use the reference screenshot for STYLE and PAGE CHROME only:
+same rustic village scrap-yard, dark wood panels, iron plates, warm dusk workshop background,
+same top resource bar and two bottom metal buttons. Do NOT copy the wordy 4-line card text.
+
+ART STYLE: 2D cheap vinyl sticker-chibi, fat comic ink outlines, flat 6-8 colors,
+TWO-tone cel shade. Palette: cream #FFF4C4, mustard gold #C9A46A, ink #2A160C,
+rust #C44A24, weathered wood, dirty iron. Industrial/utilitarian shop tiles.
+FORBIDDEN: purple glow, neon, pastel kawaii, modern glass cards, English paragraphs.
+
+GOAL: each upgrade is a SHOP TILE, glanceable in one second. Kill essays.
+
+PAGE STRUCTURE (top to bottom):
+1) Same iron top bar: scrap pile 817 on left, 10/40 on right. No extra essay subtitle.
+2) Short wood chip title only: 废品站
+3) One thin wood strip (not a paragraph): 下手更快能买了
+4) 2 columns x 3 rows of SHORT shop tiles. More icon, less text.
+5) Bottom two iron plates unchanged: 回村子 | 破烂升星
+
+EACH TILE LAYOUT (same for all six):
+- Left 28%: one big sticker ICON (no letters on the icon)
+- Right 72%:
+  Line 1: 4-character name + 5 small level pips (filled/empty), NOT "0/5 照旧攒经验"
+  Line 2: ONE short number-phrase = what you GET if you tap (the next rank only)
+  Bottom: a fat cost pill. Gold if affordable, grey if not.
+
+Exact six tiles, Simplified Chinese only, no extra sentences:
+
+Row1 L 下手更快 | pips 0/5 empty | 门槛 -20% | gold pill 25 | icon: rusty stopwatch / hammer striking faster
+Row1 R 多翻几手 | pips 0/4 | 白翻 +1 | grey pill 还差 12 | icon: three cards with a refresh swirl
+Row2 L 好货上门 | pips 0/2 | 前1手改定位 | gold pill 45 | icon: glowing junk crate / lucky pipe
+Row2 R 进场先焊 | pips 0/2 | 开打先焊1件 | gold pill 50 | icon: welding spark on a pot lid
+Row3 L 开局零钱 | pips 0/3 | 口袋 +8 | gold pill 30 | icon: dented tin can of scrap coins
+Row3 R 村里一口气 | pips 0/1 | 跪了白站1次 | grey pill 70 | icon: village pot-lid + one puff of steam
+
+Hard bans on tiles: no flavor paragraphs, no "点一下 ·", no "照旧攒经验",
+no second explanation line, no English, no watermark, no phone frame.
+Readable at arm length. Gold rim on affordable tiles, dull rim on the rest.

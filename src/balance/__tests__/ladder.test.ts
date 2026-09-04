@@ -10,14 +10,13 @@ import {
   ladderRule,
   ladderStageMs,
 } from '@/balance/ladder';
+import { LANE_LV_COSTS, laneTotalCost } from '@/balance/lanes';
 import {
-  MOD_STAR_COSTS,
   PILE_CAP,
   PILE_PER_HOUR,
   YARD_GROWTH,
   growthTotalCost,
   pileGrowth,
-  starTotalCost,
   yardDeposit,
 } from '@/balance/yard';
 import { STAGE_MS, TOTAL_WAVES } from '@/balance/combat';
@@ -96,7 +95,7 @@ describe('废品站的坡', () => {
     const oneRun = yardDeposit(9, 0);
     const first = Math.min(
       ...YARD_GROWTH.map((g) => g.costs[0] ?? 999),
-      MOD_STAR_COSTS[0] ?? 999,
+      LANE_LV_COSTS[0] ?? 999,
     );
     expect(first).toBeLessThanOrEqual(oneRun);
   });
@@ -117,7 +116,7 @@ describe('废品站的坡', () => {
 
   it('别再五六局就买空', () => {
     const perRun = yardDeposit(11, 0);
-    expect((growthTotalCost() + starTotalCost()) / perRun).toBeGreaterThan(9);
+    expect((growthTotalCost() + laneTotalCost()) / perRun).toBeGreaterThan(9);
   });
 });
 

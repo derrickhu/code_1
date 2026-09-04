@@ -216,6 +216,31 @@ export function coverSpriteTop(
   return spr;
 }
 
+/** 铺满并多裁一圈。圆角锈铁条贴顶全宽时，把圆角裁掉只留锈面。 */
+export function coverSpriteBleed(
+  parent: PIXI.Container,
+  texture: PIXI.Texture | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  bleed = 1.28,
+): PIXI.Sprite | null {
+  if (!texture?.baseTexture.valid || texture.width <= 1) return null;
+  const spr = new PIXI.Sprite(texture);
+  const scale = Math.max(w / texture.width, h / texture.height) * bleed;
+  spr.anchor.set(0.5);
+  spr.position.set(x + w / 2, y + h / 2);
+  spr.scale.set(scale);
+  spr.eventMode = 'none';
+  const mask = new PIXI.Graphics();
+  mask.eventMode = 'none';
+  mask.beginFill(0xffffff).drawRect(x, y, w, h).endFill();
+  spr.mask = mask;
+  parent.addChild(spr, mask);
+  return spr;
+}
+
 /**
  * 自家阵地：三角站位和底栏连成一块台子，避免人悬在路中间。
  * 只铺在脚下这一小片，上方空场仍然不画格子。

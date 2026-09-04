@@ -10,10 +10,13 @@
  *    唯一量化证据，也是反目标第一条的防线。差值太小就要回去改 mods.ts。
  */
 
-import { TOTAL_WAVES } from '../balance/combat';
+import { MOD_SLOTS_PER_HERO, TOTAL_WAVES } from '../balance/combat';
+import { comboOf } from '../balance/combos';
 import { getWave } from '../balance/enemies';
 import { getHero } from '../balance/heroes';
 import { getMod } from '../balance/mods';
+import { laneOf, type LaneLevels } from '../balance/lanes';
+import { DEFAULT_RUN_GROWTH, type RunGrowth } from '../balance/yard';
 import type { PickOption, PickStrategy } from '../balance/picker';
 import {
   applyPick,
@@ -58,8 +61,22 @@ function chooseOption(
   const mods = options.filter((o) => o.kind === 'mod');
   if (mods.length === 0) return options[0];
 
-  const byKind = (kind: string) =>
-    mods.find((o) => o.kind === 'mod' && getMod(o.modId).kind === kind);
+  /**
+   * 同一类里挑星级最高的那张。
+   *
+   * 懂的人当然优先拿村里研发过的那条路 —— 不看星就等于假设玩家无视
+   * 自己花过的钱，第二条门路的价值永远量不出来。
+   * 星全是 0 时它退化成「取第一张」，白板基线一个字都不变。
+   */
+  const byKind = (kind: string): PickOption | undefined => {
+    const cands = mods.filter((o) => o.kind === 'mod' && getMod(o.modId).kind === kind);
+    const starOf = (o: PickOption): number =>
+      o.kind === 'mod' ? state.modStars[o.modId] ?? 0 : 0;
+    return cands.reduce<PickOption | undefined>(
+      (best, o) => (best === undefined || starOf(o) > starOf(best) ? o : best),
+      undefined,
+    );
+  };
 
   switch (strategy) {
     case 'output':
@@ -200,6 +217,14 @@ export interface SimConfig {
   pinModId?: string;
   /** 打第几档难度阶梯。0 是照旧 */
   ladderLv?: number;
+  /**
+   * 局外那几条养成线。默认全 0 —— 主曲线永远按「什么都没买」校准，
+   * 买了之后变强是养成该有的事，不该把基线一起抬走。
+   * 传进来只用于验护栏：满研发不许把这一局打成过家家。
+   */
+  growth?: RunGrowth;
+  laneLv?: LaneLevels;
+  carryModId?: string;
 }
 
 export interface SimResult {
@@ -230,6 +255,9 @@ export function simulateRun(config: SimConfig): SimResult {
     undefined,
     '',
     config.ladderLv ?? 0,
+    undefined,
+    config.growth ?? DEFAULT_RUN_GROWTH,
+    { laneLv: config.laneLv, carryModId: config.carryModId },
   );
 
   let ticks = 0;
@@ -290,6 +318,25 @@ export interface BatchStats {
   /** 每波的到达率，索引 0 对应第 1 波 */
   reachRate: number[];
   avgDurationSec: number;
+  /**
+   * 一局平均焊上几件。主体验「把杂兵改造成怪物」的密度就是这个数 ——
+   * 它太小，池子里的合体和每人 3 件的取舍都不会发生。
+   */
+  avgInstalls: number;
+  /** 至少点出一次合体的局占比。合体是「两件叠一起出事了」的唯一出口 */
+  comboRate: number;
+  /** 最满那个人身上的件数均值。贴近 MOD_SLOTS_PER_HERO 才说明取舍真的存在 */
+  avgTopSlots: number;
+  /** 有人焊满 3 件的局占比 */
+  fullSlotRate: number;
+  /**
+   * 一局里同一条门路占了多少件（最大那条的占比均值）。
+   *
+   * 这是「我这号走的是哪条路」有没有成立的唯一量化证据：
+   * 什么都没研发时它应该贴着随机水平（5 条路里最大那条约 3 成），
+   * 研发满一条之后应该明显抬起来。抬不起来说明 laneDrawMul 白给。
+   */
+  topLaneShare: number;
 }
 
 function quantile(sorted: readonly number[], q: number): number {
@@ -302,17 +349,29 @@ export function simulateBatch(
   strategy: PickStrategy,
   runs: number,
   seedBase = 1,
+  meta: Pick<SimConfig, 'growth' | 'laneLv' | 'carryModId' | 'ladderLv'> = {},
 ): BatchStats {
   const waves: number[] = [];
   let cleared = 0;
   let totalMs = 0;
+  let installs = 0;
+  let comboRuns = 0;
+  let topSlots = 0;
+  let fullSlotRuns = 0;
+  let laneShare = 0;
   const reachCount = new Array<number>(TOTAL_WAVES).fill(0);
 
   for (let i = 0; i < runs; i += 1) {
-    const r = simulateRun({ strategy, seed: seedBase + i * 7919 });
+    const r = simulateRun({ ...meta, strategy, seed: seedBase + i * 7919 });
     waves.push(r.reachedWave);
     if (r.cleared) cleared += 1;
     totalMs += r.durationMs;
+    installs += r.installs;
+    if (r.team.some((h) => comboOf(h.mods) !== undefined)) comboRuns += 1;
+    const top = Math.max(0, ...r.team.map((h) => h.mods.length));
+    topSlots += top;
+    if (top >= MOD_SLOTS_PER_HERO) fullSlotRuns += 1;
+    laneShare += topLaneShareOf(r);
     const upTo = r.cleared ? TOTAL_WAVES : r.reachedWave - 1;
     for (let w = 0; w < upTo; w += 1) {
       const cur = reachCount[w];
@@ -331,5 +390,23 @@ export function simulateBatch(
     meanWave: waves.reduce((a, b) => a + b, 0) / runs,
     reachRate: reachCount.map((c) => c / runs),
     avgDurationSec: totalMs / runs / 1000,
+    avgInstalls: installs / runs,
+    comboRate: comboRuns / runs,
+    avgTopSlots: topSlots / runs,
+    fullSlotRate: fullSlotRuns / runs,
+    topLaneShare: laneShare / runs,
   };
+}
+
+/** 这一局焊上的件里，最集中那条门路占了几成 */
+function topLaneShareOf(r: SimResult): number {
+  const ids = r.team.flatMap((h) => h.mods);
+  if (ids.length === 0) return 0;
+  const count = new Map<string, number>();
+  for (const id of ids) {
+    const lane = laneOf(id);
+    if (!lane) continue;
+    count.set(lane, (count.get(lane) ?? 0) + 1);
+  }
+  return Math.max(0, ...count.values()) / ids.length;
 }

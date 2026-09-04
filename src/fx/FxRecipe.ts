@@ -7,6 +7,7 @@
  */
 import type { AttackFx, EnemyFx } from '@/balance/fx';
 import { fxFamilyOf } from '@/balance/fx';
+import { vfxHasFlip } from '@/fx/Flipbook';
 import type { VfxKit } from '@/fx/VfxKit';
 
 export type ShotBody = 'none' | 'bolt' | 'orb' | 'blast';
@@ -36,6 +37,8 @@ export interface FxLook {
   spin?: number;
   /** 实物弹：不炸星爆、不喷能量带。弹弓 / 水管走这条 */
   dry?: boolean;
+  /** 小怪贴身挠一下，不要光带 / 序列帧 / 火星 */
+  quiet?: boolean;
   swing?: boolean;
   plates: readonly { name: string; tint?: number; s0: number; s1: number; life: number; vr?: number; sy0?: number; sy1?: number }[];
   ring?: boolean;
@@ -54,7 +57,7 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
     loft: 16,
     body: 'none',
     plates: [
-      { name: 'slash', tint: 0xe8e0d4, s0: 0.2, s1: 0.36, life: 0.1, vr: 8 },
+      { name: 'slash', tint: 0xe8e0d4, s0: 0.34, s1: 0.38, life: 0.34 },
     ],
     spray: { n: 5, kind: 'spark', speed: 90, tint: 0xb4553f, gy: 70, spread: 0.85 },
     hitStop: [0.03, 0.06],
@@ -64,8 +67,8 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
     instant: true,
     muzzle: 'saw',
     plates: [
-      { name: 'saw', tint: 0xffb070, s0: 0.3, s1: 0.58, life: 0.2, vr: 20 },
-      { name: 'slash', tint: 0xffc078, s0: 0.22, s1: 0.4, life: 0.12, vr: 8 },
+      { name: 'saw', tint: 0xffb070, s0: 0.36, s1: 0.4, life: 0.3, vr: 4 },
+      { name: 'slash', tint: 0xffc078, s0: 0.3, s1: 0.34, life: 0.28 },
     ],
     spray: { n: 14, kind: 'spark', speed: 260, tint: 0xffc078 },
     hitStop: [0.055, 0.085],
@@ -76,8 +79,8 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
     instant: true,
     swing: true,
     plates: [
-      { name: 'smash', tint: 0xffe08a, s0: 0.28, s1: 0.55, life: 0.18 },
-      { name: 'flash', s0: 0.16, s1: 0.34, life: 0.1 },
+      { name: 'smash', tint: 0xffe08a, s0: 0.4, s1: 0.44, life: 0.38 },
+      { name: 'flash', s0: 0.14, s1: 0.22, life: 0.08 },
     ],
     ring: true,
     spray: { n: 16, kind: 'spark', speed: 280, tint: 0xffe08a, gy: 40 },
@@ -90,7 +93,7 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
     dry: true,
     body: 'none',
     plates: [
-      { name: 'poke', tint: 0xc7e0ea, s0: 0.2, s1: 0.36, life: 0.1, sy0: 0.14, sy1: 0.2 },
+      { name: 'poke', tint: 0xc7e0ea, s0: 0.32, s1: 0.36, life: 0.3, sy0: 0.22, sy1: 0.26 },
     ],
     spray: { n: 4, kind: 'spark', speed: 90, tint: 0xd6c4a8, gy: 50, spread: 0.8 },
     hitStop: [0.024, 0.05],
@@ -100,7 +103,7 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
     speed: 460,
     dry: true,
     body: 'none',
-    plates: [{ name: 'slash', tint: 0xc5d4dc, s0: 0.16, s1: 0.28, life: 0.08, sy0: 0.1, sy1: 0.14 }],
+    plates: [{ name: 'bolt', tint: 0xc5d4dc, s0: 0.3, s1: 0.34, life: 0.3 }],
     spray: { n: 4, kind: 'spark', speed: 90, tint: 0x8ab0c0 },
     hitStop: [0.028, 0.055],
   },
@@ -129,8 +132,8 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
     speed: 400,
     body: 'none',
     plates: [
-      { name: 'blast', tint: 0xff8a3a, s0: 0.24, s1: 0.48, life: 0.16 },
-      { name: 'fire', tint: 0xfff4c4, s0: 0.14, s1: 0.3, life: 0.12 },
+      { name: 'blast', tint: 0xff8a3a, s0: 0.38, s1: 0.42, life: 0.34 },
+      { name: 'fire', tint: 0xfff4c4, s0: 0.22, s1: 0.26, life: 0.28 },
     ],
     spray: { n: 12, kind: 'spark', speed: 220, tint: 0xffb070, gy: 20 },
     hitStop: [0.055, 0.09],
@@ -142,7 +145,7 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
     dry: true,
     body: 'none',
     loft: 10,
-    plates: [{ name: 'spark', tint: 0xe8c84a, s0: 0.12, s1: 0.22, life: 0.08 }],
+    plates: [{ name: 'pierce', tint: 0xe8c84a, s0: 0.28, s1: 0.32, life: 0.28 }],
     spray: { n: 6, kind: 'spark', speed: 80, tint: 0xe8c84a, spread: 0.7 },
     hitStop: [0.028, 0.05],
   },
@@ -160,44 +163,40 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
 
 const ENEMY: Readonly<Record<EnemyFx, FxLook>> = {
   claw: {
-    tint: 0xff5a4a,
-    speed: 360,
-    ribbon: true,
-    ribbonW: 0.42,
-    body: 'bolt',
-    plates: [{ name: 'claw', tint: 0xff6b5a, s0: 0.24, s1: 0.44, life: 0.12 }],
-    spray: { n: 8, kind: 'spark', speed: 180, tint: 0xff6b5a },
-    hitStop: [0.03, 0.05],
+    tint: 0xb85044,
+    instant: true,
+    quiet: true,
+    dry: true,
+    plates: [{ name: 'claw', tint: 0xa84a40, s0: 0.1, s1: 0.13, life: 0.08 }],
+    spray: { n: 1, kind: 'glow', speed: 28, tint: 0xa84a40 },
+    hitStop: [0.01, 0.016],
   },
   bash: {
-    tint: 0xd0d8e4,
-    speed: 340,
-    plates: [{ name: 'smash', tint: 0xcbd5e1, s0: 0.22, s1: 0.44, life: 0.14 }],
-    ring: true,
-    spray: { n: 9, kind: 'glow', speed: 140, tint: 0xe2e8f0, gy: 50 },
-    hitStop: [0.045, 0.06],
-    buzz: 'medium',
+    tint: 0x8a93a0,
+    instant: true,
+    quiet: true,
+    dry: true,
+    plates: [{ name: 'flash', tint: 0x9aa3b0, s0: 0.07, s1: 0.1, life: 0.06 }],
+    spray: { n: 1, kind: 'glow', speed: 32, tint: 0x9aa3b0, gy: 20 },
+    hitStop: [0.014, 0.022],
   },
   spark: {
-    tint: 0xff8a30,
-    speed: 400,
-    ribbon: true,
-    ribbonW: 0.48,
+    tint: 0xc46a30,
+    speed: 380,
+    dry: true,
     body: 'bolt',
-    plates: [{ name: 'bolt', tint: 0xfb923c, s0: 0.22, s1: 0.4, life: 0.12 }],
-    spray: { n: 11, kind: 'spark', speed: 220, tint: 0xfdba74 },
-    hitStop: [0.032, 0.05],
+    plates: [{ name: 'flash', tint: 0xd47840, s0: 0.1, s1: 0.15, life: 0.08 }],
+    spray: { n: 3, kind: 'glow', speed: 60, tint: 0xd47840 },
+    hitStop: [0.02, 0.03],
   },
   beam: {
-    tint: 0xc060ff,
+    tint: 0xa060d8,
     speed: 480,
     beam: true,
-    ribbon: true,
-    ribbonW: 0.4,
     body: 'bolt',
-    plates: [{ name: 'beam', tint: 0xc084fc, s0: 0.24, s1: 0.46, life: 0.14 }],
-    spray: { n: 10, kind: 'glow', speed: 170, tint: 0xe9d5ff },
-    hitStop: [0.05, 0.07],
+    plates: [{ name: 'beam', tint: 0xa078c8, s0: 0.14, s1: 0.2, life: 0.1 }],
+    spray: { n: 3, kind: 'glow', speed: 70, tint: 0xc4a0e0 },
+    hitStop: [0.028, 0.04],
   },
 };
 
@@ -207,14 +206,14 @@ const SKIN: Readonly<Record<string, Partial<FxLook>>> = {
   laoli: { tint: 0xd8c8b0, dry: true, proj: 'cleaver', projPx: 52, spin: 14, loft: 16 },
   erjiu: { tint: 0x6a8aaa, dry: true, proj: 'needle', projPx: 40, loft: 8 },
   sanshen: { tint: 0xa78b5a, dry: true, curve: true, proj: 'disc', projPx: 56, spin: 10 },
-  laoyanqiang: { tint: 0xc4b59a, dry: true, loft: 36, proj: 'pebble', projPx: 36 },
+  laoyanqiang: { tint: 0xc4b59a, dry: true, loft: 40, proj: 'pebble', projPx: 48 },
   pipe: { tint: 0x8aa0aa, dry: true, proj: 'pipe', projPx: 48 },
   weight: { tint: 0x5c5346, dry: true, swing: true, loft: 22, proj: 'weight', projPx: 44, spin: 8, ring: false },
   blower: { tint: 0x7a9e7e, dry: true, curve: true, proj: 'leaf', projPx: 36 },
   wire: {
     tint: 0xc9a227, dry: true, beam: false, ribbon: false, loft: 10,
     proj: 'wire', projPx: 42,
-    plates: [{ name: 'spark', tint: 0xe8c84a, s0: 0.1, s1: 0.18, life: 0.07 }],
+    plates: [{ name: 'pierce', tint: 0xe8c84a, s0: 0.26, s1: 0.3, life: 0.28 }],
     spray: { n: 5, kind: 'spark', speed: 70, tint: 0xe8c84a, spread: 0.6 },
   },
   chainsaw: { tint: 0xcc6b2a, instant: true, dry: false, muzzle: 'saw' },
@@ -231,10 +230,10 @@ const SKIN: Readonly<Record<string, Partial<FxLook>>> = {
   shovel: { tint: 0x8b7355, dry: true, proj: 'shovel', projPx: 50, loft: 12 },
   battery: {
     tint: 0x3d6b4f, dry: true, proj: 'battery', projPx: 40,
-    plates: [{ name: 'spark', tint: 0x86efac, s0: 0.1, s1: 0.2, life: 0.08 }],
+    plates: [{ name: 'bolt', tint: 0x86efac, s0: 0.26, s1: 0.3, life: 0.28 }],
     spray: { n: 4, kind: 'spark', speed: 70, tint: 0x86efac },
   },
-  slingshot: { tint: 0xb8a078, dry: true, loft: 36, proj: 'pebble', projPx: 36, beam: false, ribbon: false },
+  slingshot: { tint: 0xb8a078, dry: true, loft: 40, proj: 'pebble', projPx: 48, beam: false, ribbon: false },
   stool: { tint: 0x8b5a2b, dry: true, loft: 20, proj: 'stool', projPx: 46, spin: 8, ring: false },
   chili: {
     tint: 0xc43c2a, dry: true, loft: 18, proj: 'chili', projPx: 32,
@@ -316,8 +315,9 @@ export function playMuzzle(kit: VfxKit, look: FxLook, x: number, y: number, ang:
   }
 }
 
-/** 贴脸才当场炸。远程哪怕配方写了 instant，也要飞过去再爆 */
+/** 有实物弹 / 侧弧 / 光柱就必须先飞再炸。instant 只留给贴脸空挥 */
 export function shouldFly(look: FxLook, melee: boolean): boolean {
+  if (look.proj || look.curve || look.beam) return true;
   if (melee && look.instant) return false;
   return true;
 }
@@ -326,16 +326,44 @@ export function shouldFly(look: FxLook, melee: boolean): boolean {
 export function shotFlight(look: FxLook, dist: number, melee = false): number {
   if (!shouldFly(look, melee)) return 0;
   const speed = look.speed ?? 380;
-  const minFly = look.loft || look.curve ? 0.28 : 0.22;
-  return Math.min(0.62, Math.max(minFly, dist / speed));
+  const minFly = look.loft || look.curve ? 0.34 : 0.24;
+  return Math.min(0.7, Math.max(minFly, dist / speed));
 }
 
 export function playImpact(kit: VfxKit, look: FxLook, x: number, y: number, crit: boolean): number {
+  if (look.quiet) {
+    for (const p of look.plates) {
+      kit.plate(p.name, x, y, {
+        tint: p.tint ?? look.tint,
+        s0: p.s0,
+        s1: p.s1,
+        life: p.life,
+        a0: 0.55,
+        add: false,
+      });
+    }
+    if (look.spray.n > 0) {
+      kit.spray(x, y, {
+        n: look.spray.n,
+        kind: 'glow',
+        speed: look.spray.speed,
+        tint: look.spray.tint ?? look.tint,
+        gy: look.spray.gy,
+        life: 0.1,
+        scale: 0.1,
+        add: false,
+      });
+    }
+    return look.hitStop[0];
+  }
   const scale = crit ? 1.12 : 1;
+  const hasFlip = look.plates.some((p) => vfxHasFlip(p.name));
   if (look.dry) {
-    if (!look.swing) kit.puff(x, y, look.tint, crit ? 0.28 : 0.18);
-  } else {
+    if (!look.swing && !hasFlip) kit.puff(x, y, look.tint, crit ? 0.28 : 0.18);
+  } else if (!hasFlip) {
     kit.burst(x, y, look.tint, 0.55 * scale);
+  } else {
+    kit.plate('flash', x, y, { tint: look.tint, s0: 0.1 * scale, s1: 0.16 * scale, life: 0.06, a0: 0.65 });
   }
   for (const p of look.plates) {
     kit.plate(p.name, x, y, {
@@ -346,22 +374,22 @@ export function playImpact(kit: VfxKit, look: FxLook, x: number, y: number, crit
       sy1: p.sy1 !== undefined ? p.sy1 * scale : undefined,
       life: p.life,
       vr: p.vr,
-      a0: 0.88,
+      a0: 0.92,
     });
   }
-  if (look.ring) kit.ring(x, y, look.tint, 0.16);
+  if (look.ring && !hasFlip) kit.ring(x, y, look.tint, 0.16);
   kit.spray(x, y, {
-    n: Math.round(look.spray.n * 0.65 * scale),
+    n: Math.round(look.spray.n * (hasFlip ? 0.5 : 0.65) * scale),
     kind: look.spray.kind,
     speed: look.spray.speed * 0.7 * scale,
     tint: look.spray.tint ?? look.tint,
     gy: look.spray.gy,
     spread: look.spray.spread,
-    scale: 0.22,
+    scale: 0.2,
   });
   if (crit && !look.dry) {
-    kit.plate('flash', x, y, { tint: 0xffe066, s0: 0.22, s1: 0.42, life: 0.12 });
-    kit.spray(x, y, { n: 5, tint: 0xffe066, kind: 'spark', speed: 180, life: 0.16, scale: 0.2 });
+    kit.plate('flash', x, y, { tint: 0xffe066, s0: 0.16, s1: 0.24, life: 0.08 });
+    kit.spray(x, y, { n: 4, tint: 0xffe066, kind: 'spark', speed: 160, life: 0.14, scale: 0.18 });
   }
   return look.hitStop[crit ? 1 : 0];
 }
