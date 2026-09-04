@@ -1,0 +1,26 @@
+Vertical mobile game OUT-OF-RUN progression screen, portrait 9:16 WeChat minigame UI mockup.
+Option B: 游戏厅抓娃娃机 (county arcade claw machine) — the 2-second action that dispenses resources.
+
+Game: Chinese village vs aliens. Dumb-cool cartoon, fat comic ink outlines, flat 6-8 colors, two-tone cel shade.
+NOT dark fantasy, NOT premium glass UI, NOT neon arcade, NOT candy cute, NOT photoreal.
+Use reference images for material and palette only: weathered wood, rusted iron, cream recessed plates, dusty village interior.
+
+BACKGROUND: a shabby county-town game arcade / village general store corner at dusk. Faded poster on a brick wall, one warm tungsten bulb, stacked blue plastic crates, cement floor.
+
+TOP HUD:
+- One wide rusted iron bar across the top with a chunky wooden progress bar inside. Cream Chinese text on the left: 村庄 Lv.4
+- Progress bar about 60% filled with warm mustard.
+- Right side small rust stamp with a coin icon and cream text: 币 12
+
+MIDDLE — the claw machine (this is the prize surface):
+- One big old claw machine dominating the frame, dented metal body painted faded red and mustard, scratched glass window, worn coin slot.
+- Inside the glass box, sitting in a heap: chunks of scrap iron, junk mod parts (a pipe, a small chainsaw, a helmet), two colored jars, and ONE plush-like cute villager doll (the new-villager capture target).
+- A three-prong metal claw hangs from the top rail, cable slack, positioned above the villager doll.
+- A small rusty tally board riveted to the machine side, 4 of 5 notches filled (pity meter), tiny cream text: 打满必掉零件
+
+BOTTOM:
+- One LARGE worn cream rust play-plate button with mustard bolt rim, centered, dark ink Chinese: 夹一次
+- Below it a thin quiet iron slat, smaller muted text: 回村子
+
+Typography: hand-painted Chinese, thick dark stroke, readable. Palette: warm earth yellow, cement gray, plastic blue, rust red, cream #fff4c4, ink #2a160c.
+This is a UI mockup WITH the exact Chinese text above. No watermark, no English.

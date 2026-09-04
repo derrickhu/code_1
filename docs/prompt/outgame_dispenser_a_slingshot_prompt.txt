@@ -1,0 +1,34 @@
+Vertical mobile game OUT-OF-RUN progression screen, portrait 9:16 WeChat minigame UI mockup.
+Option A: 村口弹弓摊 (village slingshot stall) — the 2-second action that dispenses resources.
+
+Game: Chinese village vs aliens. Dumb-cool cartoon, fat comic ink outlines, flat 6-8 colors, two-tone cel shade.
+NOT dark fantasy, NOT premium glass UI, NOT neon, NOT candy cute, NOT photoreal.
+Use reference images for material and palette only: weathered wood plaque, rusted iron bar, cream recessed plates, dusty village alley.
+
+BACKGROUND: village scrap-yard wall at late afternoon. Faded blue brick wall, stacked blue plastic crates, an old washing machine, tangled utility wires, warm earth-yellow dirt ground.
+
+TOP HUD:
+- One wide rusted iron bar across the top with a chunky wooden progress bar inside. Cream Chinese text on the left: 村庄 Lv.4
+- The progress bar is about 60% filled with warm mustard.
+- Right side small rust stamp with a slingshot-pellet icon and cream text: 弹子 12
+
+MIDDLE — the target wall (this is the prize surface):
+- A brick wall ledge across the screen with a ROW of targets standing on it, each clearly a different prize:
+  - two green glass bottles
+  - a dented tin can
+  - a broken CRT television
+  - a blue plastic crate
+  - ONE covered rusty IRON CAGE, slightly bigger, with a cute villager silhouette peeking through the bars (this is the new-villager capture target)
+- Small icon tags hang under some targets: a scrap-iron chunk, a pipe part, a colored jar.
+- On the wall to the right, a small rusty tally board with 4 of 5 notches filled (a pity meter), tiny cream text: 打满必掉零件
+
+FOREGROUND — the action:
+- A big wooden slingshot held from the bottom of the screen, rubber band pulled back, pellet loaded, seen from behind the player.
+- A dotted parabola arc from the slingshot up toward the iron cage, showing the aim.
+
+BOTTOM:
+- One LARGE worn cream rust play-plate button with mustard bolt rim, centered, dark ink Chinese: 打一下
+- Below it a thin quiet iron slat, smaller muted text: 回村子
+
+Typography: hand-painted Chinese, thick dark stroke, readable. Palette: warm earth yellow, cement gray, plastic blue, rust red, cream #fff4c4, ink #2a160c.
+This is a UI mockup WITH the exact Chinese text above. No watermark, no English.

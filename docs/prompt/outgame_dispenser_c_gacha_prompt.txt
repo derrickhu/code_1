@@ -1,0 +1,27 @@
+Vertical mobile game OUT-OF-RUN progression screen, portrait 9:16 WeChat minigame UI mockup.
+Option C: 小卖部扭蛋机 (village corner-store capsule machines) — the cheapest 2-second action.
+
+Game: Chinese village vs aliens. Dumb-cool cartoon, fat comic ink outlines, flat 6-8 colors, two-tone cel shade.
+NOT dark fantasy, NOT premium glass UI, NOT neon, NOT candy cute, NOT photoreal.
+Use reference images for material and palette only: weathered wood, rusted iron, cream recessed plates, dusty village storefront.
+
+BACKGROUND: outside a village corner store at dusk. Gray corrugated roll shutter half down, faded blue brick wall, stacked blue plastic crates, dusty cement step.
+
+TOP HUD:
+- One wide rusted iron bar across the top with a chunky wooden progress bar inside. Cream Chinese text on the left: 村庄 Lv.4
+- Progress bar about 60% filled with warm mustard.
+- Right side small rust stamp with a coin icon and cream text: 币 12
+
+MIDDLE — the capsule machines (this is the prize surface):
+- THREE old dusty capsule (gashapon) machines standing side by side on the cement step, chipped paint in mustard, faded red and plastic blue, big metal twist knobs, scratched clear globes.
+- Inside the globes: plastic capsules in rust red, plastic blue and mustard. A few capsules show tiny prize icons through the plastic: a scrap-iron chunk, a pipe part, a colored jar.
+- The CENTER machine is slightly bigger and its globe holds one special capsule with a cute villager silhouette inside (the new-villager target).
+- One capsule has just rolled out into the metal tray at the bottom of the center machine, lid popping open.
+- A small rusty tally board nailed to the wall beside them, 4 of 5 notches filled (pity meter), tiny cream text: 打满必掉零件
+
+BOTTOM:
+- One LARGE worn cream rust play-plate button with mustard bolt rim, centered, dark ink Chinese: 扭一个
+- Below it a thin quiet iron slat, smaller muted text: 回村子
+
+Typography: hand-painted Chinese, thick dark stroke, readable. Palette: warm earth yellow, cement gray, plastic blue, rust red, cream #fff4c4, ink #2a160c.
+This is a UI mockup WITH the exact Chinese text above. No watermark, no English.

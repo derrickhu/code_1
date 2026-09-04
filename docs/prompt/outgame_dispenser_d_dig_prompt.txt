@@ -1,0 +1,27 @@
+Vertical mobile game OUT-OF-RUN progression screen, portrait 9:16 WeChat minigame UI mockup.
+Option D: 废品堆翻格子 (scrap-pile dig grid) — tap-to-flip covered tiles, cheapest to build.
+
+Game: Chinese village vs aliens. Dumb-cool cartoon, fat comic ink outlines, flat 6-8 colors, two-tone cel shade.
+NOT dark fantasy, NOT premium glass UI, NOT neon, NOT candy cute, NOT photoreal.
+Use reference images for material and palette only: weathered wood, rusted iron, cream recessed plates, dusty village scrap yard.
+
+BACKGROUND: the village scrap yard at dusk. Faded blue brick wall behind, an old washing machine, black pipes, bamboo drying rack, warm earth-yellow dirt.
+
+TOP HUD:
+- One wide rusted iron bar across the top with a chunky wooden progress bar inside. Cream Chinese text on the left: 村庄 Lv.4
+- Progress bar about 60% filled with warm mustard.
+- Right side small rust stamp with a shovel icon and cream text: 还能翻 12 下
+
+MIDDLE — the dig grid (this is the prize surface):
+- A big heap of junk in the middle of the yard, and laid over it a GRID of 4 columns by 4 rows of square covers, each cover a rusty metal lid or a scrap of old newspaper weighed down with a stone. Slightly irregular, hand-placed, not a clean digital grid.
+- About five covers are already flipped open, revealing prizes underneath: a scrap-iron chunk, a pipe part, a small chainsaw, a colored jar, and ONE opening showing a cute villager peeking out of the junk (the new-villager find).
+- The remaining covers are still closed and dusty.
+- A wooden-handled shovel stuck into the dirt on the left.
+- A small rusty tally board nailed to the wall, 4 of 5 notches filled (pity meter), tiny cream text: 打满必掉零件
+
+BOTTOM:
+- One LARGE worn cream rust play-plate button with mustard bolt rim, centered, dark ink Chinese: 翻一格
+- Below it a thin quiet iron slat, smaller muted text: 回村子
+
+Typography: hand-painted Chinese, thick dark stroke, readable. Palette: warm earth yellow, cement gray, plastic blue, rust red, cream #fff4c4, ink #2a160c.
+This is a UI mockup WITH the exact Chinese text above. No watermark, no English.
