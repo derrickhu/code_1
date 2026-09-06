@@ -13,7 +13,7 @@ export const CLIP_BODY: Record<string, { idle: number; atk: number; walk?: numbe
   laoli: { idle: 1230, atk: 99 },
   erjiu: { idle: 490, atk: 105 },
   sanshen: { idle: 490, atk: 119 },
-  laoyanqiang: { idle: 488, atk: 86 },
+  laoyanqiang: { idle: 369, atk: 372 },
   guogai: { idle: 276, atk: 276 },
   yuwang: { idle: 285, atk: 285 },
   labaye: { idle: 328, atk: 328 },

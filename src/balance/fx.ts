@@ -37,7 +37,7 @@ const FX_BY_STAGE: Readonly<Record<string, readonly [AttackFx, AttackFx, AttackF
   // 站远点打
   guogai: ['smash', 'smash', 'smash'],
   yuwang: ['wind', 'wind', 'pierce'],
-  laoyanqiang: ['sniper', 'pierce', 'pierce'],
+  laoyanqiang: ['sniper', 'sniper', 'pierce'],
   labaye: ['orb', 'orb', 'orb'],
   // 挨得住
   tiezhu: ['slash', 'slash', 'smash'],
@@ -91,8 +91,8 @@ export function resolveAttackFx(def: VillagerDef, evoStage = 1): AttackFx {
  * 这一下用哪一件家伙的皮。
  *
  * 皮跟着**手上那一件**走，而 AttackFx 跟着**进化阶**走，两者刻意分开：
- * 弹弓叔二阶换成双股皮筋「一发穿两个」，弹体还是石子（皮不变），
- * 但行为从 sniper 变成 pierce（家族变了）。
+ * 弹弓叔三阶才真穿两个，弹体还是石子；二阶皮筋加厚但不改家族，
+ * 免得特效穿过去、引擎只打一个。
  */
 export function resolveFxSkin(def: VillagerDef, evoStage = 1): string {
   return handIdOf(def.id, evoStage);

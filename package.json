@@ -9,9 +9,9 @@
     "test:watch": "vitest",
     "sim": "tsx tools/sim.ts",
     "bundle": "vite build",
-    "build:wechat": "CODE1_PLATFORM=wechat vite build",
-    "build:douyin": "CODE1_PLATFORM=douyin vite build",
-    "build": "npm run typecheck && npm run test && vite build",
+    "build": "vite build && node scripts/build-platform.mjs",
+    "build:wechat": "CODE1_PLATFORM=wechat npm run build",
+    "build:douyin": "CODE1_PLATFORM=douyin npm run build",
     "dev": "vite build --watch",
     "lab": "vite --config tools/anim-lab/vite.config.ts"
   },

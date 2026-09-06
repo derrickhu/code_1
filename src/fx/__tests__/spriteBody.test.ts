@@ -4,7 +4,7 @@ import { ENEMIES } from '@/balance/stages';
 import { HAND_GEAR, handIdOf, resolveHandGear, wearOf } from '@/balance/gear';
 import { enemyArtId } from '@/core/TextureLoader';
 import { CLIP_BODY, clipBody, fitBodyH } from '@/fx/spriteBody';
-import { contactAt, motionFor, releaseAt, swingKeyframes } from '@/fx/UnitActor';
+import { contactAt, motionFor, motionForSkin, releaseAt, swingKeyframes } from '@/fx/UnitActor';
 
 describe('clipBody', () => {
   it('有帧动画的单位都有身体高度，避免出手按整帧压小', () => {
@@ -19,7 +19,7 @@ describe('clipBody', () => {
     expect(fitBodyH(309, 652, false)).toBe(652);
     expect(fitBodyH(503, 511, false)).toBe(503);
     expect(fitBodyH(318, 320, false)).toBe(318);
-    expect(fitBodyH(488, 495, false)).toBe(488);
+    expect(fitBodyH(369, 369, false)).toBe(369);
     expect(fitBodyH(97, 158, true)).toBe(97);
   });
 
@@ -34,6 +34,13 @@ describe('clipBody', () => {
   it('大锤走重击抡砸，不走突刺', () => {
     expect(motionFor('smash')).toBe('crush');
     expect(motionFor('slash')).toBe('lunge');
+  });
+
+  it('弹弓手上还是弹弓，pierce 也走拉弹，出手帧才对得上', () => {
+    expect(motionForSkin('sling', 'pierce')).toBe('sling');
+    expect(motionForSkin('sling', 'sniper')).toBe('sling');
+    expect(motionForSkin('pipe', 'pierce')).toBe('recoil');
+    expect(releaseAt(motionForSkin('sling', 'pierce'))).toBe(releaseAt('sling'));
   });
 
   it('松手比抡起来晚，抡砸最晚落地', () => {

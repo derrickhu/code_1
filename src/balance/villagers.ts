@@ -446,7 +446,7 @@ export const VILLAGERS: readonly VillagerDef[] = [
     name: '牵狗大爷',
     lane: 'band',
     role: 'tank',
-    job: '狗替他挡刀，自己站着抽烟看',
+    job: '狗替他挡刀，自己站着看热闹',
     flavor: '牵着一条不怕人的大黄，狗比他先动手',
     evo: [
       { name: '牵一条狗', pitch: '狗冲上去替他挨第一波' },

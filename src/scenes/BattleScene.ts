@@ -24,7 +24,7 @@ import { bindPointerTap } from '@/minigame';
 import { getTouchCanvas } from '@/utils/touchCanvas';
 import {
   CELL_COUNT, FIELD_W, FIELD_X, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
-  FIELD_VILLAGER_H, cellScreenY, hitDeployCell, laneScreenX,
+  FIELD_VILLAGER_H, battleFieldLay, cellScreenY, hitDeployCell, laneScreenX,
   posScreenY,
 } from '@/balance/combat';
 import { getStage, stageEnemyCount } from '@/balance/stages';
@@ -37,8 +37,8 @@ import { ReviveOverlay } from '@/ui/ReviveOverlay';
 import { SettleOverlay } from '@/ui/SettleOverlay';
 import { CombatFx } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
-import { motionFor, UnitActor } from '@/fx/UnitActor';
-import { bgTex, fillCover, heroTex, preloadBattleArt, uiTex, watchArt } from '@/core/TextureLoader';
+import { motionForSkin, UnitActor } from '@/fx/UnitActor';
+import { bgTex, fillCover, heroTex, preloadBattleArt, uiTex, watchArt, type UiName } from '@/core/TextureLoader';
 import { playSfx } from '@/core/SfxPlayer';
 import { track } from '@/core/Analytics';
 import {
@@ -51,6 +51,7 @@ import {
   adCanShow, adMarkRunStart, adRecord, adRemaining, type AdPlacement,
 } from '@/core/AdDay';
 import { battleHudLay, type BattleHudLay } from '@/ui/lintel';
+import { numGlyphs, paintFrac, paintGlyphs } from '@/ui/glyphs';
 import { GOLD, fillSprite, fitSprite, goldBtn, hpBar, ironSlab, label, painted } from '@/ui/paint';
 import {
   autoPlace, createBattle, foesAlive, gmWin, placeAt, placedOf, removeAt,
@@ -58,7 +59,6 @@ import {
   type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
 
-const CREAM = 0xfff4c4;
 /**
  * 开打已经收进坞底，底线直接贴坞顶。
  * 热区仍按设计坐标矩形算，不靠 Pixi hitTest。
@@ -127,8 +127,8 @@ export class BattleScene implements Scene {
   private readonly _vitals = new VisualVitals();
 
   private readonly _stageName = painted(36, GOLD, '#1a1008', 5);
-  private readonly _infoText = painted(20, CREAM, '#1a1008', 3);
   private readonly _hintText = painted(18, GOLD, '#1a1008', 3);
+  private readonly _hudBits = new PIXI.Container();
   private readonly _timeBar = new PIXI.Graphics();
   private readonly _guide = label(26, 0xffd66b, true);
   private _startBtn: PIXI.Container | null = null;
@@ -155,6 +155,7 @@ export class BattleScene implements Scene {
    * 用 1334 排的话，坞和底线停在屏幕中下部，底下那截露出渲染器底色 0x1a1126。
    */
   private _lay = {
+    /** 门楣下沿。土路从这儿切开，不再钻进锈铁板后面 */
     top: 0,
     /** 敌人出场那条线（轴上的 pos 0） */
     spawnY: 250,
@@ -605,6 +606,7 @@ export class BattleScene implements Scene {
 
   /** 布阵和开打两套 UI 的开关集中在这儿，别散到各处去 */
   private _syncPhaseUi(): void {
+    this._computeLayout();
     const placing = this._placing();
     if (!placing) this._clearHand();
     this._bench.visible = placing;
@@ -626,6 +628,14 @@ export class BattleScene implements Scene {
   update(dt: number): void {
     if (this._settle.visible || this._revive.visible) {
       this._fx.update(dt);
+      return;
+    }
+
+    if (this._fx.hitStop > 0) {
+      this._fx.hitStop = Math.max(0, this._fx.hitStop - dt);
+      this._drawField();
+      this._drawUnits(this._accMs / TICK_MS);
+      this._updateHud();
       return;
     }
 
@@ -652,7 +662,9 @@ export class BattleScene implements Scene {
     for (const a of this._villagerActors.values()) a.update(dt);
     for (const a of this._foeActors.values()) a.update(dt);
 
-    if (this._state.phase === 'won' || this._state.phase === 'lost') this._endRun();
+    if ((this._state.phase === 'won' || this._state.phase === 'lost') && !this._fx.busy()) {
+      this._endRun();
+    }
   }
 
   private _tickFlash(dt: number): void {
@@ -691,13 +703,15 @@ export class BattleScene implements Scene {
         const ep = e ? this._foeXY(e) : this._lastFoeXY.get(ev.foeId);
         if (!ep) continue;
         const fx = resolveAttackFx(f.def, f.evoStage);
-        this._actorFor(f).playAttack(ep.x, ep.y, motionFor(fx));
+        const skin = resolveFxSkin(f.def, f.evoStage);
+        this._vitals.seed(`e${ev.foeId}`, e?.maxHp ?? ev.damage, 0);
+        this._actorFor(f).playAttack(ep.x, ep.y, motionForSkin(skin, fx));
         this._fx.consume(ev, {
           hx: hp.x, hy: hp.y - hp.h * 0.5,
           ex: ep.x, ey: ep.y - ep.h * 0.5,
           color: LANE_TINT[f.def.lane],
           fx,
-          skin: resolveFxSkin(f.def, f.evoStage),
+          skin,
           melee: f.range <= 1,
           enemyId: ev.foeId,
           slowed: f.def.role === 'block' && !ev.killed,
@@ -743,9 +757,11 @@ export class BattleScene implements Scene {
       if (ev.kind === 'foeDown') {
         const p = this._lastFoeXY.get(ev.foeId);
         if (!p) continue;
-        this._fx.releaseEnemy(ev.foeId);
-        this._fx.consume(ev, { ex: p.x, ey: p.y - p.h * 0.5, enemyId: ev.foeId });
-        this._foeActors.get(ev.foeId)?.killOff();
+        // 倒下等最后一发落地。现在就淡出 / 抽血条，石子会打在空位上。
+        this._fx.consume(ev, {
+          ex: p.x, ey: p.y - p.h * 0.5, enemyId: ev.foeId,
+          onLand: () => this._foeActors.get(ev.foeId)?.killOff(),
+        });
         continue;
       }
 
@@ -764,6 +780,7 @@ export class BattleScene implements Scene {
         if (!f) continue;
         const p = this._villagerXY(f);
         this._actorFor(f).setDead(false);
+        this._vitals.seed(f.uid, f.hp, 0, true);
         this._fx.consume(ev, { hx: p.x, hy: p.y - p.h * 0.5, heroId: f.uid });
         continue;
       }
@@ -790,11 +807,14 @@ export class BattleScene implements Scene {
   private _computeLayout(): void {
     const height = Game.logicHeight;
     const chrome = battleHudLay(Game.safeTop, height);
-    const benchTop = height - Game.safeBottom - BENCH_H;
-    const goalY = benchTop - START_STRIP;
-    // 出场线贴门楣下沿。顶被锈铁板挡住，路从板底开始走
-    const spawnY = chrome.barBottom + 8;
-    this._lay = { top: 0, spawnY, goalY, height, chrome };
+    const { spawnY, goalY } = battleFieldLay({
+      chromeBottom: chrome.barBottom,
+      height,
+      placing: this._state.phase === 'placing',
+      safeBottom: Game.safeBottom,
+      benchH: BENCH_H + START_STRIP,
+    });
+    this._lay = { top: chrome.barBottom, spawnY, goalY, height, chrome };
   }
 
   private _villagerXY(f: Fighter): { x: number; y: number; h: number } {
@@ -825,15 +845,18 @@ export class BattleScene implements Scene {
 
     const { spawnY, goalY } = this._lay;
     const load = this._laneLoad();
+    const seam = this._lay.top;
 
-    // 背景从门楣中腰往下铺，顶被锈铁板全挡住，晚霞不再被标题区切开
+    // 顶板背后不透土路。锈铁是村口门楣，路从板底下切开另起
+    g.beginFill(0x140e0a).drawRect(0, 0, 750, seam).endFill();
     const bg = bgTex();
-    const bgY = Math.round(this._lay.chrome.titleH * 0.55);
-    if (bg && bg.baseTexture.valid && bg.width > 1) {
-      fillCover(g, bg, 0, bgY, 750, this._lay.height - bgY, 0.72);
-    } else {
-      g.beginFill(0x2a2018).drawRect(0, bgY, 750, this._lay.height - bgY).endFill();
+    const roadH = this._lay.height - seam;
+    if (bg && bg.baseTexture.valid && bg.width > 1 && roadH > 0) {
+      fillCover(g, bg, 0, seam, 750, roadH, 1);
+    } else if (roadH > 0) {
+      g.beginFill(0x2a2018).drawRect(0, seam, 750, roadH).endFill();
     }
+    this._drawVillageMouth(g, seam);
 
     const placing = this._placing();
     const picked = this._draggingId();
@@ -869,6 +892,15 @@ export class BattleScene implements Scene {
       g.beginFill(0x8b2e1f, 0.92).drawRect(FIELD_X, goalY - 3, FIELD_W, 6).endFill();
     }
     this._drawThreshold(g, goalY, this._lay.height, placing);
+  }
+
+  /** 门楣下沿压一条暗坎，土路从门洞里伸出来，不是钻进锈铁板后面 */
+  private _drawVillageMouth(g: PIXI.Graphics, seam: number): void {
+    g.beginFill(0x0a0604, 0.78).drawRect(0, seam, 750, 10).endFill();
+    g.beginFill(0x1a1008, 0.4).drawRect(0, seam + 10, 750, 16).endFill();
+    g.beginFill(0x2a2010, 0.16).drawRect(0, seam + 26, 750, 14).endFill();
+    g.beginFill(0x3a2418, 0.85).drawRect(0, seam, 750, 2).endFill();
+    g.beginFill(0x6a4a28, 0.45).drawRect(0, seam + 2, 750, 1).endFill();
   }
 
   /** 人站在土上：一小团接触影。选中再加细金环，不要铺整格 */
@@ -1012,7 +1044,7 @@ export class BattleScene implements Scene {
       live.add(f.uid);
       const p = this._villagerXY(f);
       const a = this._actorFor(f);
-      this._vitals.seed(f.uid, f.hp, 0);
+      this._vitals.seed(f.uid, f.maxHp, 0);
       a.place(p.x, p.y, p.h);
       a.holdPulse = this._hurtFlash.has(f.uid);
       if (!f.alive) continue;
@@ -1021,7 +1053,8 @@ export class BattleScene implements Scene {
     this._reapActors(live);
 
     for (const e of this._state.foes) {
-      if (!e.alive) continue;
+      const held = !e.alive && this._fx.holdingEnemy(e.id);
+      if (!e.alive && !held) continue;
       let a = this._foeActors.get(e.id);
       if (!a) {
         a = new UnitActor();
@@ -1030,11 +1063,20 @@ export class BattleScene implements Scene {
         this._unitLayer.addChild(a.view);
         this._foeActors.set(e.id, a);
       }
-      this._vitals.seed(`e${e.id}`, e.hp, 0);
-      const p = this._foeXY(e, frac);
-      a.place(p.x, p.feetY, p.h);
-      a.holdPulse = this._hitFlash.has(e.id);
-      this._foeHp(e, p.x, p.feetY, p.h);
+      this._vitals.seed(`e${e.id}`, e.maxHp, 0);
+      if (e.alive) {
+        const p = this._foeXY(e, frac);
+        a.place(p.x, p.feetY, p.h);
+        a.holdPulse = this._hitFlash.has(e.id);
+        this._foeHp(e, p.x, p.feetY, p.h);
+      } else {
+        const pose = this._lastFoeXY.get(e.id);
+        if (pose) {
+          a.place(pose.x, pose.feetY, pose.h);
+          this._foeHp(e, pose.x, pose.feetY, pose.h);
+        }
+        a.holdPulse = this._hitFlash.has(e.id);
+      }
     }
     for (const [id, a] of [...this._foeActors]) {
       if (this._state.foes.some((e) => e.id === id && e.alive)) continue;
@@ -1091,7 +1133,7 @@ export class BattleScene implements Scene {
 
   private _foeHp(e: Foe, x: number, feetY: number, h: number): void {
     const g = new PIXI.Graphics();
-    const shown = this._vitals.shown(`e${e.id}`, { hp: e.hp, extra: 0 });
+    const shown = this._vitals.shown(`e${e.id}`, { hp: e.alive ? e.maxHp : 0, extra: 0 });
     hpBar(g, x, feetY - h - 6, 22, shown.hp / e.maxHp, 0xff8a6a, 3);
     if (e.slowMs > 0) {
       g.beginFill(0x86efac, 0.8).drawCircle(x + 14, feetY - h - 5, 2).endFill();
@@ -1114,10 +1156,9 @@ export class BattleScene implements Scene {
     this._hudChrome.addChild(this._hudPlate);
     this._hudChrome.addChild(this._hudArt);
     this._stageName.anchor.set(0.5);
-    this._infoText.anchor.set(0.5);
     this._hintText.anchor.set(0.5);
+    this._hud.addChild(this._hudBits);
     this._hud.addChild(this._stageName);
-    this._hud.addChild(this._infoText);
     this._hud.addChild(this._hintText);
     this._hud.addChild(this._timeBar);
     this._guide.anchor.set(0.5);
@@ -1252,7 +1293,6 @@ export class BattleScene implements Scene {
     const chrome = this._lay.chrome;
     this._stageName.style.fontSize = chrome.titleGlyphH;
     this._stageName.position.set(chrome.title.cx, chrome.title.cy);
-    this._infoText.position.set(375, chrome.infoY);
     this._hintText.position.set(375, chrome.hintY);
     this._guide.position.set(375, this._lay.spawnY + 28);
     const benchY = this._lay.height - Game.safeBottom - BENCH_H;
@@ -1269,21 +1309,152 @@ export class BattleScene implements Scene {
     this._updateHud();
   }
 
+  private _clearHudBits(): void {
+    this._hudBits.removeChildren().forEach((c) => c.destroy({ children: true }));
+  }
+
+  /** 关卡号走漆字，关卡名没有贴图就手写。 */
+  private _drawHudTitle(): boolean {
+    const chrome = this._lay.chrome;
+    const { label, name } = this._state.stage;
+    const m = /^(\d+)-(\d+)$/.exec(label);
+    if (!m) return false;
+    const left = numGlyphs(Number(m[1]));
+    const right = numGlyphs(Number(m[2]));
+    const names = [...left, ...right];
+    const texs = names.map((n) => uiTex(n));
+    if (texs.some((t) => !t?.baseTexture.valid || t.width <= 1)) return false;
+    const h = chrome.titleGlyphH;
+    const gap = 5;
+    const dashW = h * 0.28;
+    const ws = texs.map((t) => (t!.width / t!.height) * h);
+    const leftW = ws.slice(0, left.length).reduce((s, w) => s + w, 0)
+      + gap * Math.max(0, left.length - 1);
+    const rightW = ws.slice(left.length).reduce((s, w) => s + w, 0)
+      + gap * Math.max(0, right.length - 1);
+    const nm = painted(Math.round(h * 0.78), GOLD, '#1a1008', 4);
+    nm.anchor.set(0.5);
+    nm.text = name;
+    const total = leftW + dashW + rightW + gap * 3 + nm.width;
+    let x = chrome.title.cx - total / 2;
+    const cy = chrome.title.cy;
+    texs.slice(0, left.length).forEach((t, i) => {
+      fitSprite(this._hudBits, t, x + ws[i]! / 2, cy, ws[i]!, h);
+      x += ws[i]! + gap;
+    });
+    const dash = painted(Math.round(h * 0.7), GOLD, '#1a1008', 3);
+    dash.anchor.set(0.5);
+    dash.position.set(x + dashW / 2, cy);
+    dash.text = '-';
+    this._hudBits.addChild(dash);
+    x += dashW + gap;
+    texs.slice(left.length).forEach((t, i) => {
+      const w = ws[left.length + i]!;
+      fitSprite(this._hudBits, t, x + w / 2, cy, w, h);
+      x += w + gap;
+    });
+    nm.position.set(x + gap + nm.width / 2, cy);
+    this._hudBits.addChild(nm);
+    return true;
+  }
+
+  private _drawHudStamps(): void {
+    const chrome = this._lay.chrome;
+    const s = this._state;
+    const placing = this._placing();
+    const cells: readonly {
+      label: UiName;
+      fallback: string;
+      kind: 'frac' | 'zhi' | 'num';
+      a: number;
+      b?: number;
+    }[] = placing
+      ? [
+        { label: 'paint_shangchang', fallback: '上场', kind: 'frac', a: s.placed.length, b: s.cap },
+        { label: 'paint_lai', fallback: '来', kind: 'zhi', a: stageEnemyCount(s.stage) },
+        { label: 'paint_bo', fallback: '波', kind: 'num', a: s.stage.waves.length },
+      ]
+      : [
+        { label: 'paint_di', fallback: '第', kind: 'frac', a: Math.max(1, s.wave), b: s.stage.waves.length },
+        { label: 'paint_lou', fallback: '漏', kind: 'frac', a: s.leaked, b: LEAK_ALLOW },
+        { label: 'paint_changshang', fallback: '场上', kind: 'num', a: foesAlive(s) },
+      ];
+    const { w: sw, h: sh, y: sy, cxs } = chrome.stamp;
+    cells.forEach((cell, i) => {
+      const box = new PIXI.Container();
+      box.eventMode = 'none';
+      box.position.set(cxs[i] ?? 375, sy);
+      this._hudBits.addChild(box);
+      if (!fillSprite(box, uiTex('rust_stamp'), 0, 0, sw, sh)) {
+        const g = new PIXI.Graphics();
+        ironSlab(g, -sw / 2, -sh / 2, sw, sh, 9);
+        box.addChild(g);
+      }
+      const nameY = -sh * 0.18;
+      const numY = sh * 0.22;
+      const nameH = Math.round(sh * 0.34);
+      const numH = Math.round(sh * 0.38);
+      if (!paintGlyphs(box, [cell.label], 0, nameY, nameH, 2)) {
+        const t = painted(Math.round(nameH), GOLD, '#1a1008', 3);
+        t.anchor.set(0.5);
+        t.position.set(0, nameY);
+        t.text = cell.fallback;
+        box.addChild(t);
+      }
+      let ok = false;
+      if (cell.kind === 'frac') ok = paintFrac(box, cell.a, cell.b ?? 0, 0, numY, numH);
+      else if (cell.kind === 'zhi') {
+        ok = paintGlyphs(box, [...numGlyphs(cell.a), 'paint_zhi'], 0, numY, numH, 2);
+      } else {
+        ok = paintGlyphs(box, numGlyphs(cell.a), 0, numY, numH, 2);
+      }
+      if (!ok) {
+        const t = painted(Math.round(numH * 0.9), GOLD, '#1a1008', 3);
+        t.anchor.set(0.5);
+        t.position.set(0, numY);
+        if (cell.kind === 'frac') t.text = `${cell.a}/${cell.b ?? 0}`;
+        else if (cell.kind === 'zhi') t.text = `${cell.a}只`;
+        else t.text = String(cell.a);
+        box.addChild(t);
+      }
+    });
+  }
+
+  private _drawHudHint(): boolean {
+    if (!this._placing()) return true;
+    const chrome = this._lay.chrome;
+    const lane = LANE_NAME[this._state.stage.mainLane] ?? '';
+    const h = 18;
+    const menlu = uiTex('paint_menlu');
+    const name = painted(16, GOLD, '#1a1008', 3);
+    name.anchor.set(0.5);
+    name.text = lane;
+    if (!menlu?.baseTexture.valid || menlu.width <= 1) return false;
+    const w = (menlu.width / menlu.height) * h;
+    const total = w + 8 + name.width;
+    const x0 = 375 - total / 2;
+    fitSprite(this._hudBits, menlu, x0 + w / 2, chrome.hintY, w, h);
+    name.position.set(x0 + w + 8 + name.width / 2, chrome.hintY);
+    this._hudBits.addChild(name);
+    return true;
+  }
+
   private _updateHud(): void {
     const s = this._state;
     const chrome = this._lay.chrome;
+    this._clearHudBits();
     this._stageName.text = `${s.stage.label} ${s.stage.name}`;
+    this._stageName.visible = !this._drawHudTitle();
+    this._drawHudStamps();
 
     if (this._placing()) {
-      this._infoText.text = `上场 ${s.placed.length}/${s.cap}  ·  来 ${stageEnemyCount(s.stage)} 只  ·  ${s.stage.waves.length} 波`;
       this._hintText.text = `敌方门路：${LANE_NAME[s.stage.mainLane]}`;
+      this._hintText.visible = !this._drawHudHint();
       this._timeBar.clear();
       return;
     }
 
-    this._infoText.text = `第 ${Math.max(1, s.wave)}/${s.stage.waves.length} 波  ·  漏 ${s.leaked}/${LEAK_ALLOW}`;
-    this._hintText.text = `场上 ${foesAlive(s)} 只`;
-
+    this._hintText.visible = false;
     // 超时只是兜底，细线贴在顶板下沿，不占一块经验槽
     const frac = Math.min(1, s.elapsedMs / s.stage.timeLimitMs);
     this._timeBar.clear();
@@ -1345,6 +1516,11 @@ export class BattleScene implements Scene {
     }
     adRecord('revive');
     reviveAfterLeak(this._state);
+    this._vitals.reset();
+    for (const f of this._state.team) this._vitals.seed(f.uid, f.hp, 0, true);
+    for (const e of this._state.foes) {
+      if (e.alive) this._vitals.seed(`e${e.id}`, e.hp, 0, true);
+    }
     this._revive.hide();
     this._consumeEvents();
     this._updateHud();

@@ -11,7 +11,7 @@ import type { BattleEvent } from '@/game/BattleEngine';
 import { VfxKit } from '@/fx/VfxKit';
 import { attackLook, enemyLook, playImpact, playMuzzle, shouldFly, shotFlight, skinLook, type FxLook, type ShotBody } from '@/fx/FxRecipe';
 import { ImpactGate, enemyImpactKey, heroImpactKey, type ImpactKey } from '@/fx/ImpactGate';
-import { contactAt, motionFor, releaseAt } from '@/fx/UnitActor';
+import { contactAt, motionForSkin, releaseAt } from '@/fx/UnitActor';
 
 const MAX_FLOATS = 28;
 const MAX_SHOTS = 40;
@@ -111,6 +111,13 @@ export class CombatFx {
     return this._gate.holding(enemyImpactKey(id));
   }
 
+  /** 还有弹没落地 / 出手没松手。结算板得等这一下完，不能盖住最后一发 */
+  busy(): boolean {
+    return this._shots.some((s) => !s.done)
+      || this._waits.length > 0
+      || this._gate.busy();
+  }
+
   /** 画面血见底：倒下淡出，后面几发打在空位上，不再钉着模型 */
   releaseEnemy(id: number): void {
     const key = enemyImpactKey(id);
@@ -184,6 +191,7 @@ export class CombatFx {
         playSfx('enemy_down', 80);
         playSfx('kill_pop', 80);
         this.hitStop = Math.max(this.hitStop, 0.045);
+        pos.onLand?.();
       };
       if (!key || !this._gate.defer(key, play)) play();
     }
@@ -380,7 +388,7 @@ export class CombatFx {
     const land = (): void => {
       onLand?.();
     };
-    const motion = motionFor(style);
+    const motion = motionForSkin(skin, style);
     const fly = shouldFly(look, !!melee);
     const windup = byPet
       ? 0.08

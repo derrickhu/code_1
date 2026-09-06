@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  BLOCK_POS, CELL_COUNT, FIELD_W, FIELD_X, GOAL_POS, LANE_COUNT, LANE_W,
-  VIS_APPROACH_ROWS, VIS_ENGAGE_POS, VIS_ROWS,
-  cellHitBox, cellRectTop, cellScreenH, cellScreenY, hitDeployCell, posScreenY, villagerSpriteH,
+  BLOCK_POS, CELL_COUNT, FIELD_W, FIELD_X, FIGHT_BAG_H, GATE_GAP, GOAL_POS,
+  LANE_COUNT, LANE_W, VIS_APPROACH_ROWS, VIS_ENGAGE_POS, VIS_ROWS,
+  approachWalkSec, battleFieldLay, cellHitBox, cellRectTop, cellScreenH,
+  cellScreenY, hitDeployCell, moveSpd, posScreenY, villagerSpriteH,
 } from '@/balance/combat';
 
 describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
@@ -68,5 +69,30 @@ describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
     expect(hitDeployCell(FIELD_X + 10, y0 + ch + 10, top, goal)).toEqual({ lane: 0, cell: 1 });
     expect(hitDeployCell(80, y0 + 20, top, goal)).toBeNull();
     expect(hitDeployCell(375, top + 10, top, goal)).toBeNull();
+  });
+
+  it('空场按皇室入场走，突破后恢复表里的速度', () => {
+    expect(approachWalkSec(0.72)).toBeGreaterThanOrEqual(4);
+    expect(approachWalkSec(0.72)).toBeLessThan(5.5);
+    expect(approachWalkSec(1.05)).toBeLessThan(approachWalkSec(0.42));
+    expect(moveSpd(0.72, 0)).toBeLessThan(0.72);
+    expect(moveSpd(0.72, VIS_ENGAGE_POS)).toBe(0.72);
+  });
+
+  it('路从顶板下沿开始，开打后人落到近底', () => {
+    const chromeBottom = 240;
+    const height = 1334;
+    const benchH = 330;
+    const place = battleFieldLay({
+      chromeBottom, height, placing: true, safeBottom: 0, benchH,
+    });
+    const fight = battleFieldLay({
+      chromeBottom, height, placing: false, safeBottom: 0, benchH,
+    });
+    expect(place.spawnY).toBe(chromeBottom + GATE_GAP);
+    expect(fight.spawnY).toBe(place.spawnY);
+    expect(place.goalY).toBe(height - benchH);
+    expect(fight.goalY).toBe(height - FIGHT_BAG_H);
+    expect(fight.goalY - fight.spawnY).toBeGreaterThan(place.goalY - place.spawnY);
   });
 });

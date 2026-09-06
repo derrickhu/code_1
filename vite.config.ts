@@ -12,10 +12,9 @@ const pkg = JSON.parse(
 export const BUNDLE_DIR = '.bundle';
 
 /**
- * 构建后把 bundle 里 ShaderSystem 的 systemCheck 方法体清空，使其不再抛 unsafe-eval。
- *
- * @pixi/unsafe-eval 的 selfInstall 副作用可能被 tree-shaking 移除，且 @pixi/core
- * 可能在 bundle 里出现多个副本，prototype patch 只能覆盖其中一个。做法沿用 xiaochu2。
+ * 构建后替换 bundle 中 ShaderSystem 的 systemCheck 等方法体。
+ * @pixi/unsafe-eval 的 selfInstall 副作用可能被 tree-shaking 移除，
+ * 且 @pixi/core 可能在 bundle 里出现多个副本。做法沿用 xiaochu2。
  */
 function pixiUnsafeEvalPlugin(): Plugin {
   return {
@@ -25,30 +24,80 @@ function pixiUnsafeEvalPlugin(): Plugin {
       const bundlePath = path.resolve(outDir, 'game-bundle.js');
       if (!fs.existsSync(bundlePath)) return;
       const code = fs.readFileSync(bundlePath, 'utf8');
-      const re =
-        /systemCheck\(\)\{if\(!\w+\(\)\)throw new Error\("Current environment does not allow unsafe-eval[^}]*\}/g;
-      const patched = code.replace(re, 'systemCheck(){}');
+      const replacements: Array<[RegExp, string, string]> = [
+        [
+          /systemCheck\(\)\{if\(!\w+\(\)\)throw new Error\("Current environment does not allow unsafe-eval[^}]*\}/g,
+          'systemCheck(){}',
+          'systemCheck',
+        ],
+        [
+          /Function\("binder","return function \("\+\w+\(\w+,","\)\+"\)\{ return binder\.apply\(this,arguments\); \}"\)/g,
+          '(function(binder){return function(){return binder.apply(this,arguments)}})',
+          'bind-Function',
+        ],
+        [
+          /new Function\("param1","param2","param3","return param1\[param2\] === param3;"\)\(\{a:"b"\},"a","b"\)===!0/g,
+          '!1',
+          'unsafeEvalSupported',
+        ],
+      ];
+      let patched = code;
+      const applied: string[] = [];
+      for (const [re, to, name] of replacements) {
+        const next = patched.replace(re, to);
+        if (next !== patched) applied.push(name);
+        patched = next;
+      }
       if (patched !== code) {
         fs.writeFileSync(bundlePath, patched, 'utf8');
-        console.log('[pixi-unsafe-eval-patch] 已处理 systemCheck');
+        console.log(`[pixi-unsafe-eval-patch] Patched ${applied.join(', ')}`);
       }
     },
   };
 }
 
 /**
- * bundle 落地后立刻组装平台目录。
+ * 只在 `vite build --watch` 里组装。一次性 build 由 npm script 在 vite 之后跑 CLI，
+ * 避免 writeBundle 先拷、随后又整目录删掉。
  *
- * 挂在构建流程里而不是让 npm script 串一条命令，是为了让 `vite build --watch` 也生效 ——
- * 否则 watch 只会刷新 .bundle/，开发者工具打开的 build/ 永远是旧的。
- * 用 CODE1_PLATFORM 指定只出某一端，默认两端都出。
+ * 改 TS：writeBundle → 增量 assemble。
+ * 改 runtime/assets/platform：目录监听 → 只 assemble，不重打 JS。
  */
 function assemblePlatformsPlugin(): Plugin {
+  let stopWatch: (() => void) | undefined;
+  let queue: Promise<void> = Promise.resolve();
+
+  const target = () => process.env.CODE1_PLATFORM ?? 'all';
+
+  const enqueue = (reason: string) => {
+    queue = queue
+      .then(async () => {
+        const { assembleAll } = await import('./scripts/build-platform.mjs');
+        console.log(`[build-platform] watch assemble (${reason})`);
+        assembleAll(target());
+      })
+      .catch((err: unknown) => {
+        console.error('[build-platform]', err instanceof Error ? err.message : err);
+      });
+    return queue;
+  };
+
   return {
     name: 'assemble-platforms',
+    async buildStart() {
+      if (!this.meta.watchMode || stopWatch) return;
+      const { watchContentTrees } = await import('./scripts/build-platform.mjs');
+      stopWatch = watchContentTrees(() => {
+        void enqueue('assets');
+      });
+    },
     async writeBundle() {
-      const { assembleAll } = await import('./scripts/build-platform.mjs');
-      assembleAll(process.env.CODE1_PLATFORM ?? 'all');
+      if (!this.meta.watchMode) return;
+      await enqueue('bundle');
+    },
+    closeWatcher() {
+      stopWatch?.();
+      stopWatch = undefined;
     },
   };
 }
@@ -64,7 +113,6 @@ export default defineConfig({
     dedupe: ['@pixi/core', '@pixi/display', '@pixi/settings', '@pixi/constants', '@pixi/utils'],
   },
   publicDir: false,
-  // 顺序有意义：先 patch 好 bundle，再复制进平台目录
   plugins: [pixiUnsafeEvalPlugin(), assemblePlatformsPlugin()],
   build: {
     outDir: BUNDLE_DIR,

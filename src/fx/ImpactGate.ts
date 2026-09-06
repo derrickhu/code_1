@@ -64,6 +64,11 @@ export class ImpactGate {
     this.linger.delete(key);
   }
 
+  /** 还有弹在路上，或刚倒下还在淡出 */
+  busy(): boolean {
+    return this.inbound.size > 0 || this.linger.size > 0 || this.delayed.size > 0;
+  }
+
   reset(): void {
     this.inbound.clear();
     this.delayed.clear();

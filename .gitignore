@@ -6,3 +6,4 @@ tmp/
 .DS_Store
 *.log
 *.tmp
+project.private.config.json

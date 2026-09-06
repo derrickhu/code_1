@@ -19,6 +19,12 @@ export function motionFor(fx: AttackFx): AtkMotion {
   return 'lunge';
 }
 
+/** 手上还是弹弓就走拉弹，哪怕这一发家族已经是 pierce。动画和出手帧必须同一套。 */
+export function motionForSkin(skin: string | undefined, fx: AttackFx): AtkMotion {
+  if (skin === 'sling') return 'sling';
+  return motionFor(fx);
+}
+
 /** 这一下真正出手的时刻，跟挥击关键帧对齐，特效不能比它早 */
 export function attackLife(motion: AtkMotion, kind: 'hero' | 'enemy', armed: boolean, framed: boolean): number {
   if (kind === 'hero' && armed) {

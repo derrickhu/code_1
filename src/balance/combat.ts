@@ -51,6 +51,24 @@ export const BLOCK_POS = cellPos(0) - 0.5;
  */
 export const VIS_ENGAGE_POS = cellPos(0) - 1;
 
+/**
+ * 空场要走多久才贴脸。
+ *
+ * 对标皇室：骑士 1 格/秒，过桥到塔大约 6–8 秒；野猪大约 3 秒。
+ * 植物大战僵尸过整片草坪要 30 秒，对我们 1–2 分钟的关太慢。
+ * 本项目自己写过「小灰 5 秒走进来」（docs/01），表里的 spd 却让它 1.4 秒就到。
+ * 突破之后仍用表里的 spd，漏怪那段不能一起放慢。
+ */
+export function approachWalkSec(spd: number): number {
+  return Math.max(3, Math.min(9, 2 / spd + 1.5));
+}
+
+/** 还在空场用入场步频，过了贴脸线就恢复表里的走速 */
+export function moveSpd(spd: number, pos: number): number {
+  if (pos >= VIS_ENGAGE_POS) return spd;
+  return VIS_ENGAGE_POS / approachWalkSec(spd);
+}
+
 /** 漏几个判负。留 3 个是为了给星评腾出档位，也别让第一次漏就劝退 */
 export const LEAK_ALLOW = 3;
 
@@ -150,6 +168,28 @@ export function cellScreenY(
 /** 一格在屏幕上多高。画格垫和热区用 */
 export function cellScreenH(topY: number, goalY: number): number {
   return (goalY - topY) / VIS_ROWS;
+}
+
+/**
+ * 门楣下沿到出场线。人从锈铁板底下走出来，头可以先被挡住一截。
+ * 路不许再钻进顶板后面 —— 顶板就是村口门楣，和土路要切开。
+ */
+export const GATE_GAP = 4;
+/** 开打后坞收掉，底线落到沙袋那么高，人跟着下去，空场变长 */
+export const FIGHT_BAG_H = 48;
+
+/** 出场线 / 底线。布阵要给坞留位，开打后把那段空地还给路 */
+export function battleFieldLay(args: {
+  chromeBottom: number;
+  height: number;
+  placing: boolean;
+  safeBottom: number;
+  benchH: number;
+}): { spawnY: number; goalY: number } {
+  const spawnY = args.chromeBottom + GATE_GAP;
+  const floor = args.placing ? args.benchH : FIGHT_BAG_H;
+  const goalY = args.height - args.safeBottom - floor;
+  return { spawnY, goalY };
 }
 
 /** 场上棋子身高。3 列下用 36，认得出脸，又不顶格 */

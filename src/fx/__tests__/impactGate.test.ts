@@ -51,6 +51,20 @@ describe('落点门闩', () => {
     expect(gate.settle(key)).toEqual([]);
     expect(gate.holding(key)).toBe(false);
   });
+
+  it('路上有弹或淡出时 busy', () => {
+    const gate = new ImpactGate();
+    const key = enemyImpactKey(9);
+    expect(gate.busy()).toBe(false);
+    gate.begin(key);
+    expect(gate.busy()).toBe(true);
+    gate.settle(key);
+    expect(gate.busy()).toBe(false);
+    gate.markLinger(key);
+    expect(gate.busy()).toBe(true);
+    gate.clearLinger(key);
+    expect(gate.busy()).toBe(false);
+  });
 });
 
 /*

@@ -128,6 +128,7 @@ const BG_PATH = 'images/bg_battle.jpg';
 const VILLAGE_BG = 'images/bg_village.jpg';
 const VILLAGE_HOME_BG = 'images/bg_village_home.jpg';
 const YARD_BG = 'images/bg_yard.jpg';
+const STALL_BG = 'images/bg_stall.jpg';
 
 export const UI_FILES = [
   'title_logo',
@@ -180,6 +181,13 @@ export const UI_FILES = [
   'wood_sign',
   'gate_chu',
   'stall_chalk',
+  'stall_cans',
+  'stall_bottles',
+  'stall_tv',
+  'stall_crate',
+  'stall_basin',
+  'stall_horn',
+  'stall_sling',
   'stage_post',
   'top_lintel',
   'battle_lintel',
@@ -199,6 +207,14 @@ export const UI_FILES = [
   'paint_parts',
   'paint_credits',
   'paint_pellets',
+  'paint_shangchang',
+  'paint_lai',
+  'paint_zhi',
+  'paint_bo',
+  'paint_di',
+  'paint_lou',
+  'paint_changshang',
+  'paint_menlu',
 ] as const;
 
 export function bgTex(): PIXI.Texture | null {
@@ -217,6 +233,10 @@ export function yardBgTex(): PIXI.Texture | null {
   return tex(YARD_BG) ?? villageBgTex();
 }
 
+export function stallBgTex(): PIXI.Texture | null {
+  return tex(STALL_BG) ?? yardBgTex();
+}
+
 export type UiName = (typeof UI_FILES)[number];
 
 export function uiTex(name: UiName): PIXI.Texture | null {
@@ -230,7 +250,7 @@ export const LOADING_TITLE = 'images/ui_title_logo.png';
 
 /** 村子主页：局外件 + 立绘 + 局里那套闲置精灵（主页站位跟战场共用） */
 export function villageArtPaths(): string[] {
-  const paths = [VILLAGE_BG, VILLAGE_HOME_BG, YARD_BG];
+  const paths = [VILLAGE_BG, VILLAGE_HOME_BG, YARD_BG, STALL_BG];
   for (const n of UI_FILES) paths.push(`images/ui_${n}.png`);
   for (const v of VILLAGERS) {
     paths.push(`images/hero_${v.id}.png`);
@@ -261,7 +281,11 @@ export function preloadBattleArt(): void {
     'title_plaque', 'play_plate', 'iron_bar', 'iron_dock', 'scrap_pile',
     'settle_stamp', 'settle_name', 'settle_btn', 'settle_chip', 'ad_btn',
     'rust_btn', 'rust_plank', 'rust_tile', 'dirt_pad', 'fight_btn', 'sandbag',
-    'battle_lintel',
+    'battle_lintel', 'rust_stamp',
+    'paint_shangchang', 'paint_lai', 'paint_zhi', 'paint_bo',
+    'paint_di', 'paint_lou', 'paint_changshang', 'paint_menlu',
+    'paint_0', 'paint_1', 'paint_2', 'paint_3', 'paint_4',
+    'paint_5', 'paint_6', 'paint_7', 'paint_8', 'paint_9',
   ] as const) {
     kick(`images/ui_${n}.png`);
   }
@@ -395,6 +419,39 @@ export function fillCover(
   const matrix = new PIXI.Matrix();
   matrix.scale(scale, scale);
   matrix.translate(x + (w - tw * scale) / 2, y + (h - th * scale) * alignY);
+  g.beginTextureFill({ texture, matrix });
+  g.drawRect(x, y, w, h);
+  g.endFill();
+}
+
+/**
+ * 只铺原图的一块 UV，再按 cover 裁进目标框。
+ * 弹弓摊用它把墙面木梁对准货架，顺便切掉两侧帘子。
+ */
+export function fillCoverUv(
+  g: PIXI.Graphics,
+  texture: PIXI.Texture,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  uv: { x?: number; y: number; w?: number; h: number },
+  alignY = 0.5,
+): void {
+  const texW = texture.width || 1;
+  const texH = texture.height || 1;
+  const uvX = uv.x ?? 0;
+  const uvW = uv.w ?? 1;
+  const srcW = texW * uvW;
+  const srcH = texH * uv.h;
+  if (srcW <= 1 || srcH <= 1) return;
+  const scale = Math.max(w / srcW, h / srcH);
+  const matrix = new PIXI.Matrix();
+  matrix.scale(scale, scale);
+  matrix.translate(
+    x + (w - srcW * scale) / 2 - texW * uvX * scale,
+    y + (h - srcH * scale) * alignY - texH * uv.y * scale,
+  );
   g.beginTextureFill({ texture, matrix });
   g.drawRect(x, y, w, h);
   g.endFill();

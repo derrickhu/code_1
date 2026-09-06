@@ -14,7 +14,7 @@ declare const tt: any;
 export type PlatformName = 'wechat' | 'douyin' | 'unknown';
 export type BackendPlatformCode = 'wx' | 'dy' | 'anon';
 
-/** 检测当前小游戏宿主（单一真源，与 minigame/runtime.js 逻辑一致） */
+/** 检测当前小游戏宿主（单一真源，与 runtime/runtime.js 逻辑一致） */
 export function detectMinigamePlatform(): PlatformName {
   if (typeof tt !== 'undefined') return 'douyin';
   if (typeof wx !== 'undefined') return 'wechat';

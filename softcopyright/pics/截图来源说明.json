@@ -1,0 +1,46 @@
+{
+  "cunkou_01_loading.png": [
+    "src/ui/LoadingScreenOverlay.ts",
+    "assets/images 加载底图 / 标题"
+  ],
+  "cunkou_02_home.png": [
+    "src/scenes/VillageScene.ts _renderHome",
+    "assets/images 村口背景 / 铁门 / 摊子 / 图鉴墙"
+  ],
+  "cunkou_03_stall.png": [
+    "src/ui/StallYard.ts",
+    "src/balance/stall.ts 靶位"
+  ],
+  "cunkou_04_folks.png": [
+    "src/scenes/VillageScene.ts _renderFolks"
+  ],
+  "cunkou_05_one.png": [
+    "src/scenes/VillageScene.ts _renderOne",
+    "assets/images 村民三阶立绘"
+  ],
+  "cunkou_06_call.png": [
+    "src/scenes/VillageScene.ts _call",
+    "src/core/RunMemory.ts callVillager"
+  ],
+  "cunkou_07_place.png": [
+    "src/scenes/BattleScene.ts 布阵阶段",
+    "src/ui/BenchDock.ts"
+  ],
+  "cunkou_08_fight.png": [
+    "src/scenes/BattleScene.ts 战斗阶段",
+    "src/game/BattleEngine.ts"
+  ],
+  "cunkou_09_revive.png": [
+    "src/ui/ReviveOverlay.ts"
+  ],
+  "cunkou_10_settle.png": [
+    "src/ui/SettleOverlay.ts"
+  ],
+  "cunkou_11_stars.png": [
+    "src/scenes/VillageScene.ts _homePost"
+  ],
+  "cunkou_12_goal.png": [
+    "src/scenes/VillageScene.ts _homeStake",
+    "src/core/RunMemory.ts nextGoal"
+  ]
+}

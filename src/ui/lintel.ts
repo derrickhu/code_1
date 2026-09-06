@@ -1,6 +1,7 @@
 /**
- * 村子门楣只给主界面用：大牌 + 经验槽 + 四枚资源章。
- * 编队 / 战斗另用切下来的上半块锈铁（battleHudLay），不要把经验条和四格硬塞进去。
+ * 村子门楣只给主界面、图鉴、详情用：大牌 + 经验槽 + 四枚资源章。
+ * 编队 / 战斗 / 弹弓摊另用切下来的上半块锈铁，不要把经验条和四格硬塞进去。
+ * 摊顶走 stallHudLay：同一张底板，不加三枚章，门楣更矮，货架多一截。
  */
 export interface LintelLay {
   titleH: number;
@@ -46,37 +47,75 @@ export function lintelLay(safeTop: number, height: number): LintelLay {
 }
 
 /**
- * 编队 / 战斗顶板。只用切下来的上半块锈铁，按原图比例铺满顶，
- * 不再带经验槽和四枚章。
+ * 编队 / 战斗顶板。底只铺切下来的上半块锈铁，
+ * 上场 / 来 / 波 等字和锈章是另出的图，叠在板上，不烤进底板。
  *
- * 切图是 1280×398，750 宽时约 233 高。
+ * 切图是 1280×398，750 宽时约 233 高；为了塞下三枚章会略往下拉。
  */
 export interface BattleHudLay {
   titleH: number;
   title: { cx: number; cy: number };
   titleGlyphH: number;
-  infoY: number;
   hintY: number;
+  stamp: { y: number; w: number; h: number; cxs: readonly number[] };
   barBottom: number;
 }
 
 export function battleHudLay(safeTop: number, height: number): BattleHudLay {
   const safe = Math.max(safeTop, 16);
   let titleH = Math.round(750 * 398 / 1280);
-  if (titleH < safe + 140) titleH = Math.min(Math.round(height * 0.22), safe + 176);
-  if (titleH > height * 0.22) titleH = Math.round(height * 0.22);
-  const titleGlyphH = Math.max(34, Math.round(titleH * 0.26));
-  let titleCy = titleH * 0.38;
+  if (titleH < safe + 200) titleH = Math.min(Math.round(height * 0.24), safe + 220);
+  if (titleH > height * 0.24) titleH = Math.round(height * 0.24);
+  const titleGlyphH = Math.max(32, Math.round(titleH * 0.16));
+  let titleCy = titleH * 0.24;
   if (titleCy - titleGlyphH / 2 < safe + 4) {
     titleCy = safe + 4 + titleGlyphH / 2;
   }
-  const infoY = titleCy + titleGlyphH * 0.58;
-  const hintY = Math.min(titleH - 20, infoY + 26);
+  const hintY = titleH - 16;
+  const stampH = Math.round(titleH * 0.30);
+  const stampY = hintY - 12 - stampH / 2;
   return {
     titleH,
     title: { cx: 375, cy: titleCy },
     titleGlyphH,
-    infoY,
+    hintY,
+    stamp: {
+      y: stampY,
+      w: 200,
+      h: stampH,
+      cxs: [155, 375, 595],
+    },
+    barBottom: titleH,
+  };
+}
+
+/**
+ * 弹弓摊顶板。底图跟战斗同一张切下来的锈铁，字另叠。
+ * 不抬高度去塞三枚章，750 宽时按原图比例大约 233 高。
+ */
+export interface StallHudLay {
+  titleH: number;
+  title: { cx: number; cy: number };
+  titleGlyphH: number;
+  hintY: number;
+  barBottom: number;
+}
+
+export function stallHudLay(safeTop: number, height: number): StallHudLay {
+  const safe = Math.max(safeTop, 16);
+  let titleH = Math.round(750 * 398 / 1280);
+  if (titleH < safe + 96) titleH = Math.min(Math.round(height * 0.18), safe + 140);
+  if (titleH > height * 0.2) titleH = Math.round(height * 0.2);
+  const titleGlyphH = Math.max(30, Math.round(titleH * 0.22));
+  let titleCy = titleH * 0.40;
+  if (titleCy - titleGlyphH / 2 < safe + 4) {
+    titleCy = safe + 4 + titleGlyphH / 2;
+  }
+  const hintY = Math.min(titleH - 22, titleCy + titleGlyphH * 0.62 + 16);
+  return {
+    titleH,
+    title: { cx: 375, cy: titleCy },
+    titleGlyphH,
     hintY,
     barBottom: titleH,
   };

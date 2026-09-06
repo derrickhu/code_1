@@ -21,7 +21,7 @@
 import {
   ARMOR_K, CELL_COUNT, GOAL_POS, HEAL_ATK_CUT, HEAL_MUL,
   LANE_COUNT, LEAK_ALLOW, RAGE_BONUS, SLOW_MS, SLOW_MUL, TICK_MS, WAVE_GAP_MS,
-  cellPos,
+  cellPos, moveSpd,
 } from '@/balance/combat';
 import {
   getEnemy, rateStars,
@@ -614,7 +614,7 @@ export function tick(state: BattleState): void {
         hurtVillager(state, target, e, damage);
       }
     } else {
-      e.pos += e.def.spd * (e.slowMs > 0 ? SLOW_MUL : 1) * (TICK_MS / 1000);
+      e.pos += moveSpd(e.def.spd, e.pos) * (e.slowMs > 0 ? SLOW_MUL : 1) * (TICK_MS / 1000);
       if (e.pos > GOAL_POS) {
         e.alive = false;
         state.leaked += 1;

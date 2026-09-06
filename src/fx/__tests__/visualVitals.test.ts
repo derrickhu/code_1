@@ -32,4 +32,15 @@ describe('画面血条跟弹着点', () => {
     const v = new VisualVitals();
     expect(v.shown('e:9', { hp: 12, extra: 3 })).toEqual({ hp: 12, extra: 3 });
   });
+
+  it('首种必须用满血。用引擎现血再落地会扣两次', () => {
+    const v = new VisualVitals();
+    v.seed('e7', 100, 0);
+    v.landEnemy('e7', 30);
+    expect(v.shown('e7', { hp: 0, extra: 0 }).hp).toBe(70);
+    const wrong = new VisualVitals();
+    wrong.seed('e7', 70, 0);
+    wrong.landEnemy('e7', 30);
+    expect(wrong.shown('e7', { hp: 0, extra: 0 }).hp).toBe(40);
+  });
 });

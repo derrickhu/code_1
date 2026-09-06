@@ -12,8 +12,8 @@
  *           因为「我还差谁」和「我该升谁」是同一个决策。
  * - `one`   单个村民的三阶详情。升阶前要看得见「升完他会变成什么样」（§4.1）。
  *
- * 资源条常驻在每一页顶上。四种货币里有三种是进化和喊人的门槛，
- * 藏起来会让玩家在摊子上打了十发也不知道自己离下一阶还差多少。
+ * 资源条常驻在村子、图鉴、详情顶上。弹弓摊改用战斗那种矮锈铁板，
+ * 只叠弹子数，把门楣腾给货架。
  */
 import * as PIXI from 'pixi.js';
 import { EventBus } from '@/core/EventBus';
@@ -25,7 +25,7 @@ import { TweenManager, Ease } from '@/core/TweenManager';
 import { bindPointerTap } from '@/minigame';
 import { UnitActor } from '@/fx/UnitActor';
 import { LANE_TINT } from '@/ui/BenchDock';
-import { StallYard } from '@/ui/StallYard';
+import { StallYard, STALL_BG_LAY } from '@/ui/StallYard';
 import {
   CALL_COST, CRAFT_MAX, craftCap, craftOf, evoOf, nextCapLv, nextFeed,
   nextVillageCost, starsOf, villageCumExp,
@@ -47,11 +47,12 @@ import {
 } from '@/core/RunMemory';
 import { playSfx } from '@/core/SfxPlayer';
 import {
-  addFitPortrait, fillCover, heroTex, preloadVillageArt, uiTex, villageBgTex, villageHomeBgTex,
-  watchArt, yardBgTex,
+  addFitPortrait, fillCover, fillCoverUv, heroTex, preloadVillageArt, stallBgTex, uiTex,
+  villageBgTex, villageHomeBgTex, watchArt,
   type UiName,
 } from '@/core/TextureLoader';
-import { lintelLay } from '@/ui/lintel';
+import { lintelLay, stallHudLay, type StallHudLay } from '@/ui/lintel';
+import { numGlyphs, paintGlyphs } from '@/ui/glyphs';
 import {
   GOLD, copperRust, expBar, fillSprite, fitSprite, goldBtn, ironSlab, label,
   plate, standSprite, woodPlank,
@@ -210,31 +211,6 @@ function putCentered(
   parent.addChild(t);
 }
 
-/** 锈金漆字。村子等级、资源名和数字都走贴图，不用系统字硬叠。 */
-function paintGlyphs(
-  parent: PIXI.Container,
-  names: readonly UiName[],
-  cx: number,
-  cy: number,
-  h: number,
-  gap = 6,
-): boolean {
-  const texs = names.map((n) => uiTex(n));
-  if (texs.some((t) => !t?.baseTexture.valid || t.width <= 1)) return false;
-  const ws = texs.map((t) => (t!.width / t!.height) * h);
-  const total = ws.reduce((a, b) => a + b, 0) + gap * Math.max(0, texs.length - 1);
-  let x = cx - total / 2;
-  texs.forEach((t, i) => {
-    fitSprite(parent, t, x + ws[i]! / 2, cy, ws[i]!, h);
-    x += ws[i]! + gap;
-  });
-  return true;
-}
-
-function numGlyphs(n: number): UiName[] {
-  return String(Math.floor(Math.max(0, n))).split('').map((d) => `paint_${d}` as UiName);
-}
-
 function lvGlyphs(lv: number): UiName[] {
   return ['paint_cunzi', ...numGlyphs(lv), 'paint_ji'];
 }
@@ -293,6 +269,7 @@ export class VillageScene implements Scene {
     if (this._artTimer) clearTimeout(this._artTimer);
     this._artTimer = 0;
     this._clearActors();
+    this._yard.sleep();
     if (this._yard.parent) this._yard.parent.removeChild(this._yard);
     BgmPlayer.stop();
   }
@@ -321,8 +298,9 @@ export class VillageScene implements Scene {
 
   private _render(): void {
     this._clearActors();
-    if (this._page !== 'stall' && this._yard.parent) {
-      this._yard.parent.removeChild(this._yard);
+    if (this._page !== 'stall') {
+      this._yard.sleep();
+      if (this._yard.parent) this._yard.parent.removeChild(this._yard);
     }
     for (const p of PAGES) {
       const layer = this._layers[p];
@@ -341,6 +319,23 @@ export class VillageScene implements Scene {
   }
 
   /* ---------------- 公共零件 ---------------- */
+
+  private _paintStallRoom(layer: PIXI.Container, y0: number, y1: number): void {
+    const g = new PIXI.Graphics();
+    const h = Math.max(80, y1 - y0);
+    const art = stallBgTex();
+    if (art && art.baseTexture.valid && art.width > 1) {
+      fillCoverUv(
+        g, art, 0, y0, 750, h,
+        { y: STALL_BG_LAY.uvY, h: STALL_BG_LAY.uvH },
+        STALL_BG_LAY.alignY,
+      );
+    } else {
+      g.beginFill(0x3a2414).drawRect(0, y0, 750, h).endFill();
+      g.beginFill(0x2a4a6a, 0.35).drawRect(0, y0 + h * 0.62, 750, h * 0.38).endFill();
+    }
+    layer.addChild(g);
+  }
 
   private _backdrop(layer: PIXI.Container, art = villageBgTex(), dim = 0.22): void {
     const g = new PIXI.Graphics();
@@ -765,36 +760,22 @@ export class VillageScene implements Scene {
   /* ---------------- 弹弓摊 ---------------- */
 
   private _renderStall(layer: PIXI.Container): void {
-    this._backdrop(layer, yardBgTex() ?? villageBgTex());
-    const top = this._bar(layer);
-    const mem = this._mem;
-    const cap = pelletCap(mem.villageLv);
     const h = this._height();
-
-    this._skin(layer, 'rust_plank', 375, top + 66, 670, 100, (g) => {
-      ironSlab(g, 40, top + 16, 670, 100, 16);
-      copperRust(g, 48, top + 24, 654, 84);
-    });
-
-    const title = label(28, GOLD, true);
-    title.anchor.set(0.5, 0);
-    title.position.set(375, top + 30);
-    title.text = `手上 ${mem.pellets}/${cap} 发`;
-    layer.addChild(title);
-
-    const pity = label(16, 0xd9a13b, true);
-    pity.anchor.set(0.5, 0);
-    pity.position.set(375, top + 68);
-    pity.text = mem.pellets >= cap
-      ? `满了 · 再 ${stallPityLeft(mem)} 发必出 1 工分`
-      : `${pelletRegenMin(mem.villageLv)} 分钟回一发 · 再 ${stallPityLeft(mem)} 发必出工分`;
-    layer.addChild(pity);
+    const chrome = stallHudLay(Game.safeTop, h);
+    const roomTop = Math.round(chrome.barBottom - 16);
+    const roomBottom = h - Game.safeBottom - 148;
+    const behind = new PIXI.Graphics();
+    behind.beginFill(0x140e0a).drawRect(0, 0, 750, chrome.titleH).endFill();
+    layer.addChild(behind);
+    this._paintStallRoom(layer, roomTop, roomBottom);
+    this._paintStallHud(layer, chrome);
+    const mem = this._mem;
 
     const open = new Set(
       TARGETS.filter((t) => mem.villageLv >= (TARGET_UNLOCK_LV[t.id] ?? 1)).map((t) => t.id),
     );
     const floor = h - Game.safeBottom - 168;
-    if (!this._yard.busy) this._yard.mount(open, top + 128, floor);
+    if (!this._yard.busy) this._yard.mount(open, roomTop, roomBottom, floor);
     this._yard.visible = true;
     this._yard.setCanPull(mem.pellets > 0 && !this._yard.busy);
     layer.addChild(this._yard);
@@ -808,6 +789,76 @@ export class VillageScene implements Scene {
     this._btn(layer, 530, btnY, 240, 76, '回村口', () => this._open('home'), {
       enabled: !this._yard.busy,
     });
+  }
+
+  /** 跟战斗一样：空锈铁板铺满顶，弹子数和提示另叠上去。 */
+  private _paintStallHud(layer: PIXI.Container, chrome: StallHudLay): void {
+    if (!fillSprite(layer, uiTex('battle_lintel'), 375, chrome.titleH / 2, 750, chrome.titleH)) {
+      const g = new PIXI.Graphics();
+      ironSlab(g, 0, 0, 750, chrome.titleH, 0);
+      layer.addChild(g);
+    }
+    const n = this._mem.pellets;
+    const cap = pelletCap(this._mem.villageLv);
+    if (!this._drawStallTitle(layer, chrome, n, cap)) {
+      const title = painted(28, GOLD, '#1a1008', 6);
+      title.anchor.set(0.5);
+      title.position.set(chrome.title.cx, chrome.title.cy);
+      title.text = `手上 ${n}/${cap} 发`;
+      layer.addChild(title);
+    }
+    const pity = painted(16, 0xd9a13b, '#1a1008', 4);
+    pity.anchor.set(0.5);
+    pity.position.set(375, chrome.hintY);
+    pity.text = this._mem.pellets >= cap
+      ? `满了 · 再 ${stallPityLeft(this._mem)} 发必出 1 工分`
+      : `${pelletRegenMin(this._mem.villageLv)} 分钟回一发 · 再 ${stallPityLeft(this._mem)} 发必出工分`;
+    layer.addChild(pity);
+  }
+
+  private _drawStallTitle(
+    layer: PIXI.Container,
+    chrome: StallHudLay,
+    n: number,
+    cap: number,
+  ): boolean {
+    const pellets = uiTex('paint_pellets');
+    const left = numGlyphs(n);
+    const right = numGlyphs(cap);
+    const names = [...left, ...right];
+    const texs = names.map((id) => uiTex(id));
+    if (!pellets?.baseTexture.valid || pellets.width <= 1) return false;
+    if (texs.some((t) => !t?.baseTexture.valid || t.width <= 1)) return false;
+    const h = chrome.titleGlyphH;
+    const cy = chrome.title.cy;
+    const gap = 6;
+    const slashW = h * 0.28;
+    const pW = (pellets.width / pellets.height) * h;
+    const ws = texs.map((t) => (t!.width / t!.height) * h);
+    const leftW = ws.slice(0, left.length).reduce((s, w) => s + w, 0)
+      + gap * Math.max(0, left.length - 1);
+    const rightW = ws.slice(left.length).reduce((s, w) => s + w, 0)
+      + gap * Math.max(0, right.length - 1);
+    const total = pW + gap + leftW + slashW + rightW + gap * 2;
+    let x = chrome.title.cx - total / 2;
+    fitSprite(layer, pellets, x + pW / 2, cy, pW, h);
+    x += pW + gap;
+    texs.slice(0, left.length).forEach((t, i) => {
+      fitSprite(layer, t, x + ws[i]! / 2, cy, ws[i]!, h);
+      x += ws[i]! + gap;
+    });
+    const slash = painted(Math.round(h * 0.72), GOLD, '#1a1008', 3);
+    slash.anchor.set(0.5);
+    slash.position.set(x + slashW / 2, cy);
+    slash.text = '/';
+    layer.addChild(slash);
+    x += slashW + gap;
+    texs.slice(left.length).forEach((t, i) => {
+      const w = ws[left.length + i]!;
+      fitSprite(layer, t, x + w / 2, cy, w, h);
+      x += w + gap;
+    });
+    return true;
   }
 
   private _shoot(): void {
@@ -1092,11 +1143,17 @@ export class VillageScene implements Scene {
     /*
      * 三阶并排静帧。图鉴必须一体重绘，战场才继续人武分离。
      * 叠货架图标看不出剪影变化，所以这里不再用 UnitActor 叠件。
+     * 缩放按卡内人洞算：二阶画布更高，不能按 200 高去 fit 再塞进 162 的遮罩。
      */
-    const rowY = top + 380;
+    const cardTop = top + 190;
+    const cardH = 268;
+    const titleY = cardTop + 10;
+    const holeX = 100;
+    const holeTop = cardTop + 36;
+    const holeH = cardH - 48;
     const stillW = 188;
-    const stillH = 200;
-    const feetY = top + 382;
+    const stillH = holeH;
+    const feetY = holeTop + holeH;
     const stills = [1, 2, 3].map((s) => heroTex(v.id, s));
     let share = Number.POSITIVE_INFINITY;
     for (const tex of stills) {
@@ -1110,12 +1167,12 @@ export class VillageScene implements Scene {
       const on = s <= stage;
 
       const card = new PIXI.Container();
-      this._skin(card, 'rust_tile', cx, top + 324, 208, 268, (g) => {
-        plate(g, cx - 104, top + 190, 208, 268, 12);
+      this._skin(card, 'rust_tile', cx, cardTop + cardH / 2, 208, cardH, (g) => {
+        plate(g, cx - 104, cardTop, 208, cardH, 12);
       });
       if (s === stage) {
         const rim = new PIXI.Graphics();
-        rim.lineStyle(3, GOLD, 0.9).drawRoundedRect(cx - 104, top + 190, 208, 268, 12);
+        rim.lineStyle(3, GOLD, 0.9).drawRoundedRect(cx - 104, cardTop, 208, cardH, 12);
         card.addChild(rim);
       }
       layer.addChild(card);
@@ -1124,25 +1181,18 @@ export class VillageScene implements Scene {
       if (still) {
         still.alpha = on ? 1 : 0.42;
         const mask = new PIXI.Graphics();
-        mask.beginFill(0xffffff).drawRoundedRect(cx - 100, top + 222, 200, 162, 10).endFill();
+        mask.beginFill(0xffffff)
+          .drawRoundedRect(cx - holeX, holeTop, holeX * 2, holeH, 10)
+          .endFill();
         still.mask = mask;
         layer.addChild(mask);
       }
 
       const sn = label(19, on ? CREAM : MUTED, true);
       sn.anchor.set(0.5, 0);
-      sn.position.set(cx, top + 200);
+      sn.position.set(cx, titleY);
       sn.text = `${'一二三'[s - 1]}阶 ${evoName(v, s)}`;
       layer.addChild(sn);
-
-      const pitch = label(15, on ? GOLD : MUTED, true);
-      pitch.anchor.set(0.5, 0);
-      pitch.position.set(cx, rowY + 14);
-      pitch.style.wordWrap = true;
-      pitch.style.wordWrapWidth = 188;
-      pitch.style.align = 'center';
-      pitch.text = v.evo[s - 1]!.pitch;
-      layer.addChild(pitch);
     }
 
     const cost = nextFeed(p, v.id);

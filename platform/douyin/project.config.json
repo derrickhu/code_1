@@ -6,7 +6,8 @@
   "setting": {
     "es6": false,
     "minified": false,
-    "urlCheck": false
+    "urlCheck": false,
+    "compileHotReload": true
   },
   "packOptions": {
     "ignore": [],

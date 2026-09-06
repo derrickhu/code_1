@@ -48,12 +48,13 @@ export const HAND_GEAR: Readonly<Record<string, HandGear>> = {
  * pitch 写「换成双股皮筋」而这里还是同一把弹弓，那进化就只是数字变大。
  *
  * 贴图不够用时允许复用（村里的家伙本来就是同一堆破烂里翻出来的），
- * 但**同一个人的三阶不许三张一样**，除非 pitch 里写的变化在身上其他位置。
+ * 但**同一个人的三阶不许三张一样**，除非 pitch 里写的变化在身上其他位置
+ * （弹弓叔三阶都是弹弓，二阶铁皮、三阶背上那把滑轮弓）。
  */
 export const VILLAGER_HAND: Readonly<Record<string, readonly [string, string, string]>> = {
   guogai: ['pot', 'pipe', 'speaker'],
   yuwang: ['wire', 'weight', 'pipe'],
-  laoyanqiang: ['sling', 'pipe', 'driver'],
+  laoyanqiang: ['sling', 'sling', 'sling'],
   labaye: ['speaker', 'radio', 'blower'],
   tiezhu: ['wrench', 'pipe', 'pot'],
   shimo: ['weight', 'pipe', 'pot'],

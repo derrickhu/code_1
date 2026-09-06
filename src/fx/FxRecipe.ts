@@ -207,7 +207,7 @@ const ENEMY: Readonly<Record<EnemyFx, FxLook>> = {
  *
  * 这里只管「看起来怎么样」。「打起来怎么样」（motion、音效、是否飞行）
  * 由 balance/fx.FX_BY_STAGE 那一层的 AttackFx 决定，两者刻意分开：
- * 同一把弹弓在二阶「一发穿两个」，弹体还是石子，但行为已经是 pierce。
+ * 同一把弹弓在三阶才真穿两个，弹体还是石子，行为才切到 pierce。
  */
 const SKIN: Readonly<Record<string, Partial<FxLook>>> = {
   wrench: { tint: 0xc4b8a0, instant: true, dry: true, swing: true, proj: undefined },
