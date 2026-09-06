@@ -27,6 +27,14 @@ export function label(size: number, color = 0xffffff, bold = false): PIXI.Text {
   });
 }
 
+/** 锈金漆字。门楣上的关卡名、资源数走这一套，不要裸系统字。 */
+export function painted(size: number, color: number, rim = '#1a1008', thick = 4): PIXI.Text {
+  const t = label(size, color, true);
+  t.style.stroke = rim;
+  t.style.strokeThickness = thick;
+  return t;
+}
+
 export function plate(
   g: PIXI.Graphics,
   x: number,
@@ -120,6 +128,29 @@ export function fitSprite(
   return spr;
 }
 
+/**
+ * 脚钉在同一条线上。三阶并排时传入同一 scale，
+ * 免得武器把画布拉高之后人被越缩越小。
+ */
+export function standSprite(
+  parent: PIXI.Container,
+  texture: PIXI.Texture | null,
+  cx: number,
+  feetY: number,
+  maxW: number,
+  maxH: number,
+  scale?: number,
+): PIXI.Sprite | null {
+  if (!texture?.baseTexture.valid || texture.width <= 1) return null;
+  const spr = new PIXI.Sprite(texture);
+  spr.anchor.set(0.5, 1);
+  spr.scale.set(scale ?? Math.min(maxW / texture.width, maxH / texture.height));
+  spr.position.set(cx, feetY);
+  spr.eventMode = 'none';
+  parent.addChild(spr);
+  return spr;
+}
+
 /** 木板铺满面板，多出来的边裁掉。 */
 
 /** 铜锈斑。贴图被压平了也还能看见橙锈和铜绿 */
@@ -174,8 +205,8 @@ export function queuePad(
   feetY: number,
   opts: { empty: boolean; hot: boolean; front: boolean },
 ): void {
-  const rx = opts.empty ? 46 : 42;
-  const ry = opts.empty ? 16 : 13;
+  const rx = opts.empty ? 18 : 16;
+  const ry = opts.empty ? 7 : 6;
   g.beginFill(0x000000, opts.empty ? 0.22 : 0.18);
   g.drawEllipse(cx, feetY + 8, rx, ry);
   g.endFill();
@@ -251,6 +282,40 @@ export function expBar(
   g.lineStyle(1.2, GOLD, 0.45).drawRoundedRect(x, y, width, h, r).lineStyle(0);
 }
 
+/** 铺满一块矩形。顶栏锈牌、出村铁门要拉到设计尺寸，不能按原图比例缩成小方块。 */
+export function fillSprite(
+  parent: PIXI.Container,
+  texture: PIXI.Texture | null,
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+): PIXI.Sprite | null {
+  if (!texture?.baseTexture.valid || texture.width <= 1) return null;
+  const spr = new PIXI.Sprite(texture);
+  spr.anchor.set(0.5);
+  spr.position.set(cx, cy);
+  spr.scale.set(w / texture.width, h / texture.height);
+  spr.eventMode = 'none';
+  parent.addChild(spr);
+  return spr;
+}
+
+/** 钉在泥地里的木牌。关卡桩、能升阶木牌的兜底，贴图没来时也能认。 */
+export function woodPlank(
+  g: PIXI.Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius = 8,
+): void {
+  g.beginFill(0x1a1008, 0.45).drawRoundedRect(x + 3, y + 5, w, h, radius).endFill();
+  g.beginFill(0x5a3a18).drawRoundedRect(x, y, w, h, radius).endFill();
+  g.beginFill(0x6e4a22, 0.78).drawRoundedRect(x + 5, y + 4, w - 10, h - 8, Math.max(3, radius - 3)).endFill();
+  g.lineStyle(2, 0x3a2410, 0.55).drawRoundedRect(x + 1, y + 1, w - 2, h - 2, radius).lineStyle(0);
+}
+
 export function hpBar(
   g: PIXI.Graphics,
   cx: number,
@@ -258,9 +323,11 @@ export function hpBar(
   width: number,
   ratio: number,
   color: number,
+  barH = 6,
 ): void {
   const w = Math.max(0, Math.min(1, ratio)) * width;
-  g.beginFill(0x000000, 0.55).drawRoundedRect(cx - width / 2, y, width, 6, 3).endFill();
-  if (w > 0) g.beginFill(color, 0.95).drawRoundedRect(cx - width / 2, y, w, 6, 3).endFill();
+  const r = Math.max(1, Math.round(barH / 2));
+  g.beginFill(0x000000, 0.55).drawRoundedRect(cx - width / 2, y, width, barH, r).endFill();
+  if (w > 0) g.beginFill(color, 0.95).drawRoundedRect(cx - width / 2, y, w, barH, r).endFill();
 }
 

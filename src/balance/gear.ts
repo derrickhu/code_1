@@ -51,31 +51,26 @@ export const HAND_GEAR: Readonly<Record<string, HandGear>> = {
  * 但**同一个人的三阶不许三张一样**，除非 pitch 里写的变化在身上其他位置。
  */
 export const VILLAGER_HAND: Readonly<Record<string, readonly [string, string, string]>> = {
-  // 站远点打
-  guogai: ['pot', 'pot', 'pot'],
-  yuwang: ['wire', 'wire', 'wire'],
-  laoyanqiang: ['sling', 'sling', 'sling'],
-  labaye: ['speaker', 'speaker', 'speaker'],
-  // 挨得住
-  tiezhu: ['wrench', 'wrench', 'pot'],
-  shimo: ['weight', 'weight', 'weight'],
-  miankuzhang: ['pipe', 'pipe', 'pipe'],
-  erjiu: ['driver', 'wrench', 'wrench'],
-  // 下手重
-  chengtuo: ['weight', 'weight', 'weight'],
-  dachui: ['hammer', 'hammer', 'pipe'],
-  dianju: ['cleaver', 'chainsaw', 'chainsaw'],
-  shazhu: ['cleaver', 'cleaver', 'cleaver'],
-  // 越挨越猛
-  gaoyaguo: ['pot', 'pot', 'pot'],
-  gangban: ['wrench', 'wire', 'wire'],
-  laoli: ['cleaver', 'cleaver', 'cleaver'],
-  bianpao: ['firecracker', 'firecracker', 'firecracker'],
-  // 带一帮人
-  qiangou: ['pipe', 'pipe', 'pipe'],
-  jishi: ['blower', 'blower', 'blower'],
-  sanshen: ['radio', 'speaker', 'speaker'],
-  baowenhu: ['pot', 'pot', 'pot'],
+  guogai: ['pot', 'pipe', 'speaker'],
+  yuwang: ['wire', 'weight', 'pipe'],
+  laoyanqiang: ['sling', 'pipe', 'driver'],
+  labaye: ['speaker', 'radio', 'blower'],
+  tiezhu: ['wrench', 'pipe', 'pot'],
+  shimo: ['weight', 'pipe', 'pot'],
+  miankuzhang: ['pipe', 'weight', 'pot'],
+  erjiu: ['driver', 'wrench', 'hammer'],
+  chengtuo: ['weight', 'pipe', 'hammer'],
+  dachui: ['hammer', 'weight', 'pipe'],
+  dianju: ['cleaver', 'chainsaw', 'pipe'],
+  shazhu: ['cleaver', 'pipe', 'pot'],
+  gaoyaguo: ['pot', 'wrench', 'speaker'],
+  gangban: ['wrench', 'wire', 'pot'],
+  laoli: ['cleaver', 'pipe', 'weight'],
+  bianpao: ['firecracker', 'speaker', 'pot'],
+  qiangou: ['pipe', 'blower', 'weight'],
+  jishi: ['blower', 'pot', 'speaker'],
+  sanshen: ['radio', 'speaker', 'blower'],
+  baowenhu: ['pot', 'speaker', 'pipe'],
 };
 
 /** 立绘那只出击拳，相对脚底。x 乘朝向，y 向上为负，单位是身体高度 */
@@ -111,30 +106,26 @@ const WEAR_BY_LANE: Readonly<Record<string, readonly [EvoWear, EvoWear, EvoWear]
 
 /** 逐人指定。写在这儿的都是 villagers.evo[].pitch 里点名了实物的 */
 const WEAR_OVERRIDE: Readonly<Record<string, readonly [EvoWear, EvoWear, EvoWear]>> = {
-  // 「顶着高压锅、背上弹簧床垫」
-  tiezhu: [
-    { body: 'quilt' },
-    { body: 'steelplate' },
-    { body: 'steelplate', head: 'helmet', back: 'pressurecooker' },
-  ],
-  // 「背着高压锅 → 加压阀 → 一排高压锅」
-  gaoyaguo: [
-    { back: 'pressurecooker' },
-    { back: 'pressurecooker', head: 'helmet' },
-    { back: 'pressurecooker', body: 'steelplate' },
-  ],
-  // 「一块钢板 → 带刺钢板 → 一身铁皮」
-  gangban: [
-    { body: 'steelplate' },
-    { body: 'steelplate', head: 'helmet' },
-    { body: 'steelplate', head: 'helmet', back: 'weight' },
-  ],
-  // 「挑着锅盖 → 双锅盖 → 锅盖阵」
-  guogai: [{ back: 'pot' }, { back: 'pot', head: 'helmet' }, { back: 'pot', body: 'steelplate' }],
-  // 「铁皮喇叭 → 电喇叭 → 大喇叭杆」
+  tiezhu: [{}, { body: 'steelplate', head: 'helmet' }, { head: 'pressurecooker', back: 'quilt', body: 'steelplate' }],
+  gaoyaguo: [{ back: 'pressurecooker' }, { back: 'pressurecooker', head: 'helmet' }, { back: 'pressurecooker', body: 'steelplate', head: 'helmet' }],
+  gangban: [{ body: 'steelplate' }, { body: 'steelplate', head: 'helmet' }, { body: 'steelplate', head: 'helmet', back: 'weight' }],
+  guogai: [{ back: 'pot' }, { back: 'pot', head: 'helmet' }, { back: 'pot', body: 'steelplate', head: 'helmet' }],
   labaye: [{}, { back: 'speaker' }, { back: 'speaker', head: 'helmet' }],
-  // 「手提音响 → 落地音箱 → 整套音响」
   sanshen: [{}, { back: 'speaker' }, { back: 'speaker', body: 'quilt' }],
+  yuwang: [{}, { body: 'weight' }, { back: 'wire', head: 'helmet' }],
+  laoyanqiang: [{}, { body: 'steelplate' }, { back: 'slingshot', head: 'helmet' }],
+  shimo: [{}, { body: 'weight' }, { back: 'weight', head: 'helmet' }],
+  miankuzhang: [{}, { body: 'steelplate' }, { body: 'steelplate', back: 'quilt', head: 'helmet' }],
+  erjiu: [{}, { head: 'helmet' }, { back: 'weight', head: 'helmet' }],
+  chengtuo: [{}, { body: 'weight' }, { back: 'weight', head: 'helmet' }],
+  dachui: [{}, { head: 'helmet' }, { back: 'weight', head: 'helmet' }],
+  dianju: [{}, { head: 'helmet' }, { back: 'chainsaw', head: 'helmet' }],
+  shazhu: [{}, { body: 'steelplate' }, { back: 'weight', head: 'helmet' }],
+  laoli: [{}, { body: 'steelplate' }, { back: 'weight', head: 'helmet' }],
+  bianpao: [{}, { body: 'firecracker' }, { back: 'firecracker', head: 'helmet' }],
+  qiangou: [{}, { body: 'quilt' }, { back: 'dogleash', head: 'helmet' }],
+  jishi: [{}, { body: 'chickenfeed' }, { back: 'chickenfeed', head: 'helmet' }],
+  baowenhu: [{}, { back: 'thermos' }, { back: 'thermos', head: 'helmet' }],
 };
 
 export function wearOf(villagerId: string, lane: string, evoStage = 1): EvoWear {

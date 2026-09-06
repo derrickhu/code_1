@@ -14,18 +14,19 @@ import { SAVE_KEY } from '@/config/CloudConfig';
 import { PersistService } from '@/core/PersistService';
 import {
   PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST, PELLET_LOSE,
-  SETTLE_SCRAP, creditPity, mulberry32, pelletCap, pelletRegenMin, shoot,
+  SETTLE_SCRAP, SETTLE_SCRAP_REPLAY, creditPity, mulberry32, pelletCap,
+  pelletRegenMin, shoot,
   type ShotResult,
 } from '@/balance/stall';
 import {
-  CALL_COST, addVillageExp, clampVillageLv, evoOf, nextEvoCost,
-  rollCall, squadCap, starsOf,
+  CALL_COST, addVillageExp, clampVillageLv, craftOf, evoFromCraft,
+  nextFeed, rollCall, squadCap, starsOf, yieldMul,
   type Progress,
 } from '@/balance/village';
 import {
   DEFAULT_SQUAD, STAR_MAX, VILLAGERS, VILLAGER_BY_ID,
 } from '@/balance/villagers';
-import { STAGE_COUNT, clampStage } from '@/balance/stages';
+import { STAGE_COUNT, clampStage, getStage } from '@/balance/stages';
 import { CELL_COUNT, LANE_COUNT } from '@/balance/combat';
 
 const KEY = SAVE_KEY;
@@ -48,8 +49,10 @@ export interface RunMemory {
   villageExp: number;
   /** 已入伙的村民 id，按入伙顺序 */
   roster: string[];
-  /** 每人几阶（1~3） */
+  /** 每人几阶（1~3）。由手艺推导，存着给旧档和面板用 */
   evo: Record<string, number>;
+  /** 每人手艺 1~10。缺字段时按 evo 反推 */
+  craft: Record<string, number>;
   /** 每人几颗星 */
   stars: Record<string, number>;
   scrap: number;
@@ -91,6 +94,7 @@ function empty(): RunMemory {
     villageExp: 0,
     roster: [...DEFAULT_SQUAD],
     evo: {},
+    craft: {},
     stars: {},
     scrap: 0,
     parts: 0,
@@ -163,6 +167,7 @@ export function loadMemory(): RunMemory {
       villageExp: Math.max(0, Number(p.villageExp) || 0),
       roster,
       evo: numMap(p.evo, 1, 3),
+      craft: numMap(p.craft, 1, 10),
       stars: numMap(p.stars, 0, STAR_MAX),
       scrap: Math.max(0, Number(p.scrap) || 0),
       parts: Math.max(0, Number(p.parts) || 0),
@@ -214,6 +219,7 @@ export function progressOf(mem: RunMemory): Progress {
     villageExp: mem.villageExp,
     roster: mem.roster,
     evo: mem.evo,
+    craft: mem.craft,
     stars: mem.stars,
     scrap: mem.scrap,
     parts: mem.parts,
@@ -340,21 +346,23 @@ export function callVillager(nowMs: number = Date.now()): {
   return { mem, got: res.id, isNew: res.isNew, starTo: res.starTo };
 }
 
-/* ---------------- 进化 ---------------- */
+/* ---------------- 手艺 ---------------- */
 
-/** 喂一阶。材料不够或已经三阶返回 undefined */
+/** 喂一档手艺。料不够、星卡住或已经焊满返回 undefined */
 export function buyEvo(id: string): RunMemory | undefined {
   const prev = loadMemory();
   if (!prev.roster.includes(id)) return undefined;
-  const now = evoOf(progressOf(prev), id);
-  const cost = nextEvoCost(now);
+  const p = progressOf(prev);
+  const cost = nextFeed(p, id);
   if (!cost) return undefined;
   if (prev.scrap < cost.scrap || prev.parts < cost.parts) return undefined;
+  const next = craftOf(p, id) + 1;
   return persist({
     ...prev,
     scrap: prev.scrap - cost.scrap,
     parts: prev.parts - cost.parts,
-    evo: { ...prev.evo, [id]: now + 1 },
+    craft: { ...prev.craft, [id]: next },
+    evo: { ...prev.evo, [id]: evoFromCraft(next) },
   });
 }
 
@@ -390,7 +398,9 @@ export function settleStage(
   const pellets = won
     ? PELLET_CLEAR + (first ? PELLET_FIRST : 0)
     : PELLET_LOSE;
-  const scrap = won ? SETTLE_SCRAP : 0;
+  // 重打给得少：通关后还有活水，但蹲在 1-1 刷不出手艺后段
+  const base = first ? SETTLE_SCRAP : SETTLE_SCRAP_REPLAY;
+  const scrap = won ? Math.round(base * yieldMul(prev.villageLv)) : 0;
 
   const stageTop = won ? Math.min(STAGE_COUNT, Math.max(prev.stageTop, id + 1)) : prev.stageTop;
   const best = Math.max(prev.stageStars[id] ?? 0, won ? stars : 0);
@@ -409,6 +419,74 @@ export function settleStage(
 /** 一共拿了多少颗星。图鉴和进度条用 */
 export function totalStars(mem: RunMemory): number {
   return Object.values(mem.stageStars).reduce((a, b) => a + b, 0);
+}
+
+/**
+ * 打过、但没打到 ★3 的关。
+ *
+ * 推完 40 关之后这就是主线：星评本来就是「我排得更好了」的量化出口
+ * （§4.4 胜利条件），模拟器实测 ★3 率只有 50%~71%，
+ * 也就是通关那天手里还压着十几关没打利索 —— 这份内容一直存在，
+ * 只是以前没有任何界面读 `stageStars`，玩家看不见，等于没做。
+ */
+export function starGap(mem: RunMemory): number[] {
+  const out: number[] = [];
+  for (let id = 1; id <= STAGE_COUNT; id += 1) {
+    const best = mem.stageStars[id] ?? 0;
+    // best 为 0 的是没打过或者打输了，那不是「没打利索」，是还没推到
+    if (best > 0 && best < 3) out.push(id);
+  }
+  return out;
+}
+
+/** 从 from 往后找下一关没打利索的，找到头就绕回开头 */
+export function nextGap(mem: RunMemory, from: number): number | undefined {
+  const gap = starGap(mem);
+  if (gap.length === 0) return undefined;
+  return gap.find((id) => id > from) ?? gap[0];
+}
+
+export type GoalKind = 'craft' | 'call' | 'stage' | 'stars' | 'done';
+
+export interface Goal {
+  kind: GoalKind;
+  /** 木牌上那两三个字 */
+  short: string;
+  /** 说清楚下一步该干什么 */
+  text: string;
+}
+
+/**
+ * 点开村子该干什么。
+ *
+ * **这个函数存在本身就是一条验收**（§8「随时有下一个目标」：任何时候点开村子
+ * 都不该是「齐了」）。以前这条验收没有实现，也就无从测起 ——
+ * 现在只要它返回 `done`，护栏就红，说明长线到头了。
+ *
+ * 排序按「现在最该干哪件」，不按重要性：能喂就先喂（立刻变强、而且看得见），
+ * 其次喊人（补人），再次推图，最后才是回头刷星。
+ * 刷星排最后不是因为它次要，而是因为它是**通关之后**的主线。
+ */
+export function nextGoal(mem: RunMemory): Goal {
+  const p = progressOf(mem);
+  const feed = mem.roster.filter((id) => {
+    const cost = nextFeed(p, id);
+    return !!cost && mem.scrap >= cost.scrap && mem.parts >= cost.parts;
+  });
+  if (feed.length > 0) {
+    return { kind: 'craft', short: '能喂', text: `${feed.length} 个人能喂了` };
+  }
+  if (mem.credits >= CALL_COST) {
+    return { kind: 'call', short: '能喊', text: '工分够喊一嗓子' };
+  }
+  if (mem.stageTop <= STAGE_COUNT && mem.stageStars[mem.stageTop] === undefined) {
+    return { kind: 'stage', short: '推图', text: `往下推 ${getStage(mem.stageTop).label}` };
+  }
+  const gap = starGap(mem);
+  if (gap.length > 0) {
+    return { kind: 'stars', short: '打利索', text: `还有 ${gap.length} 关没打利索` };
+  }
+  return { kind: 'done', short: '齐了', text: '齐了' };
 }
 
 /** GM：把目标关写进进度。不改资源 */

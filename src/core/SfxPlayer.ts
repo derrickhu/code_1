@@ -5,7 +5,7 @@
  */
 import { Platform } from '@/core/PlatformService';
 
-const FILE: Readonly<Record<string, string>> = {
+export const SFX_FILE: Readonly<Record<string, string>> = {
   ui_tap: 'audio/ui_tap.mp3',
   hero_land: 'audio/hero_land.mp3',
   atk: 'audio/atk.mp3',
@@ -45,11 +45,12 @@ const FILE: Readonly<Record<string, string>> = {
 };
 
 /** 没单独出文件的签名，直接用已有音，不发空路径 */
-const ALIAS: Readonly<Record<string, string>> = {
+export const SFX_ALIAS: Readonly<Record<string, string>> = {
   enemy_bash: 'hit_smash',
+  wave_in: 'install_on',
 };
 
-export type SfxName = keyof typeof FILE | keyof typeof ALIAS;
+export type SfxName = keyof typeof SFX_FILE | keyof typeof SFX_ALIAS;
 
 const lastAt = new Map<string, number>();
 const dead = new Set<string>();
@@ -61,14 +62,14 @@ const POOL_SIZE: Readonly<Record<string, number>> = {
 };
 
 function resolveKey(name: string): string | undefined {
-  const key = FILE[name] ? name : ALIAS[name];
+  const key = SFX_FILE[name] ? name : SFX_ALIAS[name];
   if (!key || dead.has(key)) return undefined;
   return key;
 }
 
 function resolveSrc(name: string): string | undefined {
   const key = resolveKey(name);
-  return key ? FILE[key] : undefined;
+  return key ? SFX_FILE[key] : undefined;
 }
 
 function makeCtx(src: string): WechatMinigame.InnerAudioContext | null {
@@ -107,14 +108,14 @@ function playPooled(key: string, src: string): void {
 export function warmSfx(names: readonly string[] = ['ui_tap']): void {
   for (const name of names) {
     const key = resolveKey(name);
-    const src = key ? FILE[key] : undefined;
+    const src = key ? SFX_FILE[key] : undefined;
     if (key && src) ensurePool(key, src);
   }
 }
 
 export function playSfx(name: string, gapMs = 80): void {
   const key = resolveKey(name);
-  const src = key ? FILE[key] : undefined;
+  const src = key ? SFX_FILE[key] : undefined;
   if (!key || !src) return;
   const now = Date.now();
   if ((lastAt.get(key) ?? 0) + gapMs > now) return;

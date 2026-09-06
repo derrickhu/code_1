@@ -21,7 +21,7 @@ import {
   PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST, PELLET_LOSE,
   PELLET_CAP, SETTLE_SCRAP, pelletCap, pelletRegenMin,
 } from '@/balance/stall';
-import { CALL_COST, EVO_COST, squadCap } from '@/balance/village';
+import { CALL_COST, CRAFT_COST, squadCap } from '@/balance/village';
 import { DEFAULT_SQUAD, STAR_MAX, VILLAGERS } from '@/balance/villagers';
 import {
   buyEvo,
@@ -37,8 +37,12 @@ import {
   settleStage,
   shootStall,
   stallAdLeft,
+  starGap,
+  nextGap,
+  nextGoal,
   totalStars,
 } from '@/core/RunMemory';
+import { STAGE_COUNT } from '@/balance/stages';
 
 function write(patch: Record<string, unknown>): void {
   store.set(KEY, JSON.stringify({ ...loadMemory(), ...patch }));
@@ -230,23 +234,39 @@ describe('喊人与进化', () => {
     for (const id of all) expect(loadMemory().stars[id]).toBe(STAR_MAX);
   });
 
-  it('材料够才能喂一阶，喂完扣料', () => {
-    const cost = EVO_COST[0]!;
-    write({ roster: ['tiezhu'], scrap: cost.scrap, parts: cost.parts, evo: {} });
+  it('材料够才能喂一手艺，喂完扣料', () => {
+    const cost = CRAFT_COST[0]!;
+    write({ roster: ['tiezhu'], scrap: cost.scrap, parts: cost.parts, evo: {}, craft: {} });
     const mem = buyEvo('tiezhu');
     expect(mem).toBeDefined();
-    expect(mem!.evo.tiezhu).toBe(2);
+    expect(mem!.craft.tiezhu).toBe(2);
+    expect(mem!.evo.tiezhu).toBe(1);
     expect(mem!.scrap).toBe(0);
     expect(mem!.parts).toBe(0);
   });
 
-  it('料不够、不在名单里、已经三阶都喂不了', () => {
+  it('料不够、不在名单里、星卡住都喂不了', () => {
     write({ roster: ['tiezhu'], scrap: 0, parts: 0 });
     expect(buyEvo('tiezhu')).toBeUndefined();
     write({ roster: ['tiezhu'], scrap: 99999, parts: 9999 });
     expect(buyEvo('dianju')).toBeUndefined();
-    write({ roster: ['tiezhu'], scrap: 99999, parts: 9999, evo: { tiezhu: 3 } });
+    write({
+      roster: ['tiezhu'], scrap: 99999, parts: 9999,
+      craft: { tiezhu: 3 }, evo: { tiezhu: 2 },
+    });
     expect(buyEvo('tiezhu')).toBeUndefined();
+  });
+
+  it('两颗星才能喂过二阶，往三阶走', () => {
+    const cost = CRAFT_COST[2]!;
+    write({
+      roster: ['tiezhu'], scrap: cost.scrap, parts: cost.parts,
+      craft: { tiezhu: 3 }, evo: { tiezhu: 2 }, stars: { tiezhu: 2 },
+    });
+    const mem = buyEvo('tiezhu');
+    expect(mem).toBeDefined();
+    expect(mem!.craft.tiezhu).toBe(4);
+    expect(mem!.evo.tiezhu).toBe(2);
   });
 
   it('GM 送资源只加不减', () => {
@@ -255,5 +275,55 @@ describe('喊人与进化', () => {
     expect(mem.parts).toBe(5);
     expect(mem.credits).toBe(12);
     expect(mem.pellets).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('下一个目标', () => {
+  beforeEach(() => store.clear());
+
+  /** 没打过的关不算「没打利索」—— 那是还没推到，不是欠着的债 */
+  it('只把打过又没满星的关算进欠账', () => {
+    write({ stageStars: { 1: 3, 2: 2, 3: 0, 4: 1 } });
+    expect(starGap(loadMemory())).toEqual([2, 4]);
+  });
+
+  it('从当前关往后找，找到头绕回开头', () => {
+    write({ stageStars: { 2: 1, 9: 2 } });
+    const mem = loadMemory();
+    expect(nextGap(mem, 1)).toBe(2);
+    expect(nextGap(mem, 5)).toBe(9);
+    expect(nextGap(mem, 20)).toBe(2);
+  });
+
+  it('全打利索了就没有欠账', () => {
+    write({ stageStars: { 1: 3, 2: 3 } });
+    expect(nextGap(loadMemory(), 1)).toBeUndefined();
+  });
+
+  /**
+   * §8 验收「随时有下一个目标」：任何时候点开村子都不该是「齐了」。
+   * 这条以前没有实现，也就无从测起。现在只要 done 冒出来，这里就红。
+   */
+  it('推图路上永远有下一步，不会是「齐了」', () => {
+    write({ scrap: 0, parts: 0, credits: 0, stageTop: 1, stageStars: {} });
+    expect(nextGoal(loadMemory()).kind).toBe('stage');
+  });
+
+  it('材料够了先喂人，喂不动了才提别的', () => {
+    const cost = CRAFT_COST[0]!;
+    write({ roster: ['tiezhu'], scrap: cost.scrap, parts: cost.parts, credits: 0 });
+    expect(nextGoal(loadMemory()).kind).toBe('craft');
+  });
+
+  it('推完 40 关之后，回头刷星就是主线', () => {
+    const stars: Record<number, number> = {};
+    for (let i = 1; i <= STAGE_COUNT; i += 1) stars[i] = i % 3 === 0 ? 2 : 3;
+    write({
+      roster: [], scrap: 0, parts: 0, credits: 0,
+      stageTop: STAGE_COUNT, stageStars: stars,
+    });
+    const goal = nextGoal(loadMemory());
+    expect(goal.kind).toBe('stars');
+    expect(goal.text).toContain('没打利索');
   });
 });

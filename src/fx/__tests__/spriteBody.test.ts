@@ -2,16 +2,32 @@ import { describe, expect, it } from 'vitest';
 import { LEGACY_IDS, VILLAGERS } from '@/balance/villagers';
 import { ENEMIES } from '@/balance/stages';
 import { HAND_GEAR, handIdOf, resolveHandGear, wearOf } from '@/balance/gear';
-import { CLIP_BODY, clipBody } from '@/fx/spriteBody';
+import { enemyArtId } from '@/core/TextureLoader';
+import { CLIP_BODY, clipBody, fitBodyH } from '@/fx/spriteBody';
 import { contactAt, motionFor, releaseAt, swingKeyframes } from '@/fx/UnitActor';
 
 describe('clipBody', () => {
   it('有帧动画的单位都有身体高度，避免出手按整帧压小', () => {
-    // 只校验有帧动画的那几个。新加的 14 个村民还没有立绘，
-    // 走程序动作，不进 CLIP_BODY（见 TextureLoader.preloadBattleArt 的注释）
     for (const id of LEGACY_IDS) expect(CLIP_BODY[id]?.idle).toBeGreaterThan(80);
+    for (const v of VILLAGERS) expect(CLIP_BODY[v.id]?.idle, v.id).toBeGreaterThan(80);
     for (const e of ENEMIES) {
       if (CLIP_BODY[e.id]) expect(CLIP_BODY[e.id]?.idle).toBeGreaterThan(80);
+    }
+  });
+
+  it('立绘和表对不上时按整张图定高，铁柱不会比别人大一倍', () => {
+    expect(fitBodyH(309, 652, false)).toBe(652);
+    expect(fitBodyH(503, 511, false)).toBe(503);
+    expect(fitBodyH(318, 320, false)).toBe(318);
+    expect(fitBodyH(488, 495, false)).toBe(488);
+    expect(fitBodyH(97, 158, true)).toBe(97);
+  });
+
+  it('小灰的图叫 grey，不能按逻辑 id 去找 grunt', () => {
+    expect(enemyArtId('grunt')).toBe('grey');
+    expect(enemyArtId('cube')).toBe('cube');
+    for (const e of ENEMIES) {
+      expect(CLIP_BODY[enemyArtId(e.id)] ?? CLIP_BODY[e.id], e.id).toBeTruthy();
     }
   });
 
@@ -56,11 +72,11 @@ describe('clipBody', () => {
 describe('手脚分层', () => {
   it('手上拿什么跟着进化阶换', () => {
     expect(resolveHandGear('dachui', 1).id).toBe('hammer');
-    expect(resolveHandGear('dachui', 2).id).toBe('hammer');
-    // 三阶「扛来工地的风镐」，家伙必须跟着 pitch 换
+    expect(resolveHandGear('dachui', 2).id).toBe('weight');
     expect(resolveHandGear('dachui', 3).id).toBe('pipe');
     expect(resolveHandGear('dianju', 1).id).toBe('cleaver');
     expect(resolveHandGear('dianju', 2).id).toBe('chainsaw');
+    expect(resolveHandGear('dianju', 3).id).toBe('pipe');
   });
 
   it('每个村民三阶都在家伙表里，且贴图存在', () => {

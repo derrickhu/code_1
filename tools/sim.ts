@@ -43,8 +43,7 @@ assertWeights();
 console.log('== 结构自检 ==');
 console.log(
   `村民 ${VILLAGERS.length} 人（5 门路 × 4 定位 方阵完整）· ` +
-  `战场 ${LANE_COUNT} 路 × ${CELL_COUNT} 格 = ${LANE_COUNT * CELL_COUNT} 格，最多上 ${SQUAD_CAP_MAX} 人` +
-  `（空 ${LANE_COUNT * CELL_COUNT - SQUAD_CAP_MAX} 格就是取舍）`,
+  `战场 ${LANE_COUNT} 路 × ${CELL_COUNT} 格 = ${LANE_COUNT * CELL_COUNT} 格，满编 ${SQUAD_CAP_MAX} 人`,
 );
 console.log(`主线 ${STAGE_COUNT} 关 · 村庄满级 Lv.${VILLAGE_LV_MAX}（累计 ${villageCumExp(VILLAGE_LV_MAX)} 经验，面板 ×${villageMul(VILLAGE_LV_MAX).toFixed(2)}）`);
 

@@ -181,6 +181,7 @@ export class CombatFx {
       const key = pos.enemyId !== undefined ? enemyImpactKey(pos.enemyId) : undefined;
       const play = (): void => {
         this._death(pos.ex!, pos.ey!, 0xffb070);
+        playSfx('enemy_down', 80);
         playSfx('kill_pop', 80);
         this.hitStop = Math.max(this.hitStop, 0.045);
       };
@@ -206,6 +207,19 @@ export class CombatFx {
       playSfx('skill', 160);
     }
 
+    if (ev.kind === 'villagerUp' && pos.hx !== undefined && pos.hy !== undefined) {
+      this._kit.plate('heal', pos.hx, pos.hy, { tint: 0xfde68a, s0: 0.5, s1: 1.1, life: 0.4 });
+      this._kit.spray(pos.hx, pos.hy, { n: 10, tint: 0xfde68a, kind: 'glow', speed: 90, gy: -30 });
+      this._spawnPlainFloat('爬起来', pos.hx, pos.hy - 20, 0xfde68a, 22, 0.55);
+      playSfx('win', 80);
+    }
+
+    if (ev.kind === 'burst' && pos.hx !== undefined && pos.hy !== undefined) {
+      this._kit.plate('blast', pos.hx, pos.hy, { tint: 0xff8a4a, s0: 0.6, s1: 1.35, life: 0.36 });
+      this._kit.spray(pos.hx, pos.hy, { n: 12, tint: 0xff8a4a, kind: 'spark', speed: 120, gy: 10 });
+      playSfx('hit_smash', 40);
+    }
+
     /*
      * 漏怪要做得**比击杀更响**。它是这一版唯一的判负条件，
      * 玩家必须能立刻回答「我刚才是哪一路崩的」——
@@ -219,7 +233,7 @@ export class CombatFx {
       this._spawnFlash('漏了一个', pos.hx, pos.hy - 40);
       this.downPulse = 0.5;
       this.hitStop = Math.max(this.hitStop, 0.07);
-      playSfx('hero_down', 0);
+      playSfx('leak', 0);
       buzz('heavy');
     }
   }
@@ -477,12 +491,12 @@ export class CombatFx {
       spr.position.set(spec.x0, spec.y0);
       const native = Math.max(shot.width, 1);
       const px = spec.look?.projPx
-        ?? (energy ? 48
-          : spec.kind === 'orb' ? 56
-            : spec.kind === 'slash' ? 52
-              : spec.kind === 'sniper' ? 36
-                : spec.kind === 'bolt' ? 40
-                  : spec.kind === 'poke' ? 46 : 34);
+        ?? (energy ? 24
+          : spec.kind === 'orb' ? 26
+            : spec.kind === 'slash' ? 24
+              : spec.kind === 'sniper' ? 18
+                : spec.kind === 'bolt' ? 20
+                  : spec.kind === 'poke' ? 22 : 16);
       spr.scale.set(px / native);
       this.layer.addChild(spr);
     }
@@ -528,7 +542,7 @@ export class CombatFx {
     if (s.beam) {
       const nx = Math.cos(ang);
       const ny = Math.sin(ang);
-      g.lineStyle(8, s.color, 0.55 * fade);
+      g.lineStyle(4, s.color, 0.55 * fade);
       g.moveTo(s.x0, s.y0);
       g.lineTo(p.x, p.y);
       g.lineStyle(3, 0xffffff, 0.75 * fade);
@@ -537,7 +551,7 @@ export class CombatFx {
       g.lineStyle(0);
     }
     if (s.physical && s.spr) {
-      g.beginFill(0x1a0c08, 0.38 * fade).drawCircle(p.x + 1, p.y + 5, 9).endFill();
+      g.beginFill(0x1a0c08, 0.38 * fade).drawCircle(p.x + 1, p.y + 3, 4).endFill();
     }
     if (!s.spr) {
       this._drawFallbackProj(g, s, p, fade);
@@ -546,7 +560,7 @@ export class CombatFx {
     if (s.shape === 'none' || s.kind === 'orb' || s.kind === 'wind' || s.kind === 'blast') return;
     const nx = Math.cos(ang);
     const ny = Math.sin(ang);
-    const len = s.kind === 'sniper' ? 72 : s.kind === 'pierce' || s.kind === 'beam' || s.kind === 'poke' ? 64 : 52;
+    const len = s.kind === 'sniper' ? 36 : s.kind === 'pierce' || s.kind === 'beam' || s.kind === 'poke' ? 32 : 26;
     g.lineStyle(10, s.color, 0.18 * fade);
     g.moveTo(p.x - nx * len, p.y - ny * len);
     g.lineTo(p.x, p.y);
@@ -564,50 +578,50 @@ export class CombatFx {
     fade: number,
   ): void {
     if (s.kind === 'orb') {
-      g.beginFill(0xf5d0fe, 0.95 * fade).drawCircle(p.x, p.y, 13).endFill();
-      g.beginFill(0xc084fc, 0.85 * fade).drawCircle(p.x, p.y, 8).endFill();
+      g.beginFill(0xf5d0fe, 0.95 * fade).drawCircle(p.x, p.y, 7).endFill();
+      g.beginFill(0xc084fc, 0.85 * fade).drawCircle(p.x, p.y, 4).endFill();
       return;
     }
     if (s.kind === 'sniper') {
-      g.beginFill(0x1a0c08, 0.4 * fade).drawCircle(p.x + 1, p.y + 4, 10).endFill();
-      g.beginFill(0xe8d4b0, 0.98 * fade).drawCircle(p.x, p.y, 9).endFill();
-      g.beginFill(0x8a7355, 0.95 * fade).drawCircle(p.x - 1, p.y - 1, 5).endFill();
+      g.beginFill(0x1a0c08, 0.4 * fade).drawCircle(p.x + 1, p.y + 2, 5).endFill();
+      g.beginFill(0xe8d4b0, 0.98 * fade).drawCircle(p.x, p.y, 5).endFill();
+      g.beginFill(0x8a7355, 0.95 * fade).drawCircle(p.x - 1, p.y - 1, 3).endFill();
       return;
     }
     if (s.kind === 'wind') {
-      g.beginFill(0x86efac, 0.8 * fade).drawEllipse(p.x, p.y, 14, 7).endFill();
+      g.beginFill(0x86efac, 0.8 * fade).drawEllipse(p.x, p.y, 8, 4).endFill();
       return;
     }
     if (s.kind === 'blast') {
-      g.beginFill(0xff8a3a, 0.9 * fade).drawRoundedRect(p.x - 7, p.y - 10, 14, 20, 4).endFill();
+      g.beginFill(0xff8a3a, 0.9 * fade).drawRoundedRect(p.x - 4, p.y - 6, 8, 12, 3).endFill();
       return;
     }
     if (s.kind === 'poke') {
-      g.lineStyle(5, 0x9bb8c4, 0.9 * fade);
-      g.moveTo(p.x - 16, p.y);
-      g.lineTo(p.x + 16, p.y);
+      g.lineStyle(3, 0x9bb8c4, 0.9 * fade);
+      g.moveTo(p.x - 8, p.y);
+      g.lineTo(p.x + 8, p.y);
       g.lineStyle(0);
       return;
     }
     if (s.kind === 'pierce') {
-      g.lineStyle(3, 0xc9a227, 0.9 * fade);
-      g.moveTo(p.x - 18, p.y);
-      g.lineTo(p.x + 18, p.y);
+      g.lineStyle(2, 0xc9a227, 0.9 * fade);
+      g.moveTo(p.x - 9, p.y);
+      g.lineTo(p.x + 9, p.y);
       g.lineStyle(0);
-      g.beginFill(0xe8c84a, 0.8 * fade).drawCircle(p.x + 16, p.y, 3).endFill();
+      g.beginFill(0xe8c84a, 0.8 * fade).drawCircle(p.x + 8, p.y, 2).endFill();
       return;
     }
     if (s.kind === 'slash') {
-      g.beginFill(0x6b5a4a, 0.95 * fade).drawRoundedRect(p.x - 18, p.y - 5, 28, 9, 2).endFill();
+      g.beginFill(0x6b5a4a, 0.95 * fade).drawRoundedRect(p.x - 9, p.y - 3, 14, 5, 2).endFill();
       g.beginFill(0xe8e0d4, 0.95 * fade).drawPolygon([
-        p.x + 8, p.y - 7,
-        p.x + 22, p.y,
-        p.x + 8, p.y + 7,
+        p.x + 4, p.y - 4,
+        p.x + 11, p.y,
+        p.x + 4, p.y + 4,
       ]).endFill();
       return;
     }
-    g.beginFill(s.color, 0.9 * fade).drawCircle(p.x, p.y, 8).endFill();
-    g.beginFill(0xffffff, 0.55 * fade).drawCircle(p.x, p.y, 3).endFill();
+    g.beginFill(s.color, 0.9 * fade).drawCircle(p.x, p.y, 4).endFill();
+    g.beginFill(0xffffff, 0.55 * fade).drawCircle(p.x, p.y, 2).endFill();
   }
 
   private _impactHero(
@@ -667,7 +681,7 @@ export class CombatFx {
   private _spawnHitFloat(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number): void {
     const first = this._firstHit;
     this._firstHit = false;
-    const size = first ? 64 : ev.killed ? 52 : 40;
+    const size = first ? 28 : ev.killed ? 22 : 16;
     const color = ev.killed || first ? 0xffe066 : 0xffb24a;
     this._spawnPlainFloat(
       String(Math.round(ev.damage)),
@@ -681,7 +695,7 @@ export class CombatFx {
   }
 
   private _hurtHero(damage: number, x: number, y: number): void {
-    this._spawnPlainFloat(`-${Math.round(damage)}`, x, y - 8, 0xff6b6b, 32, 0.55, 1);
+    this._spawnPlainFloat(`-${Math.round(damage)}`, x, y - 8, 0xff6b6b, 14, 0.55, 1);
   }
 
   private _spawnPlainFloat(
@@ -703,7 +717,7 @@ export class CombatFx {
       fontWeight: 'bold',
       fill: color,
       stroke: 0x1a0c08,
-      strokeThickness: Math.max(6, Math.round(size * 0.18)),
+      strokeThickness: Math.max(3, Math.round(size * 0.18)),
     });
     text.anchor.set(0.5);
     text.position.set(x + (Math.random() - 0.5) * 22, y - 22);

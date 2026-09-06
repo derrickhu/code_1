@@ -111,6 +111,7 @@ export class ReviveOverlay extends PIXI.Container {
   show(team: Fighter[], leaked: number, remaining: number, height: number): void {
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.visible = true;
+    this.eventMode = 'static';
     this._busy = false;
     this._pulse = null;
     this._held = { team, leaked, remaining, height };
@@ -180,7 +181,7 @@ export class ReviveOverlay extends PIXI.Container {
     cast.forEach((f, i) => {
       const x = xs[i] ?? 375;
       const mid = cast.length === 1 || i === 1;
-      const spr = standSprite(this, heroTex(f.def.id), x, feetY + 4, mid ? 200 : 178, sitH);
+      const spr = standSprite(this, heroTex(f.def.id, f.evoStage), x, feetY + 4, mid ? 200 : 178, sitH);
       if (spr) {
         spr.tint = 0x9a948c;
         spr.rotation = i === 0 ? -0.05 : i === 2 ? 0.05 : 0.02;
@@ -216,6 +217,7 @@ export class ReviveOverlay extends PIXI.Container {
 
   hide(): void {
     this.visible = false;
+    this.eventMode = 'none';
     this._busy = false;
     this._pulse = null;
     this._held = null;

@@ -16,7 +16,7 @@
  *
  * 章内把墙放在第 4、5 关，对应 §8「卡关点稳定落在每章的第 4–5 关」。
  */
-import { LANE_COUNT, PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
+import { PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
 import type { Lane } from './villagers';
 
 export interface EnemyDef {
@@ -120,7 +120,38 @@ interface ChapterSeed {
   suggestLv: readonly [number, number];
 }
 
-const CHAPTERS: readonly ChapterSeed[] = [
+/**
+ * 章节总数。8 章 40 关 → 80 章 400 关。
+ *
+ * 前 8 章的**配方**（地名、敌人组合、台词）全是手写的，一个字没动；
+ * 第 9 章往后是 400 关主线接上的跑道，地名从池子里取、敌人组合按 6 种循环。
+ *
+ * **6 种敌人铺 80 章，平均每种要撑 13 章。** 这是明知故犯：
+ * 数值骨架今天就能立起来，敌人种类是美术排期。二期不把敌人补到 20 种以上，
+ * 第 50 关往后就是同一批怪血更厚 —— 那正好是反目标第二条的定义。
+ */
+const CHAPTER_TOTAL = 80;
+
+/** 第 9 章往后的地名池。还是村口那点地方，别往奇幻走（§1） */
+const CH_NAME_POOL: readonly string[] = [
+  '后山', '河沿', '老窑', '菜地', '晒场', '麦场', '水塘', '桥头',
+  '砖厂', '瓦房', '槐树', '土坡', '石碾', '牛棚', '鸡窝', '猪圈',
+  '粮仓', '井台', '磨坊', '渠边', '河堤', '庙前', '戏台', '供销社',
+  '卫生所', '小卖部', '加油站', '修车铺', '废品站', '砖窑', '采石场', '变电所',
+  '水塔', '烟囱', '铁轨', '道口', '涵洞', '山梁', '垭口', '林场',
+  '果园', '大棚', '鱼塘', '闸口', '泵房', '机井', '晾房', '场院',
+  '碾道', '草垛', '柴房', '地窖', '后院', '前街', '后巷', '十字口',
+  '大喇叭', '村委会', '小学校', '操场', '旗杆', '围墙', '铁门', '岗楼',
+  '瞭望塔', '界碑', '山口', '河谷', '断桥', '风口', '荒地', '尽头',
+];
+
+/** 第 9 章往后每关的台词。按关序取 —— 章太多，写不出 400 句不重样的 */
+const CH_PITCH_POOL: readonly string[] = [
+  '喘口气', '又压上来了', '中路顶不住', '两边一起来', '这关是墙',
+];
+
+/** 手写的头 8 章。40 关主线整条曲线是贴着这 8 章校出来的，一个字都别动 */
+const TUNED_CHAPTERS: readonly ChapterSeed[] = [
   {
     name: '村口',
     mix: ['cube', 'grunt'],
@@ -171,6 +202,41 @@ const CHAPTERS: readonly ChapterSeed[] = [
   },
 ];
 
+/** 村庄等级的分界。和 village.ts 的 VILLAGE_LV_TUNED / VILLAGE_LV_MAX 对齐 */
+const LV_TUNED = 20;
+const LV_MAX = 120;
+
+/**
+ * 第 9 章往后的章节种子。
+ *
+ * 地名从池子里按序取，敌人组合拿手写那 8 章的配方循环用，
+ * 建议等级从 Lv.20 线性铺到 Lv.120。
+ *
+ * **敌人组合循环是这一版最明显的短板**，不是疏漏。见 CHAPTER_TOTAL 的注释。
+ */
+function buildChapters(): ChapterSeed[] {
+  const out: ChapterSeed[] = [...TUNED_CHAPTERS];
+  const tuned = TUNED_CHAPTERS.length;
+  const tail = CHAPTER_TOTAL - tuned;
+  for (let k = 0; k < tail; k += 1) {
+    const from = TUNED_CHAPTERS[k % tuned]!;
+    const t0 = k / tail;
+    const t1 = (k + 1) / tail;
+    out.push({
+      name: CH_NAME_POOL[k % CH_NAME_POOL.length]!,
+      mix: from.mix,
+      pitches: CH_PITCH_POOL,
+      suggestLv: [
+        Math.round(LV_TUNED + t0 * (LV_MAX - LV_TUNED)),
+        Math.round(LV_TUNED + t1 * (LV_MAX - LV_TUNED)),
+      ],
+    });
+  }
+  return out;
+}
+
+const CHAPTERS: readonly ChapterSeed[] = buildChapters();
+
 /**
  * 缩放曲线。**只数和面板分开算，算完不许再相乘。**
  *
@@ -193,12 +259,45 @@ const CHAPTERS: readonly ChapterSeed[] = [
  * 敌人攻击单独按**玩家每人的血量**成长走（×4.5 = 村庄 1.57 × 进化 2.4 × 星 1.2），
  * 不跟只数挂钩 —— 上场人数变多不会让每个人更耐打。
  */
+/**
+ * 难度曲线分两段：**前 8 章一个数都不动，第 9 章往后压平。**
+ *
+ * 头一版把 ×2788 均摊到 80 章，结果前 8 章的斜率从 ×2.25 掉到 ×1.63 ——
+ * 那等于把上面那整段校准史（3-2 是墙、章间下探形成锯齿、卡关落在每章后半段）
+ * 全部推翻，新手前 100 关一路平推。40 关主线的手感是花了很大代价校出来的，
+ * 不能为了接跑道就冲掉。
+ *
+ * 所以 400 关的做法是**接**不是**摊**：前 8 章原样，剩下 72 章分摊剩余的预算。
+ */
+const CH_TUNED = 8;
+const CH_TAIL = CHAPTER_TOTAL - CH_TUNED;
+
 const CH_HP_STEP = Math.pow(2.25, 1 / 7);
+/**
+ * 第 9 章往后血量再涨 ×75。压得比前段平，因为要摊的章数多九倍。
+ *
+ * ×159 那一版是按「天花板 ×2788 ÷ 曲线 ×2765」纸面算的，看着刚好，
+ * 实测三个种子全部停在 343~348 关 —— 因为**打赢需要余量，不是打平**：
+ * 面板刚够等于每关都贴着漏怪线过，模拟器里就是推不动。
+ * 放平到 ×75 之后末关留出约一倍余量，400 关才真的走得到。
+ */
+const TAIL_HP_STEP = Math.pow(75, 1 / CH_TAIL);
 /**
  * 攻击的章间成长。对的是**玩家每人的血量**：村庄 1.57 × 进化 2.4 = 3.77，
  * 星级现实里能吃到 ×1.15 左右，所以 3.8 已经贴着上限，别再往上。
  */
 const CH_ATK_STEP = Math.pow(3.8, 1 / 7);
+/** 攻击对的仍是玩家每人的血量：Lv120 ×2.9 × 手艺 ×44 × 星 ×1.3，尾段还要 ×275 */
+const TAIL_ATK_STEP = Math.pow(274.7, 1 / CH_TAIL);
+
+/**
+ * 章节倍率：前 8 章走 tuned 斜率，第 9 章往后接 tail 斜率。
+ * c 是 1-based 章号。
+ */
+function chMul(c: number, tuned: number, tail: number): number {
+  if (c <= CH_TUNED) return Math.pow(tuned, c - 1);
+  return Math.pow(tuned, CH_TUNED - 1) * Math.pow(tail, c - CH_TUNED);
+}
 
 /**
  * 章内爬坡对攻击只吃平方根。
@@ -254,7 +353,11 @@ const IDX_WAVES = [3, 3, 4, 4, 5] as const;
  * 第三路开在第 5 章而不是第 4 章：第 4 章上场才 5 个人，
  * 摊到三路就是一路一到两个，又回到「没纵深」那个死结（实测通关掉到 D47~D60）。
  */
-const CH_LANES = [1, 2, 2, 2, 3, 3, 3, 3] as const;
+function chapterLaneBudget(chapter: number): number {
+  if (chapter <= 1) return 1;
+  if (chapter <= 4) return 2;
+  return 3;
+}
 
 /** 用几条路时用哪几条。一路走中间，两路走左中 */
 const LANE_SET: Readonly<Record<number, readonly number[]>> = {
@@ -263,13 +366,32 @@ const LANE_SET: Readonly<Record<number, readonly number[]>> = {
   3: [0, 1, 2],
 };
 
-/** 一关总共放多少只：第 1 章 12 只 → 第 8 章 34 只，章内再 ×1.28 */
+/**
+ * 一关总共放多少只：第 1 章 12 只 → 第 80 章 48 只，章内再 ×1.28。
+ *
+ * **只数的预算只给 ×4，剩下的全让血量吃。** 80 章要是按 8 章那个斜率涨只数，
+ * 末章会有上千只 —— 屏幕糊成一片，「哪一路要崩」就再也看不出来了（反目标第四条）。
+ * 压力交给血量，人数交给眼睛。
+ */
 const COUNT_CH1 = 12;
 const COUNT_STEP = Math.pow(2.19, 1 / 7);
+/** 第 9 章往后只数只再涨一半：12 → 40 只封顶，屏幕还看得清 */
+const TAIL_COUNT_STEP = Math.pow(1.5, 1 / CH_TAIL);
 const COUNT_IDX = [1, 1.05, 1.12, 1.2, 1.28] as const;
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * 上场从 8 人涨到 12 人之后，后半段关卡要跟着加肉。
+ * 前 4 章人还没堆起来，乘子保持 1，免得 1-1 又变成墙。
+ */
+function bodyMul(chapter: number): number {
+  if (chapter <= 4) return 1;
+  if (chapter <= 6) return 1.28;
+  if (chapter <= 8) return 1.55;
+  return 1.65;
 }
 
 /** 这一关的敌方主门路 = 出现最多的那种敌人的门路 */
@@ -279,7 +401,7 @@ function pickMainLane(mix: readonly string[]): Lane {
 
 /** 这一关一共放多少只 */
 function stageCount(chapter: number, index: number): number {
-  const ch = COUNT_CH1 * Math.pow(COUNT_STEP, chapter - 1);
+  const ch = COUNT_CH1 * chMul(chapter, COUNT_STEP, TAIL_COUNT_STEP);
   return Math.max(3, Math.round(ch * (COUNT_IDX[index - 1] ?? 1)));
 }
 
@@ -301,7 +423,7 @@ function buildWaves(seed: ChapterSeed, chapter: number, index: number): Wave[] {
     left -= want;
 
     // 头一波先少开一路当预告，之后铺满这一章的路数预算
-    const budget = CH_LANES[chapter - 1] ?? LANE_COUNT;
+    const budget = chapterLaneBudget(chapter);
     const set = LANE_SET[budget] ?? LANE_SET[3]!;
     const laneCount = w === 0 ? Math.max(1, budget - 1) : budget;
     const per = Math.floor(want / laneCount);
@@ -330,8 +452,8 @@ function buildStages(): StageDef[] {
   let id = 1;
   for (let c = 0; c < CHAPTERS.length; c += 1) {
     const seed = CHAPTERS[c]!;
-    const chHp = CH1_HP * Math.pow(CH_HP_STEP, c);
-    const chAtk = CH1_ATK * Math.pow(CH_ATK_STEP, c);
+    const chHp = CH1_HP * chMul(c + 1, CH_HP_STEP, TAIL_HP_STEP);
+    const chAtk = CH1_ATK * chMul(c + 1, CH_ATK_STEP, TAIL_ATK_STEP);
     const [lvFrom, lvTo] = seed.suggestLv;
     for (let i = 1; i <= 5; i += 1) {
       const ramp = IDX_RAMP[i - 1] ?? 1;
@@ -344,7 +466,7 @@ function buildStages(): StageDef[] {
         label: `${c + 1}-${i}`,
         name: seed.name,
         pitch: seed.pitches[i - 1] ?? '',
-        hpMul: round2(chHp * ramp),
+        hpMul: round2(chHp * ramp * bodyMul(c + 1)),
         atkMul: round2(chAtk * atkRamp(ramp)),
         waves,
         // 3 波 86s、5 波 120s，都在 §5 的 1~2 分钟里。

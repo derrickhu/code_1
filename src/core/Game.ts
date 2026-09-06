@@ -26,6 +26,10 @@ class GameClass {
   ticker: PIXI.Ticker;
 
   designWidth = 750;
+  /**
+   * 设计稿参考高，**不是**真机可用高。舞台按宽度等比缩放，
+   * 长屏要用 `logicHeight`（screenHeight/screenWidth*750），否则底栏会悬在半空。
+   */
   designHeight = 1334;
   screenWidth = 375;
   screenHeight = 667;

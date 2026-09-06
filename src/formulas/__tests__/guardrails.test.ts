@@ -18,17 +18,18 @@ import { describe, expect, it } from 'vitest';
 
 import { ARMOR_K, CELL_COUNT, LANE_COUNT, LEAK_ALLOW, cellPos } from '@/balance/combat';
 import { autoPlace, dumbPlace, runBattle } from '@/game/BattleEngine';
-import { simulate, poolOf, sweepStages, sweepStats } from '../simulate';
+import { simulate, clearDay, poolOf, sweepStages, sweepStats } from '../simulate';
 import {
   STAGES, STAGE_COUNT, findStage, getStage, rateStars,
 } from '@/balance/stages';
 import { assertWeights, expectedPerDay } from '@/balance/stall';
 import {
-  SQUAD_CAP_MAX, VILLAGE_LV_MAX, squadCap, villageCumExp, villageMul,
+  SQUAD_CAP_MAX, VILLAGE_LV_MAX, VILLAGE_LV_TUNED,
+  squadCap, villageCumExp, villageMul, yieldMul,
 } from '@/balance/village';
 import {
   COUNTERS, COUNTER_DOWN, COUNTER_UP, DEFAULT_SQUAD, LANES, ROLES,
-  VILLAGERS, assertRosterComplete, getVillager, laneMul, statsOf,
+  VILLAGERS, assertRosterComplete, evoKindOf, getVillager, laneMul, statsOf,
 } from '@/balance/villagers';
 
 const SEEDS = [20260904, 7, 99, 1234, 555];
@@ -45,6 +46,11 @@ describe('结构自检', () => {
   it('村民是 5 门路 × 4 定位 的完整方阵', () => {
     expect(() => assertRosterComplete()).not.toThrow();
     expect(VILLAGERS).toHaveLength(LANES.length * ROLES.length);
+    for (const v of VILLAGERS) {
+      expect(evoKindOf(v, 1)).toBe('plain');
+      expect(evoKindOf(v, 2)).toBeTruthy();
+      expect(evoKindOf(v, 3)).toBeTruthy();
+    }
   });
 
   it('靶面权重之和是 1000', () => {
@@ -62,10 +68,10 @@ describe('结构自检', () => {
     expect(COUNTER_UP * COUNTER_DOWN).toBeCloseTo(1, 1);
   });
 
-  it('战场是 3 路 × 4 格，最多只给 8 个人，空 4 格', () => {
+  it('战场是 3 路 × 4 格，满编 12 人站满', () => {
     expect(LANE_COUNT * CELL_COUNT).toBe(12);
-    expect(SQUAD_CAP_MAX).toBe(8);
-    expect(SQUAD_CAP_MAX).toBeLessThan(LANE_COUNT * CELL_COUNT);
+    expect(SQUAD_CAP_MAX).toBe(12);
+    expect(SQUAD_CAP_MAX).toBe(LANE_COUNT * CELL_COUNT);
     expect(squadCap(VILLAGE_LV_MAX)).toBe(SQUAD_CAP_MAX);
   });
 
@@ -186,7 +192,8 @@ describe('护栏 2：克制不是运气惩罚', () => {
     const worst = Math.min(...sweeps.map((s) => s.stats.smartWinPct));
     expect(worst, `最差种子只有 ${worst}% 通关率`).toBeGreaterThanOrEqual(75);
     for (const r of runs) {
-      expect(r.smart.clearAllDay, `种子 ${r.seed} 六十天没推完`).toBeDefined();
+      // 400 关的全通以年计，这里量的仍是手校段：运气最差也得在 60 天里推完 40 关
+      expect(clearDay(r.smart, 40), `种子 ${r.seed} 六十天没推完 40 关`).toBeDefined();
     }
   });
 
@@ -200,7 +207,15 @@ describe('护栏 2：克制不是运气惩罚', () => {
    */
   it('光堆克制门路不是胜利按钮', () => {
     const stage = findStage(8, 5)!;
-    const l = runs[0]!.smart.endState;
+    /*
+     * 拿**第一次打到 8-5 那天**的存档，不是跑完那天的。
+     *
+     * 40 关那一版两者差不多（D28 就全通了，之后基本不再长）。
+     * 400 关不行：D60 的存档已经推到 150 关往后，面板远超 8-5 的水位，
+     * 拿它去打 8-5 是「满级号回头刷新手关」，堆什么阵都能过 ——
+     * 那测的不是克制，是等级差。
+     */
+    const l = runs[0]!.smart.attemptSnap.get(stage.id) ?? runs[0]!.smart.endState;
     const cap = squadCap(l.villageLv);
     const mul = villageMul(l.villageLv);
     const counter = LANES.find((x) => COUNTERS[x] === stage.mainLane)!;
@@ -214,14 +229,31 @@ describe('护栏 2：克制不是运气惩罚', () => {
 });
 
 describe('护栏 3：曲线形状', () => {
-  it('40 关在一个月上下推完，且不早于村庄满级', () => {
+  /**
+   * 主线扩到 400 关之后，「全通」以年计，60 天的回归里量不到。
+   * 所以这条改成盯**手校段**：前 40 关还是不是一个月上下、村庄前 20 级还是不是三周。
+   * 那一段的形状是花大代价校出来的（见 stages.ts 的校准史），
+   * 接 400 关的跑道不许把它冲掉 —— 头一版把 ×2788 均摊到 80 章就冲掉过一次。
+   */
+  it('前 40 关仍是一个月上下，村庄前 20 级仍是三周', () => {
     for (const r of runs) {
-      const done = r.smart.clearAllDay!;
-      const maxed = r.smart.villageDay[VILLAGE_LV_MAX - 1]!;
-      expect(done, `种子 ${r.seed} 在 D${done} 就推完了，太快`).toBeGreaterThan(20);
-      expect(done, `种子 ${r.seed} 到 D${done} 才推完，太慢`).toBeLessThanOrEqual(50);
+      const done = clearDay(r.smart, 40)!;
+      const maxed = r.smart.villageDay[VILLAGE_LV_TUNED - 1]!;
+      expect(done, `种子 ${r.seed} 在 D${done} 就推完 40 关了，太快`).toBeGreaterThan(20);
+      expect(done, `种子 ${r.seed} 到 D${done} 才推完 40 关，太慢`).toBeLessThanOrEqual(50);
       expect(maxed).toBeGreaterThan(12);
       expect(maxed).toBeLessThan(32);
+    }
+  });
+
+  /** 跑道要真的接得上：60 天里推得动 40 关往后，但远远到不了头 */
+  it('400 关是地平线，不是进度条', () => {
+    for (const r of runs) {
+      const reached = r.smart.endState.cleared.size;
+      expect(reached, `种子 ${r.seed} 六十天只推到 ${reached} 关，跑道没接上`)
+        .toBeGreaterThan(40);
+      expect(r.smart.clearAllDay, `种子 ${r.seed} 六十天就把 400 关打完了`)
+        .toBeUndefined();
     }
   });
 
@@ -278,7 +310,9 @@ describe('护栏 3：曲线形状', () => {
    * 这一条只拦「墙整体前移」这种真跑偏。
    */
   it('汇总下来，墙主要落在每章后半段', () => {
-    const idx = sweeps.flatMap((s) => s.stats.walls.map((w) => Number(w[2])));
+    // 墙的标签形如 `12-3(leak)`，章号可能是两位数，得按 `-` 切而不是取第 3 个字符
+    const idx = sweeps.flatMap((s) => s.stats.walls
+      .map((w) => Number(w.split('-')[1]?.[0])).filter((n) => Number.isFinite(n)));
     const late = idx.filter((i) => i >= 3).length;
     const all = sweeps.map((s) => `${s.seed}: ${s.stats.walls.join(' ')}`).join(' | ');
     expect(late / Math.max(1, idx.length), all).toBeGreaterThanOrEqual(0.5);
@@ -302,7 +336,7 @@ describe('护栏 3：曲线形状', () => {
       expect(s.timeLimitMs).toBeLessThanOrEqual(125_000);
       expect(s.parMs).toBeLessThan(s.timeLimitMs);
     }
-    expect(STAGE_COUNT).toBe(40);
+    expect(STAGE_COUNT).toBe(400);
     expect(LEAK_ALLOW).toBe(3);
   });
 
@@ -310,10 +344,18 @@ describe('护栏 3：曲线形状', () => {
     const y = expectedPerDay(10);
     // 废铁 / 零件 / 工分 / 村庄经验，弹子是次数不算货币
     expect(Object.keys(y).sort()).toEqual(['credits', 'exp', 'parts', 'scrap']);
-    // 村庄满级累计经验按日产出算，落在 15~30 天
-    const days = villageCumExp(VILLAGE_LV_MAX) / y.exp;
+    // 村庄升到手校段的顶（Lv.20）按日产出算，仍落在 15~30 天。
+    // Lv.20 往上是 400 关的跑道，产出跟着 yieldMul 复利涨，不在这条里量
+    const days = villageCumExp(VILLAGE_LV_TUNED) / y.exp;
     expect(days).toBeGreaterThan(15);
     expect(days).toBeLessThan(30);
+  });
+
+  /** 跑道的产出必须跟着成本涨，否则手艺后段是一堵墙不是一条路 */
+  it('产出倍率只在手校段之后才生效', () => {
+    expect(yieldMul(1)).toBe(1);
+    expect(yieldMul(VILLAGE_LV_TUNED)).toBe(1);
+    expect(yieldMul(VILLAGE_LV_MAX)).toBeGreaterThan(50);
   });
 });
 

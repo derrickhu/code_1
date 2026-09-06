@@ -46,6 +46,23 @@ export const ROLE_NAME: Readonly<Record<Role, string>> = {
   heal: '修',
 };
 
+/** 对外三种力。拦并进打：没有主动拦截规则，减速是个人手艺 */
+export type Job = 'tank' | 'dps' | 'heal';
+
+export const JOBS: readonly Job[] = ['tank', 'dps', 'heal'];
+
+export const JOB_NAME: Readonly<Record<Job, string>> = {
+  tank: '抗',
+  dps: '打',
+  heal: '治',
+};
+
+export function jobOf(role: Role): Job {
+  if (role === 'tank') return 'tank';
+  if (role === 'heal') return 'heal';
+  return 'dps';
+}
+
 /**
  * 克制循环：key 克 value。
  *
@@ -93,10 +110,10 @@ interface RoleBase {
  *   挨 range 1 → 站 cell 0（pos 2），够到 1.0
  *   拦 range 2 → 站 cell 1（pos 3），够到 1.0
  *   打 range 3 → 站 cell 2（pos 4），够到 1.0
- *   修 range 3 → 站 cell 3（pos 5），够不到，但它的活是回血，不看射程
+ *   修 range 3 → 站 cell 3（pos 5），够不到，活是回血
  *
- * 于是「站远点打」+1 射程有了实打实的机械意义：只有这条门路的「打」
- * 能站到最后一格还够得着挡点，别的门路挪后一格就变哑火。
+ * 「站远点打」+1 射程：只有这条门路的「打」站最后一格还够得着。
+ * 「打 / 修」还能跨一列支援邻路，挨只挡本路。
  */
 const ROLE_BASE: Readonly<Record<Role, RoleBase>> = {
   tank: { hp: 1700, atk: 60, def: 50, range: 1, interval: 1000 },
@@ -131,8 +148,31 @@ const LANE_MOD: Readonly<Record<Lane, LaneMod>> = {
 export const EVO_MUL = [1, 1.55, 2.4] as const;
 export const EVO_MAX = 3;
 
-/** 星级。喊重了的人折一颗星，每星 +8%，上限 ★5 */
-export const STAR_MAX = 5;
+/**
+ * 手艺前 10 档是手校出来的：3 / 6 对齐视觉二阶 / 三阶，这十个数别动。
+ *
+ * 10 档之后按 `CRAFT_STEP_PCT` 复利往上走，一直到 `CRAFT_MAX`。
+ * 分成「手校前段 + 公式后段」而不是整条写成公式，是因为前 40 关的难度曲线
+ * 是贴着这十个数校出来的（见 stages.ts 的校准史），换成公式会把老曲线整个推翻。
+ */
+export const CRAFT_MUL = [1, 1.2, 1.55, 1.75, 2, 2.4, 2.52, 2.64, 2.76, 2.88] as const;
+
+/** 手艺上限。400 关主线要求天花板 ×2788，这条轴出 ×44 */
+export const CRAFT_MAX = 75;
+
+/** 手艺过了 10 档之后每档 +6%（复利） */
+export const CRAFT_STEP_PCT = 6;
+
+/** 这个手艺的面板乘数 */
+export function craftMul(craft: number): number {
+  const c = Math.max(1, Math.min(CRAFT_MAX, Math.floor(craft)));
+  const hand = CRAFT_MUL.length;
+  if (c <= hand) return CRAFT_MUL[c - 1]!;
+  return CRAFT_MUL[hand - 1]! * Math.pow(1 + CRAFT_STEP_PCT / 100, c - hand);
+}
+
+/** 星级。喊重了的人折一颗星，每星 +8% */
+export const STAR_MAX = 10;
 export const STAR_STEP = 0.08;
 
 export interface EvoStage {
@@ -141,6 +181,26 @@ export interface EvoStage {
   /** 这一阶身上多了什么、打法怎么变。美术按这条画立绘 */
   pitch: string;
 }
+
+/**
+ * 引擎认的打法。pitch 是给人看的，这个是给 tick 看的。
+ *
+ * 一阶几乎全是 plain：护栏和前几关测的是底盘，别让一进村就人人开大。
+ * 二、三阶才改打法。数字刻意压着，护栏红了先砍这里，不砍几何。
+ */
+export type EvoKind =
+  | 'plain'
+  | 'regen'
+  | 'standUp'
+  | 'pierce'
+  | 'cleave'
+  | 'laneHeal'
+  | 'allHeal'
+  | 'lifesteal'
+  | 'reflect'
+  | 'burst'
+  | 'slowHard'
+  | 'hasteAura';
 
 export interface VillagerDef {
   id: string;
@@ -435,6 +495,40 @@ export const VILLAGERS: readonly VillagerDef[] = [
   },
 ];
 
+/**
+ * 每人三阶的打法。跟 VILLAGERS 分开写，免得改一句 pitch 误伤规则。
+ *
+ * 一阶保持定位默认（奶就奶、拦就减速），二阶起才叠特效。
+ */
+const EVO_KIND: Readonly<Record<string, readonly [EvoKind, EvoKind, EvoKind]>> = {
+  guogai: ['plain', 'reflect', 'reflect'],
+  yuwang: ['plain', 'slowHard', 'pierce'],
+  laoyanqiang: ['plain', 'plain', 'pierce'],
+  labaye: ['plain', 'laneHeal', 'allHeal'],
+  tiezhu: ['plain', 'regen', 'standUp'],
+  shimo: ['plain', 'slowHard', 'slowHard'],
+  miankuzhang: ['plain', 'lifesteal', 'lifesteal'],
+  erjiu: ['plain', 'plain', 'plain'],
+  chengtuo: ['plain', 'reflect', 'cleave'],
+  dachui: ['plain', 'plain', 'slowHard'],
+  dianju: ['plain', 'plain', 'cleave'],
+  shazhu: ['plain', 'lifesteal', 'lifesteal'],
+  gaoyaguo: ['plain', 'burst', 'burst'],
+  gangban: ['plain', 'reflect', 'reflect'],
+  laoli: ['plain', 'lifesteal', 'lifesteal'],
+  bianpao: ['plain', 'burst', 'burst'],
+  qiangou: ['plain', 'regen', 'regen'],
+  jishi: ['plain', 'slowHard', 'slowHard'],
+  sanshen: ['plain', 'plain', 'cleave'],
+  baowenhu: ['plain', 'hasteAura', 'hasteAura'],
+};
+
+export function evoKindOf(def: VillagerDef, stage: number): EvoKind {
+  const row = EVO_KIND[def.id];
+  if (!row) throw new Error(`没给 ${def.id} 配打法`);
+  return row[Math.max(0, Math.min(2, Math.floor(stage) - 1))]!;
+}
+
 export const VILLAGER_BY_ID: Readonly<Record<string, VillagerDef>> = Object.fromEntries(
   VILLAGERS.map((v) => [v.id, v]),
 );
@@ -479,6 +573,9 @@ export function assertRosterComplete(): void {
   }
   for (const v of VILLAGERS) {
     if (v.evo.length !== EVO_MAX) throw new Error(`${v.name} 的形态不是 ${EVO_MAX} 阶`);
+    if (!EVO_KIND[v.id] || EVO_KIND[v.id]!.length !== EVO_MAX) {
+      throw new Error(`${v.name} 没有配齐三阶打法，进化在局里会是假的`);
+    }
   }
 }
 
@@ -492,20 +589,24 @@ export interface Stats {
 }
 
 /**
- * 算面板。三条乘数分别来自：进化阶（EVO_MUL）、星级（STAR_STEP）、村庄等级。
+ * 算面板。乘数来自手艺（CRAFT_MUL，3/6 对齐旧二阶/三阶）、星级、村庄等级。
  *
- * 只有 hp / atk 吃这三层放大；def / range / interval 只跟定位、门路和进化阶有关，
- * 免得村庄等级把射程和出手速度也一起买掉（撞 §6 第 12 条）。
+ * 只有 hp / atk 吃这三层放大；def / range / interval 只跟定位和门路有关，
+ * 免得养成把射程和出手速度也一起买掉（撞 §6 第 12 条）。
  */
 export function statsOf(
   def: VillagerDef,
   evoStage = 1,
   stars = 0,
   villageMul = 1,
+  craft?: number,
 ): Stats {
   const base = ROLE_BASE[def.role];
   const mod = LANE_MOD[def.lane];
-  const evo = EVO_MUL[Math.max(0, Math.min(EVO_MAX - 1, Math.floor(evoStage) - 1))] ?? 1;
+  const c = craft !== undefined
+    ? Math.max(1, Math.min(CRAFT_MAX, Math.floor(craft)))
+    : (evoStage >= 3 ? 6 : evoStage >= 2 ? 3 : 1);
+  const evo = craftMul(c);
   const star = 1 + Math.max(0, Math.min(STAR_MAX, Math.floor(stars))) * STAR_STEP;
   const grow = evo * star * Math.max(1, villageMul);
   return {

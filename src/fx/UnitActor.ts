@@ -4,8 +4,9 @@
 import * as PIXI from 'pixi.js';
 import type { AttackFx } from '@/balance/fx';
 import { HAND, HAND_GEAR, resolveHandGear, wearOf, type HandGear } from '@/balance/gear';
-import { enemyTex, heroTex, tex } from '@/core/TextureLoader';
-import { clipBody } from '@/fx/spriteBody';
+import { LEGACY_IDS } from '@/balance/villagers';
+import { enemyArtId, enemyTex, heroTex, tex } from '@/core/TextureLoader';
+import { clipBody, fitBodyH } from '@/fx/spriteBody';
 
 export type AtkMotion = 'lunge' | 'sling' | 'recoil' | 'crush';
 
@@ -94,6 +95,7 @@ export class UnitActor {
   private readonly _weapon = new PIXI.Sprite();
   private readonly _wear: PIXI.Sprite[] = [];
   private _id = '';
+  private _evo = 1;
   /** 门路。穿戴的兜底表按它取，见 gear.wearOf */
   private _lane = 'stand';
   private _kind: 'hero' | 'enemy' = 'hero';
@@ -117,6 +119,10 @@ export class UnitActor {
   private _killFade = 0;
   private _breath = Math.random() * Math.PI * 2;
   private _armed = false;
+  /** 村口不挂废品。切片里画进手里的家伙也换成立绘。 */
+  private _bare = false;
+  /** 有 idle/atk 切片时走帧动画，不再叠程序武器 */
+  private _spriteSheet = false;
   private _gear: HandGear | null = null;
   private _modKey = '';
   walkBob = false;
@@ -124,9 +130,10 @@ export class UnitActor {
   holdPulse = false;
 
   constructor() {
-    this._anim = new PIXI.AnimatedSprite([PIXI.Texture.WHITE]);
+    this._anim = new PIXI.AnimatedSprite([PIXI.Texture.EMPTY]);
     this._anim.anchor.set(0.5, 1);
     this._anim.animationSpeed = 0.1;
+    this._anim.visible = false;
     this._smear.anchor.set(0.15, 0.5);
     this._smear.visible = false;
     this._weapon.anchor.set(0.28, 0.7);
@@ -142,14 +149,22 @@ export class UnitActor {
     }
   }
 
-  bindHero(id: string, lane: string, evoStage = 1): void {
+  bindHero(id: string, lane: string, evoStage = 1, armed = true): void {
     this._id = id;
+    this._evo = Math.max(1, Math.min(3, Math.floor(evoStage)));
     this._lane = lane;
     this._kind = 'hero';
     this.walkBob = false;
     this._modKey = '';
+    this._bare = !armed;
     this._reload();
-    this.equip(evoStage);
+    if (armed) this.equip(evoStage);
+    else {
+      this._armed = false;
+      this._gear = null;
+      this._arm.visible = false;
+      for (const s of this._wear) s.visible = false;
+    }
   }
 
   bindEnemy(id: string): void {
@@ -169,6 +184,14 @@ export class UnitActor {
    */
   equip(evoStage = 1, handId?: string): void {
     if (this._kind !== 'hero') return;
+    // 切片已经把家伙画进帧了，再挂一层会双持
+    if (this._spriteSheet) {
+      this._armed = false;
+      this._arm.visible = false;
+      this._bindWear(evoStage);
+      if (this._atkT < 0) this._holdRest();
+      return;
+    }
     const key = `${evoStage}|${handId ?? ''}`;
     const forced = handId ? HAND_GEAR[handId] : undefined;
     const gear = forced ?? resolveHandGear(this._id, evoStage);
@@ -315,7 +338,11 @@ export class UnitActor {
       ? 1 - (1 - killU) * 0.28
       : this._dead ? 0.55 : 1 + breath * amp;
     const bodyClip = this._kind === 'hero' && this._armed ? 'idle' : (this._clip || 'idle');
-    const fit = this._h / clipBody(this._id, bodyClip, this._anim.texture.height || this._h);
+    const texH = this._anim.texture.height || this._h;
+    const clipId = this._kind === 'enemy' ? enemyArtId(this._id) : this._id;
+    const raw = this._bare ? texH : clipBody(clipId, bodyClip, texH);
+    const bodyH = fitBodyH(raw, texH, this._spriteSheet);
+    const fit = this._h / Math.max(1, bodyH);
     this._anim.scale.set(fit * sx * this._face, fit * sy);
     this._anim.rotation = rot;
     const bob = this.holdPulse ? -6 - breath * 5 : 0;
@@ -365,11 +392,11 @@ export class UnitActor {
       if (!spr.visible) continue;
       const th = Math.max(1, spr.texture.height);
       const slot = spr.name;
-      const scale = slot === 'head' ? 0.28 : slot === 'back' ? 0.34 : 0.32;
+      const scale = slot === 'head' ? 0.5 : slot === 'back' ? 0.62 : 0.42;
       spr.scale.set(scale * this._h / th * this._face, scale * this._h / th);
-      if (slot === 'head') spr.position.set(this._face * this._h * 0.02, -this._h * 0.92);
-      else if (slot === 'back') spr.position.set(-this._face * this._h * 0.22, -this._h * 0.58);
-      else spr.position.set(-this._face * this._h * 0.18, -this._h * 0.42);
+      if (slot === 'head') spr.position.set(this._face * this._h * 0.02, -this._h * 1.08);
+      else if (slot === 'back') spr.position.set(-this._face * this._h * 0.36, -this._h * 0.62);
+      else spr.position.set(-this._face * this._h * 0.16, -this._h * 0.4);
       void fit;
     }
   }
@@ -523,22 +550,51 @@ export class UnitActor {
   }
 
   private _holdRest(): void {
-    if (this._clip === 'idle' && this._idle.length <= 1) return;
-    this._play('idle', false);
+    if (this._clip === 'idle') return;
+    this._play('idle', this._idle.length > 1);
   }
 
   private _reload(): void {
-    if (this._kind === 'hero') {
-      const grip = gripTex(this._id);
-      const portrait = heroTex(this._id);
-      this._idle = grip ? [grip] : portrait ? [portrait] : frames(this._id, 'idle', 1);
+    if (this._kind === 'hero' && this._bare) {
+      this._spriteSheet = false;
+      const portrait = heroTex(this._id, this._evo) ?? gripTex(this._id);
+      this._idle = portrait ? [portrait] : frames(this._id, 'idle', 1);
       this._walk = this._idle;
       this._atk = this._idle;
+      this._armed = false;
+      this._arm.visible = false;
+      const keepAtk = this._clip === 'atk' && this._atkT >= 0;
+      this._clip = '';
+      if (keepAtk) this._play('atk', false);
+      else this._holdRest();
+      return;
+    }
+    if (this._kind === 'hero') {
+      const idle = frames(this._id, 'idle', 4);
+      const atk = frames(this._id, 'atk', 4);
+      if (idle.length >= 2 && !LEGACY_IDS.includes(this._id)) {
+        // 新人武器画在帧里，播切片。老人 6 个继续握点 + 程序武器，避免锤画两遍
+        this._spriteSheet = true;
+        this._idle = idle;
+        this._walk = idle;
+        this._atk = atk.length >= 2 ? atk : idle;
+        this._armed = false;
+        this._arm.visible = false;
+      } else {
+        this._spriteSheet = false;
+        const grip = gripTex(this._id);
+        const portrait = heroTex(this._id, this._evo);
+        this._idle = grip ? [grip] : portrait ? [portrait] : frames(this._id, 'idle', 1);
+        this._walk = this._idle;
+        this._atk = this._idle;
+      }
     } else {
+      this._spriteSheet = false;
+      const art = enemyArtId(this._id);
       const portrait = enemyTex(this._id);
-      this._idle = portrait ? [portrait] : frames(this._id, 'idle', 1);
-      this._walk = frames(this._id, 'walk', 4);
-      this._atk = frames(this._id, 'atk', 4);
+      this._idle = portrait ? [portrait] : frames(art, 'idle', 1);
+      this._walk = frames(art, 'walk', 4);
+      this._atk = frames(art, 'atk', 4);
       if (this._walk.length === 0) this._walk = this._idle;
     }
     const keepAtk = this._clip === 'atk' && this._atkT >= 0;
@@ -549,7 +605,11 @@ export class UnitActor {
 
   private _play(name: 'idle' | 'walk' | 'atk', loop: boolean): boolean {
     const list = name === 'atk' ? this._atk : name === 'walk' ? this._walk : this._idle;
-    if (list.length === 0) return false;
+    if (list.length === 0) {
+      this._anim.visible = false;
+      return false;
+    }
+    this._anim.visible = !this._dead;
     if (name === this._clip && (loop || list.length <= 1)) return true;
     this._clip = name;
     this._anim.textures = list;

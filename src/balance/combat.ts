@@ -1,8 +1,11 @@
 /**
  * 战场常量与几何（纯数据，不含渲染对象）
  *
- * 战场是 **3 路 × 4 格**。敌人从上方走进来，走过最下面那条底线就是漏怪；
- * 漏够 LEAK_ALLOW 只判负。见 docs/00-体验目标.md §4.4。
+ * 战场是 **3 路 × 4 格 = 12 格**，满编 12 人。敌人从上方走进来，
+ * 走过最下面那条底线就是漏怪。
+ *
+ * 塔塔主画面就是 3 列（前期 3×3=9，后期才加宽）。堆人靠把 12 格站满，
+ * 不靠加列 —— 5 列是 Rush Royale 的棋盘，敌人绕格子走，不是分路塔防。
  *
  * 这个文件同时管**逻辑轴**和**屏幕坐标**，因为两者必须同时改：
  * 射程是按格距定的，格距一动、射程不跟着动，后排就会变成哑火。
@@ -15,7 +18,7 @@ export const TICK_MS = 100;
 
 /* ---------------- 逻辑轴 ---------------- */
 
-/** 3 路 × 4 格 = 12 格，满级只给 8 个人上，空着的 4 格就是取舍 */
+/** 3 路 × 4 格。列数跟塔塔主画面对齐，人靠填满 12 格堆起来 */
 export const LANE_COUNT = 3;
 export const CELL_COUNT = 4;
 
@@ -23,8 +26,8 @@ export const CELL_COUNT = 4;
  * 出场点到第一格之间留的空场。§4.4：空场是舞台，敌人走进来才开打。
  *
  * 和 CELL_SPAN 一起决定「后排能不能帮上忙」，别单独改其中一个。
- * 四格落在 pos 2/3/4/5，敌人挡点在 pos 1.5，四个定位的射程
- * 恰好够到挡点（见 villagers.ROLE_BASE 的 range 注释）。
+ * 四格落在 pos 2/3/4/5，敌人挡点在 pos 1.5。挨 / 拦 / 打 的射程
+ * 恰好够各自那一格打到挡点（见 villagers.ROLE_BASE 的 range 注释）。
  */
 export const SPAWN_GAP = 2;
 /** 相邻格子的间距 */
@@ -40,6 +43,13 @@ export const GOAL_POS = cellPos(CELL_COUNT - 1) + CELL_SPAN;
 
 /** 地面怪被最前面的人挡住的位置 */
 export const BLOCK_POS = cellPos(0) - 0.5;
+
+/**
+ * 近战打到前排时停在这儿（前排 pos 2、射程 1）。
+ * 屏幕映射用它当空场终点，别用 BLOCK_POS —— 否则怪停在空场三分之二处就开始砍，
+ * 看上去像隔着半条路隔空打人。
+ */
+export const VIS_ENGAGE_POS = cellPos(0) - 1;
 
 /** 漏几个判负。留 3 个是为了给星评腾出档位，也别让第一次漏就劝退 */
 export const LEAK_ALLOW = 3;
@@ -76,49 +86,103 @@ export const RAGE_BONUS = 0.5;
 /* ---------------- 屏幕坐标 ---------------- */
 
 /**
- * 战场横向：三条路等分 750 设计宽，两侧留边。
+ * 战场横向：土路当主体，约占 750 设计宽的 72%。
  *
- * 路要够宽，一格里站一个人 + 名牌不能挤到隔壁路去 ——
- * 「看得出哪一路要崩」是硬约束（反目标第二条）。
+ * 土路约占七成宽。3 列时单路 180，人能认出是铁柱不是棋子。
  */
-export const FIELD_X = 40;
-export const FIELD_W = 670;
+export const FIELD_W = 540;
+export const FIELD_X = (750 - FIELD_W) / 2;
 export const LANE_W = FIELD_W / LANE_COUNT;
+
+/**
+ * 视觉行数。逻辑 4 格可站，屏幕上把空场拉成走路的格子，下 4 行方能站人。
+ */
+export const VIS_ROWS = 12;
+export const VIS_APPROACH_ROWS = VIS_ROWS - CELL_COUNT;
 
 export function laneScreenX(lane: number): number {
   return FIELD_X + LANE_W * (lane + 0.5);
 }
 
+/** 视觉第 row 条线的屏幕 y（0 在出场，VIS_ROWS 在底线） */
+export function visualRowY(row: number, topY: number, goalY: number): number {
+  return topY + ((goalY - topY) * row) / VIS_ROWS;
+}
+
 /**
  * 战场纵向：轴上的 pos 映射到屏幕 y。
  *
- * pos 0（出场点）在 topY，GOAL_POS（底线）在 goalY，中间线性插值。
- * 空场（pos 0 ~ BLOCK_POS）占的那一段刻意留出来当舞台，上面不画格子。
+ * 不是匀速插值。空场（pos 0 ~ 近战停点）占视觉上半 8 行，
+ * 贴到可站区上沿才开打 —— 敌人要走一段路才碰到人，人还是站在 4 格里。
  */
 export function posScreenY(pos: number, topY: number, goalY: number): number {
-  return topY + ((goalY - topY) * pos) / GOAL_POS;
+  const span = goalY - topY;
+  const approach = (VIS_APPROACH_ROWS / VIS_ROWS) * span;
+  if (pos <= VIS_ENGAGE_POS) {
+    return topY + approach * (pos / VIS_ENGAGE_POS);
+  }
+  const t = (pos - VIS_ENGAGE_POS) / (GOAL_POS - VIS_ENGAGE_POS);
+  return topY + approach + (span - approach) * t;
 }
 
-/** 第 i 格的屏幕 y（脚底） */
-export function cellScreenY(cell: number, topY: number, goalY: number): number {
-  return posScreenY(cellPos(cell), topY, goalY);
+/** 第 i 格（可站区）顶边 */
+export function cellRectTop(cell: number, topY: number, goalY: number): number {
+  return visualRowY(VIS_APPROACH_ROWS + cell, topY, goalY);
+}
+
+/**
+ * 第 i 格的屏幕 y（脚底）。
+ *
+ * 立绘从脚底往上长。脚底落在格心再往下半个身高，人的视觉中心才在格正中。
+ * 以前钉在格下沿，人会坐在格子底边上，再加左右错位就更歪。
+ */
+export function cellScreenY(
+  cell: number,
+  topY: number,
+  goalY: number,
+  spriteH = 40,
+): number {
+  const top = cellRectTop(cell, topY, goalY);
+  const h = cellScreenH(topY, goalY);
+  return top + h / 2 + spriteH / 2;
 }
 
 /** 一格在屏幕上多高。画格垫和热区用 */
 export function cellScreenH(topY: number, goalY: number): number {
-  return ((goalY - topY) * CELL_SPAN) / GOAL_POS;
+  return (goalY - topY) / VIS_ROWS;
 }
 
-/** 局内立绘身高。村子预览跟局里用同一套，比例才对得上 */
+/** 场上棋子身高。3 列下用 36，认得出脸，又不顶格 */
+export const FIELD_VILLAGER_H = 36;
+
+/** 局内立绘身高。场上请用 FIELD_VILLAGER_H；这函数留给还在按血量分档的旧调用 */
 export function villagerSpriteH(hp: number): number {
-  if (hp >= 3000) return 104;
-  if (hp >= 1600) return 96;
-  return 88;
+  if (hp >= 3000) return 40;
+  if (hp >= 1600) return 36;
+  return 32;
 }
 
-/** 点人 / 点空格的热区，相对格心 */
+/** 点人 / 点空格的热区，相对脚底。格小了也要把整格点满，别逼人钉在立绘上 */
 export function cellHitBox(cw: number, ch: number): { x: number; y: number; w: number; h: number } {
-  const w = Math.min(cw - 8, 132);
-  const h = Math.min(ch - 4, 116);
+  const w = Math.max(56, cw - 4);
+  const h = Math.max(56, ch - 4);
   return { x: -w / 2, y: -h, w, h };
+}
+
+/** 设计坐标落到哪一格。空场和路外是 null，别靠 Pixi hitTest */
+export function hitDeployCell(
+  x: number,
+  y: number,
+  topY: number,
+  goalY: number,
+): { lane: number; cell: number } | null {
+  if (x < FIELD_X || x >= FIELD_X + FIELD_W) return null;
+  const top = cellRectTop(0, topY, goalY);
+  if (y < top || y > goalY) return null;
+  const lane = Math.min(LANE_COUNT - 1, Math.max(0, Math.floor((x - FIELD_X) / LANE_W)));
+  const cell = Math.min(
+    CELL_COUNT - 1,
+    Math.max(0, Math.floor((y - top) / cellScreenH(topY, goalY))),
+  );
+  return { lane, cell };
 }

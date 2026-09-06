@@ -25,20 +25,20 @@ import {
   type BattleResult, type Candidate, type Placement,
 } from '@/game/BattleEngine';
 import {
-  STAGES, STAGE_COUNT, getStage, type StageDef,
+  CHAPTER_COUNT, STAGES, STAGE_COUNT, getStage, type StageDef,
 } from '@/balance/stages';
 import {
   DAILY_PELLETS, PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST,
-  PELLET_LOSE, PELLET_OFFLINE_CAP, SETTLE_SCRAP,
+  PELLET_LOSE, PELLET_OFFLINE_CAP, SETTLE_SCRAP, SETTLE_SCRAP_REPLAY,
   expectedPerPellet, mulberry32, type Rng,
 } from '@/balance/stall';
 import {
-  CALL_COST, addVillageExp, evoOf, nextEvoCost, rollCall,
-  squadCap, starsOf, villageMul,
+  CALL_COST, addVillageExp, craftOf, evoFromCraft, evoOf, nextFeed,
+  rollCall, squadCap, starsOf, villageMul, yieldMul,
   type Progress,
 } from '@/balance/village';
 import {
-  DEFAULT_SQUAD, STAR_MAX, VILLAGERS, getVillager, type Role,
+  CRAFT_MAX, DEFAULT_SQUAD, STAR_MAX, VILLAGERS, getVillager, type Role,
 } from '@/balance/villagers';
 
 /** 可写的 Progress，跑模拟时用 */
@@ -47,6 +47,7 @@ interface Live {
   villageExp: number;
   roster: string[];
   evo: Record<string, number>;
+  craft: Record<string, number>;
   stars: Record<string, number>;
   scrap: number;
   parts: number;
@@ -61,6 +62,7 @@ function freshLive(): Live {
     villageExp: 0,
     roster: [...DEFAULT_SQUAD],
     evo: {},
+    craft: {},
     stars: {},
     scrap: 0,
     parts: 0,
@@ -75,6 +77,7 @@ function asProgress(l: Live): Progress {
     villageExp: l.villageExp,
     roster: l.roster,
     evo: l.evo,
+    craft: l.craft,
     stars: l.stars,
     scrap: l.scrap,
     parts: l.parts,
@@ -89,6 +92,7 @@ export function poolOf(l: Live): Candidate[] {
     villager: getVillager(id),
     evoStage: evoOf(p, id),
     stars: starsOf(p, id),
+    craft: craftOf(p, id),
   }));
 }
 
@@ -113,23 +117,29 @@ function evoPriority(l: Live): string[] {
 }
 
 /**
- * 花废铁和零件喂进化。
+ * 花废铁和零件喂手艺。
  *
- * 先把所有人推到二阶，再逐个上三阶 —— 二阶单价 120/4，三阶 400/18，
- * 同样的废铁摊到二阶身上换来的面板多得多，集中冲三阶是亏的。
+ * 先全员推到 3（二阶），再推到 6（三阶），最后才往 10 走。
+ * 星卡住就跳过这个人。零件先花在「人人看得见的二阶」上，别集中焊一个人。
  */
 function spendEvo(l: Live): void {
   const order = evoPriority(l);
-  for (const tier of [2, 3]) {
+    // 先全员二阶、再全员三阶，然后才一个个往手艺上限焊。
+    // 上一版这里写死到 10 就停了，于是 400 关跑道上账面躺着 56 万废铁没人花
+    for (const target of [3, 6, 10, CRAFT_MAX]) {
     for (const id of order) {
-      while (evoOf(asProgress(l), id) < tier) {
-        const cost = nextEvoCost(evoOf(asProgress(l), id));
+      for (;;) {
+        const p = asProgress(l);
+        if (craftOf(p, id) >= target) break;
+        const cost = nextFeed(p, id);
         if (!cost) break;
-        // 各阶单价一致，买不起这个就买不起同阶的任何人，直接收工
-        if (l.scrap < cost.scrap || l.parts < cost.parts) return;
+        // 各人的下一档价不再一致（星卡的位置不同），买不起这个还可能买得起下一个
+        if (l.scrap < cost.scrap || l.parts < cost.parts) break;
         l.scrap -= cost.scrap;
         l.parts -= cost.parts;
-        l.evo[id] = evoOf(asProgress(l), id) + 1;
+        const next = craftOf(p, id) + 1;
+        l.craft[id] = next;
+        l.evo[id] = evoFromCraft(next);
       }
     }
   }
@@ -215,6 +225,7 @@ function cloneLive(l: Live): Live {
     villageExp: l.villageExp,
     roster: [...l.roster],
     evo: { ...l.evo },
+    craft: { ...l.craft },
     stars: { ...l.stars },
     scrap: l.scrap,
     parts: l.parts,
@@ -260,13 +271,27 @@ export function simulate(opts: SimOptions = {}): SimResult {
     // ---- 推图 ----
     for (let a = 0; a < attempts; a += 1) {
       const nextId = l.cleared.size + 1;
-      if (nextId > STAGE_COUNT) break;
+      if (nextId > STAGE_COUNT) {
+        /*
+         * 40 关全通之后接着重打末关。
+         *
+         * 不建模这一段，模拟器会以为「通关那天经济归零」—— 上一版就是这样，
+         * 于是它报告手艺后四档永远够不着，而真机里重打是给废铁的。
+         * 重打按 SETTLE_SCRAP_REPLAY 计价，弹子照给。
+         */
+        const last = getStage(STAGE_COUNT);
+        const res = runBattle(last, placeFor(l, last, mode, day + a), villageMul(l.villageLv));
+        if (!res.won) break;
+        l.scrap += SETTLE_SCRAP_REPLAY * yieldMul(l.villageLv);
+        wins += 1;
+        continue;
+      }
       const stage = getStage(nextId);
       if (!attemptSnap.has(nextId)) attemptSnap.set(nextId, cloneLive(l));
       const res = runBattle(stage, placeFor(l, stage, mode, day + a), villageMul(l.villageLv));
       if (res.won) {
         l.cleared.add(nextId);
-        l.scrap += SETTLE_SCRAP;
+        l.scrap += SETTLE_SCRAP * yieldMul(l.villageLv);
         wins += 1;
         firsts += 1;
         if (l.cleared.size >= STAGE_COUNT && clearAllDay === undefined) clearAllDay = day;
@@ -363,10 +388,18 @@ export function sweepStages(sim: SimResult): StageProbe[] {
   const out: StageProbe[] = [];
 
   for (const stage of STAGES) {
-    // 长线里推到过这关就用当时的存档；没推到就用跑完那天的（已经满级），
-    // 那种情况下打不过说明「连练满都过不去」，是曲线爆了，不是玩家没练。
+    /*
+     * **只扫这次长线里真的打到过的关。**
+     *
+     * 40 关那一版可以拿「跑完那天的存档」去补没推到的关，因为 60 天足够全通，
+     * 补的只是零星几关。400 关不行：60 天只推到 150 关上下，
+     * 剩下 250 关会全部拿 D60 的存档去打第 300 关 —— 必然全灭，
+     * 于是通关率、布阵差值、墙的位置三条指标测的都是「玩家够不到的内容」。
+     * 实测就是这么炸的：布阵差值从 52 点掉到 20 点，墙有 98% 落在没推到的章。
+     */
     const hit = sim.attemptSnap.get(stage.id);
-    const snap = hit ?? sim.endState;
+    if (!hit) continue;
+    const snap = hit;
     const mul = villageMul(snap.villageLv);
     const cap = squadCap(snap.villageLv);
     const pool = poolOf(snap);
@@ -375,7 +408,7 @@ export function sweepStages(sim: SimResult): StageProbe[] {
       atLv: snap.villageLv,
       cap,
       roster: snap.roster.length,
-      capped: hit === undefined,
+      capped: false,
       smart: runBattle(stage, autoPlace(pool, stage, cap), mul),
       dumb: runBattle(stage, dumbPlace(pool, cap, stage.id), mul),
     });
@@ -412,7 +445,7 @@ export function sweepStats(probes: readonly StageProbe[]): SweepStats {
   const wn = Math.max(1, smartWins.length);
 
   const byChapter: number[] = [];
-  for (let c = 1; c <= 8; c += 1) {
+  for (let c = 1; c <= CHAPTER_COUNT; c += 1) {
     const inCh = probes.filter((p) => p.stage.chapter === c);
     const won = inCh.filter((p) => p.smart.won).length;
     byChapter.push(Math.round((won / Math.max(1, inCh.length)) * 1000) / 10);
@@ -433,6 +466,18 @@ export function sweepStats(probes: readonly StageProbe[]): SweepStats {
     byChapter,
     walls: probes.filter((p) => !p.smart.won).map((p) => `${p.stage.label}(${p.smart.reason})`),
   };
+}
+
+/**
+ * 推完前 n 关是哪一天。没推到就返回 undefined。
+ *
+ * 主线 400 关的周期以年计，`clearAllDay`（全通那天）在 60 天的回归里永远是空的，
+ * 所以曲线形状的护栏改用这个 —— 它问的是「**前 40 关**还是不是一个月上下」，
+ * 那一段的手感是花大代价校出来的，接跑道不许把它冲掉。
+ */
+export function clearDay(sim: SimResult, n: number): number | undefined {
+  const at = sim.days.findIndex((d) => d.stage >= n);
+  return at < 0 ? undefined : at + 1;
 }
 
 /** 一天的期望产出，跑报表用 */

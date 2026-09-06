@@ -4,20 +4,22 @@
  */
 import { Platform } from '@/core/PlatformService';
 
-const FILE: Readonly<Record<string, string>> = {
+export const BGM_FILE = {
+  home: 'audio/bgm_village.mp3',
   village: 'audio/bgm_village.mp3',
   battle: 'audio/bgm_battle.mp3',
   battle_hot: 'audio/bgm_battle_hot.mp3',
-};
+} as const;
 
 /** 局内再压一档，给打击音让路 */
 const VOLUME: Readonly<Record<BgmId, number>> = {
+  home: 0.32,
   village: 0.32,
   battle: 0.22,
   battle_hot: 0.24,
 };
 
-export type BgmId = keyof typeof FILE;
+export type BgmId = keyof typeof BGM_FILE;
 
 class BgmPlayerClass {
   private _ctx: WechatMinigame.InnerAudioContext | null = null;
@@ -26,7 +28,7 @@ class BgmPlayerClass {
   private _paused = false;
 
   play(id: BgmId): void {
-    const src = FILE[id];
+    const src = BGM_FILE[id];
     if (!src) return;
     if (this._id === id && this._ctx) {
       if (this._paused) {

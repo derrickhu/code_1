@@ -11,8 +11,8 @@
  *    所以谁站 cell 0 决定谁先挨，这是布阵最直接的一笔。
  * 2. **飞碟点后排**：飞的不被阻挡，而且专挑这一路**最后排**的人打。
  *    把脆皮塞到后面躲刀，遇到飞碟章就是送 —— 后排不是安全区。
- * 3. **空路直接漏**：一路没人就是一路通天。12 格只有 8 个人，
- *    三路都想守厚是不可能的，这就是取舍。
+ * 3. **空路直接漏**：一列没人挡就是一列通天。打/修能支援邻列，
+ *    但挡不住 —— 邻列没挨，怪照样走到底线。
  *
  * 引擎是**确定性**的：同样的布阵和关卡，结果永远一样。
  * 不掺随机是因为护栏要能断言「换个排法通关率差 20 个点」这种事，
@@ -28,9 +28,25 @@ import {
   type EnemyDef, type StageDef, type Stars,
 } from '@/balance/stages';
 import {
-  laneMul, statsOf,
-  type Role, type VillagerDef,
+  evoKindOf, laneMul, statsOf,
+  type EvoKind, type Role, type VillagerDef,
 } from '@/balance/villagers';
+
+/** 进化打法的数字。护栏红了先砍这里，不改几何、不加新系统 */
+const PIERCE_MUL = 0.28;
+const CLEAVE_MUL = 0.22;
+const CLEAVE_MAX = 3;
+const REGEN_MS = 2000;
+const REGEN_PCT = 0.012;
+const STAND_HP = 0.3;
+const REFLECT_MUL = 0.1;
+const LIFESTEAL_MUL = 0.12;
+const BURST_HP = 0.45;
+const BURST_ATK = 0.85;
+const BURST_RANGE = 1.4;
+const SLOW_HARD_MUL = 1.2;
+const HASTE_MUL = 0.96;
+const ALL_HEAL_CUT = 0.35;
 
 /* ---------------- 状态 ---------------- */
 
@@ -43,6 +59,8 @@ export interface Placement {
   cell: number;
   evoStage: number;
   stars: number;
+  /** 手艺 1–10。有就按它算面板，没有就按视觉阶反推 */
+  craft?: number;
 }
 
 /** 场上的村民 */
@@ -56,6 +74,7 @@ export interface Fighter {
   /** 几阶。渲染层按它换家伙和穿戴，见 gear.handIdOf / gear.wearOf */
   evoStage: number;
   stars: number;
+  craft?: number;
   hp: number;
   maxHp: number;
   atk: number;
@@ -64,6 +83,11 @@ export interface Fighter {
   interval: number;
   cd: number;
   alive: boolean;
+  /** 三阶「倒下再爬」只用一次 */
+  stoodUp: boolean;
+  /** 血过线炸一圈只用一次 */
+  burstUsed: boolean;
+  regenCd: number;
 }
 
 /** 场上的外星人 */
@@ -93,6 +117,8 @@ export type BattleEvent =
   | { kind: 'foeHit'; foeId: number; uid: string; damage: number }
   | { kind: 'heal'; uid: string; targetUid: string; amount: number }
   | { kind: 'villagerDown'; uid: string }
+  | { kind: 'villagerUp'; uid: string }
+  | { kind: 'burst'; uid: string }
   | { kind: 'foeDown'; foeId: number; lane: number }
   | { kind: 'leak'; foeId: number; lane: number }
   | { kind: 'waveStart'; wave: number };
@@ -132,6 +158,7 @@ export interface Candidate {
   villager: VillagerDef;
   evoStage: number;
   stars: number;
+  craft?: number;
 }
 
 interface Spawn {
@@ -204,7 +231,7 @@ export function createBattle(
 }
 
 function fighterOf(p: Placement, villageMul: number, i: number): Fighter {
-  const s = statsOf(p.villager, p.evoStage, p.stars, villageMul);
+  const s = statsOf(p.villager, p.evoStage, p.stars, villageMul, p.craft);
   return {
     uid: `${p.villager.id}#${i}`,
     def: p.villager,
@@ -213,6 +240,7 @@ function fighterOf(p: Placement, villageMul: number, i: number): Fighter {
     pos: cellPos(p.cell),
     evoStage: p.evoStage,
     stars: p.stars,
+    craft: p.craft,
     hp: s.hp,
     maxHp: s.hp,
     atk: s.atk,
@@ -221,6 +249,9 @@ function fighterOf(p: Placement, villageMul: number, i: number): Fighter {
     interval: s.interval,
     cd: 0,
     alive: true,
+    stoodUp: false,
+    burstUsed: false,
+    regenCd: REGEN_MS,
   };
 }
 
@@ -228,6 +259,15 @@ function fighterOf(p: Placement, villageMul: number, i: number): Fighter {
 export function startFight(state: BattleState): void {
   if (state.phase !== 'placing') return;
   state.team = state.placed.map((p, i) => fighterOf(p, state.villageMul, i));
+  // 保温壶这类光环：只加速同一路。全场加速会把推图节奏抬得太快。
+  const hasteLanes = new Set(
+    state.team.filter((f) => evoKindOf(f.def, f.evoStage) === 'hasteAura').map((f) => f.lane),
+  );
+  if (hasteLanes.size > 0) {
+    for (const f of state.team) {
+      if (hasteLanes.has(f.lane)) f.interval = Math.round(f.interval * HASTE_MUL);
+    }
+  }
   state.phase = 'fighting';
 }
 
@@ -279,12 +319,13 @@ export function placeAt(
     sitting.villager = cand.villager;
     sitting.evoStage = cand.evoStage;
     sitting.stars = cand.stars;
+    sitting.craft = cand.craft;
     return true;
   }
   if (state.placed.length >= state.cap) return false;
   state.placed.push({
     villager: cand.villager, lane, cell,
-    evoStage: cand.evoStage, stars: cand.stars,
+    evoStage: cand.evoStage, stars: cand.stars, craft: cand.craft,
   });
   return true;
 }
@@ -321,26 +362,177 @@ export function sniperTarget(foe: Foe, team: readonly Fighter[]): Fighter | unde
   return best;
 }
 
-/** 村民打自己这一路射程内最靠前（走得最远）的那只 */
+/**
+ * 跨列射程。挨 / 拦只打本列（挡是列的意义）；
+ * 打 / 修能照顾左右各一列，邻列按多 1 格射程算，本列仍然优先。
+ */
+function laneReachOf(role: Role): number {
+  return role === 'tank' || role === 'block' ? 0 : 1;
+}
+
+const LANE_GAP_COST = 1;
+
+function reachGap(f: Fighter, e: Foe): number | undefined {
+  const side = Math.abs(e.lane - f.lane);
+  if (side > laneReachOf(f.def.role)) return undefined;
+  const gap = f.pos - e.pos + side * LANE_GAP_COST;
+  if (gap > f.range || gap < -0.5) return undefined;
+  return side;
+}
+
+/** 村民打射程内最靠前的那只。本列优先于邻列 */
 export function pickFoe(f: Fighter, foes: readonly Foe[]): Foe | undefined {
   let best: Foe | undefined;
+  let bestSide = 99;
   for (const e of foes) {
-    if (!e.alive || e.lane !== f.lane) continue;
-    const gap = f.pos - e.pos;
-    if (gap > f.range || gap < -0.5) continue;
-    if (!best || e.pos > best.pos) best = e;
+    if (!e.alive) continue;
+    const side = reachGap(f, e);
+    if (side === undefined) continue;
+    if (!best || side < bestSide || (side === bestSide && e.pos > best.pos)) {
+      best = e;
+      bestSide = side;
+    }
   }
   return best;
 }
 
 /** 「修」位挑血量比例最低的队友 */
-function pickHurt(team: readonly Fighter[]): Fighter | undefined {
+function pickHurt(team: readonly Fighter[], lane?: number): Fighter | undefined {
   let best: Fighter | undefined;
   for (const f of team) {
     if (!f.alive || f.hp >= f.maxHp) continue;
+    if (lane !== undefined && f.lane !== lane) continue;
     if (!best || f.hp / f.maxHp < best.hp / best.maxHp) best = f;
   }
   return best;
+}
+
+function foesInRange(f: Fighter, foes: readonly Foe[]): Foe[] {
+  const out: Foe[] = [];
+  for (const e of foes) {
+    if (!e.alive) continue;
+    if (reachGap(f, e) === undefined) continue;
+    out.push(e);
+  }
+  out.sort((a, b) => {
+    const sa = Math.abs(a.lane - f.lane);
+    const sb = Math.abs(b.lane - f.lane);
+    if (sa !== sb) return sa - sb;
+    return b.pos - a.pos;
+  });
+  return out;
+}
+
+function pickFoes(f: Fighter, foes: readonly Foe[], kind: EvoKind): { foe: Foe; mul: number }[] {
+  const list = foesInRange(f, foes);
+  if (list.length === 0) return [];
+  if (kind === 'pierce') {
+    const a = list[0]!;
+    const b = list[1];
+    return b ? [{ foe: a, mul: 1 }, { foe: b, mul: PIERCE_MUL }] : [{ foe: a, mul: 1 }];
+  }
+  if (kind === 'cleave') {
+    return list.slice(0, CLEAVE_MAX).map((foe, i) => ({
+      foe, mul: i === 0 ? 1 : CLEAVE_MUL,
+    }));
+  }
+  return [{ foe: list[0]!, mul: 1 }];
+}
+
+function tickRegen(state: BattleState, f: Fighter, kind: EvoKind): void {
+  if (kind !== 'regen' || f.hp >= f.maxHp) return;
+  f.regenCd -= TICK_MS;
+  if (f.regenCd > 0) return;
+  f.regenCd = REGEN_MS;
+  const amount = Math.max(1, Math.round(f.maxHp * REGEN_PCT));
+  f.hp = Math.min(f.maxHp, f.hp + amount);
+  state.events.push({ kind: 'heal', uid: f.uid, targetUid: f.uid, amount });
+}
+
+function tryHeal(state: BattleState, f: Fighter, kind: EvoKind): boolean {
+  if (kind === 'allHeal') {
+    const hurts = state.team.filter((t) => t.alive && t.hp < t.maxHp);
+    if (hurts.length === 0) return false;
+    f.cd = f.interval;
+    for (const hurt of hurts) {
+      const amount = Math.min(hurt.maxHp - hurt.hp, Math.round(f.atk * HEAL_MUL * ALL_HEAL_CUT));
+      if (amount <= 0) continue;
+      hurt.hp += amount;
+      state.events.push({ kind: 'heal', uid: f.uid, targetUid: hurt.uid, amount });
+    }
+    return true;
+  }
+  const hurt = pickHurt(state.team, kind === 'laneHeal' ? f.lane : undefined);
+  if (!hurt) return false;
+  const amount = Math.min(hurt.maxHp - hurt.hp, Math.round(f.atk * HEAL_MUL));
+  hurt.hp += amount;
+  f.cd = f.interval;
+  state.events.push({ kind: 'heal', uid: f.uid, targetUid: hurt.uid, amount });
+  return true;
+}
+
+function strike(state: BattleState, f: Fighter, foe: Foe, mul: number, kind: EvoKind): void {
+  const raw = effAtk(f) * (f.def.role === 'heal' ? HEAL_ATK_CUT : 1) * mul;
+  const damage = dmgOf(raw, foe.armor, laneMul(f.def.lane, foe.def.lane));
+  foe.hp -= damage;
+  const killed = foe.hp <= 0;
+  state.events.push({ kind: 'hit', uid: f.uid, foeId: foe.id, damage, killed });
+  if (killed) {
+    foe.alive = false;
+    state.events.push({ kind: 'foeDown', foeId: foe.id, lane: foe.lane });
+  } else if (f.def.role === 'block' || kind === 'slowHard') {
+    const hold = kind === 'slowHard' ? SLOW_MS * SLOW_HARD_MUL : SLOW_MS;
+    foe.slowMs = Math.max(foe.slowMs, hold);
+  }
+  if (kind !== 'lifesteal') return;
+  const sink = f.def.role === 'heal' ? (pickHurt(state.team) ?? f) : f;
+  const amount = Math.min(sink.maxHp - sink.hp, Math.round(damage * LIFESTEAL_MUL));
+  if (amount <= 0) return;
+  sink.hp += amount;
+  state.events.push({ kind: 'heal', uid: f.uid, targetUid: sink.uid, amount });
+}
+
+function fireBurst(state: BattleState, f: Fighter): void {
+  state.events.push({ kind: 'burst', uid: f.uid });
+  for (const e of state.foes) {
+    if (!e.alive || reachGap(f, e) === undefined) continue;
+    if (Math.abs(f.pos - e.pos) > BURST_RANGE) continue;
+    const damage = dmgOf(f.atk * BURST_ATK, e.armor, laneMul(f.def.lane, e.def.lane));
+    e.hp -= damage;
+    const killed = e.hp <= 0;
+    state.events.push({ kind: 'hit', uid: f.uid, foeId: e.id, damage, killed });
+    if (killed) {
+      e.alive = false;
+      state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
+    }
+  }
+}
+
+function hurtVillager(state: BattleState, target: Fighter, e: Foe, damage: number): void {
+  target.hp -= damage;
+  state.events.push({ kind: 'foeHit', foeId: e.id, uid: target.uid, damage });
+  const kind = evoKindOf(target.def, target.evoStage);
+  if (kind === 'reflect' && e.alive) {
+    const back = Math.max(1, Math.round(damage * REFLECT_MUL));
+    e.hp -= back;
+    if (e.hp <= 0) {
+      e.alive = false;
+      state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
+    }
+  }
+  if (kind === 'burst' && !target.burstUsed && target.hp / target.maxHp <= BURST_HP) {
+    target.burstUsed = true;
+    fireBurst(state, target);
+  }
+  if (target.hp > 0) return;
+  if (kind === 'standUp' && !target.stoodUp) {
+    target.stoodUp = true;
+    target.hp = Math.max(1, Math.round(target.maxHp * STAND_HP));
+    state.events.push({ kind: 'villagerUp', uid: target.uid });
+    return;
+  }
+  target.alive = false;
+  state.events.push({ kind: 'villagerDown', uid: target.uid });
 }
 
 /* ---------------- 数值 ---------------- */
@@ -419,12 +611,7 @@ export function tick(state: BattleState): void {
       if (e.cd <= 0) {
         e.cd = e.def.interval;
         const damage = dmgOf(e.atk, target.armor, laneMul(e.def.lane, target.def.lane));
-        target.hp -= damage;
-        state.events.push({ kind: 'foeHit', foeId: e.id, uid: target.uid, damage });
-        if (target.hp <= 0) {
-          target.alive = false;
-          state.events.push({ kind: 'villagerDown', uid: target.uid });
-        }
+        hurtVillager(state, target, e, damage);
       }
     } else {
       e.pos += e.def.spd * (e.slowMs > 0 ? SLOW_MUL : 1) * (TICK_MS / 1000);
@@ -439,34 +626,20 @@ export function tick(state: BattleState): void {
   // 村民动
   for (const f of state.team) {
     if (!f.alive) continue;
+    const kind = evoKindOf(f.def, f.evoStage);
+    tickRegen(state, f, kind);
     f.cd -= TICK_MS;
     if (f.cd > 0) continue;
 
-    if (f.def.role === 'heal') {
-      const hurt = pickHurt(state.team);
-      if (hurt) {
-        const amount = Math.min(hurt.maxHp - hurt.hp, Math.round(f.atk * HEAL_MUL));
-        hurt.hp += amount;
-        f.cd = f.interval;
-        state.events.push({ kind: 'heal', uid: f.uid, targetUid: hurt.uid, amount });
-        continue;
-      }
+    // 吸血奶（杀猪匠）靠砍人回血，不走独占治疗，否则局里永远看不见他动手
+    if (f.def.role === 'heal' && kind !== 'lifesteal') {
+      if (tryHeal(state, f, kind)) continue;
     }
 
-    const foe = pickFoe(f, state.foes);
-    if (!foe) continue;
+    const marks = pickFoes(f, state.foes, kind);
+    if (marks.length === 0) continue;
     f.cd = f.interval;
-    const raw = effAtk(f) * (f.def.role === 'heal' ? HEAL_ATK_CUT : 1);
-    const damage = dmgOf(raw, foe.armor, laneMul(f.def.lane, foe.def.lane));
-    foe.hp -= damage;
-    const killed = foe.hp <= 0;
-    state.events.push({ kind: 'hit', uid: f.uid, foeId: foe.id, damage, killed });
-    if (killed) {
-      foe.alive = false;
-      state.events.push({ kind: 'foeDown', foeId: foe.id, lane: foe.lane });
-    } else if (f.def.role === 'block') {
-      foe.slowMs = SLOW_MS;
-    }
+    for (const m of marks) strike(state, f, m.foe, m.mul, kind);
   }
 
   const alive = state.foes.filter((e) => e.alive).length;
@@ -603,6 +776,13 @@ const COMP: Readonly<Record<number, Partial<Record<Role, number>>>> = {
   6: { tank: 2, block: 1, dps: 2, heal: 1 },
   7: { tank: 3, block: 1, dps: 2, heal: 1 },
   8: { tank: 3, block: 1, dps: 3, heal: 1 },
+  9: { tank: 3, block: 2, dps: 3, heal: 1 },
+  10: { tank: 4, block: 2, dps: 3, heal: 1 },
+  11: { tank: 4, block: 2, dps: 4, heal: 1 },
+  12: { tank: 4, block: 2, dps: 4, heal: 2 },
+  13: { tank: 5, block: 2, dps: 4, heal: 2 },
+  14: { tank: 5, block: 2, dps: 5, heal: 2 },
+  15: { tank: 5, block: 3, dps: 5, heal: 2 },
 };
 
 /**
@@ -633,7 +813,7 @@ export function autoPlace(
 
   // 门路只在同定位的候选之间做选择，不跨定位抢位置
   const score = (c: Candidate): number => {
-    let s = c.evoStage * 10 + c.stars;
+    let s = c.evoStage * 10 + c.stars + (c.craft ?? 0);
     if (counter && c.villager.lane === counter) s += 12;
     if (counteredBy(stage.mainLane) === c.villager.lane) s -= 8;
     return s;
@@ -647,7 +827,7 @@ export function autoPlace(
   }
   for (const list of byRole.values()) list.sort((a, b) => score(b) - score(a));
 
-  const quota = COMP[Math.max(3, Math.min(8, cap))] ?? COMP[8]!;
+  const quota = COMP[Math.max(3, Math.min(12, cap))] ?? COMP[12]!;
   const picked: Candidate[] = [];
   const taken = new Set<Candidate>();
 
@@ -723,12 +903,31 @@ function spread(picked: readonly Candidate[], stage: StageDef): Placement[] {
     quota[best]! += 1;
     left -= 1;
   }
+  // 有怪的列站满了还有人：放到邻列支援（打/修能跨列打回去）
+  while (left > 0) {
+    let best = -1;
+    let bestLoad = -1;
+    for (let lane = 0; lane < LANE_COUNT; lane += 1) {
+      if (quota[lane]! >= CELL_COUNT) continue;
+      const neighbor = active
+        .filter((a) => Math.abs(a.lane - lane) === 1)
+        .reduce((s, a) => s + a.load, 0);
+      if (neighbor > bestLoad) { bestLoad = neighbor; best = lane; }
+    }
+    if (best < 0) break;
+    quota[best]! += 1;
+    left -= 1;
+  }
 
   // 先把各路最前格填满再往后走，怪多的路先拿人
   const slots: { lane: number; cell: number }[] = [];
+  const order = [...active.map((a) => a.lane)];
+  for (let lane = 0; lane < LANE_COUNT; lane += 1) {
+    if (!order.includes(lane) && quota[lane]! > 0) order.push(lane);
+  }
   for (let cell = 0; cell < CELL_COUNT; cell += 1) {
-    for (const a of active) {
-      if (quota[a.lane]! > cell) slots.push({ lane: a.lane, cell });
+    for (const lane of order) {
+      if (quota[lane]! > cell) slots.push({ lane, cell });
     }
   }
 
@@ -745,6 +944,7 @@ function spread(picked: readonly Candidate[], stage: StageDef): Placement[] {
       cell: slot.cell,
       evoStage: c.evoStage,
       stars: c.stars,
+      craft: c.craft,
     });
   });
   return out;
@@ -764,13 +964,16 @@ export function dumbPlace(
   const n = Math.min(cap, pool.length);
   for (let i = 0; i < n; i += 1) {
     const c = pool[(i + offset) % pool.length]!;
-    const slot = (i + offset) % (LANE_COUNT * CELL_COUNT);
+    // 只往最左边两列堆。人一多，光栅填满等于均匀铺开，乱排就不再笨。
+    const lane = (i + offset) % 2;
+    const cell = Math.floor((i + offset) / 2) % CELL_COUNT;
     out.push({
       villager: c.villager,
-      lane: slot % LANE_COUNT,
-      cell: Math.floor(slot / LANE_COUNT) % CELL_COUNT,
+      lane,
+      cell,
       evoStage: c.evoStage,
       stars: c.stars,
+      craft: c.craft,
     });
   }
   return out;

@@ -179,6 +179,7 @@ export class SettleOverlay extends PIXI.Container {
   show(state: BattleState, memory: RunMemory, height: number, opts: SettleOpts): void {
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.visible = true;
+    this.eventMode = 'static';
     this._held = { state, memory, height, opts };
     this.hitArea = new PIXI.Rectangle(0, 0, 750, height);
 
@@ -304,13 +305,14 @@ export class SettleOverlay extends PIXI.Container {
     cast.forEach((f, i) => {
       const x = xs[i] ?? 375;
       const mid = cast.length === 1 || i === 1;
-      standSprite(this, heroTex(f.def.id), x, feetY, mid ? 156 : 132, mid ? 184 : 156);
+      standSprite(this, heroTex(f.def.id, f.evoStage), x, feetY, mid ? 156 : 132, mid ? 184 : 156);
       this._chip('settle_name', x, nameCy, 168, 48, f.def.name, 17, CREAM);
       // 名牌下面写阶数和星，不写数值：玩家认的是「他进到几阶了」
       const tag = stroke(15, 0xffe08a, '#1a1008', 3);
       tag.anchor.set(0.5);
       tag.position.set(x, nameCy + 34);
-      tag.text = `${'一二三'[f.evoStage - 1] ?? '一'}阶${f.stars > 0 ? ` ★${f.stars}` : ''}`;
+      const craft = f.craft ?? (f.evoStage >= 3 ? 6 : f.evoStage >= 2 ? 3 : 1);
+      tag.text = `${'一二三'[f.evoStage - 1] ?? '一'}阶 · 手艺${craft}${f.stars > 0 ? ` ★${f.stars}` : ''}`;
       this.addChild(tag);
     });
   }
@@ -384,7 +386,7 @@ export class SettleOverlay extends PIXI.Container {
     cast.forEach((f, i) => {
       const x = xs[i] ?? 375;
       const mid = cast.length === 1 || i === 1;
-      const spr = standSprite(this, heroTex(f.def.id), x, feetY + 4, mid ? 200 : 178, sitH);
+      const spr = standSprite(this, heroTex(f.def.id, f.evoStage), x, feetY + 4, mid ? 200 : 178, sitH);
       if (spr) spr.tint = 0xa8a29a;
       fillSprite(this, uiTex('settle_name'), x, feetY + 14 + nameH / 2, 168, nameH);
       const nameTx = stroke(18, CREAM, '#1a1008', 4);
@@ -438,6 +440,7 @@ export class SettleOverlay extends PIXI.Container {
 
   hide(): void {
     this.visible = false;
+    this.eventMode = 'none';
     this._busy = false;
     this._tookDouble = false;
     this._adPulse = [];

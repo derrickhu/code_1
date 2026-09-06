@@ -9,6 +9,7 @@
  * 不进货币条、不能买、不能换、没有第二个去处。玩家一旦问出
  * 「弹子能买什么」，说明它变成了第五种货币，届时砍掉存量改成纯次数。
  */
+import { yieldMul } from '@/balance/village';
 
 export type Drop = 'exp' | 'scrap' | 'parts' | 'credits';
 
@@ -129,8 +130,18 @@ export function pelletRegenMin(villageLv: number): number {
   return villageLv >= 5 ? PELLET_REGEN_MIN_LATE : PELLET_REGEN_MIN;
 }
 
-/** 关卡结算给的废铁。废铁的大头在这儿，不在摊子 */
+/** 首通一关给的废铁。废铁的大头在这儿，不在摊子 */
 export const SETTLE_SCRAP = 50;
+
+/**
+ * 重打已经通关的关给多少废铁。
+ *
+ * 必须比首通低一大截，否则「刷最短的那关」是最优解 ——
+ * 1-1 打一遍不到一分钟，给满 50 的话手艺后四档就变成挂机刷出来的，
+ * 而不是推图推出来的。给 15 是为了让通关后仍有一条废铁的活水，
+ * 不是为了让人蹲在第一关。
+ */
+export const SETTLE_SCRAP_REPLAY = 15;
 
 /** 一天按打 3 关、首通 2 关、离线满、广告看满算 */
 export const DAILY_PELLETS =
@@ -185,10 +196,13 @@ export function expectedPerPellet(villageLv = 1): Yield {
   // 铁盆连击：打中就免费再来一发，等比数列求和
   const loop = reboundP >= 1 ? 1 : 1 / (1 - reboundP);
 
+  // 工分不乘产出倍率：名单最多 20 人、星最多 ★10，喊人的总需求是封顶的，
+  // 乘上去只会喊出一堆没处放的重复
+  const k = yieldMul(villageLv);
   return {
-    exp: exp * loop * CHAIN_MUL,
-    scrap: scrap * loop * CHAIN_MUL,
-    parts: parts * loop,
+    exp: exp * loop * CHAIN_MUL * k,
+    scrap: scrap * loop * CHAIN_MUL * k,
+    parts: parts * loop * k,
     credits: credits * loop + 1 / creditPity(villageLv),
   };
 }
@@ -247,10 +261,11 @@ export function shoot(rng: Rng, villageLv: number, pityCount: number): {
     }
     if (guard === 0) first = hit;
 
+    const k = yieldMul(villageLv);
     gain = addYield(gain, {
-      exp: hit.exp * CHAIN_MUL,
-      scrap: hit.scrap * CHAIN_MUL,
-      parts: hit.parts,
+      exp: hit.exp * CHAIN_MUL * k,
+      scrap: hit.scrap * CHAIN_MUL * k,
+      parts: hit.parts * k,
       credits: hit.credits,
     });
     pity += 1;
