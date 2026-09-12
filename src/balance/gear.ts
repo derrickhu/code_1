@@ -27,20 +27,20 @@ export interface HandGear {
 }
 
 export const HAND_GEAR: Readonly<Record<string, HandGear>> = {
-  wrench: { id: 'wrench', path: 'images/wep_wrench.png', gripX: 0.22, gripY: 0.84, headLocal: -Math.PI / 4, scale: 0.6 },
-  hammer: { id: 'hammer', path: 'images/fx_hammer.png', gripX: 0.28, gripY: 0.8, headLocal: -Math.PI / 4, scale: 0.64 },
-  cleaver: { id: 'cleaver', path: 'images/wep_cleaver.png', gripX: 0.2, gripY: 0.86, headLocal: -0.9, twist: 0.18, scale: 0.58 },
-  driver: { id: 'driver', path: 'images/wep_driver.png', gripX: 0.26, gripY: 0.84, headLocal: -Math.PI / 2.5, scale: 0.52 },
-  radio: { id: 'radio', path: 'images/wep_radio.png', gripX: 0.5, gripY: 0.14, headLocal: 1.15, scale: 0.5, rest: -0.2 },
-  sling: { id: 'sling', path: 'images/wep_sling.png', gripX: 0.5, gripY: 0.86, headLocal: -Math.PI / 2, scale: 0.58, rest: -Math.PI / 2 },
-  pipe: { id: 'pipe', path: 'images/mod_pipe.png', gripX: 0.16, gripY: 0.86, headLocal: -Math.PI / 3.4, scale: 0.7 },
-  chainsaw: { id: 'chainsaw', path: 'images/mod_chainsaw.png', gripX: 0.8, gripY: 0.52, headLocal: Math.PI, scale: 0.66, rest: -0.12 },
-  weight: { id: 'weight', path: 'images/mod_weight.png', gripX: 0.5, gripY: 0.16, headLocal: Math.PI / 2, scale: 0.52, rest: 0.22 },
-  pot: { id: 'pot', path: 'images/mod_pot.png', gripX: 0.88, gripY: 0.7, headLocal: 2.72, scale: 0.62, rest: -0.28 },
-  speaker: { id: 'speaker', path: 'images/mod_speaker.png', gripX: 0.5, gripY: 0.12, headLocal: 1.2, scale: 0.52, rest: -0.18 },
-  blower: { id: 'blower', path: 'images/mod_blower.png', gripX: 0.5, gripY: 0.18, headLocal: Math.PI, scale: 0.56, rest: -0.08 },
-  firecracker: { id: 'firecracker', path: 'images/mod_firecracker.png', gripX: 0.5, gripY: 0.5, headLocal: 2.45, scale: 0.5 },
-  wire: { id: 'wire', path: 'images/mod_wire.png', gripX: 0.46, gripY: 0.4, headLocal: 0.55, scale: 0.5 },
+  wrench: { id: 'wrench', path: 'images/wep/wrench.png', gripX: 0.22, gripY: 0.84, headLocal: -Math.PI / 4, scale: 0.6 },
+  hammer: { id: 'hammer', path: 'images/fx/hammer.png', gripX: 0.28, gripY: 0.8, headLocal: -Math.PI / 4, scale: 0.64 },
+  cleaver: { id: 'cleaver', path: 'images/wep/cleaver.png', gripX: 0.2, gripY: 0.86, headLocal: -0.9, twist: 0.18, scale: 0.58 },
+  driver: { id: 'driver', path: 'images/wep/driver.png', gripX: 0.26, gripY: 0.84, headLocal: -Math.PI / 2.5, scale: 0.52 },
+  radio: { id: 'radio', path: 'images/wep/radio.png', gripX: 0.5, gripY: 0.14, headLocal: 1.15, scale: 0.5, rest: -0.2 },
+  sling: { id: 'sling', path: 'images/wep/sling.png', gripX: 0.5, gripY: 0.86, headLocal: -Math.PI / 2, scale: 0.58, rest: -Math.PI / 2 },
+  pipe: { id: 'pipe', path: 'images/mod/pipe.png', gripX: 0.16, gripY: 0.86, headLocal: -Math.PI / 3.4, scale: 0.7 },
+  chainsaw: { id: 'chainsaw', path: 'images/mod/chainsaw.png', gripX: 0.8, gripY: 0.52, headLocal: Math.PI, scale: 0.66, rest: -0.12 },
+  weight: { id: 'weight', path: 'images/mod/weight.png', gripX: 0.5, gripY: 0.16, headLocal: Math.PI / 2, scale: 0.52, rest: 0.22 },
+  pot: { id: 'pot', path: 'images/mod/pot.png', gripX: 0.88, gripY: 0.7, headLocal: 2.72, scale: 0.62, rest: -0.28 },
+  speaker: { id: 'speaker', path: 'images/mod/speaker.png', gripX: 0.5, gripY: 0.12, headLocal: 1.2, scale: 0.52, rest: -0.18 },
+  blower: { id: 'blower', path: 'images/mod/blower.png', gripX: 0.5, gripY: 0.18, headLocal: Math.PI, scale: 0.56, rest: -0.08 },
+  firecracker: { id: 'firecracker', path: 'images/mod/firecracker.png', gripX: 0.5, gripY: 0.5, headLocal: 2.45, scale: 0.5 },
+  wire: { id: 'wire', path: 'images/mod/wire.png', gripX: 0.46, gripY: 0.4, headLocal: 0.55, scale: 0.5 },
 };
 
 /**

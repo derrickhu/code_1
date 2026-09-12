@@ -109,6 +109,8 @@ describe('观战配方', () => {
     expect(s.ribbon).toBeFalsy();
     expect(s.beam).toBeFalsy();
     expect(s.loft).toBeGreaterThan(0);
+    expect(skinLook('sling').spin).toBeGreaterThan(0);
+    expect(skinLook('sling').proj).toBe('pebble');
     expect(attackLook('poke').dry).toBe(true);
     expect(attackLook('poke').ribbon).toBeFalsy();
   });

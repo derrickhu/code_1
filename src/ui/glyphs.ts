@@ -27,6 +27,14 @@ export function numGlyphs(n: number): UiName[] {
   return String(Math.floor(Math.max(0, n))).split('').map((d) => `paint_${d}` as UiName);
 }
 
+/** 一排漆字有多宽。贴图没到返回 null，调用方自己估。 */
+export function glyphRowWidth(names: readonly UiName[], h: number, gap = 1): number | null {
+  const texs = names.map((n) => uiTex(n));
+  if (texs.some((t) => !t?.baseTexture.valid || t.width <= 1)) return null;
+  const ws = texs.map((t) => (t!.width / t!.height) * h);
+  return ws.reduce((a, b) => a + b, 0) + gap * Math.max(0, texs.length - 1);
+}
+
 /** 3/5 这种比分。数字走漆字，斜杠没有贴图就手写一笔。 */
 export function paintFrac(
   parent: PIXI.Container,

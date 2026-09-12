@@ -1,0 +1,20 @@
+Vertical 9:16 WeChat minigame UI mockup: SLINGSHOT STALL that calls a villager on the same shot.
+Use the existing slingshot mockup for layout/materials only. DO NOT copy the iron cage. Villagers are people, not pets in cages.
+
+Dusk scrap-yard brick wall. Fat comic ink. First-person wooden slingshot at bottom, dotted aim arc.
+
+Layout:
+- Top rust iron bar: 村子 4级 + wide mustard exp bar filling 60% with numbers 80/134  ·  再 54 点多上一人
+- Right stamp: 弹子 11/16
+- Target ledge on the wall, left to right:
+  铁皮罐 x3 (exp icon)
+  绿酒瓶 x2 (scrap icon)
+  破电视 (parts icon)
+  蓝塑料筐
+  吊着的铁盆 (rebound)
+  挂着的旧喇叭 — THIS is the jackpot, slightly bigger, painted tin horn, a dotted arc aiming at it
+- Just after a hit: the old horn is ringing, little sound lines. From the RIGHT alley, 三婶 (red floral shirt, boombox) is walking in, waving. Small wood tag: 三婶来了 · 广场舞音响
+- Pity slat on wall: 再 2 发必喊到人
+- Bottom: large cream play-plate 打一下    thinner iron 回村口    small ad iron 看一段 +5发
+
+Chinese only. No cage, no gacha rainbow, no capsule egg. The horn IS the capture. The village XP bar must be the first thing you read.

@@ -1,0 +1,22 @@
+Portrait 9:16 mobile game battlefield background. Village-entrance (村口) cartoon, fat comic ink outlines, flat cheap-fun sticker colors. NOT dark fantasy, NOT premium painterly, NOT candy.
+
+Use the style references for palette and props only (sunset dirt, blue brick, plastic crates, washing machines, rust). Do NOT copy their sharp one-point vanishing road. Do NOT copy any UI, characters, or grid from the mockup.
+
+CAMERA: high almost-top-down three-quarter view. VERY LITTLE perspective taper. The dirt road is a wide trapezoid that barely narrows. It stays about 70 percent of the frame width from the BOTTOM all the way through the middle to the TOP third. Do NOT draw a sharp triangle path.
+
+CENTER 70 percent: empty packed yellow-brown dirt / cracked cement. Warm ochre, dust, faint cracks, tiny weeds. Completely EMPTY playable stage.
+
+SIDES, pressed tight against the road edges (about 15 percent each):
+Left: faded blue brick wall, stacked blue plastic crates, old white top-load washing machine, wooden boxes, tangled utility wires.
+Right: red brick wall, bamboo drying rack, more crates, rusted pipes, blue barrel.
+
+BOTTOM: a row of plump tan sandbags and a low brick/wood threshold on the near edge of the dirt. No fence across the road itself.
+
+SKY: dusk teal fading to peach, one cold violet glow on the far horizon, tiny distant village silhouettes.
+
+CRITICAL:
+- NO characters, people, aliens, animals
+- NO UI, panels, buttons, cards, banners
+- NO TEXT, letters, numbers, labels, logos, watermarks
+- NO grid, NO dashed lane lines, NO yellow placement pads
+- Middle 70 percent must stay empty dirt

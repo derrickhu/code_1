@@ -1,0 +1,44 @@
+保温壶爷三阶立绘样例（规范 v2）
+参考图只用于脸和格子衫，不要抄参考图的裁切和构图。
+
+--- PROMPT ---
+
+One horizontal row, 3 equal panels, plain flat white background, no panel borders.
+The SAME chunky Chinese rural grandpa in all 3 panels: balding shiny scalp, grey hair on the sides,
+thick grey eyebrows, half-lidded gentle eyes, small warm smile, light wrinkles.
+Red-and-blue plaid button shirt, brown trousers, white rope belt bow, brown cloth slippers.
+Big head, thick black comic outlines, flat cel shading TWO shadow steps only.
+Palette: earth yellow, cement grey, plastic blue, rusty red. No texture noise.
+Full body, front 3/4 view, feet planted, same eye level and camera in every panel.
+
+SAFE FRAME IN EVERY PANEL:
+The entire figure AND every prop must sit inside the panel with about 12 percent empty white
+margin on all four sides. Headgear not touching the top. Feet not touching the bottom.
+No bucket, pipe, kettle, valve, or shoe clipped by the edge.
+Horizontal props must stay under 70 percent of the panel width. Pull wide gear inward.
+
+PANEL 1 LEFT — evo1, weakest, narrowest, everyday:
+He holds ONE household stainless thermos with a red screw-cap in both hands, close to his chest.
+No helmet, no backpack, no extra tanks. Compact silhouette, empty sides.
+
+PANEL 2 MIDDLE — evo2, clearly WIDER:
+He holds a much larger dented dark-iron kettle with a fat spout, both hands, steam puff from the spout.
+A tall stainless thermos is strapped to his BACK with rope, sticking out behind the shoulders.
+Same shirt. No helmet yet. Silhouette wider than panel 1 because of the back thermos and bigger kettle.
+
+PANEL 3 RIGHT — evo3, strongest, tallest, MUST look armed for a fight, NOT a peaceful chore:
+Same grandpa face, but now scrap-combat ready.
+HEAD: a battered red construction / motorcycle helmet with a short visor, chin strap on.
+BACK / SHOULDERS: a SHORT scrap-metal carrying frame hugged CLOSE to his body (not a long village yoke).
+Two fat industrial pressure tanks / hot-water drums sit at his hips, valves and steam pipes sticking
+UP above the shoulders, making him taller. Small steam puffs from the valves.
+RIGHT HAND: a long rusted steel PIPE wrench-club resting on his shoulder, fully visible, not cropped.
+Rope, rivets, rust stains on the tanks. He looks like he can walk onto a battlefield and speed the team,
+NOT like he is just fetching water from the well.
+Silhouette is the widest and tallest of the three.
+
+SILHOUETTE LAW:
+If filled solid black, a stranger ranks them 1 < 2 < 3 instantly.
+Do not just recolor. Do not use a long wooden shoulder pole that sticks out of the frame.
+
+NO TEXT, no labels, no numbers, no captions, no frames, no ground shadow.

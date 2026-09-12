@@ -1,0 +1,33 @@
+Portrait 9:16 WeChat minigame UI mockup, 750x1334 feel.
+
+Game: 村口大战外星人. Rural Chinese village vs cute-dumb grey aliens.
+Art: thick black outlines, big-head chibi villagers, 6-8 flat colors, rusty scrap-metal UI plates with rivets, warm dirt ochre / cement grey / plastic blue / rust red. Aliens cold purple-cyan. Hand-painted comic, not anime, not photoreal, not glossy fantasy.
+
+LAYOUT (top to bottom, one phone screen):
+
+1) TOP HUD — three rusted iron plates with rivets:
+   - Left: 「3-2 村口那条沟」
+   - Center: 「上场 3/5」
+   - Right: 「来 28 只 · 4 波」
+   Below them a small wood tag: 「敌方门路：下手重」
+
+2) BATTLEFIELD — village dirt alley in 2-point perspective, sunset purple-orange at far end.
+   Sides: blue brick wall, corrugated garage, blue crates, bamboo, old twin-tub washer.
+   UPPER third of the road: EMPTY approach. 4-5 grey aliens + one tin-can alien walking DOWN toward the player. No grid here.
+   LOWER half: EXACT 3 columns × 4 rows of rounded yellow-ochre dirt TILES (the only placeable cells). Checkerboard of light/dark packed earth. Thick dashed lane lines between the 3 columns. Tiles must be clearly 3 wide and 4 tall, not a 5-lane chessboard.
+   A rusty iron GOAL LINE painted across the bottom of the 4th row (closest to camera): sandbags + wood planks, reads as the leak line.
+
+   People standing ON tiles, feet planted in the cell, not floating:
+   - Front row (row 1, nearest enemies): 铁柱 — red motorcycle helmet, red-blue-green puffer, blue gloves, tank. Center lane.
+   - Mid: 王大锤 — blue work jacket, sledgehammer, left lane.
+   - Back row (row 4, nearest camera): 弹弓叔 — old man white tank top, wooden slingshot, right lane.
+   Empty tiles stay empty yellow dirt, readable.
+   Tiny metal nameplates under placed people: 铁柱 / 王大锤 / 弹弓叔.
+
+3) BOTTOM BENCH — dark rusted iron dock:
+   A row of 4 compact tall cards (not huge posters): portrait, name, one line 「下手重·挨打」 style job tag, 「手艺2」.
+   Cards: 铁柱 (gold selected ring, already placed, slightly greyed), 王大锤 (placed grey), 弹弓叔 (placed grey), 三婶 (available, bright).
+   Under cards, two scrap-metal buttons: left 「回村口」, right bigger yellow-iron 「开打」 like village double-door graffiti.
+
+NO one-click deploy button. NO English. NO fantasy glow. NO 5-lane checkerboard. Grid is 3x4 only.
+Keep same premium composition, lighting, framing, and UI density as the village home and place-feedback references. Do not copy Tata or PVZ UI chrome.

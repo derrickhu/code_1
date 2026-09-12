@@ -215,7 +215,7 @@ const SKIN: Readonly<Record<string, Partial<FxLook>>> = {
   cleaver: { tint: 0xd8c8b0, dry: true, proj: 'cleaver', projPx: 26, spin: 14, loft: 16 },
   driver: { tint: 0x6a8aaa, dry: true, proj: 'needle', projPx: 20, loft: 8 },
   radio: { tint: 0xa78b5a, dry: true, curve: true, proj: 'disc', projPx: 28, spin: 10 },
-  sling: { tint: 0xc4b59a, dry: true, loft: 40, proj: 'pebble', projPx: 22 },
+  sling: { tint: 0xc4b59a, dry: true, loft: 40, proj: 'pebble', projPx: 24, spin: 9 },
   pipe: { tint: 0x8aa0aa, dry: true, proj: 'pipe', projPx: 22 },
   weight: { tint: 0x5c5346, dry: true, swing: true, loft: 22, proj: 'weight', projPx: 22, spin: 8, ring: false },
   blower: { tint: 0x7a9e7e, dry: true, curve: true, proj: 'leaf', projPx: 18 },

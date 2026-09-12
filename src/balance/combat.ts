@@ -41,8 +41,11 @@ export function cellPos(i: number): number {
 /** 底线坐标。敌人走过这里就是漏怪 */
 export const GOAL_POS = cellPos(CELL_COUNT - 1) + CELL_SPAN;
 
-/** 地面怪被最前面的人挡住的位置 */
-export const BLOCK_POS = cellPos(0) - 0.5;
+/** 地面怪停在挡人脚前这么远。空格不挡，人在哪格就停在哪格前面 */
+export const BLOCK_GAP = 0.5;
+
+/** 前排有人时的默认挡点（cell 0 的人脚前） */
+export const BLOCK_POS = cellPos(0) - BLOCK_GAP;
 
 /**
  * 近战打到前排时停在这儿（前排 pos 2、射程 1）。
@@ -58,6 +61,10 @@ export const VIS_ENGAGE_POS = cellPos(0) - 1;
  * 植物大战僵尸过整片草坪要 30 秒，对我们 1–2 分钟的关太慢。
  * 本项目自己写过「小灰 5 秒走进来」（docs/01），表里的 spd 却让它 1.4 秒就到。
  * 突破之后仍用表里的 spd，漏怪那段不能一起放慢。
+ *
+ * 真机「走太快」多半是人太小：同一秒里掠过好几个身位。
+ * 人放大、空场收短之后，身位速度会自己掉下来。
+ * 别再拉长入场秒数 —— 模拟器里那会让 40 关提前一周打完。
  */
 export function approachWalkSec(spd: number): number {
   return Math.max(3, Math.min(9, 2 / spd + 1.5));
@@ -114,8 +121,11 @@ export const LANE_W = FIELD_W / LANE_COUNT;
 
 /**
  * 视觉行数。逻辑 4 格可站，屏幕上把空场拉成走路的格子，下 4 行方能站人。
+ *
+ * 12 行时空场占 2/3，真机长屏上人缩在底下像棋子。
+ * 收到 10 行：空场仍够走一段，可站格更高，人和怪才能放大。
  */
-export const VIS_ROWS = 12;
+export const VIS_ROWS = 10;
 export const VIS_APPROACH_ROWS = VIS_ROWS - CELL_COUNT;
 
 export function laneScreenX(lane: number): number {
@@ -130,7 +140,7 @@ export function visualRowY(row: number, topY: number, goalY: number): number {
 /**
  * 战场纵向：轴上的 pos 映射到屏幕 y。
  *
- * 不是匀速插值。空场（pos 0 ~ 近战停点）占视觉上半 8 行，
+ * 不是匀速插值。空场（pos 0 ~ 近战停点）占视觉上半 6 行，
  * 贴到可站区上沿才开打 —— 敌人要走一段路才碰到人，人还是站在 4 格里。
  */
 export function posScreenY(pos: number, topY: number, goalY: number): number {
@@ -192,14 +202,50 @@ export function battleFieldLay(args: {
   return { spawnY, goalY };
 }
 
-/** 场上棋子身高。3 列下用 36，认得出脸，又不顶格 */
-export const FIELD_VILLAGER_H = 36;
+/**
+ * 立绘约占开打后一格的高度。必须跟格走：
+ * 真机 logicHeight 能到 1600+，写死 36 会在变高的土路上缩成棋子。
+ */
+export const FIELD_VILLAGER_FILL = 0.74;
 
-/** 局内立绘身高。场上请用 FIELD_VILLAGER_H；这函数留给还在按血量分档的旧调用 */
+/** 给还在写死身高的旧调用一个大约数（1334 高、门楣 240 的开打格） */
+export const FIELD_VILLAGER_H = 78;
+
+/** 这一局土路实际该用的村民身高 */
+export function fieldVillagerH(topY: number, goalY: number): number {
+  return Math.round(cellScreenH(topY, goalY) * FIELD_VILLAGER_FILL);
+}
+
+/** 开打后的格高定身高。布阵格子更矮也用这个，人不会开打突然变大 */
+export function fieldFightUnitH(args: {
+  chromeBottom: number;
+  height: number;
+  safeBottom: number;
+  benchH: number;
+}): number {
+  const fight = battleFieldLay({ ...args, placing: false });
+  return fieldVillagerH(fight.spawnY, fight.goalY);
+}
+
+/** 相对村民。小灰最矮，装甲最高；整体跟着村民放大 */
+export const FIELD_ENEMY_MUL: Readonly<Record<string, number>> = {
+  grunt: 0.82,
+  rusher: 0.92,
+  cube: 0.94,
+  saucer: 0.88,
+  canister: 1,
+  armor: 1.16,
+};
+
+export function fieldEnemyH(id: string, villagerH: number): number {
+  return Math.round(villagerH * (FIELD_ENEMY_MUL[id] ?? 0.92));
+}
+
+/** 局内立绘身高。场上请用 fieldVillagerH；这函数留给还在按血量分档的旧调用 */
 export function villagerSpriteH(hp: number): number {
-  if (hp >= 3000) return 40;
-  if (hp >= 1600) return 36;
-  return 32;
+  if (hp >= 3000) return 88;
+  if (hp >= 1600) return 78;
+  return 70;
 }
 
 /** 点人 / 点空格的热区，相对脚底。格小了也要把整格点满，别逼人钉在立绘上 */

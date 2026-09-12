@@ -6,7 +6,7 @@ import * as PIXI from 'pixi.js';
 import type { AttackFx, EnemyFx } from '@/balance/fx';
 import { projSprite } from '@/balance/fx';
 import { playSfx, buzz } from '@/core/SfxPlayer';
-import { fillContain, gearTex, projTex, tex, vfxTex } from '@/core/TextureLoader';
+import { fillContain, gearTex, projTex, tex, vfxTex, wepPath } from '@/core/TextureLoader';
 import type { BattleEvent } from '@/game/BattleEngine';
 import { VfxKit } from '@/fx/VfxKit';
 import { attackLook, enemyLook, playImpact, playMuzzle, shouldFly, shotFlight, skinLook, type FxLook, type ShotBody } from '@/fx/FxRecipe';
@@ -488,7 +488,7 @@ export class CombatFx {
     const physName = energy ? null : (spec.look?.proj ?? projSprite(spec.kind as AttackFx));
     const physical = !!physName;
     const shot = energy ? vfxTex(energy)
-      : physName ? (projTex(physName) ?? gearTex(physName) ?? tex(`images/wep_${physName}.png`))
+      : physName ? (projTex(physName) ?? gearTex(physName) ?? tex(wepPath(physName)))
         : null;
     let spr: PIXI.Sprite | null = null;
     if (shot) {

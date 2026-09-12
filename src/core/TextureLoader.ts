@@ -2,13 +2,14 @@
  * 本地贴图。微信/抖音必须走 createImage + src，不能 PIXI.Texture.from(路径)。
  * 后者会按浏览器 fetch 去拉文件，小游戏里拉不到，画面就会一直掉回色块。
  * 没加载完或失败时返回 null，调用方继续用色块，不挡玩。
+ * 到货后 watchArt 通知；持久节点（弹弓摊货架）必须 refresh，不能只 mount 一次。
+ * tex() 失败会记 missing，不再每帧重试；ensureAssets / loadOne 会再给一次机会。
  */
 import * as PIXI from 'pixi.js';
-import { ENEMIES } from '@/balance/stages';
-import { HAND_GEAR, STARTER_WEP_IDS } from '@/balance/gear';
-import { LEGACY_IDS, VILLAGERS } from '@/balance/villagers';
+import { homePackPath, isHomeUiName } from '@/config/HomePack';
+import { CdnAssetService } from '@/core/CdnAssetService';
 import { Platform } from '@/core/PlatformService';
-import { SPARK_FLIP, VFX_FLIP, flipFiles, type FlipSpec } from '@/fx/Flipbook';
+import { SPARK_FLIP, VFX_FLIP, type FlipSpec } from '@/fx/Flipbook';
 
 const cache = new Map<string, PIXI.Texture>();
 const missing = new Set<string>();
@@ -39,11 +40,55 @@ export function tex(path: string): PIXI.Texture | null {
   return null;
 }
 
+export function heroStillPath(id: string): string {
+  return `images/hero/${id}.png`;
+}
+export function heroEvoPath(id: string, stage: number): string {
+  return `images/hero/${id}_evo${stage}.png`;
+}
+export function heroGripPath(id: string): string {
+  return `images/hero/${id}_grip.png`;
+}
+
+/** 铁柱从来没有 grip 层，只有这 5 张。名单外不要 kick，否则 CDN 会 404 */
+export const HERO_GRIP_IDS = [
+  'dachui', 'erjiu', 'laoli', 'laoyanqiang', 'sanshen',
+] as const;
+
+export function hasHeroGrip(id: string): boolean {
+  return (HERO_GRIP_IDS as readonly string[]).includes(id);
+}
+export function heroAtkPath(id: string): string {
+  return `images/hero/${id}_atk.png`;
+}
+export function animPath(id: string, clip: string, i: number): string {
+  return `images/anim/${id}_${clip}_${i}.png`;
+}
+export function uiPath(name: string): string {
+  const logical = `images/ui/${name}.png`;
+  return isHomeUiName(name) ? homePackPath(logical) : logical;
+}
+export function vfxPath(name: string): string {
+  return `images/vfx/${name}.png`;
+}
+export function projPath(name: string): string {
+  return `images/proj/${name}.png`;
+}
+export function modPath(id: string): string {
+  return `images/mod/${id}.png`;
+}
+export function wepPath(id: string): string {
+  return `images/wep/${id}.png`;
+}
+export function fxPath(name: string): string {
+  return `images/fx/${name}.png`;
+}
+
 export function heroTex(id: string, stage = 1): PIXI.Texture | null {
   const s = Math.max(1, Math.min(3, Math.floor(stage)));
-  const evo = tex(`images/hero_${id}_evo${s}.png`);
+  const evo = tex(heroEvoPath(id, s));
   if (evo) return evo;
-  return tex(`images/hero_${id}.png`);
+  return tex(heroStillPath(id));
 }
 
 /**
@@ -60,13 +105,17 @@ export function enemyArtId(id: string): string {
   return ENEMY_ART_ID[id] ?? id;
 }
 
+export function enemyArtPath(id: string): string {
+  return `images/enemy/${enemyArtId(id)}.png`;
+}
+
 export function enemyTex(id: string): PIXI.Texture | null {
-  return tex(`images/enemy_${enemyArtId(id)}.png`);
+  return tex(enemyArtPath(id));
 }
 
 /** 家伙的贴图。手上拿什么由村民 + 进化阶决定，见 gear.handIdOf */
 export function gearTex(id: string): PIXI.Texture | null {
-  return tex(`images/mod_${id}.png`);
+  return tex(modPath(id));
 }
 
 export const VFX_FILES = [
@@ -78,11 +127,11 @@ export const VFX_FILES = [
 export const PROJ_FILES = ['pebble', 'needle', 'disc', 'pipe', 'cracker', 'leaf', 'cleaver'] as const;
 
 export function projTex(name: string): PIXI.Texture | null {
-  return tex(`images/proj_${name}.png`);
+  return tex(projPath(name));
 }
 
 export function vfxTex(name: string): PIXI.Texture | null {
-  return tex(`images/vfx_${name}.png`);
+  return tex(vfxPath(name));
 }
 
 const flipCache = new Map<string, PIXI.Texture[]>();
@@ -109,14 +158,14 @@ function sliceGrid(sheet: PIXI.Texture, spec: FlipSpec): PIXI.Texture[] {
 export function vfxFlipFrames(name: string): PIXI.Texture[] | null {
   const spec = VFX_FLIP[name];
   if (!spec) return null;
-  const sheet = tex(`images/vfx_${spec.file}.png`);
+  const sheet = tex(vfxPath(spec.file));
   if (!sheet?.baseTexture.valid) return null;
   return sliceGrid(sheet, spec);
 }
 
 /** 火星随机一档，没有表就退回旧 spark */
 export function vfxSparkFrame(): PIXI.Texture | null {
-  const sheet = tex(`images/vfx_${SPARK_FLIP.file}.png`);
+  const sheet = tex(vfxPath(SPARK_FLIP.file));
   if (!sheet?.baseTexture.valid) return vfxTex('spark');
   const frames = sliceGrid(sheet, SPARK_FLIP);
   if (frames.length === 0) return vfxTex('spark');
@@ -124,14 +173,16 @@ export function vfxSparkFrame(): PIXI.Texture | null {
 }
 
 /** 背景没有透明区，走 jpg：同画质下比 png 小一个数量级，首包容量卡得很死 */
-const BG_PATH = 'images/bg_battle.jpg';
-const VILLAGE_BG = 'images/bg_village.jpg';
-const VILLAGE_HOME_BG = 'images/bg_village_home.jpg';
-const YARD_BG = 'images/bg_yard.jpg';
-const STALL_BG = 'images/bg_stall.jpg';
+export const BATTLE_BG = 'images/bg/battle.jpg';
+/** 村口底图进分包，字面量须完整，used-assets 靠它扫盘 */
+export const VILLAGE_BG = 'subpackages/pkg-home/images/bg/village.jpg';
+export const VILLAGE_HOME_BG = 'subpackages/pkg-home/images/bg/village_home.jpg';
+export const YARD_BG = 'images/bg/yard.jpg';
+export const STALL_BG = 'images/bg/stall.jpg';
+/** 出村后的章节路径底图。主包 jpg，跟院子同一档 */
+export const ROAD_BG = 'images/bg/road.jpg';
 
 export const UI_FILES = [
-  'title_logo',
   'title_plaque',
   'play_plate',
   'door_squad',
@@ -152,8 +203,6 @@ export const UI_FILES = [
   'growth_starter',
   'growth_pocket',
   'growth_breath',
-  'growth_carry',
-  'growth_scav',
   'settle_stamp',
   'settle_name',
   'settle_btn',
@@ -162,17 +211,20 @@ export const UI_FILES = [
   'home_gate',
   'home_stall',
   'home_atlas',
-  'home_stake',
   'home_post',
+  'home_horn',
   'icon_scrap',
   'icon_parts',
   'icon_credits',
   'icon_pellets',
   'rust_plank',
   'rust_stamp',
+  'rust_sheet',
+  'rust_badge',
   'rust_tile',
   'rust_btn',
   'dirt_pad',
+  'road_nodes',
   'fight_btn',
   'sandbag',
   'rust_exp',
@@ -218,7 +270,7 @@ export const UI_FILES = [
 ] as const;
 
 export function bgTex(): PIXI.Texture | null {
-  return tex(BG_PATH);
+  return tex(BATTLE_BG);
 }
 
 export function villageBgTex(): PIXI.Texture | null {
@@ -237,123 +289,82 @@ export function stallBgTex(): PIXI.Texture | null {
   return tex(STALL_BG) ?? yardBgTex();
 }
 
+export function roadBgTex(): PIXI.Texture | null {
+  return tex(ROAD_BG) ?? villageHomeBgTex();
+}
+
 export type UiName = (typeof UI_FILES)[number];
 
 export function uiTex(name: UiName): PIXI.Texture | null {
-  return tex(`images/ui_${name}.png`);
+  return tex(uiPath(name));
+}
+
+const ROAD_NODE_FRAMES = new Map<string, PIXI.Texture>();
+
+/** 三帧透明边不等，按不透明区域裁，墩心才在贴图正中 */
+const ROAD_NODE_INSET = {
+  cleared: { l: 5 / 207, t: 5 / 156, r: 21 / 207, b: 6 / 156 },
+  active: { l: 17 / 207, t: 6 / 156, r: 13 / 207, b: 6 / 156 },
+  locked: { l: 21 / 207, t: 6 / 156, r: 6 / 207, b: 5 / 156 },
+} as const;
+
+/** 路径图圆墩：铜锈已通 / 金边当前 / 灰铁未开 */
+export function roadNodeTex(kind: 'cleared' | 'active' | 'locked'): PIXI.Texture | null {
+  const cached = ROAD_NODE_FRAMES.get(kind);
+  if (cached) return cached;
+  const sheet = uiTex('road_nodes');
+  if (!sheet?.baseTexture.valid || sheet.width <= 3) return null;
+  const fw = Math.floor(sheet.width / 3);
+  const col = kind === 'cleared' ? 0 : kind === 'active' ? 1 : 2;
+  const inset = ROAD_NODE_INSET[kind];
+  const frame = new PIXI.Texture(
+    sheet.baseTexture,
+    new PIXI.Rectangle(
+      col * fw + Math.round(inset.l * fw),
+      Math.round(inset.t * sheet.height),
+      Math.max(1, Math.round((1 - inset.l - inset.r) * fw)),
+      Math.max(1, Math.round((1 - inset.t - inset.b) * sheet.height)),
+    ),
+  );
+  ROAD_NODE_FRAMES.set(kind, frame);
+  return frame;
 }
 
 /** Loading 首屏插画，须在主包，勿走 CDN */
-export const LOADING_SPLASH = 'images/loading_splash.jpg';
+export const LOADING_SPLASH = 'images/boot/loading_splash.jpg';
 /** Loading / 村子主页标题字标，须在主包 */
-export const LOADING_TITLE = 'images/ui_title_logo.png';
+export const LOADING_TITLE = 'images/boot/title_logo.png';
 
-/** 村子主页：局外件 + 立绘 + 局里那套闲置精灵（主页站位跟战场共用） */
-export function villageArtPaths(): string[] {
-  const paths = [VILLAGE_BG, VILLAGE_HOME_BG, YARD_BG, STALL_BG];
-  for (const n of UI_FILES) paths.push(`images/ui_${n}.png`);
-  for (const v of VILLAGERS) {
-    paths.push(`images/hero_${v.id}.png`);
-    for (const s of [1, 2, 3] as const) paths.push(`images/hero_${v.id}_evo${s}.png`);
-  }
-  for (const v of VILLAGERS) {
-    for (let i = 0; i < 4; i += 1) {
-      paths.push(`images/anim_${v.id}_idle_${i}.png`);
-    }
-  }
-  for (const id of LEGACY_IDS) {
-    paths.push(`images/hero_${id}_grip.png`);
-  }
-  for (const id of STARTER_WEP_IDS) paths.push(`images/wep_${id}.png`);
-  for (const g of Object.values(HAND_GEAR)) paths.push(g.path);
-  return paths;
-}
-
-export function preloadVillageArt(): void {
-  for (const p of villageArtPaths()) kick(p);
-}
-
-/** 进战斗场景时把切片要用的图全踢起来，避免第一波还在色块 */
-export function preloadBattleArt(): void {
-  kick(BG_PATH);
-  kick(VILLAGE_BG);
-  for (const n of [
-    'title_plaque', 'play_plate', 'iron_bar', 'iron_dock', 'scrap_pile',
-    'settle_stamp', 'settle_name', 'settle_btn', 'settle_chip', 'ad_btn',
-    'rust_btn', 'rust_plank', 'rust_tile', 'dirt_pad', 'fight_btn', 'sandbag',
-    'battle_lintel', 'rust_stamp',
-    'paint_shangchang', 'paint_lai', 'paint_zhi', 'paint_bo',
-    'paint_di', 'paint_lou', 'paint_changshang', 'paint_menlu',
-    'paint_0', 'paint_1', 'paint_2', 'paint_3', 'paint_4',
-    'paint_5', 'paint_6', 'paint_7', 'paint_8', 'paint_9',
-  ] as const) {
-    kick(`images/ui_${n}.png`);
-  }
-  for (const v of VILLAGERS) {
-    kick(`images/hero_${v.id}.png`);
-    for (const s of [1, 2, 3] as const) kick(`images/hero_${v.id}_evo${s}.png`);
-  }
-  // 从原型表读而不是写死 id：上次改名就是漏在这行，敌人图整批加载不到
-  for (const e of ENEMIES) kick(`images/enemy_${enemyArtId(e.id)}.png`);
-  for (const n of VFX_FILES) kick(`images/vfx_${n}.png`);
-  for (const p of flipFiles()) kick(p);
-  for (const n of PROJ_FILES) kick(`images/proj_${n}.png`);
-  kick('images/hero_dachui_grip.png');
-  kick('images/fx_hammer.png');
-  for (const id of STARTER_WEP_IDS) kick(`images/wep_${id}.png`);
-  for (const g of Object.values(HAND_GEAR)) kick(g.path);
-  for (const id of LEGACY_IDS) {
-    kick(`images/hero_${id}_grip.png`);
-    kick(`images/hero_${id}_atk.png`);
-  }
-  for (const v of VILLAGERS) {
-    for (let i = 0; i < 4; i += 1) {
-      kick(`images/anim_${v.id}_idle_${i}.png`);
-      kick(`images/anim_${v.id}_atk_${i}.png`);
-    }
-  }
-  for (const e of ENEMIES) {
-    const art = enemyArtId(e.id);
-    for (let i = 0; i < 4; i += 1) {
-      kick(`images/anim_${art}_walk_${i}.png`);
-      kick(`images/anim_${art}_atk_${i}.png`);
-    }
-    kick(`images/anim_${art}_idle_0.png`);
-    kick(`images/anim_${art}_idle_1.png`);
-  }
-}
-
-function finish(path: string, tex: PIXI.Texture | null): void {
+function finish(path: string, tex: PIXI.Texture | null, err?: unknown): void {
   inflight.delete(path);
   if (tex) {
     cache.set(path, tex);
+    missing.delete(path);
     notifyReady();
   } else {
     missing.add(path);
+    console.warn(`[tex] 加载失败 ${path}`, err ?? '');
   }
   resolveWaiters(path, tex);
 }
 
-function kick(path: string): void {
-  if (cache.has(path) || missing.has(path) || inflight.has(path)) return;
-  inflight.add(path);
-
+function bindSrc(path: string, src: string): void {
   const img = Platform.createImage();
   if (img) {
     img.onload = () => {
       try {
         finish(path, new PIXI.Texture(PIXI.BaseTexture.from(img)));
-      } catch {
-        finish(path, null);
+      } catch (e) {
+        finish(path, null, e);
       }
     };
-    img.onerror = () => finish(path, null);
-    img.src = path;
+    img.onerror = () => finish(path, null, `onerror src=${src}`);
+    img.src = src;
     return;
   }
 
   try {
-    const t = PIXI.Texture.from(path);
+    const t = PIXI.Texture.from(src);
     const ready = (): void => {
       finish(path, t.baseTexture.valid ? t : null);
     };
@@ -362,17 +373,32 @@ function kick(path: string): void {
       return;
     }
     t.baseTexture.once('loaded', ready);
-    t.baseTexture.once('error', () => finish(path, null));
-  } catch {
-    finish(path, null);
+    t.baseTexture.once('error', () => finish(path, null, `pixi error src=${src}`));
+  } catch (e) {
+    finish(path, null, e);
   }
+}
+
+function kick(path: string): void {
+  if (cache.has(path) || missing.has(path) || inflight.has(path)) return;
+  inflight.add(path);
+
+  const ready = CdnAssetService.resolveAsset(path);
+  if (ready) {
+    bindSrc(path, ready);
+    return;
+  }
+  void CdnAssetService.resolveOrDownload(path)
+    .then((src) => bindSrc(path, src))
+    .catch((e) => finish(path, null, e));
 }
 
 /** 等一张图进缓存或确认缺失。Loading 进度条靠这个数。 */
 export function loadOne(path: string): Promise<PIXI.Texture | null> {
   const hit = cache.get(path);
   if (hit?.baseTexture.valid) return Promise.resolve(hit);
-  if (missing.has(path) && !inflight.has(path)) return Promise.resolve(null);
+  // tex() 失败会进 missing，不再每帧重试；ensureAssets / preload 再给一次机会
+  if (missing.has(path) && !inflight.has(path)) missing.delete(path);
   return new Promise((resolve) => {
     const list = waiters.get(path) ?? [];
     list.push(resolve);

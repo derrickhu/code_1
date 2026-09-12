@@ -1,0 +1,21 @@
+Game UI prop sprite sheet, 4 columns x 2 rows, eight equal square panels, thin pale gutter, flat pale warm gray backdrop (easy to cut out).
+
+Same cheap-fun Chinese small-town sticker look as the village home mockup reference:
+fat comic ink outlines, flat 6-8 colors, TWO-tone cel shade only, one highlight blob per big shape.
+Palette: rust red-brown, dark bolted iron, weathered wood, mustard enamel, cement gray, dusk warmth.
+NOT premium fantasy UI, NOT glossy AAA HUD, NOT clean white/cream blank panels, NOT candy cute, NOT photoreal.
+
+Each object sits centered in its cell, isolated, with a little contact shadow. No people, no faces.
+NO TEXT, no labels, no captions, no letters, no numbers, no Chinese characters, no logos, no watermarks, no writing anywhere on any surface.
+
+Row 1:
+1 SLINGSHOT STALL: a weathered wooden chalkboard easel leaning on two stacked crates, empty dark board face (blank), a large chunky wooden Y-fork slingshot standing beside it, rubber band, a few steel balls on the crate. Hardware-store junk, not a toy store.
+2 ATLAS BOARD: a tall rusted iron photo-wall / bulletin plate, heavy bolted corners, rivets, orange rust patches, 2x2 empty dark photo frames (empty slots only, no portraits, no question marks).
+3 WOOD STAKE: a crude short wooden sign stuck in dirt, empty plank face, two rusty nails, chipped paint, no writing.
+4 WOOD POST: a small wooden roadside signpost with one empty horizontal plank, stuck in packed dirt, no writing.
+
+Row 2:
+5 SCRAP ICON: a compact pile of twisted rusted iron scraps and a bent pipe, readable at 64px.
+6 PARTS ICON: a single rusty metal gear / cog, chunky teeth, readable at 64px.
+7 CREDITS ICON: a round stamped work-point metal badge, rusted, a simple triangle mark in the center (geometry only, no letters).
+8 PELLETS ICON: a steel slingshot ammo drum like a revolver cylinder loaded with steel balls, rusty, readable at 64px.

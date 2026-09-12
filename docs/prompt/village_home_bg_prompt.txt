@@ -1,0 +1,13 @@
+Full-screen vertical 9:16 mobile game BACKGROUND only.
+Keep the SAME village composition as the reference: dusty dirt road receding to a dusk sky, weathered blue wooden hardware shack on the left with a 五金 storefront, scrap and tires on the right, distant mountain.
+
+STYLE LOCK: cheap-fun Chinese small-town sticker look, fat comic ink outlines, two-tone cel shade, painted dusk. Same camera, same buildings, same road.
+
+CHANGE from the reference:
+- Remove the hanging warm light bulb and its bloom.
+- Remove wet puddles and bright water specular reflections on the ground.
+- Dry dusty earth, matte dirt, no lens flare, no glowing circle behind the left foreground.
+- Shop doorway can stay open but dim, no lamp, no yellow splash on the mud.
+
+NO UI. No panels, no buttons, no resource bars, no characters, no people, no doors overlay, no chalkboard, no slingshot stall, no iron gates.
+NO TEXT except the existing 五金 shop sign already in the reference. No English, no numbers, no logos, no watermarks.

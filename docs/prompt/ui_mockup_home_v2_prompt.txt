@@ -1,0 +1,21 @@
+Vertical 9:16 WeChat minigame HOME screen mockup.
+
+CRITICAL STYLE LOCK — copy the attached village-home screenshot:
+- Warm sunset alley, bright orange-pink sky, dusty yellow dirt road
+- Sticker-chibi villagers with FAT comic ink, flat 6-8 colors, two-tone shade
+- UI is rusted bolted metal but LIGHT and enamel: cream/off-white plates with mustard gold rims and a few nails
+- Hanging wood sign uses mustard-yellow peeled paint face
+- Characters MUST look like the reference heroes: 弹弓叔 white tank + wooden slingshot; 王大锤 blue worker jacket + huge mallet; 三婶 red floral shirt + boombox + red fan; 铁柱 red moto helmet + color-block puffer
+FORBIDDEN: dark grim night, post-apoc dungeon rust, painterly RPG wood frames, purple gacha, English, glass cards, tiny unreadable type
+
+This is a PLACE. Full-bleed dusk village lane (blue crates, washing machine, wires). People STAND on the road. UI floats as nailed plates, not a menu app.
+
+Exact current-game layout:
+1. TOP rust-iron bar (lighter than last mockups): 村子 4级 + mustard exp bar 80/134 · 再 54 点多上一人. Four counters in a row: 废铁 380  零件 6  工分 8  弹子 12
+2. Cream stage plaque: 3-2 村口那条沟. Gold line: 来的是「下手重」· 4波. Small muted: 打到 12/40 关 · 累计 18 星
+3. Three buttons in a row: 上一关 | BIG cream play-plate 出村 | 下一关
+4. Tiny gold hint under 出村: 就差两个工分，去摊子打喇叭
+5. FIVE to SIX big-head villagers standing on the dirt (the real heroes, not generic tough guys)
+6. BOTTOM two iron doors only: left 弹弓摊  12发    right 村民  8/20人
+No third 图鉴 door. No 废品站. No tab bar. No shop gems.
+Chinese only, big readable letters.

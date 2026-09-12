@@ -1,0 +1,17 @@
+Single game UI chrome plate, isolated, empty face so words are printed later.
+
+STYLE LOCK from the reference rust_plank / rust_tile / rust_stamp:
+illustrated rusty iron, flaky orange oxidation, dark umber pitted metal, bolted rivets,
+chipped bevel edge, grimy scratches, two-tone cel shade, fat comic ink outline,
+cheap-fun Chinese county-town sticker look.
+
+NOT a flat vector brown rounded rectangle.
+NOT clean modern UI, NOT glossy AAA, NOT cream card, NOT wood.
+
+OBJECT: one WIDE vertical-ish rusted iron workshop plate for a character stat list.
+Aspect about 16:9 landscape. Thick beveled rim, four fat corner rivets plus a few
+along the long edges. Recessed dark center well, empty, no icons, no bars, no text.
+Heavy orange rust blooms and black pitting. Looks bolted onto a village wall.
+
+Solid flat hot-pink background #F04AA8 around the plate, no drop shadow on the pink.
+NO TEXT, no labels, no captions, no letters, no numbers, no Chinese, no writing anywhere.

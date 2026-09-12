@@ -22,6 +22,8 @@ import {
   lstatOrNull,
   mirrorDir,
 } from './lib/mirror-tree.mjs';
+import { collectUsedAssetPaths, loadCdnConfig, packIgnoreEntries, scanLocalCdnFiles, STRIP_MARKER } from './cdn_scan.mjs';
+import { dirSize, stripCdnFromDir } from './lib/strip-cdn.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const RUNTIME_DIR = path.join(rootDir, 'runtime');
@@ -41,8 +43,93 @@ const SKIP_SHARED = new Set([
   'project.private.config.json',
 ]);
 
-/** runtime 镜像时不要动资源目录 */
-const SKIP_FROM_RUNTIME = new Set([...SKIP_SHARED, 'images', 'audio']);
+const SUBPACKAGE_GAME_JS = '/** 资源分包占位：微信要求分包根目录必须有 game.js */\n';
+
+function usedPathToDiskRel(used) {
+  const m = String(used).match(/^subpackages\/[^/]+\/(.+)$/);
+  return m ? m[1] : used;
+}
+
+function assembleSubpackages(out, usedAssets, stats) {
+  const packs = new Set();
+  const keep = new Set();
+  for (const used of usedAssets) {
+    const m = String(used).match(/^(subpackages\/[^/]+)\//);
+    if (!m) continue;
+    packs.add(m[1]);
+    keep.add(used);
+    const src = path.join(ASSETS_DIR, usedPathToDiskRel(used));
+    if (!fs.existsSync(src)) {
+      console.warn(`[build-platform] 分包缺源文件 ${used} ← assets/${usedPathToDiskRel(used)}`);
+      continue;
+    }
+    const dest = path.join(out, used);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    copyFileIfStale(src, dest, stats);
+  }
+  for (const pack of packs) {
+    const entryRel = `${pack}/game.js`;
+    keep.add(entryRel);
+    const entry = path.join(out, entryRel);
+    fs.mkdirSync(path.dirname(entry), { recursive: true });
+    if (!fs.existsSync(entry) || fs.readFileSync(entry, 'utf8') !== SUBPACKAGE_GAME_JS) {
+      fs.writeFileSync(entry, SUBPACKAGE_GAME_JS);
+    }
+  }
+  pruneUnusedSubpackages(out, keep, stats);
+}
+
+function pruneUnusedSubpackages(out, keep, stats) {
+  const root = path.join(out, 'subpackages');
+  if (!fs.existsSync(root)) return;
+  const walk = (dir, rel) => {
+    for (const name of fs.readdirSync(dir)) {
+      if (name.startsWith('.')) continue;
+      const full = path.join(dir, name);
+      const next = rel ? `${rel}/${name}` : name;
+      if (fs.statSync(full).isDirectory()) {
+        walk(full, next);
+        if (fs.existsSync(full) && fs.readdirSync(full).length === 0) {
+          fs.rmSync(full, { recursive: true, force: true });
+          stats.pruned += 1;
+        }
+        continue;
+      }
+      if (!keep.has(next)) {
+        fs.rmSync(full, { force: true });
+        stats.pruned += 1;
+      }
+    }
+  };
+  walk(root, 'subpackages');
+}
+
+function packSizeNotes(out) {
+  const subRoot = path.join(out, 'subpackages');
+  const mainMb = (dirSize(out) - dirSize(subRoot)) / 1024 / 1024;
+  const packs = [];
+  if (fs.existsSync(subRoot)) {
+    for (const name of fs.readdirSync(subRoot)) {
+      const full = path.join(subRoot, name);
+      if (!fs.statSync(full).isDirectory()) continue;
+      const mb = dirSize(full) / 1024 / 1024;
+      packs.push({ name, mb });
+      if (mb > 4) {
+        console.warn(`[build-platform] 分包 ${name} ${mb.toFixed(2)}MB，超过微信 4MB 上限`);
+      }
+    }
+  }
+  if (mainMb > 4) {
+    console.warn(`[build-platform] 主包 ${mainMb.toFixed(2)}MB，超过微信 4MB 上限`);
+  }
+  const packNote = packs.length
+    ? `主包 ${mainMb.toFixed(2)}MB` + packs.map((p) => ` / ${p.name} ${p.mb.toFixed(2)}MB`).join('')
+    : `主包 ${mainMb.toFixed(2)}MB`;
+  return { mainMb, packNote };
+}
+
+/** runtime 镜像时不要动资源目录 / 分包 */
+const SKIP_FROM_RUNTIME = new Set([...SKIP_SHARED, 'images', 'audio', 'subpackages']);
 
 function fail(msg) {
   throw new Error(`[build-platform] ${msg}`);
@@ -98,7 +185,7 @@ function pokeSimulator(out, stats) {
   if (next !== prev) fs.writeFileSync(gameJs, next);
 }
 
-export function assemble(platform, { quiet = false, bundleDir, full = false } = {}) {
+export function assemble(platform, { quiet = false, bundleDir, full = false, keepCdn = false } = {}) {
   if (!PLATFORMS.includes(platform)) fail(`未知平台 ${platform}`);
   const platformSrc = path.join(PLATFORM_DIR, platform);
   if (!fs.existsSync(platformSrc)) fail(`缺少平台配置目录 platform/${platform}`);
@@ -127,17 +214,22 @@ export function assemble(platform, { quiet = false, bundleDir, full = false } = 
   }
 
   mirrorDir(RUNTIME_DIR, out, { skip: SKIP_FROM_RUNTIME, stats });
+  const usedAssets = new Set(collectUsedAssetPaths());
   if (fs.existsSync(ASSETS_DIR)) {
     for (const name of fs.readdirSync(ASSETS_DIR)) {
       if (name.startsWith('.') || SKIP_SHARED.has(name)) continue;
       const src = path.join(ASSETS_DIR, name);
       if (!fs.statSync(src).isDirectory()) {
-        copyFileIfStale(src, path.join(out, name), stats);
+        if (usedAssets.has(name)) copyFileIfStale(src, path.join(out, name), stats);
         continue;
       }
-      mirrorDir(src, path.join(out, name), { stats });
+      mirrorDir(src, path.join(out, name), {
+        stats,
+        accept: (rel) => usedAssets.has(`${name}/${rel}`),
+      });
     }
   }
+  assembleSubpackages(out, usedAssets, stats);
   copyFileIfStale(bundle, path.join(out, 'game-bundle.js'), stats);
   mirrorDir(platformSrc, out, {
     skip: new Set(['project.config.json']),
@@ -145,11 +237,38 @@ export function assemble(platform, { quiet = false, bundleDir, full = false } = 
     stats,
   });
   if (config) {
+    const cdnIgnore = packIgnoreEntries(loadCdnConfig());
+    const prevIgnore = config.packOptions?.ignore || [];
+    const seen = new Set(prevIgnore.map((e) => `${e.type}:${e.value}`));
+    const ignore = [...prevIgnore];
+    for (const entry of cdnIgnore) {
+      const key = `${entry.type}:${entry.value}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ignore.push(entry);
+    }
+    config = {
+      ...config,
+      packOptions: {
+        ...(config.packOptions || {}),
+        ignore,
+        include: config.packOptions?.include || [],
+      },
+    };
     const rendered = `${JSON.stringify(config, null, 2)}\n`;
     const prev = fs.existsSync(outConfig) ? fs.readFileSync(outConfig, 'utf8') : '';
     if (prev !== rendered) fs.writeFileSync(outConfig, rendered, 'utf8');
   }
   pokeSimulator(out, stats);
+
+  let packNote = '含 CDN 本地文件';
+  if (!keepCdn) {
+    const remotes = scanLocalCdnFiles(loadCdnConfig()).allFiles.map((f) => f.remote);
+    stripCdnFromDir(out, remotes);
+    packNote = packSizeNotes(out).packNote;
+    fs.mkdirSync(BUILD_DIR, { recursive: true });
+    fs.writeFileSync(STRIP_MARKER, `${new Date().toISOString()}\nplatform=${platform}\n`);
+  }
 
   if (!quiet) {
     const size = (fs.statSync(bundle).size / 1024).toFixed(0);
@@ -157,7 +276,7 @@ export function assemble(platform, { quiet = false, bundleDir, full = false } = 
       ? `appid ${config.appid}${inherited ? '（沿用工具里填的，建议同步回 platform/）' : ''}`
       : '无 project.config 或 appid 未填';
     console.log(
-      `[build-platform] ${platform} → build/${platform}/ (bundle ${size}KB, ${formatStats(stats)}, ${appidNote})`,
+      `[build-platform] ${platform} → build/${platform}/ (bundle ${size}KB, ${formatStats(stats)}, ${packNote}, ${appidNote})`,
     );
   }
   return stats;
@@ -217,8 +336,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const args = process.argv.slice(2);
     const full = args.includes('--full');
-    const target = args.find((a) => a !== '--full') ?? process.env.CODE1_PLATFORM ?? 'all';
-    assembleAll(target, { full });
+    const keepCdn = args.includes('--keep-cdn');
+    const target = args.find((a) => a !== '--full' && a !== '--keep-cdn')
+      ?? process.env.CODE1_PLATFORM
+      ?? 'all';
+    assembleAll(target, { full, keepCdn });
   } catch (e) {
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);

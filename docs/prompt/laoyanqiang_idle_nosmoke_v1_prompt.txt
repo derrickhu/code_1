@@ -1,0 +1,14 @@
+4x1 sprite sheet, 4 equal cells in one row. SAME village-uncle idle loop.
+
+Use the reference idle frames for pose and clothes only.
+REMOVE COMPLETELY: cigarette, cigar, tobacco, filter, ember, ash, smoke, smoke trail. Mouth CLOSED. Empty lips.
+
+STYLE: Q-version, fat black outlines, cel-shading, 6-8 flat colors. Balding sides, heavy eyelids, white ribbed tank, grey drawstring pants, blue slippers, wooden Y slingshot. Flat solid hot-pink #F04AA8 background. Full body, feet visible.
+
+4 frames left to right, tiny idle bob only:
+1) crouch aim, slingshot pulled, weight on left foot
+2) same, chest up 4 percent, eyes half-lid
+3) same, weight on right foot, band a bit tighter
+4) back toward frame 1, slight settle
+
+NO TEXT. NO cigarette. Same man in every cell.

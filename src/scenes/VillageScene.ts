@@ -1,19 +1,21 @@
 /**
- * 村子：出村开打、弹弓摊、村民（进化 / 星级 / 图鉴）。
+ * 村子：出村看路、弹弓摊、村民（进化 / 星级 / 图鉴）。
  *
  * 只有四个页面，刻意做窄。上一版的村子有七页（编队 / 图鉴 / 废品站 / 门路 /
  * 随身 / 组合），改装件下线之后其中五页失去了对象；更要紧的是**它们互相不产生关系**，
  * 玩家在里面点半天不知道自己在决定什么。§4.3 的口径是「局外只解决一件事：
  * 让手上的人变多、变强」，所以这一版只留：
  *
- * - `home`  出村铁门 + 弹弓摊 + 图鉴墙 + 能升阶木牌。**它必须一眼能出村**。
+ * - `home`  出村铁门 + 弹弓摊 + 图鉴墙 + 大喇叭杆。**它必须一眼能出村**。
+ *           铁门进章节路径，木牌只报最近一关通了没，不在这儿切关。
+ *           路上只站几个闲人，不是花名册。
+ * - `horn`  村委会大喇叭。喊人、揭晓、新人走路，都在这一页。
  * - `stall` 弹弓摊。弹子的唯一去处，也是村庄经验/零件/工分的唯一来源。
- * - `folks` 图鉴。已入伙的能升阶，没见过的暗着 —— 图鉴和养成是同一页，
- *           因为「我还差谁」和「我该升谁」是同一个决策。
+ * - `folks` 图鉴。已入伙的能升阶，没见过的暗着 —— 只看书，不在这里喊人。
  * - `one`   单个村民的三阶详情。升阶前要看得见「升完他会变成什么样」（§4.1）。
  *
  * 资源条常驻在村子、图鉴、详情顶上。弹弓摊改用战斗那种矮锈铁板，
- * 只叠弹子数，把门楣腾给货架。
+ * 弹子数 + 三枚小口袋（废铁/零件/工分），不抬门楣。
  */
 import * as PIXI from 'pixi.js';
 import { EventBus } from '@/core/EventBus';
@@ -24,35 +26,49 @@ import { SceneManager } from '@/core/SceneManager';
 import { TweenManager, Ease } from '@/core/TweenManager';
 import { bindPointerTap } from '@/minigame';
 import { UnitActor } from '@/fx/UnitActor';
+import { packPortraitRow, portraitCardScale, portraitWidth } from '@/fx/portraitFit';
+import { yardPeople } from '@/core/yardRoster';
 import { LANE_TINT } from '@/ui/BenchDock';
+import { folkSheet, folkSignName } from '@/balance/folkSheet';
+import { oneFolkLay, paintFolkSheetPlate } from '@/ui/FolkSheetView';
 import { StallYard, STALL_BG_LAY } from '@/ui/StallYard';
 import {
   CALL_COST, CRAFT_MAX, craftCap, craftOf, evoOf, nextCapLv, nextFeed,
-  nextVillageCost, starsOf, villageCumExp,
+  nextVillageCost, starsOf, villageCumExp, villageMul,
 } from '@/balance/village';
 import {
-  JOB_NAME, JOBS, LANE_NAME, STAR_MAX, VILLAGERS, getVillager, jobOf,
+  JOB_NAME, JOBS, LANE_NAME, VILLAGERS, getVillager, jobOf,
   type Job, type VillagerDef,
 } from '@/balance/villagers';
 import {
-  PELLET_AD, TARGETS, TARGET_UNLOCK_LV, pelletCap, pelletRegenMin,
+  PELLET_AD, TARGETS, TARGET_UNLOCK_LV, pelletCap, pelletRegenMin, prizeTier,
 } from '@/balance/stall';
-import { getStage } from '@/balance/stages';
+import { homeRoadBrief } from '@/balance/roadMap';
 import { Platform } from '@/core/PlatformService';
 import { track } from '@/core/Analytics';
 import {
-  buyEvo, callVillager, claimAdPellets, loadMemory, nextGap, nextGoal, progressOf,
-  settlePellets, setStageId, shootStall, stallAdLeft, stallPityLeft,
-  type Goal, type RunMemory,
+  buyEvo, callVillager, claimAdPellets, loadMemory, progressOf,
+  settlePellets, shootStall, stallAdLeft, stallPityLeft,
+  type RunMemory,
 } from '@/core/RunMemory';
 import { playSfx } from '@/core/SfxPlayer';
 import {
-  addFitPortrait, fillCover, fillCoverUv, heroTex, preloadVillageArt, stallBgTex, uiTex,
+  folksPreloadImages,
+  hornPreloadImages,
+  stallPreloadImages,
+  villageHomeImages,
+  villagerDetailImages,
+  type HeroArtNeed,
+} from '@/config/assetPreload';
+import { ensureAssets } from '@/core/ensureAssets';
+import {
+  addFitPortrait, fillCover, fillCoverUv, heroTex, stallBgTex, uiTex,
   villageBgTex, villageHomeBgTex, watchArt,
   type UiName,
 } from '@/core/TextureLoader';
 import { lintelLay, stallHudLay, type StallHudLay } from '@/ui/lintel';
-import { numGlyphs, paintGlyphs } from '@/ui/glyphs';
+import { glyphRowWidth, numGlyphs, paintGlyphs } from '@/ui/glyphs';
+import { CallReveal } from '@/ui/CallReveal';
 import {
   GOLD, copperRust, expBar, fillSprite, fitSprite, goldBtn, ironSlab, label,
   plate, standSprite, woodPlank,
@@ -62,8 +78,8 @@ const CREAM = 0xfff4c4;
 const MUTED = 0x8a8a92;
 const RUST_RED = 0xc43a28;
 
-type Page = 'home' | 'stall' | 'folks' | 'one';
-const PAGES: readonly Page[] = ['home', 'stall', 'folks', 'one'];
+type Page = 'home' | 'horn' | 'stall' | 'folks' | 'one';
+const PAGES: readonly Page[] = ['home', 'horn', 'stall', 'folks', 'one'];
 
 /** 村口格子。按原型：人站路中间，摊和木桩插在泥地里，铁门坐在画面底。 */
 interface HomeLay {
@@ -77,9 +93,9 @@ interface HomeLay {
   peopleY: number;
   peopleMid: number;
   peopleH: number;
+  horn: { cx: number; cy: number; w: number; h: number };
   stall: { cx: number; cy: number; w: number; h: number };
   atlas: { x: number; y: number; w: number; h: number };
-  stake: { cx: number; cy: number; w: number; h: number };
   post: { cx: number; cy: number; w: number; h: number };
   gate: { x: number; y: number; w: number; h: number };
 }
@@ -106,8 +122,14 @@ function homeLay(
   const post = { cx: 352, cy: gateY - lift - 78, w: 176, h: postH };
   const peopleH = 168;
   const propTop = Math.min(stall.cy - stallH / 2, post.cy - postH / 2, atlas.y);
-  let peopleY = propTop - 88;
+  let peopleY = propTop - 72;
   if (peopleY - peopleH < barBottom + 20) peopleY = barBottom + 20 + peopleH;
+  const horn = {
+    cx: 92,
+    cy: peopleY - 18,
+    w: 128,
+    h: 188,
+  };
   return {
     barBottom,
     title,
@@ -119,11 +141,35 @@ function homeLay(
     peopleY,
     peopleMid: 375,
     peopleH,
+    horn,
     stall,
     atlas,
-    stake: { cx: atlas.x + atlas.w / 2, cy: atlas.y + atlas.h - 6, w: 148, h: 90 },
     post,
     gate: { x: 16, y: gateY, w: 718, h: gateH },
+  };
+}
+
+/**
+ * 喇叭页底栏。跟战斗条同一套：窄返回 + 宽主操作，同一排。
+ * 返回是离开，喊才是这页的事，两块铁牌上下叠会抢主操作。
+ */
+function hornDockLay(height: number, safeBottom: number): {
+  cy: number;
+  top: number;
+  back: { cx: number; cy: number; w: number; h: number };
+  shout: { cx: number; cy: number; w: number; h: number };
+} {
+  const side = 16;
+  const gap = 12;
+  const h = 82;
+  const backW = 156;
+  const shoutW = 750 - side * 2 - gap - backW;
+  const cy = height - safeBottom - 48;
+  return {
+    cy,
+    top: cy - h / 2,
+    back: { cx: side + backW / 2, cy, w: backW, h },
+    shout: { cx: side + backW + gap + shoutW / 2, cy, w: shoutW, h },
   };
 }
 
@@ -174,15 +220,14 @@ const POST_TOP: UvBox = { x: 0.20, y: 0.185, w: 0.56, h: 0.11 };
 const POST_BOT: UvBox = { x: 0.20, y: 0.295, w: 0.56, h: 0.11 };
 /** rust_atlas：顶栏 + 量过的 2×2 暗格。 */
 const ATLAS_HEADER: UvBox = { x: 0.16, y: 0.08, w: 0.68, h: 0.15 };
+/** home_horn：杆上那块空铁牌，给 7/20 用。 */
+const HORN_PLAQUE: UvBox = { x: 0.30, y: 0.29, w: 0.40, h: 0.11 };
 const ATLAS_SLOTS: readonly UvBox[] = [
   { x: 0.128, y: 0.275, w: 0.338, h: 0.248 },
   { x: 0.536, y: 0.283, w: 0.327, h: 0.240 },
   { x: 0.134, y: 0.581, w: 0.332, h: 0.252 },
   { x: 0.536, y: 0.569, w: 0.333, h: 0.264 },
 ];
-/** home_stake：横木牌面（避开箭头尖和土堆）。 */
-const STAKE_FACE: UvBox = { x: 0.16, y: 0.26, w: 0.56, h: 0.20 };
-
 function faceOf(
   spr: PIXI.Sprite | null,
   boxW: number,
@@ -228,10 +273,15 @@ export class VillageScene implements Scene {
   private _jobFilter: Job | 'all' = 'all';
   private _adBusy = false;
   private _actors: UnitActor[] = [];
-  /** 刚喊来的新人。回村口时从村道右边走进来 */
+  /** 刚喊来的新人。揭晓关掉后从村道右边走进来 */
   private _arrive = '';
+  /** 揭晓还没关：路上先不站这个人 */
+  private _pendingArrive = '';
+  private readonly _reveal = new CallReveal();
   private readonly _yard = new StallYard(() => this._shoot());
   private _artTimer: ReturnType<typeof setTimeout> | 0 = 0;
+  /** 刚收进口袋的那一格，刷新后面要弹一下 */
+  private _prizePop: 'scrap' | 'parts' | 'credits' | null = null;
 
   constructor() {
     for (const p of PAGES) {
@@ -240,6 +290,8 @@ export class VillageScene implements Scene {
       this.container.addChild(layer);
       this._layers[p] = layer;
     }
+    this._reveal.visible = false;
+    this.container.addChild(this._reveal);
     EventBus.on('home:refresh', () => {
       if (SceneManager.current?.name !== 'village') return;
       this._mem = loadMemory();
@@ -255,12 +307,14 @@ export class VillageScene implements Scene {
   }
 
   onEnter(): void {
-    preloadVillageArt();
     // 进村先把离线攒的弹子结算掉，玩家一眼看见「有多少发可以打」
     this._mem = settlePellets();
     this._page = 'home';
     this._adBusy = false;
     this._arrive = '';
+    this._pendingArrive = '';
+    this._reveal.close();
+    this._kickPageArt('home');
     BgmPlayer.play('home');
     this._render();
   }
@@ -269,6 +323,7 @@ export class VillageScene implements Scene {
     if (this._artTimer) clearTimeout(this._artTimer);
     this._artTimer = 0;
     this._clearActors();
+    this._reveal.close();
     this._yard.sleep();
     if (this._yard.parent) this._yard.parent.removeChild(this._yard);
     BgmPlayer.stop();
@@ -276,6 +331,7 @@ export class VillageScene implements Scene {
 
   update(dt: number): void {
     for (const a of this._actors) a.update(dt);
+    if (this._page === 'stall') this._yard.update(dt);
   }
 
   private _height(): number {
@@ -291,12 +347,62 @@ export class VillageScene implements Scene {
   private _open(page: Page): void {
     this._page = page;
     playSfx('ui_tap', 0);
+    this._kickPageArt(page);
     this._render();
+  }
+
+  /** 只拉当前页要用的图，对齐 xiaochu2 的 ensureAssets(场景清单) */
+  private _kickPageArt(page: Page): void {
+    const paths = this._pageArt(page);
+    void ensureAssets(paths).then(() => {
+      if (SceneManager.current?.name !== 'village') return;
+      if (this._page !== page) return;
+      this._render();
+    }).catch((e) => {
+      console.warn('[Village] 按需预热失败', e);
+    });
+  }
+
+  private _pageArt(page: Page): string[] {
+    const mem = this._mem;
+    const p = progressOf(mem);
+    if (page === 'stall') return stallPreloadImages();
+    if (page === 'folks') {
+      return folksPreloadImages({
+        job: this._jobFilter,
+        owned: new Set(mem.roster),
+        evo: Object.fromEntries(mem.roster.map((id) => [id, evoOf(p, id)])),
+      });
+    }
+    if (page === 'one') return villagerDetailImages(this._focus, evoOf(p, this._focus));
+    if (page === 'horn') return hornPreloadImages(this._hornArtPeople());
+    return villageHomeImages(this._homeArtPeople());
+  }
+
+  private _hornArtPeople(): HeroArtNeed[] {
+    return yardPeople(this._mem, this._arrive || this._pendingArrive, 6).map((id) => {
+      try {
+        return { id, evo: evoOf(progressOf(this._mem), id), lane: getVillager(id).lane };
+      } catch {
+        return { id, evo: 1 };
+      }
+    });
+  }
+
+  private _homeArtPeople(): HeroArtNeed[] {
+    return yardPeople(this._mem, '').map((id) => {
+      try {
+        return { id, evo: evoOf(progressOf(this._mem), id), lane: getVillager(id).lane };
+      } catch {
+        return { id, evo: 1 };
+      }
+    });
   }
 
   /* ---------------- 渲染总入口 ---------------- */
 
   private _render(): void {
+    if (this._page === 'stall' && this._yard.busy) return;
     this._clearActors();
     if (this._page !== 'stall') {
       this._yard.sleep();
@@ -313,6 +419,7 @@ export class VillageScene implements Scene {
     }
     const layer = this._layers[this._page];
     if (this._page === 'home') this._renderHome(layer);
+    if (this._page === 'horn') this._renderHorn(layer);
     if (this._page === 'stall') this._renderStall(layer);
     if (this._page === 'folks') this._renderFolks(layer);
     if (this._page === 'one') this._renderOne(layer);
@@ -353,8 +460,8 @@ export class VillageScene implements Scene {
    * 顶上的村子牌 + 四种资源章。
    *
    * 四种货币一个都不许省。§5 定死只有这四种，代价就是它们**全都要常驻可见**。
-   * 废铁 / 零件 / 工分是账本，不是门；升阶走「能升阶」，喊人走图鉴。
-   * 弹子除外：点它进弹弓摊，那是它唯一的去处。
+   * 废铁 / 零件是账本。工分点开去大喇叭喊人，弹子点开进弹弓摊。
+   * 升阶走「能升阶」，喊人走村口，不进图鉴。
    */
   private _bar(layer: PIXI.Container): number {
     const lay = homeLay(Game.safeTop, this._height(), Game.safeBottom, Game.safeCapsuleLeft);
@@ -402,7 +509,7 @@ export class VillageScene implements Scene {
     const cells: readonly [UiName, number, 'icon_scrap' | 'icon_parts' | 'icon_credits' | 'icon_pellets', string, (() => void) | null][] = [
       ['paint_scrap', this._mem.scrap, 'icon_scrap', '废铁', null],
       ['paint_parts', this._mem.parts, 'icon_parts', '零件', null],
-      ['paint_credits', this._mem.credits, 'icon_credits', '工分', null],
+      ['paint_credits', this._mem.credits, 'icon_credits', '工分', () => this._open('horn')],
       ['paint_pellets', this._mem.pellets, 'icon_pellets', '弹子', () => this._open('stall')],
     ];
     const sw = lay.stamp.w;
@@ -492,16 +599,6 @@ export class VillageScene implements Scene {
     parent.addChild(g);
   }
 
-  private _openReadyOrFolks(): void {
-    const ready = readyEvo(this._mem);
-    if (ready.length === 1) {
-      this._focus = ready[0]!;
-      this._open('one');
-      return;
-    }
-    this._open('folks');
-  }
-
   private _btn(
     layer: PIXI.Container,
     cx: number,
@@ -555,41 +652,30 @@ export class VillageScene implements Scene {
     this._bar(layer);
     const lay = homeLay(Game.safeTop, this._height(), Game.safeBottom, Game.safeCapsuleLeft);
     this._homePeople(layer, lay);
+    this._homeHorn(layer, lay);
     this._homePost(layer, lay);
     this._homeStall(layer, lay);
     this._homeAtlas(layer, lay);
-    this._homeStake(layer, lay);
     this._homeGate(layer, lay);
   }
 
   private _homePeople(layer: PIXI.Container, lay: HomeLay): void {
     const mem = this._mem;
     const p = progressOf(mem);
-    const arrive = this._arrive;
-    this._arrive = '';
-    const front = yardPeople(mem, arrive);
-    const slots = yardSlots(front.length, lay.peopleMid, lay.peopleY);
+    const front = yardPeople(mem, '');
+    const slots = yardSlots(
+      front,
+      front.map((id) => evoOf(p, id)),
+      lay.peopleMid,
+      lay.peopleY,
+      lay.peopleH,
+    );
     front.forEach((id, i) => {
       const v = getVillager(id);
       const slot = slots[i] ?? { x: lay.peopleMid, y: lay.peopleY };
       const a = new UnitActor();
       a.bindHero(v.id, v.lane, evoOf(p, id), false);
-      if (id === arrive) {
-        a.place(820, slot.y, lay.peopleH);
-        a.faceToward(slot.x);
-        a.walkBob = true;
-        const hold = { x: 820 };
-        TweenManager.to({
-          target: hold,
-          props: { x: slot.x },
-          duration: 0.9,
-          ease: Ease.easeOutCubic,
-          onUpdate: () => a.place(hold.x, slot.y, lay.peopleH),
-          onComplete: () => { a.walkBob = false; },
-        });
-      } else {
-        a.place(slot.x, slot.y, lay.peopleH);
-      }
+      a.place(slot.x, slot.y, lay.peopleH);
       a.view.eventMode = 'static';
       a.view.interactiveChildren = false;
       a.view.hitArea = new PIXI.Rectangle(-48, -lay.peopleH - 4, 96, lay.peopleH + 10);
@@ -600,6 +686,24 @@ export class VillageScene implements Scene {
       layer.addChild(a.view);
       this._actors.push(a);
     });
+  }
+
+  /** 村口大喇叭杆。点进去才是喊人的院子，不在路上直接喊。 */
+  private _homeHorn(layer: PIXI.Container, lay: HomeLay): void {
+    const { cx, cy, w, h } = lay.horn;
+    const box = this._hit(layer, cx, cy, w, h, () => this._open('horn'));
+    const spr = fitSprite(box, uiTex('home_horn'), 0, 0, w, h);
+    if (!spr) {
+      this._skin(box, 'rust_plank', 0, 0, w, h, (g) => {
+        ironSlab(g, -w / 2, -h / 2, w, h, 12);
+      });
+    }
+    const plaque = faceOf(spr, w, h, HORN_PLAQUE);
+    const title = painted(18, GOLD, '#1a1008', 4);
+    title.anchor.set(0.5);
+    title.position.set(plaque.x + plaque.w / 2, plaque.y + plaque.h / 2 + 10);
+    title.text = '大喇叭';
+    box.addChild(title);
   }
 
   private _homeStall(layer: PIXI.Container, lay: HomeLay): void {
@@ -662,39 +766,8 @@ export class VillageScene implements Scene {
     });
   }
 
-  /** 木桩就是「下一步」这个按钮：写着该干什么，点了就带你去干 */
-  private _homeStake(layer: PIXI.Container, lay: HomeLay): void {
-    const goal = nextGoal(this._mem);
-    const { cx, cy, w, h } = lay.stake;
-    const box = this._hit(layer, cx, cy, w, h, () => this._goGoal(goal));
-    const spr = fitSprite(box, uiTex('home_stake'), 0, 0, w, h);
-    if (!spr) {
-      this._skin(box, 'wood_sign', 0, 0, w, h, (g) => {
-        woodPlank(g, -w / 2, -h / 2, w, h, 7);
-      });
-    }
-    const t = painted(16, goal.kind === 'done' ? MUTED : GOLD, '#1a1008', 4);
-    t.text = goal.short;
-    putCentered(box, t, faceOf(spr, w, h, STAKE_FACE));
-  }
-
-  private _goGoal(goal: Goal): void {
-    // 回头刷星：直接把路牌拨到下一关没打利索的，省得一格一格挪过去
-    if (goal.kind === 'stars') {
-      const to = nextGap(this._mem, this._mem.stageId);
-      if (to !== undefined) {
-        this._mem = setStageId(to);
-        Platform.showToast(`${getStage(to).label} 还没打利索`);
-        this._render();
-      }
-      return;
-    }
-    this._openReadyOrFolks();
-  }
-
   private _homePost(layer: PIXI.Container, lay: HomeLay): void {
     const mem = this._mem;
-    const stage = getStage(mem.stageId);
     const { cx, cy, w, h } = lay.post;
     const box = new PIXI.Container();
     box.position.set(cx, cy);
@@ -708,28 +781,14 @@ export class VillageScene implements Scene {
         woodPlank(g, -w / 2, -28, w, 56, 7);
       });
     }
-    // 星评画在路牌上。数据一直存着（stageStars），以前没有任何界面读它，
-    // 于是「回去把这关打利索」这条长线对玩家不存在
-    const best = mem.stageStars[mem.stageId] ?? 0;
-    const id = painted(best > 0 ? 15 : 17, CREAM, '#2a1608', 4);
-    id.text = best > 0
-      ? `${stage.label} ${'★'.repeat(best)}${'☆'.repeat(3 - best)}`
-      : stage.label;
+    // 只报最近一关通了没。切关去路径图，木牌不再当左右拨片
+    const brief = homeRoadBrief(mem);
+    const id = painted(15, CREAM, '#2a1608', 4);
+    id.text = brief.title;
     putCentered(box, id, faceOf(spr, w, h, POST_TOP));
     const nm = painted(16, CREAM, '#2a1608', 3);
-    nm.text = stage.name;
+    nm.text = brief.sub;
     putCentered(box, nm, faceOf(spr, w, h, POST_BOT));
-    if (mem.stageTop > 1) {
-      bindPointerTap(box, (dx) => {
-        if (dx < cx && mem.stageId > 1) {
-          this._mem = setStageId(mem.stageId - 1);
-          this._render();
-        } else if (dx >= cx && mem.stageId < mem.stageTop) {
-          this._mem = setStageId(Math.min(mem.stageTop, mem.stageId + 1));
-          this._render();
-        }
-      });
-    }
     layer.addChild(box);
   }
 
@@ -738,7 +797,7 @@ export class VillageScene implements Scene {
     const cx = x + w / 2;
     const cy = y + h / 2;
     const box = this._hit(layer, cx, cy, w, h, () => {
-      SceneManager.switchTo('battle', { stageId: this._mem.stageId });
+      SceneManager.switchTo('road');
     });
     const paintedOn = fillSprite(box, uiTex('gate_chu'), 0, 0, w, h)
       || fitSprite(box, uiTex('gate_chu'), 0, 0, w, h);
@@ -775,7 +834,11 @@ export class VillageScene implements Scene {
       TARGETS.filter((t) => mem.villageLv >= (TARGET_UNLOCK_LV[t.id] ?? 1)).map((t) => t.id),
     );
     const floor = h - Game.safeBottom - 168;
-    if (!this._yard.busy) this._yard.mount(open, roomTop, roomBottom, floor);
+    if (!this._yard.busy && (!this._yard.hung || this._yard.openSize !== open.size)) {
+      this._yard.mount(open, roomTop, roomBottom, floor);
+    } else if (this._yard.hung) {
+      this._yard.refreshArt();
+    }
     this._yard.visible = true;
     this._yard.setCanPull(mem.pellets > 0 && !this._yard.busy);
     layer.addChild(this._yard);
@@ -807,13 +870,105 @@ export class VillageScene implements Scene {
       title.text = `手上 ${n}/${cap} 发`;
       layer.addChild(title);
     }
-    const pity = painted(16, 0xd9a13b, '#1a1008', 4);
+    const left = stallPityLeft(this._mem);
+    const near = left <= 2;
+    const pity = painted(15, near ? 0xffe08a : 0xd9a13b, '#1a1008', 3);
     pity.anchor.set(0.5);
     pity.position.set(375, chrome.hintY);
+    const wait = left <= 1 ? '下一发必出工分' : `再 ${left} 发必出工分`;
     pity.text = this._mem.pellets >= cap
-      ? `满了 · 再 ${stallPityLeft(this._mem)} 发必出 1 工分`
-      : `${pelletRegenMin(this._mem.villageLv)} 分钟回一发 · 再 ${stallPityLeft(this._mem)} 发必出工分`;
+      ? `满了 · ${wait}`
+      : `${pelletRegenMin(this._mem.villageLv)} 分钟回一发 · ${wait}`;
     layer.addChild(pity);
+    this._paintStallPocket(layer, chrome, left);
+  }
+
+  /** 打中的废铁/零件/工分往这儿飞。经验就地飘，不占口袋。 */
+  private _paintStallPocket(layer: PIXI.Container, chrome: StallHudLay, pityLeft: number): void {
+    const cells: readonly ['icon_scrap' | 'icon_parts' | 'icon_credits', number, 'scrap' | 'parts' | 'credits'][] = [
+      ['icon_scrap', this._mem.scrap, 'scrap'],
+      ['icon_parts', this._mem.parts, 'parts'],
+      ['icon_credits', this._mem.credits, 'credits'],
+    ];
+    const { h, w } = chrome.pocket;
+    cells.forEach(([icon, val, kind], i) => {
+      const cx = chrome.pocket.cxs[i] ?? 375;
+      const box = new PIXI.Container();
+      box.position.set(cx, chrome.pocket.y);
+      box.eventMode = 'none';
+      layer.addChild(box);
+      const hot = kind === 'credits' && pityLeft <= 2;
+      const pop = this._prizePop === kind;
+      const g = new PIXI.Graphics();
+      g.beginFill(0x1a1008, hot || pop ? 0.62 : 0.42)
+        .drawRoundedRect(-w / 2, -h / 2, w, h, 10)
+        .endFill();
+      g.lineStyle(1.6, hot || pop ? 0xffe08a : 0xc9a46a, hot || pop ? 0.95 : 0.35)
+        .drawRoundedRect(-w / 2, -h / 2, w, h, 10)
+        .lineStyle(0);
+      box.addChild(g);
+      if (hot) this._pulsePocket(g);
+      this._paintStallChip(box, icon, val, h, hot);
+      if (pop) {
+        const hold = { s: 1.16 };
+        box.scale.set(hold.s);
+        TweenManager.to({
+          target: hold,
+          props: { s: 1 },
+          duration: 0.32,
+          ease: Ease.easeOutBack,
+          onUpdate: () => box.scale.set(hold.s),
+        });
+      }
+    });
+    this._prizePop = null;
+  }
+
+  /** 图标和数字当成一组，在牌子正中。不要各贴各的边。 */
+  private _paintStallChip(
+    box: PIXI.Container,
+    icon: 'icon_scrap' | 'icon_parts' | 'icon_credits',
+    val: number,
+    plateH: number,
+    hot: boolean,
+  ): void {
+    const iconS = Math.round(Math.min(28, plateH - 16));
+    const numH = Math.round(Math.min(22, plateH - 18));
+    const shown = compactNum(val);
+    const plain = /^\d+$/.test(shown);
+    const names = plain ? numGlyphs(val) : [];
+    const numW = (plain ? glyphRowWidth(names, numH, 1) : null)
+      ?? shown.length * numH * 0.62;
+    const gap = 8;
+    const total = iconS + gap + numW;
+    const x0 = -total / 2;
+    const iconX = x0 + iconS / 2;
+    const numX = x0 + iconS + gap + numW / 2;
+    if (!fitSprite(box, uiTex(icon), iconX, 0, iconS, iconS) && icon === 'icon_scrap') {
+      fitSprite(box, uiTex('scrap_pile'), iconX, 0, iconS, iconS);
+    }
+    if (!plain || !paintGlyphs(box, names, numX, 0, numH, 1)) {
+      const num = painted(numH, hot ? 0xffe08a : CREAM, '#1a1008', 3);
+      num.anchor.set(0.5);
+      num.position.set(numX, 0);
+      num.text = shown;
+      box.addChild(num);
+    }
+  }
+
+  private _pulsePocket(g: PIXI.Graphics): void {
+    const hold = { a: 0.95 };
+    const loop = (): void => {
+      if (g.destroyed) return;
+      TweenManager.to({
+        target: hold,
+        props: { a: hold.a > 0.5 ? 0.28 : 0.95 },
+        duration: 0.55,
+        onUpdate: () => { if (!g.destroyed) g.alpha = hold.a; },
+        onComplete: loop,
+      });
+    };
+    loop();
   }
 
   private _drawStallTitle(
@@ -870,17 +1025,19 @@ export class VillageScene implements Scene {
       return;
     }
     this._mem = res.mem;
-    const { hit, gain, rebounds } = res.result;
-    const parts: string[] = [];
-    if (gain.exp > 0) parts.push(`经验 +${Math.round(gain.exp)}`);
-    if (gain.scrap > 0) parts.push(`废铁 +${Math.round(gain.scrap)}`);
-    if (gain.parts > 0) parts.push(`零件 +${Math.round(gain.parts)}`);
-    if (gain.credits > 0) parts.push(`工分 +${Math.round(gain.credits)}`);
+    const { hit, rebounds, gain } = res.result;
+    const tier = prizeTier(gain);
+    this._prizePop = tier === 'jackpot' ? 'credits' : tier === 'rare' ? 'parts' : tier === 'uncommon' ? 'scrap' : null;
     track('stall_shot', {
       target: hit.id, rebounds, village_lv: this._mem.villageLv, left: this._mem.pellets,
     });
     this._yard.setCanPull(this._mem.pellets > 0);
-    this._yard.play(res.result, parts, () => this._render());
+    const chrome = stallHudLay(Game.safeTop, this._height());
+    this._yard.play(res.result, {
+      scrap: { x: chrome.pocket.cxs[0]!, y: chrome.pocket.y },
+      parts: { x: chrome.pocket.cxs[1]!, y: chrome.pocket.y },
+      credits: { x: chrome.pocket.cxs[2]!, y: chrome.pocket.y },
+    }, () => this._render());
   }
 
   private async _adPellets(): Promise<void> {
@@ -907,6 +1064,100 @@ export class VillageScene implements Scene {
     }
   }
 
+  /* ---------------- 大喇叭院子 ---------------- */
+
+  private _renderHorn(layer: PIXI.Container): void {
+    this._backdrop(layer, villageHomeBgTex() ?? villageBgTex(), 0.08);
+    const top = this._bar(layer);
+    const height = this._height();
+    const dock = hornDockLay(height, Game.safeBottom);
+    const enough = this._mem.credits >= CALL_COST;
+    const room = dock.top - top - 24;
+    const hornH = Math.min(280, Math.max(168, room * 0.32));
+    const hornW = Math.round(hornH * 0.75);
+    const hornCy = top + 18 + hornH / 2;
+
+    const pole = new PIXI.Container();
+    pole.position.set(375, hornCy);
+    pole.eventMode = 'none';
+    const spr = fitSprite(pole, uiTex('home_horn'), 0, 0, hornW, hornH);
+    if (!spr) {
+      this._skin(pole, 'rust_plank', 0, 0, 150, hornH, (g) => {
+        ironSlab(g, -75, -hornH / 2, 150, hornH, 14);
+      });
+    }
+    const plaque = faceOf(spr, hornW, hornH, HORN_PLAQUE);
+    const count = painted(24, GOLD, '#1a1008', 4);
+    count.anchor.set(0.5);
+    count.position.set(plaque.x + plaque.w / 2, plaque.y + plaque.h / 2);
+    count.text = `${this._mem.roster.length}/${VILLAGERS.length}`;
+    pole.addChild(count);
+    layer.addChild(pole);
+
+    const hint = painted(16, MUTED, '#1a1008', 3);
+    hint.anchor.set(0.5, 0);
+    hint.position.set(375, hornCy + hornH / 2 + 6);
+    hint.text = '新人从这条路上过来，熟人捎废铁加星';
+    layer.addChild(hint);
+
+    const peopleH = 156;
+    const peopleY = Math.min(dock.top - 28, hint.position.y + 36 + peopleH);
+    this._hornPeople(layer, 375, peopleY, peopleH);
+    this._btn(layer, dock.back.cx, dock.back.cy, dock.back.w, dock.back.h, '回村口', () => this._open('home'));
+    this._btn(layer, dock.shout.cx, dock.shout.cy, dock.shout.w, dock.shout.h, '喊一嗓子', () => this._shout(), {
+      sub: enough
+        ? `${CALL_COST} 工分 · 手上 ${this._mem.credits}`
+        : `还差 ${CALL_COST - this._mem.credits} 工分`,
+    });
+  }
+
+  private _hornPeople(layer: PIXI.Container, midX: number, peopleY: number, peopleH: number): void {
+    const mem = this._mem;
+    const p = progressOf(mem);
+    const arrive = this._arrive;
+    this._arrive = '';
+    const hide = !arrive ? this._pendingArrive : '';
+    const front = yardPeople(mem, arrive, 6).filter((id) => id !== hide);
+    const slots = yardSlots(
+      front,
+      front.map((id) => evoOf(p, id)),
+      midX,
+      peopleY,
+      peopleH,
+    );
+    front.forEach((id, i) => {
+      const v = getVillager(id);
+      const slot = slots[i] ?? { x: midX, y: peopleY };
+      const a = new UnitActor();
+      a.bindHero(v.id, v.lane, evoOf(p, id), false);
+      if (id === arrive) {
+        a.place(820, slot.y, peopleH);
+        a.faceToward(slot.x);
+        a.walkBob = true;
+        const hold = { x: 820 };
+        TweenManager.to({
+          target: hold,
+          props: { x: slot.x },
+          duration: 0.9,
+          ease: Ease.easeOutCubic,
+          onUpdate: () => a.place(hold.x, slot.y, peopleH),
+          onComplete: () => { a.walkBob = false; },
+        });
+      } else {
+        a.place(slot.x, slot.y, peopleH);
+      }
+      a.view.eventMode = 'static';
+      a.view.interactiveChildren = false;
+      a.view.hitArea = new PIXI.Rectangle(-48, -peopleH - 4, 96, peopleH + 10);
+      bindPointerTap(a.view, () => {
+        this._focus = id;
+        this._open('one');
+      });
+      layer.addChild(a.view);
+      this._actors.push(a);
+    });
+  }
+
   /* ---------------- 村民 ---------------- */
 
   private _renderFolks(layer: PIXI.Container): void {
@@ -917,44 +1168,7 @@ export class VillageScene implements Scene {
     const owned = new Set(mem.roster);
     const seen = new Set(mem.seenIds);
     const backY = this._height() - Game.safeBottom - 52;
-
-    // 奶油铜牌按原图比例钉，不再拉扁。图鉴 8/20 那行不占位置
-    const enough = mem.credits >= CALL_COST;
-    const shoutW = 400;
-    const shoutH = Math.round(shoutW * 212 / 315);
-    const shoutCy = top + 16 + shoutH / 2;
-    const shout = new PIXI.Container();
-    shout.position.set(375, shoutCy);
-    shout.eventMode = enough ? 'static' : 'none';
-    shout.interactiveChildren = false;
-    shout.hitArea = new PIXI.Rectangle(-shoutW / 2, -shoutH / 2, shoutW, shoutH);
-    shout.alpha = enough ? 1 : 0.62;
-    const pad = new PIXI.Graphics();
-    pad.beginFill(0xe8d09a).drawRoundedRect(-shoutW / 2 + 28, -shoutH / 2 + 32, shoutW - 56, shoutH - 64, 16).endFill();
-    shout.addChild(pad);
-    this._skin(shout, 'play_plate', 0, 0, shoutW, shoutH, (g) => {
-      goldBtn(g, -shoutW / 2, -shoutH / 2, shoutW, shoutH);
-    });
-    const shoutTitle = painted(36, 0x2a160c, '#fff4c4', 5);
-    shoutTitle.anchor.set(0.5);
-    shoutTitle.position.set(0, -18);
-    shoutTitle.text = '喊一嗓子';
-    shout.addChild(shoutTitle);
-    const shoutSub = painted(22, 0x6a3a14, '#fff4c4', 4);
-    shoutSub.anchor.set(0.5);
-    shoutSub.position.set(0, 20);
-    shoutSub.text = `${CALL_COST} 工分 · 手上 ${mem.credits}`;
-    shout.addChild(shoutSub);
-    if (enough) bindPointerTap(shout, () => this._call());
-    layer.addChild(shout);
-
-    const shoutHint = painted(16, GOLD, '#1a1008', 4);
-    shoutHint.anchor.set(0.5, 0);
-    shoutHint.position.set(375, shoutCy + shoutH / 2 + 4);
-    shoutHint.text = '喊到熟人加星，新人从村道走过来';
-    layer.addChild(shoutHint);
-
-    const chipY = shoutCy + shoutH / 2 + 36;
+    const chipY = top + 28;
     const chips: readonly { id: Job | 'all'; name: string }[] = [
       { id: 'all', name: '全部' },
       ...JOBS.map((j) => ({ id: j, name: JOB_NAME[j] })),
@@ -977,6 +1191,7 @@ export class VillageScene implements Scene {
       box.addChild(t);
       bindPointerTap(box, () => {
         this._jobFilter = c.id;
+        this._kickPageArt('folks');
         this._render();
       });
       layer.addChild(box);
@@ -1042,7 +1257,7 @@ export class VillageScene implements Scene {
       tag.anchor.set(0.5, 0);
       tag.position.set(cardW / 2, cardH - 22);
       tag.text = has
-        ? `${job} · 手艺 ${craftOf(p, v.id)}/${CRAFT_MAX} ${stars(starsOf(p, v.id))}`.trim()
+        ? `${folkSignName(v.id)} · 手艺 ${craftOf(p, v.id)}/${CRAFT_MAX} ${stars(starsOf(p, v.id))}`.trim()
         : known ? `${LANE_NAME[v.lane]}·${job}` : '还没见过';
       box.addChild(tag);
 
@@ -1064,29 +1279,40 @@ export class VillageScene implements Scene {
     this._btn(layer, 375, backY, 710, 80, '回村口', () => this._open('home'), { art: 'rust_plank' });
   }
 
-  private _call(): void {
+  private _shout(): void {
+    if (this._reveal.busy) return;
+    if (this._mem.credits < CALL_COST) {
+      Platform.showToast(`还差 ${CALL_COST - this._mem.credits} 工分`);
+      return;
+    }
     const res = callVillager();
     if (!res) {
       Platform.showToast(`还差 ${CALL_COST - this._mem.credits} 工分`);
       return;
     }
     this._mem = res.mem;
-    const v = getVillager(res.got);
     track('call_villager', {
       got: res.got, is_new: res.isNew, roster: this._mem.roster.length,
     });
-    if (res.isNew) {
-      playSfx('win', 0);
-      Platform.showToast(`${v.name} 入伙了 · ${v.job}`, 'success');
-      this._arrive = res.got;
-      this._page = 'home';
-      this._render();
-      return;
-    }
-    const to = res.starTo ? getVillager(res.starTo).name : '';
-    playSfx('install_on', 0);
-    Platform.showToast(to ? `又来一个${v.name}，${to} 多一颗星` : `又来一个${v.name}，折了废铁`);
+    playSfx(res.isNew ? 'win' : 'install_on', 0);
+    this._page = 'horn';
+    this._arrive = '';
+    this._pendingArrive = res.isNew ? res.got : '';
+    this._kickPageArt('horn');
     this._render();
+    this._reveal.open({
+      got: res.got,
+      isNew: res.isNew,
+      starTo: res.starTo,
+      rosterN: this._mem.roster.length,
+      progress: progressOf(this._mem),
+      height: this._height(),
+      onDone: () => {
+        this._arrive = this._pendingArrive;
+        this._pendingArrive = '';
+        this._render();
+      },
+    });
   }
 
   /* ---------------- 单个村民 ---------------- */
@@ -1108,59 +1334,43 @@ export class VillageScene implements Scene {
     const star = starsOf(p, v.id);
     const cap = craftCap(star);
     const jobName = JOB_NAME[jobOf(v.role)];
-
-    this._skin(layer, 'rust_plank', 375, top + 94, 670, 148, (g) => {
-      ironSlab(g, 40, top + 20, 670, 148, 16);
+    const lay = oneFolkLay(top, this._height(), Game.safeBottom);
+    const sheet = folkSheet(v, {
+      craft, stars: star, stage, villageMul: villageMul(mem.villageLv),
     });
 
-    const nm = label(34, GOLD, true);
+    this._skin(layer, 'rust_plank', lay.plateCx, lay.plateTop + lay.plateH / 2, lay.plateW, lay.plateH, (g) => {
+      ironSlab(g, (750 - lay.plateW) / 2, lay.plateTop, lay.plateW, lay.plateH, 16);
+    });
+
+    const nm = label(30, GOLD, true);
     nm.anchor.set(0.5, 0);
-    nm.position.set(375, top + 34);
+    nm.position.set(375, lay.plateTop + 12);
     nm.text = `${v.name} · ${evoName(v, stage)}`;
     layer.addChild(nm);
 
-    const tag = label(20, LANE_TINT[v.lane], true);
+    const tag = label(18, LANE_TINT[v.lane], true);
     tag.anchor.set(0.5, 0);
-    tag.position.set(375, top + 78);
+    tag.position.set(375, lay.plateTop + 46);
     tag.text = `${LANE_NAME[v.lane]} · ${jobName} · 手艺 ${craft}/${CRAFT_MAX} ${stars(star)}`.trim();
     layer.addChild(tag);
-
-    // 「别人替不了的活」。§6 要求每个人都能回答这一句，进化页是它最该出现的地方
-    const jobLine = label(18, CREAM, true);
-    jobLine.anchor.set(0.5, 0);
-    jobLine.position.set(375, top + 110);
-    jobLine.text = v.job;
-    layer.addChild(jobLine);
-
-    const star2 = label(16, star >= STAR_MAX ? 0x9be08a : MUTED, true);
-    star2.anchor.set(0.5, 0);
-    star2.position.set(375, top + 138);
-    star2.text = star >= STAR_MAX
-      ? '星满了，再喊到他只折废铁'
-      : `喊到重的会给他加星（每星 +8%，最多 ★${STAR_MAX}）`;
-    layer.addChild(star2);
 
     /*
      * 三阶并排静帧。图鉴必须一体重绘，战场才继续人武分离。
      * 叠货架图标看不出剪影变化，所以这里不再用 UnitActor 叠件。
-     * 缩放按卡内人洞算：二阶画布更高，不能按 200 高去 fit 再塞进 162 的遮罩。
+     * 按身体定高、各自缩放：一阶画布矮时不能跟高画布二三阶共用像素比例。
+     * 能力表竖着压在脚下，不占上头。
      */
-    const cardTop = top + 190;
-    const cardH = 268;
-    const titleY = cardTop + 10;
+    const cardTop = lay.cardTop;
+    const cardH = lay.cardH;
+    const titleY = cardTop + 8;
     const holeX = 100;
-    const holeTop = cardTop + 36;
-    const holeH = cardH - 48;
+    const holeTop = cardTop + 52;
+    const holeH = cardH - 62;
     const stillW = 188;
     const stillH = holeH;
     const feetY = holeTop + holeH;
     const stills = [1, 2, 3].map((s) => heroTex(v.id, s));
-    let share = Number.POSITIVE_INFINITY;
-    for (const tex of stills) {
-      if (!tex?.baseTexture.valid || tex.width <= 1) continue;
-      share = Math.min(share, stillW / tex.width, stillH / tex.height);
-    }
-    if (!Number.isFinite(share)) share = 1;
 
     for (let s = 1; s <= 3; s += 1) {
       const cx = 150 + (s - 1) * 225;
@@ -1177,7 +1387,11 @@ export class VillageScene implements Scene {
       }
       layer.addChild(card);
 
-      const still = standSprite(layer, stills[s - 1] ?? null, cx, feetY, stillW, stillH, share);
+      const tex = stills[s - 1] ?? null;
+      const fit = tex?.baseTexture.valid && tex.width > 1
+        ? portraitCardScale(v.id, s, tex.width, tex.height, stillW, stillH)
+        : { scale: 1, plantY: 0 };
+      const still = standSprite(layer, tex, cx, feetY + fit.plantY, stillW, stillH, fit.scale);
       if (still) {
         still.alpha = on ? 1 : 0.42;
         const mask = new PIXI.Graphics();
@@ -1188,15 +1402,26 @@ export class VillageScene implements Scene {
         layer.addChild(mask);
       }
 
-      const sn = label(19, on ? CREAM : MUTED, true);
+      const sn = label(17, on ? CREAM : MUTED, true);
       sn.anchor.set(0.5, 0);
       sn.position.set(cx, titleY);
       sn.text = `${'一二三'[s - 1]}阶 ${evoName(v, s)}`;
       layer.addChild(sn);
+
+      const pitch = label(12, on ? 0xc4b59a : MUTED, true);
+      pitch.anchor.set(0.5, 0);
+      pitch.position.set(cx, titleY + 20);
+      pitch.style.wordWrap = true;
+      pitch.style.wordWrapWidth = 188;
+      pitch.style.align = 'center';
+      pitch.text = v.evo[s - 1]!.pitch;
+      layer.addChild(pitch);
     }
 
+    paintFolkSheetPlate(layer, sheet, lay.plateCx, lay.sheetTop, lay.plateW, lay.sheetH);
+
     const cost = nextFeed(p, v.id);
-    const btnY = this._height() - Game.safeBottom - 150;
+    const btnY = lay.btnY;
     if (!cost) {
       const done = label(22, craft >= CRAFT_MAX ? 0x9be08a : MUTED, true);
       done.anchor.set(0.5);
@@ -1251,29 +1476,15 @@ export class VillageScene implements Scene {
   }
 }
 
-/** 村口站谁：人少全站出来，人多站阶数高的，新人入伙一定在场 */
-function yardPeople(mem: RunMemory, arrive: string): string[] {
-  const p = progressOf(mem);
-  const ranked = [...mem.roster].sort((a, b) => {
-    const e = evoOf(p, b) - evoOf(p, a);
-    if (e !== 0) return e;
-    return starsOf(p, b) - starsOf(p, a);
-  });
-  const n = Math.min(5, ranked.length);
-  const take = ranked.slice(0, n);
-  if (arrive && mem.roster.includes(arrive) && !take.includes(arrive) && take.length > 0) {
-    take[take.length - 1] = arrive;
-  }
-  return take;
-}
-
-function yardSlots(n: number, midX: number, midY: number): { x: number; y: number }[] {
-  if (n <= 0) return [];
-  const gap = n <= 1 ? 0 : Math.min(148, 400 / (n - 1));
-  return Array.from({ length: n }, (_, i) => ({
-    x: midX + (i - (n - 1) / 2) * gap,
-    y: midY,
-  }));
+function yardSlots(
+  ids: readonly string[],
+  evos: readonly number[],
+  midX: number,
+  midY: number,
+  peopleH: number,
+): { x: number; y: number }[] {
+  const widths = ids.map((id, i) => portraitWidth(id, evos[i] ?? 1, peopleH));
+  return packPortraitRow(widths, midX).map((x) => ({ x, y: midY }));
 }
 
 function villageNeedText(mem: RunMemory): string {
@@ -1286,16 +1497,8 @@ function villageNeedText(mem: RunMemory): string {
   return `再 ${left} 点 · 升到 ${mem.villageLv + 1} 级`;
 }
 
-function readyEvo(mem: RunMemory): string[] {
-  const p = progressOf(mem);
-  return mem.roster.filter((id) => {
-    const cost = nextFeed(p, id);
-    return !!cost && mem.scrap >= cost.scrap && mem.parts >= cost.parts;
-  });
-}
-
 /** 图鉴墙上头四个格子：路上站着的先露脸，空着写 ??? */
 function atlasFaces(mem: RunMemory): Array<string | ''> {
-  const ids = yardPeople(mem, '').slice(0, 4);
+  const ids = yardPeople(mem, '', 4);
   return [ids[0] ?? '', ids[1] ?? '', ids[2] ?? '', ids[3] ?? ''];
 }

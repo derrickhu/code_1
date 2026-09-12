@@ -1,0 +1,17 @@
+Portrait 9:16 game background, empty Chinese village SLINGSHOT STALL booth interior.
+
+STYLE LOCK: fat comic ink outlines, flat cheap-fun 6-8 sticker colors, two-tone hard shade. Warm ochre wood, rust orange, plastic blue, enamel cream, cement grey. Same rustic county-town sticker look as a junkyard village stall. NOT photoreal, NOT 3D render, NOT dark fantasy, NOT candy, NOT garage looking out to a sunset street.
+
+COMPOSITION:
+- This is INSIDE a roadside slingshot stall / fair booth, NOT a workshop garage.
+- Top edge: a thick horizontal rusty corrugated-iron header beam with rivets, like the stall's roof lip. This is the split from the outdoor street above. No sky, no road, no sunset, no open roll-up door to a village alley.
+- Walls: weathered plywood and painted blue wainscoting, peeling, nail holes, paper remnants with NO readable text.
+- Two empty wooden shelves / pegboard rows in the middle, plenty of empty space for overlay props. No cans, no bottles, no TV, no crates sitting as prizes.
+- A few hanging empty hooks and one dangling rope. Optional dim bare bulb.
+- Bottom third: a worn wooden counter / shooting ledge facing the viewer, dark opening under the counter like a stall window. Enough empty floor for a slingshot sprite to stand in front later.
+- Left and right: canvas tarp / striped stall cloth, rusted poles.
+
+CRITICAL:
+- EMPTY stall. No people, no hands, no slingshot, no pebbles, no prize objects on the shelves.
+- NO TEXT, no labels, no Chinese, no numbers, no logos, no UI, no watermark.
+- Do not show the village street or sunset through a doorway.

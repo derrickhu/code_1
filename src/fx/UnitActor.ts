@@ -5,7 +5,8 @@ import * as PIXI from 'pixi.js';
 import type { AttackFx } from '@/balance/fx';
 import { HAND, HAND_GEAR, resolveHandGear, wearOf, type HandGear } from '@/balance/gear';
 import { LEGACY_IDS } from '@/balance/villagers';
-import { enemyArtId, enemyTex, heroTex, tex } from '@/core/TextureLoader';
+import { animPath, enemyArtId, enemyTex, hasHeroGrip, heroGripPath, heroTex, modPath, tex, vfxPath } from '@/core/TextureLoader';
+import { barePlantY, portraitFit } from '@/fx/portraitFit';
 import { clipBody, fitBodyH } from '@/fx/spriteBody';
 
 export type AtkMotion = 'lunge' | 'sling' | 'recoil' | 'crush';
@@ -61,7 +62,7 @@ export function swingKeyframes(motion: AtkMotion): { rest: number; up: number; h
 function frames(id: string, clip: string, n: number): PIXI.Texture[] {
   const out: PIXI.Texture[] = [];
   for (let i = 0; i < n; i += 1) {
-    const t = tex(`images/anim_${id}_${clip}_${i}.png`);
+    const t = tex(animPath(id, clip, i));
     if (t) out.push(t);
   }
   return out;
@@ -90,7 +91,7 @@ function atkFrame(u: number, n: number, crush: boolean): number {
 }
 
 function gripTex(id: string): PIXI.Texture | null {
-  return tex(`images/hero_${id}_grip.png`);
+  return hasHeroGrip(id) ? tex(heroGripPath(id)) : null;
 }
 
 export class UnitActor {
@@ -346,8 +347,16 @@ export class UnitActor {
     const bodyClip = this._kind === 'hero' && this._armed ? 'idle' : (this._clip || 'idle');
     const texH = this._anim.texture.height || this._h;
     const clipId = this._kind === 'enemy' ? enemyArtId(this._id) : this._id;
-    const raw = this._bare ? texH : clipBody(clipId, bodyClip, texH);
-    const bodyH = fitBodyH(raw, texH, this._spriteSheet);
+    let bodyH: number;
+    if (this._bare && texH > 8) {
+      const box = portraitFit(this._id, this._evo, texH);
+      bodyH = box.bodyH;
+      this._anim.y = barePlantY(box.padB, this._h, bodyH);
+    } else {
+      const raw = this._bare ? texH : clipBody(clipId, bodyClip, texH);
+      bodyH = fitBodyH(raw, texH, this._spriteSheet);
+      this._anim.y = 0;
+    }
     const fit = this._h / Math.max(1, bodyH);
     this._anim.scale.set(fit * sx * this._face, fit * sy);
     this._anim.rotation = rot;
@@ -382,7 +391,7 @@ export class UnitActor {
         spr.visible = false;
         continue;
       }
-      const t = tex(`images/mod_${item.id}.png`);
+      const t = tex(modPath(item.id));
       if (!t) {
         spr.visible = false;
         continue;
@@ -445,7 +454,7 @@ export class UnitActor {
 
     const snap = u >= 0.32 && u <= 0.6 && (this._motion === 'lunge' || this._motion === 'crush');
 
-    const smearTex = tex('images/vfx_slash.png');
+    const smearTex = tex(vfxPath('slash'));
     if (smearTex && snap) {
       this._smear.texture = smearTex;
       this._smear.visible = true;
@@ -620,7 +629,7 @@ export class UnitActor {
     this._clip = name;
     this._anim.textures = list;
     this._anim.loop = loop && list.length > 1;
-    this._anim.animationSpeed = (name === 'walk' ? 7 : 2) / 60;
+    this._anim.animationSpeed = (name === 'walk' ? 5 : 2) / 60;
     this._anim.onComplete = undefined;
     if (name === 'atk' || list.length === 1 || (!loop && name === 'idle')) this._anim.gotoAndStop(0);
     else this._anim.gotoAndPlay(0);

@@ -1,0 +1,56 @@
+Portrait 9:16 WeChat minigame UI mockup, 750×1334 feel. Full phone screen, no device frame, no watermark.
+
+GAME: 村口大战外星人. Rural Chinese village loafers vs cute-dumb grey aliens.
+STYLE LOCK — copy the village HOME mockup references exactly:
+cheap-fun Chinese small-town sticker look; fat comic ink outlines; two-tone cel shade;
+6–8 flat colors; rusty scrap-iron UI with rivets and flaky orange rust; warm dirt ochre /
+cement grey / plastic blue / rust red. Aliens cold purple-cyan.
+Hand-painted comic, NOT anime, NOT photoreal, NOT glossy fantasy, NOT candy UI,
+NOT white blank cards, NOT floating rounded app cards.
+
+THIS IS THE FORMATION (布阵) SCREEN. Player is dragging named villagers onto a 3-lane dirt road before fight starts.
+
+LAYOUT top → bottom, one screen:
+
+1) TOP LINTEL — ONE full-bleed welded rusted-iron village-gate lintel, same language as the village home top bar.
+   Metal MUST touch left, right, and top edges. Not three floating plaques.
+   Three recessed stamp slots in one bar, text painted ON the iron in flaky cream-yellow brush (same painted-glyph look as 村子4级):
+   - Left slot, vertically centered: 1-1 村口
+   - Center slot, vertically centered: 上场 3/5
+   - Right slot, vertically centered: 来12只 · 3波
+   A thin recessed strip under the three slots, still part of the same lintel:
+   敌方门路：挨得住
+   Small rust GM stamp is FORBIDDEN. No 直接过关. No resource icons (废铁/零件) on this screen.
+
+2) BATTLEFIELD — middle ~52% of the frame.
+   High almost-top-down camera. Wide packed-earth village dirt road filling ~72% width,
+   barely tapering. Left/right 14% hug the road: blue brick, corrugated garage, blue crates,
+   bamboo ladder, old twin-tub washer. Sunset purple-orange far end.
+   The dirt road IS the board. Markings almost invisible until you look.
+   UPPER 55% of the road: EMPTY approach. 4 tiny grey aliens + one tin-can alien far up the road. No grid there.
+   LOWER 45% of the road: ONLY placeable zone — EXACT 3 columns × 4 rows.
+   Empty cells = hairline dashed squares scratched into the dirt, like a stick on dry earth. See every pebble through them.
+   Occupied cells = ONLY a small late-afternoon contact shadow under feet. No raised pads, no yellow glass, no tinted lane slabs.
+   One selected unit: thin gold ring drawn ON the dirt around the feet, small, not a glow slab.
+   Sandbag + wood-plank leak line across the nearest row (closest to camera).
+   Three named loafers as chess pieces, about 1/3 of a lane wide, same body scale, feet planted:
+   - Front-center (row 1, nearest enemies): 铁柱 — red motorcycle helmet, red-blue puffer
+   - Mid-left: 王大锤 — blue work jacket, sledgehammer
+   - Mid-right: 弹弓叔 — old man, white tank, wooden slingshot, SAME SIZE as the others
+   Tiny dark rust nameplates at feet: 铁柱 / 王大锤 / 弹弓叔
+
+3) BOTTOM DOCK — dark rusted iron tray, same metal as the home 图鉴 board, ~30% of screen height.
+   Two rows of compact square cards (5 visible columns). Each card: portrait, name, one line 门路·定位
+   (下手重·抗 / 挨得住·抗 / 站远点打·打), then 手艺2.
+   Placed cards slightly grey with a cream checkmark. 三婶 available, bright.
+   Selected card has a thin gold rivet ring.
+   Under the tray, a footer like the village 出村 gate:
+   - Left small rust plate: 回村口 (cream painted)
+   - Right wide rusted double-door: 开打 painted in distressed faded red stencil across the metal, same as 出村
+
+FORBIDDEN:
+- Three separate floating HUD boxes
+- Yellow/brown semi-transparent lane panels, raised dirt pads, thick ovals
+- Giant hero portraits standing on a skinny vanishing-point street
+- 一键上阵 / 直接过关 / English / fantasy glow / white blank backgrounds
+- Phone notch chrome, WeChat menu dots

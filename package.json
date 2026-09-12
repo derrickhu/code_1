@@ -12,6 +12,12 @@
     "build": "vite build && node scripts/build-platform.mjs",
     "build:wechat": "CODE1_PLATFORM=wechat npm run build",
     "build:douyin": "CODE1_PLATFORM=douyin npm run build",
+    "build:wechat:upload": "npm run build:wechat && npm run cdn:upload",
+    "cdn:upload": "node scripts/upload_cdn.js",
+    "cdn:upload:dry": "node scripts/upload_cdn.js --dry-run",
+    "cdn:check": "node scripts/upload_cdn.js --dry-run",
+    "cdn:strip": "node scripts/strip-cdn-assets.mjs",
+    "cdn:restore": "node scripts/restore-cdn-assets.mjs",
     "dev": "vite build --watch",
     "lab": "vite --config tools/anim-lab/vite.config.ts"
   },

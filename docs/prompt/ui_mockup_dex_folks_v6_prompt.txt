@@ -1,0 +1,27 @@
+Vertical 9:16 WeChat minigame UI mockup: 村民图鉴 (same page as 喊人 / growth, NOT a separate encyclopedia tab).
+
+CRITICAL STYLE LOCK — copy the attached HOME mockup (ui_mockup_home_v6) for materials, light, type:
+- Warm dusk village alley behind everything: orange-pink sky, dusty yellow dirt, blue crates, wires
+- UI is weathered bolted rust-iron and dark wood, mustard-gold rims, a few iron nails
+- Sticker-chibi villagers: fat comic ink, flat 6-8 colors, two-tone shade
+- Hand-painted bold Chinese, big and readable
+FORBIDDEN: cream enamel app, purple gacha, gold SSR shine, glass cards, English, rarity rainbow, cages, painterly RPG frames, grim night dungeon
+
+This page is a PLACE: a village-committee IRON BULLETIN WALL nailed over the dusk alley. Photo-cards tacked with nails. Not a menu app.
+
+Exact current-game layout:
+1. TOP rust-iron bar (same as home): 村子 4级 + mustard exp bar + 再 40 点 · 多上一人. Four counters: 废铁 380  零件 6  工分 8  弹子 12
+2. Center title on the iron wall: 图鉴 8/20 · 这一关能上 4 个
+3. One wide rusted play-plate button: 喊一嗓子. Subline: 6 工分 · 手上 8
+4. Tiny gold caption: 喊到熟人加星，新人从村道走过来
+5. Grid 4 columns × 5 rows = 20 iron photo-cards. EACH ROW is one 门路 (lane), thin colored nail-strip on the card top:
+   Row1 站远点打 (cool teal): 锅盖二哥 owned, ???, 弹弓叔 owned, ???
+   Row2 挨得住 (steel blue): 铁柱 owned SELECTED gold nail rim, ???, ???, 二舅 owned
+   Row3 下手重 (rust red): ???, 王大锤 owned, ???, ???
+   Row4 越挨越猛 (ember orange): ???, ???, 屠户老李 owned, ???
+   Row5 带一帮人 (warm purple): 牵狗大爷 owned, ???, 三婶 owned, ???
+6. OWNED cards: real hero faces (铁柱 red moto helmet + color-block puffer; 王大锤 blue worker jacket + huge mallet; 弹弓叔 white tank + wooden slingshot + cigarette; 三婶 red floral + boombox + red fan; 二舅 skinny uncle; 屠户老李 butcher apron; 锅盖二哥 wok-lid on bamboo pole; 牵狗大爷 yellow dog). Name + 一阶 or 二阶 + ★.
+7. LOCKED cards: dim grey silhouette, ??? , 还没见过. No faces invented.
+8. Footer wide rust-iron plate: 回村口
+
+Chinese only. Same type weight as the home 出村 / 图鉴 plates.

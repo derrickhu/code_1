@@ -1,0 +1,16 @@
+Vertical 9:16 WeChat minigame UI mockup: A VILLAGER ARRIVES after the loudspeaker shout.
+Dusk village dirt lane (use village background reference). Fat comic ink. This is a PERSON walking in, not a card pull.
+
+NO gold light, NO rainbow, NO SSR, NO cage, NO egg.
+
+Layout:
+- Dim village street, other villagers already standing in the back (small).
+- CENTER: 二舅 walking from the right dirt road toward camera, big head, welded junk on him, slightly dusty, grinning. A village loudspeaker pole on the left is still ringing.
+- Hanging wood plaque: 二舅入伙了
+- Iron slat under it: 专管越挨越猛 · 别人替不了他
+- Tiny cream chip: 8/20 人
+- If it were a duplicate it would say 又来一个，捎了废铁 — but this mockup is a NEW join.
+- One cream play-plate: 好
+- No skip-all, no share, no rating stars popup
+
+Chinese only. The feeling is "a guy from the next alley heard the horn", not "you drew a rare".

@@ -1,0 +1,7 @@
+Single small game UI badge, isolated in the center.
+Match rust_stamp / rust_tile: illustrated rusty iron sticker, flaky orange rust,
+dark umber pitted metal, fat comic ink outline, two-tone cel shade, county-town hardware.
+One nearly-square bolted tin badge, four tiny rivets, recessed empty dark face.
+NOT a flat orange rounded square, NOT a gradient button, NOT modern UI.
+Solid flat hot-pink background #F04AA8 only, no drop shadow.
+NO TEXT, no labels, no letters, no numbers, no Chinese, no writing anywhere.

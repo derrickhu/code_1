@@ -1,0 +1,19 @@
+3x2 sprite sheet, 6 equal cells, SAME one village-uncle character in every cell.
+
+Use the reference images for FACE, BODY, CLOTHES, POSE, and slingshot only.
+REMOVE COMPLETELY from every cell: cigarette, cigar, tobacco, filter, ember, ash, smoke, smoke trail, smoking, vape. Mouth CLOSED or a small tired grin. Empty lips. No smoking props anywhere.
+
+STYLE: Q-version chibi-uncle, fat black comic outlines, cel-shading, 6-8 flat colors, warm earth. Balding grey hair on sides, heavy eyelids, white ribbed tank top, grey drawstring pants, blue slippers. Flat solid hot-pink #F04AA8 background in EVERY cell. Thin dark dividers. Full body, feet visible, generous padding.
+
+Row 1:
+1) EVO1: wide crouch aiming a wooden Y slingshot, orange rubber band pulled to cheek. Bare tank, no armor.
+2) EVO2: SAME man SAME aim pose. Rusted steel plate strapped on chest. Leather ammo pouch of steel balls at hip. Thicker dual rubber bands on the slingshot.
+3) EVO3: SAME man. Rusty motorcycle helmet. Pulley compound bow (metal wheels) instead of slingshot. Extra wooden slingshot slung on his back. Quiver of pellets.
+
+Row 2:
+4) GRIP / ready: horse stance, fists up at chest, NO weapon in hands, mouth closed.
+5) ATK release: just let go, wooden slingshot forward, one steel pebble flying right, motion lines, mouth closed clenched in effort.
+6) HERO card: same as cell 1 (evo1 aim), clean, mouth closed.
+
+CRITICAL: NO TEXT, no labels, no numbers, no Chinese, no watermark.
+NO cigarette in any cell. If a cell would have a cigarette, draw a closed mouth instead.

@@ -5,9 +5,10 @@
 import { scopedStorageKey } from '@/config/gameKeyScope';
 import { EventBus } from '@/core/EventBus';
 import { Platform } from '@/core/PlatformService';
+import { RoadLayoutStore } from '@/core/roadLayoutStore';
 import { SceneManager } from '@/core/SceneManager';
 import { CHAPTER_COUNT, findStage, getStage } from '@/balance/stages';
-import { gmUnlockToStage } from '@/core/RunMemory';
+import { gmGrant, gmUnlockToStage } from '@/core/RunMemory';
 
 const GM_STORAGE_KEY = scopedStorageKey('gm');
 const GM_LEGACY_KEY = 'code1_gm';
@@ -18,6 +19,7 @@ class GMManagerClass {
   private _tapCount = 0;
   private _lastTapTime = 0;
   private _instantClear: (() => string) | null = null;
+  private _roadEdit = false;
 
   get isRuntimeAllowed(): boolean {
     return this._runtimeAllowed;
@@ -25,6 +27,10 @@ class GMManagerClass {
 
   get isEnabled(): boolean {
     return this._runtimeAllowed && this._enabled;
+  }
+
+  get roadEditMode(): boolean {
+    return this.isEnabled && this._roadEdit;
   }
 
   constructor() {
@@ -80,6 +86,16 @@ class GMManagerClass {
     return result;
   }
 
+  grantPellets(n: number): string {
+    if (!this.isEnabled) return 'GM 未激活';
+    const add = Math.max(0, Math.floor(n));
+    if (add <= 0) return '无效数量';
+    const mem = gmGrant({ pellets: add });
+    EventBus.emit('home:refresh');
+    Platform.showToast(`弹子 +${add} · 现有 ${mem.pellets}`, 'success');
+    return `弹子 +${add} · 现有 ${mem.pellets}`;
+  }
+
   unlockToStage(chapter: number, index: number): string {
     if (!this.isEnabled) return 'GM 未激活';
     const ch = Math.max(1, Math.min(CHAPTER_COUNT, Math.floor(chapter)));
@@ -90,6 +106,34 @@ class GMManagerClass {
     EventBus.emit('home:refresh');
     Platform.showToast(`已解锁 ${stage.label}`, 'success');
     return `可打 ${stage.label} ${stage.name}（${stage.pitch}）`;
+  }
+
+  setRoadEdit(on: boolean): void {
+    this._roadEdit = !!on && this.isEnabled;
+    EventBus.emit('gm:roadEditToggle', this._roadEdit);
+  }
+
+  toggleRoadEdit(): string {
+    if (!this.isEnabled) return 'GM 未激活';
+    this._roadEdit = !this._roadEdit;
+    EventBus.emit('gm:close');
+    EventBus.emit('gm:roadEditToggle', this._roadEdit);
+    if (this._roadEdit && SceneManager.current?.name !== 'road') {
+      SceneManager.switchTo('road');
+    }
+    const msg = this._roadEdit
+      ? '已进入墩子编辑：拖到土坑上，再点打印坐标'
+      : '已退出墩子编辑';
+    Platform.showToast(msg, 'success');
+    return msg;
+  }
+
+  printRoadLayout(): string {
+    if (!this.isEnabled) return 'GM 未激活';
+    const report = RoadLayoutStore.exportReport();
+    console.warn('[GM] 路上墩子坐标\n', report);
+    Platform.showToast('坐标已打到控制台', 'success');
+    return '已导出到控制台，把 ROAD_PATH 那段发给我';
   }
 
   enterStage(chapter: number, index: number): string {

@@ -1,0 +1,32 @@
+Game character sprite sheet, 4 columns x 2 rows, eight equal square panels, thin light gutter, solid pale warm gray backdrop (easy to cut out).
+
+Use the reference images ONLY for art style:
+- sticker-chibi / super-deformed, head almost half the height
+- fat even comic outline, like a rubber stamp
+- 6-8 flat colors, TWO-tone cel shade only, one highlight blob per big shape
+- goofy earnest Chinese small-town villager, present day
+- NOT premium fantasy, NO armor pits, NO texture noise, NO particles, NO glow
+
+3/4 view, full body, feet near the BOTTOM of every cell.
+THE SAME PERSON in all 8 panels: identical face, hair, clothes, colors, outline weight, camera. Only the pose changes.
+
+Row 1 IDLE left to right: rest / inhale-up 4px / rest / exhale-down 3px. Tiny loop. Keep holding the signature prop.
+Row 2 ATTACK left to right: windup / swing-or-cast / impact / recover. The prop is 2-3 big simple shapes, bigger than the body.
+
+NO TEXT, no labels, no letters, no numbers, no watermarks.
+
+--- per character (stage 1 form) ---
+guogai: skinny young man, buzz cut, white tank, work pants, rubber slippers. ONE huge wok lid on a long bamboo pole over the shoulder. Idle: pole planted. Atk: lid raised like a shield then shoved forward.
+yuwang: sturdy middle-aged auntie, straw hat, floral blouse, rubber boots. ONE big circular fishing net. Idle: net folded. Atk: net flung forward.
+labaye: skinny grandpa, gray cadre shirt, cloth shoes. ONE rusty iron megaphone. Idle: megaphone at hip. Atk: megaphone to mouth, shouting.
+shimo: broad auntie, printed headscarf, coarse jacket. ONE heavy stone mill wheel. Idle: hands on the mill. Atk: shoves the mill forward.
+miankuzhang: chubby man, padded cotton trousers, knitted vest. Bare fists. Idle: planted stance. Atk: short heavy punch.
+chengtuo: lean old man, faded tunic, cloth shoes. ONE dark iron steelyard weight on a short chain. Idle: weight in hand. Atk: swings the weight in an arc.
+dianju: young sawmill guy, plaid shirt, sawdust in hair. ONE large wood handsaw. Idle: saw on shoulder. Atk: saw chops across.
+shazhu: thick-armed butcher, stained white apron, different from Laoli. ONE long pig-sticking knife. Idle: knife down. Atk: heavy downward chop.
+gaoyaguo: plump auntie, apron, hair bun. ONE pressure cooker strapped on her back. Idle: cooker sitting. Atk: slams cooker down, lid hopping.
+gangban: stocky man, welding goggles on forehead, work coat. ONE rectangular steel plate welded to his chest. Idle: plate facing camera. Atk: shoulder-checks with the plate.
+bianpao: small grandma, floral coat, bun. ONE long string of red firecrackers. Idle: string over arm. Atk: shakes crackers, sparks (simple orange dots only).
+qiangou: skinny grandpa, undershirt, cigarette. ONE big simple yellow dog on a rope. Idle: dog sits beside him. Atk: dog lunges forward, he holds the rope.
+jishi: plump auntie, apron, feed bowl. ONE or TWO simple round yellow chicks at her feet. Idle: scattering feed. Atk: tosses feed forward, chicks hop.
+baowenhu: kind grandpa, plaid shirt, cloth shoes. ONE oversized stainless thermos. Idle: thermos in both hands. Atk: pours a simple steaming arc.

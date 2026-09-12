@@ -1,0 +1,9 @@
+Wide landscape 16:9 game UI button plate, isolated.
+
+A long horizontal rusted iron plaque painted mustard-yellow / gold ochre enamel. Thick dark comic ink outline, four corner dome rivets, scratched yellow paint over dark rust iron, empty recessed center ready for later text. Village-entrance rusty-iron UI, heavy and weathered.
+
+Use the rusted-iron style references for metal texture and rivets only. The plate itself must be YELLOW/GOLD, not dark rust-red.
+
+Object fills the frame. Solid flat magenta background so it can be cut out.
+
+NO TEXT, no letters, no Chinese characters, no numbers, no logos, no icons.

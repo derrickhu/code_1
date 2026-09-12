@@ -1,0 +1,18 @@
+Vertical 9:16 WeChat minigame 图鉴 mockup.
+
+STYLE LOCK — steal materials from the attached GAME assets, not invent a new look:
+- Background = the village dusk alley photo (orange-pink sky, dusty ochre dirt, blue crates, washing machines, wires). The road MUST stay visible in the gaps. This is a PLACE.
+- UI plates = the rust TILE / iron BAR: warm burnt-orange oxidation on brown iron, raised bevel, four rivets. NOT black charcoal dungeon metal. NOT grey gunmetal.
+- Primary button = the cream PLAY-PLATE: beige enamel face, mustard-brass rim, rust-red peeling band, fat comic outline, two bolt holes.
+- People = sticker-chibi from the HOME mockup: fat ink, flat 6-8 colors, two-tone shade, FULL BODY standing on the card, feet visible. 铁柱 red helmet puffer, 王大锤 blue jacket mallet, 弹弓叔 white tank slingshot, 三婶 red floral boombox.
+
+FORBIDDEN: black iron wall, white-glow bust portraits, painterly RPG faces, purple gacha, English, glass cards, grim night.
+
+Layout (same as current game):
+1. Top rust-iron bar: 村子 4级 + mustard exp + 再 40 点 · 多上一人. Four rust stamps: 废铁 380 零件 6 工分 8 弹子 12
+2. Title on a rust plank: 图鉴 8/20 · 这一关能上 4 个
+3. Wide cream play-plate: 喊一嗓子 (four characters 喊 / 一 / 嗓 / 子). Sub 6 工分 · 手上 8. Tiny line 喊到熟人加星，新人从村道走过来
+4. 4x5 grid of WARM rust tiles (orange rust, rivets). 8 owned full-body chibis with names 铁柱 弹弓叔 王大锤 三婶 二舅 老李 锅盖二哥 牵狗大爷 + 一阶/二阶. One mustard rim selected. Locked = dim rust silhouette ??? 还没见过. Village alley peeks between cards.
+5. Footer rust plank: 回村口
+
+Chinese only. Big painted letters. 喊一嗓子 exactly, never 嗨.

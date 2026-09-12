@@ -1,0 +1,22 @@
+Portrait 9:16 formation UI mockup for 村口大战外星人.
+
+LAYOUT / SCALE — copy the Tata reference ONLY for proportions:
+- Camera is HIGH, almost top-down (not deep 3-point alley). The dirt ROAD is a WIDE corridor filling ~72% of screen width, running from top HUD down to the dock. Left and right 14% are packed village props hugging the road edge (blue brick, crates, washer, bamboo, tires) like Tata pines hug the grass path. The road is the picture; no huge empty mural beside a skinny strip.
+- Characters on the field are TINY chess pieces, about 1/10 of screen width, same relative size as Tata critters. They sit in the LOWER half of the road only.
+- Bottom UI is ~32% of screen height, compact dark rusted-iron panel. Two rows of SMALL square cards. One wide yellow 「开打」 button. Small 「回村口」 on the left.
+
+STYLE — village comic from the village/home references: thick outlines, rusty rivet plates, warm ochre dirt, plastic blue, rust red. Aliens cold purple-cyan. NOT Tata art, NOT kawaii animals, NOT photoreal.
+
+BATTLEFIELD:
+- Wide packed-earth road, faint 3-column checkerboard. Placeable zone is ONLY the bottom 4 rows × 3 lanes (12 yellow-ochre rounded tiles). Upper 60% of the road is EMPTY approach with a faint grid, 5 tiny grey aliens + one tin-can alien far up the road.
+- 3 named villagers, SMALL, feet inside tiles:
+  front-center 铁柱 (red helmet, striped puffer)
+  mid-left 王大锤 (blue work jacket, hammer)
+  mid-right 弹弓叔 (old man, slingshot)
+- Sandbag leak line across the nearest row.
+
+TOP: three small rust plates 「3-2 村口那条沟」 「上场 3/5」 「来 28 只 · 4 波」 plus wood tag 「敌方门路：下手重」.
+
+BOTTOM: two rows of 4 tiny square cards (portrait, name, 门路·定位, 手艺). Placed cards grey with check. Fourth card 三姨 available. No 一键上阵.
+
+CRITICAL: people MUST look small. Road MUST look wide. Do not draw giant hero portraits standing on a narrow vanishing-point street.

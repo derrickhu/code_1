@@ -1,0 +1,38 @@
+Full-screen vertical 9:16 mobile game LEVEL MAP BACKGROUND only.
+
+LAYOUT REFERENCE (first image, Tata / survivor-style map):
+- Use ONLY the composition: high-angle board-game map, a continuous winding light-colored PATH is the hero of the picture, circular pads sit ON the path, decorations stay in the left/right margins.
+- Do NOT copy the green forest, pine trees, van, monsters, numbers, buttons, or any UI.
+
+PATH STRUCTURE REFERENCE (second image, xiaochu2 title screen):
+- Use ONLY the path structure: a clear S-curve trail from BOTTOM-CENTER rising toward the TOP, wider at the bottom, narrower toward the top, fully visible in one phone screen.
+- Do NOT copy the mint fantasy hills, lotuses, pavilions, lanterns, or water.
+
+STYLE LOCK (third image, village dusk):
+- Cheap-fun Chinese small-town sticker look, fat comic ink outlines, two-tone cel shade, painted dusk.
+- Colors: dusty warm ochre, rusted blue corrugated hardware shack, scrap metal, tile-roof houses, utility poles, dusk orange-to-indigo sky.
+
+CAMERA (mandatory):
+- HIGH-ANGLE MAP / tabletop diorama, camera 50–60 degrees looking down.
+- The WHOLE winding path must be visible from the bottom of the frame to the top.
+- NOT an eye-level street photo. NOT a first-person road vanishing to the horizon.
+
+THE PATH (mandatory, the picture fails without this):
+- One continuous LIGHT ochre / cream packed-dirt road painted into the terrain, strong contrast against darker fields and houses.
+- Soft raised dirt banks and tire ruts so it reads as a track, not a crater field.
+- S-curve: starts bottom-center, swings right, left, right, then up to a slightly larger chapter-end pad.
+- Five faint circular lighter dirt pads ON the path, empty, no pins, no numbers:
+  1) 54% x, 80% y
+  2) 32% x, 64% y
+  3) 66% x, 50% y
+  4) 36% x, 36% y
+  5) 56% x, 22% y  (slightly larger)
+- Leave the top 12% and bottom 14% visually calmer for later UI.
+
+SIDES:
+- Left: rusted blue 五金 shack, dry fields, tile houses.
+- Right: scrap pile, tire, megaphone pole, more village houses.
+- Distant dusk mountains. Keep the village world, but as a MAP, not a street snapshot.
+
+NO UI, no panels, no buttons, no resource bars, no characters, no people, no van, no monsters, no flags, no map pins, no glowing markers, no stars, no compass, no chapter title.
+NO TEXT except the existing 五金 shop sign if the shack appears. No English, no numbers, no logos, no watermarks.

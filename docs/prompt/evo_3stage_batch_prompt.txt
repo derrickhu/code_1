@@ -1,0 +1,25 @@
+村民三阶进化立绘 · 批量规格
+========================
+
+用途：图鉴 / 详情页大图。战场打击仍走现有 anim_{id}_idle_0-3 + anim_{id}_atk_0-3 八帧 sprite。
+一阶以 assets/images/hero_{id}.png 为脸和身型基准。
+
+公共风格（每张必带）
+--------------------
+One horizontal row, 3 equal panels, plain flat white background.
+SAME person in all 3: chunky Chinese rural cartoon, big head, thick black outlines,
+flat cel shading TWO shadow steps only, palette: earth yellow / cement grey / plastic blue / rusty red.
+Full body, front 3/4, feet on ground, same eye level and camera.
+Use the reference image for FACE, body proportions, and line weight only.
+
+SILHOUETTE LAW:
+Panel 2 must be clearly WIDER than panel 1 (shoulder / prop sticks out).
+Panel 3 must be TALLER and bulkier than panel 2 (thing on head AND thing on back).
+If filled solid black, a stranger ranks them 1 < 2 < 3 instantly.
+Do NOT just recolor or add tiny badges.
+
+NO TEXT, no labels, no numbers, no captions, no frames.
+
+每人三阶（对应 villagers.ts evo）
+--------------------------------
+tiezhu 已出试片。其余按下面出。

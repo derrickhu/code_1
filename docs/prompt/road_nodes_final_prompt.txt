@@ -1,0 +1,13 @@
+3 columns x 1 row game UI sprite sheet, landscape 16:9.
+
+Copy the circular rust-iron LEVEL PUCKS from the reference prototype EXACTLY — same thick tire / industrial disc look, same rivets, same isometric tilt showing the top face and front rim.
+
+Three pucks, same size, same camera, even spacing, no overlap.
+Solid dark background.
+
+LEFT: completed — dark copper / rusty brown disc, worn, no glow.
+MIDDLE: current — bright gold / yellow disc, same shape, warm highlight on the rim.
+RIGHT: locked — matte charcoal / black iron disc, dull, no gold.
+
+Fat comic ink outlines, two-tone cel shade, cheap rust-iron sticker look.
+NO TEXT, no numbers, no stars, no characters, no path, no labels, no watermarks.

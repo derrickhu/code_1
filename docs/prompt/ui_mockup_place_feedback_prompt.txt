@@ -1,0 +1,23 @@
+Vertical 9:16 WeChat minigame UI mockup: PRE-BATTLE PLACEMENT with live feedback.
+Sunset dirt battlefield, 3 vertical lanes, 4 cells per lane. Fat comic ink, village vs aliens.
+Use references for battlefield dusk alley and chibi villagers. Aliens are cute-dumb grey heads / tin-can / flying saucer, cold purple-teal, not scary.
+
+This screen TEACHES placement. Do not give a recommended lineup.
+
+Layout:
+- Top rust iron HUD: 3-2 村口那条沟    上场 5/5    来 28 只 · 4 波
+- Under HUD a mustard strip: 敌方门路：下手重
+- At the TOP of each lane, a small enemy preview shelf:
+  Left lane: 2 grey aliens + 下手重 stamp, count 8
+  Mid lane: 1 tin-can + 1 saucer, count 14, densest, slightly red dirt
+  Right lane: 1 grey, count 6
+- Grid cells: empty cells are dashed rust rectangles. Occupied cells have villagers.
+- SELECTED bench card 铁柱 is being hovered over MID front cell.
+  That cell has a green enamel tag 对路
+  A faded green reach-ghost shows his melee range (only the front of that lane)
+  Two other mid-lane cells have a small rust-red tag 挨打 (wrong lane match)
+- Bottom rusty bench dock: horizontal cards 铁柱 王大锤 三婶 弹弓叔 二舅, each with lane color tick + 阶
+  铁柱 card is selected with gold rim
+- Bottom strip: left iron 回村口    right cream play-plate 开打
+
+Chinese only. No 推荐阵容 button. No thumbs-up emoji from another game — use enamel tags 对路 / 挨打.

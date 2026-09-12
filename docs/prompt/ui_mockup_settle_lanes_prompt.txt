@@ -1,0 +1,17 @@
+Vertical 9:16 WeChat minigame UI mockup: LOSE SETTLEMENT with a 3-LANE BATTLE REPORT.
+Use lose-settle reference for mood and materials: later dusk, tilted wood plaque, rust plates, slumped villagers.
+This is NOT the old "这套配崩了 + 换个人装". New copy matches leak-to-baseline tower defense.
+
+Layout:
+- Tilted wood plaque, rust-red paint: 中路先崩了
+- Small stamp: 3-2  ★☆☆
+- Wide dark iron bar: 下手重从中路漏下来了，把铁柱挪到最前
+- MIDDLE hero: THREE vertical rust columns labeled 左路 中路 右路
+  左路: green-ish tick, 守住, tiny 铁柱 standing
+  中路: rust-red, 漏 3, empty cell + a grey alien crossing a red baseline, 王大锤 slumped
+  右路: muted, 清了, 弹弓叔 sitting
+- Thin muted scrap bar: +18 废铁   弹子 +2
+- Primary cream play-plate: 再排一次
+- Secondary iron: 回村子    tiny 看一段双倍 next to scrap only if it does not compete
+
+Chinese only. The three lane columns are the second punch after the title. No English. No video triangle as the hero.

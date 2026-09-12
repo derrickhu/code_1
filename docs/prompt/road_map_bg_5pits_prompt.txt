@@ -1,0 +1,21 @@
+Full-screen vertical 9:16 painted illustration BACKGROUND only. Hand-painted game art, same quality as the reference village painting.
+
+Use the references for STYLE and VILLAGE LAYOUT only:
+dusk county town, rusted blue 五金 shack LEFT, scrap / bicycle / tire / megaphone pole RIGHT, utility poles, orange-to-indigo sunset.
+
+The road is a packed cream-ochre DIRT ROAD with raised banks and tire ruts — a real painted country lane, NOT loose sand, NOT a texture fill, NOT a pile of dust.
+
+EXACTLY FIVE circular worn dirt marks painted on the road (flat earth bowls, no metal, no iron discs, no stone rings).
+Zigzag near to far:
+1) RIGHT, ~62% x 84% y, largest
+2) LEFT, ~32% x 67% y
+3) RIGHT, ~68% x 53% y
+4) LEFT, ~39% x 40% y
+5) RIGHT, ~71% x 29% y — the LAST mark
+
+After pit 5 the road continues into haze as unused packed dirt. No sixth mark.
+No extra crater in the immediate foreground below pit 1.
+The reference may show a sixth far mark — do not copy it.
+
+No UI, no people, no pucks, no stars.
+NO TEXT except the 五金 shop sign. No English, no numbers, no watermarks.

@@ -7,7 +7,9 @@ import type { AttackFx } from '@/balance/fx';
 import { resolveAttackFx } from '@/balance/fx';
 import { HAND_GEAR, handIdOf, wearOf } from '@/balance/gear';
 import { VILLAGERS, getVillager } from '@/balance/villagers';
-import { preloadBattleArt, watchArt } from '@/core/TextureLoader';
+import { animLabImages } from '@/config/assetPreload';
+import { ensureAssets } from '@/core/ensureAssets';
+import { watchArt } from '@/core/TextureLoader';
 import { motionFor, UnitActor } from '@/fx/UnitActor';
 
 const W = 640;
@@ -218,7 +220,7 @@ function mount(): void {
   });
 }
 
-preloadBattleArt();
+void ensureAssets(animLabImages());
 watchArt(() => apply());
 mount();
 apply();

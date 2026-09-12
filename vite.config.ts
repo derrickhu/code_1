@@ -115,6 +115,8 @@ export default defineConfig({
   publicDir: false,
   plugins: [pixiUnsafeEvalPlugin(), assemblePlatformsPlugin()],
   build: {
+    // 微信上传校验不认 ES2020 的 ?? / ?.（invalid file: Unexpected token ?）
+    target: 'es2017',
     outDir: BUNDLE_DIR,
     assetsInlineLimit: 0,
     lib: {

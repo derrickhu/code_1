@@ -129,8 +129,8 @@ export function fitSprite(
 }
 
 /**
- * 脚钉在同一条线上。三阶并排时传入同一 scale，
- * 免得武器把画布拉高之后人被越缩越小。
+ * 脚钉在同一条线上。图鉴三阶要按身体定高各自传入 scale，
+ * 不能三张图共用一个像素比例。
  */
 export function standSprite(
   parent: PIXI.Container,

@@ -1,0 +1,17 @@
+Vertical 9:16 WeChat minigame UI mockup: VILLAGER DEX / 村民图鉴.
+This is NOT a separate encyclopedia tab. It is the existing "村民" page: catalog AND growth on the same screen.
+
+Use references for materials and faces only: rusted iron plates, cream play-plate, dusk village alley, chibi villagers (铁柱 helmet puffer, 王大锤 mallet, 三婶 boombox, 弹弓叔 slingshot).
+Fat comic ink, flat 6-8 colors, two-tone shade. Cheap village sticker look.
+NOT purple gacha, NOT gold SSR shine, NOT glass cards, NOT English.
+
+Layout:
+- Top rusted iron bar: 村子 4级 + mustard exp bar + 废铁 380  零件 6  工分 8  弹子 12
+- Center hanging wood plaque: 入伙 8/20
+- One wide cream rust play-plate button: 喊一嗓子    6 工分
+- Grid 4 columns x 5 rows of small iron cards (20 slots). Each OWNED card shows: big-head portrait, name, colored lane strip, 几阶, ★. Locked cards are dark silhouettes with ??? and a faded lane color tick.
+- Highlight one card 铁柱 with a gold nail rim (selected).
+- Footer thin iron strip: 回村口
+- Tiny caption under shout button: 喊到熟人给他加星，新人从村道走过来
+
+Chinese only. Readable hand-painted letters. No rarity rainbow. No cage.

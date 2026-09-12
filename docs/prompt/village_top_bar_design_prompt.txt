@@ -1,0 +1,22 @@
+Mobile game TOP HUD design mockup.
+
+The entire TOP of the frame is ONE full-bleed rusted-iron lintel.
+It must touch the left edge, the right edge, and the top edge.
+ZERO gaps. No sky, no clouds, no empty corners beside or above the metal.
+This is a welded village-gate header, not a floating centered plaque.
+
+Inside the lintel, stacked and riveted as one piece:
+- Large brush-painted gold-yellow Chinese 村子 1级 on the metal
+- A recessed rusted exp slot with a short orange fill
+- Small painted caption 再 112 点 · 多上一人
+- Four welded stamp pockets in one row: 废铁 250 / 零件 0 / 工分 0 / 弹子 20
+  with scrap / gear / medal / pellet icons
+
+Cheap-fun Chinese small-town sticker look. Fat comic ink outlines, two-tone cel shade.
+Painted flaky orange rust, dark umber iron, heavy rivets, bolted seams.
+Same rust material as the attached plates and home mockup.
+
+Below the lintel, a dusk village dirt road continues so the header sits flush on the scene.
+
+No WeChat buttons, no phone notch, no English, no logos, no watermarks,
+no white boards, no clean plastic cartoon UI.

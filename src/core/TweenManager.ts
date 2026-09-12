@@ -151,7 +151,12 @@ class TweenManagerClass {
     for (const tween of completed) {
       const idx = this._tweens.indexOf(tween);
       if (idx !== -1) this._tweens.splice(idx, 1);
-      if (tween.config.onComplete) tween.config.onComplete();
+      if (!tween.config.onComplete) continue;
+      try {
+        tween.config.onComplete();
+      } catch {
+        /* 摊位重绘后补间还去 destroy 已拆掉的 Graphics，不能把整帧打崩 */
+      }
     }
   }
 

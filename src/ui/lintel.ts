@@ -1,7 +1,7 @@
 /**
  * 村子门楣只给主界面、图鉴、详情用：大牌 + 经验槽 + 四枚资源章。
  * 编队 / 战斗 / 弹弓摊另用切下来的上半块锈铁，不要把经验条和四格硬塞进去。
- * 摊顶走 stallHudLay：同一张底板，不加三枚章，门楣更矮，货架多一截。
+ * 摊顶走 stallHudLay：同一张底板，门楣更矮；三枚小口袋叠在板上，不抬高度。
  */
 export interface LintelLay {
   titleH: number;
@@ -91,13 +91,15 @@ export function battleHudLay(safeTop: number, height: number): BattleHudLay {
 
 /**
  * 弹弓摊顶板。底图跟战斗同一张切下来的锈铁，字另叠。
- * 不抬高度去塞三枚章，750 宽时按原图比例大约 233 高。
+ * 弹子对准底牌本身的上下中线（板顶到口袋上沿），别按胶囊下沿把字往下推。
+ * 口袋钉在锈铁下沿。750 宽时按原图比例大约 233 高。
  */
 export interface StallHudLay {
   titleH: number;
   title: { cx: number; cy: number };
   titleGlyphH: number;
   hintY: number;
+  pocket: { y: number; w: number; h: number; cxs: readonly [number, number, number] };
   barBottom: number;
 }
 
@@ -106,17 +108,32 @@ export function stallHudLay(safeTop: number, height: number): StallHudLay {
   let titleH = Math.round(750 * 398 / 1280);
   if (titleH < safe + 96) titleH = Math.min(Math.round(height * 0.18), safe + 140);
   if (titleH > height * 0.2) titleH = Math.round(height * 0.2);
-  const titleGlyphH = Math.max(30, Math.round(titleH * 0.22));
-  let titleCy = titleH * 0.40;
-  if (titleCy - titleGlyphH / 2 < safe + 4) {
-    titleCy = safe + 4 + titleGlyphH / 2;
-  }
-  const hintY = Math.min(titleH - 22, titleCy + titleGlyphH * 0.62 + 16);
+
+  const padB = 12;
+  const pocketH = 44;
+  const pocketY = titleH - padB - pocketH / 2;
+  const pocketTop = pocketY - pocketH / 2;
+  const titleGlyphH = Math.max(36, Math.round(titleH * 0.22));
+  const hintH = 22;
+  const gap1 = 6;
+  const plateTop = titleH * 0.10;
+  let titleCy = (plateTop + pocketTop) / 2;
+  const ceil = pocketTop - hintH - gap1 - 8 - titleGlyphH / 2;
+  const floor = titleGlyphH / 2 + 8;
+  titleCy = Math.max(floor, Math.min(titleCy, ceil));
+  const hintY = titleCy + titleGlyphH / 2 + gap1 + hintH / 2;
+
   return {
     titleH,
     title: { cx: 375, cy: titleCy },
     titleGlyphH,
     hintY,
+    pocket: {
+      y: pocketY,
+      w: 156,
+      h: pocketH,
+      cxs: [145, 375, 605],
+    },
     barBottom: titleH,
   };
 }

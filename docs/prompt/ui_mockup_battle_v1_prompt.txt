@@ -1,0 +1,47 @@
+Portrait 9:16 WeChat minigame UI mockup, 750×1334 feel. Full phone screen, no device frame, no watermark.
+
+GAME: 村口大战外星人. Rural Chinese village loafers vs cute-dumb grey aliens.
+STYLE LOCK — copy the village HOME mockup references exactly:
+cheap-fun Chinese small-town sticker look; fat comic ink outlines; two-tone cel shade;
+6–8 flat colors; rusty scrap-iron UI with rivets and flaky orange rust; warm dirt ochre /
+cement grey / plastic blue / rust red. Aliens cold purple-cyan.
+Hand-painted comic, NOT anime, NOT photoreal, NOT glossy fantasy, NOT candy UI,
+NOT white blank cards, NOT sci-fi neon HUD.
+
+THIS IS THE IN-FIGHT BATTLE SCREEN. Formation dock is GONE. Player is watching automatic combat.
+
+LAYOUT top → bottom, one screen:
+
+1) TOP LINTEL — SAME full-bleed welded rusted-iron lintel as the formation mockup / village home.
+   Metal touches left, right, and top edges. One bar, three recessed stamp slots, painted cream-yellow brush text centered in each slot:
+   - Left: 1-1 村口   (stage identity is the first thing you read)
+   - Center: 第 2/3 波
+   - Right: 漏 0/3
+   Under the three slots, still part of the same lintel:
+   a thin dark trough time bar (gold fill ~40% remaining) + tiny painted caption 场上 9 只
+   Do NOT make a giant "2 / 3" the hero number. Do NOT show 上场. Do NOT show 废铁/零件.
+   No GM. No 跳过 / 直接过关.
+
+2) BATTLEFIELD — now ~78% of the frame (dock vanished, sandbags sit at the bottom).
+   Same high almost-top-down village dirt road, ~72% width, barely tapering.
+   Sides: blue brick, garage, crates, washer, bamboo. Sunset far end.
+   The road IS the board. Faint worn wagon-ruts imply 3 lanes. NO yellow slabs, NO raised pads.
+   UPPER road: a WAVE of grey aliens walking DOWN toward the player — 6–8 small grey aliens + one tin-can alien mid-road, plus two more closer.
+   Combat in progress: sparks / pot-lid clang / slingshot pebble, small and physical, not magic glow.
+   LOWER 4 rows × 3 lanes: villagers standing as chess pieces, same scale:
+   - Front-center 铁柱 tanking, red helmet, puffer, facing up the road
+   - Mid-left 王大锤 swinging sledgehammer
+   - Mid-right 弹弓叔 shooting slingshot, SAME SIZE as others
+   Tiny rust nameplates still readable at feet.
+   One foe being knocked back near 铁柱. One pellet streak from 弹弓叔.
+   Bottom edge: sandbag + wood-plank leak line, now the visual floor of the screen. No UI dock below it.
+
+3) NO bottom character cards. NO 开打. NO 回村口.
+   Optional: one tiny rust pause stamp top-right of the lintel, a painted 停, very small.
+
+FORBIDDEN:
+- Floating three HUD boxes
+- Bottom bench / formation cards
+- Giant damage numbers, English, neon bars, skill buttons
+- White blank backgrounds, photoreal, dark-fantasy HUD
+- Phone frame, notch, WeChat menu

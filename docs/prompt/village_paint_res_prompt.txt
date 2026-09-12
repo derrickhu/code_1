@@ -1,0 +1,9 @@
+Spritesheet 4 columns x 1 row, equal cells, thin dark gutters, each cell one isolated Chinese word on a flat pale warm gray backdrop.
+
+Same weathered metallic GOLD-YELLOW paint as the attached 村子 1级 header lettering.
+Fat calligraphic strokes, gold leaf, dark umber rim, slight chips.
+
+Cells left to right:
+1 废铁   2 零件   3 工分   4 弹子
+
+Only that word per cell. No numbers, no English, no icons, no logos, no watermarks, no rust plates behind the letters.

@@ -450,7 +450,7 @@ export type GoalKind = 'craft' | 'call' | 'stage' | 'stars' | 'done';
 
 export interface Goal {
   kind: GoalKind;
-  /** 木牌上那两三个字 */
+  /** 两三个字的短目标 */
   short: string;
   /** 说清楚下一步该干什么 */
   text: string;

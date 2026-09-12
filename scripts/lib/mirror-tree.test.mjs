@@ -141,6 +141,37 @@ describe('mirrorDir', () => {
   });
 });
 
+describe('mirrorDir accept', () => {
+  it('只拷名单里的文件，并 prune 掉 dest 多出来的', () => {
+    const root = tmpDir();
+    const src = path.join(root, 'src');
+    const dest = path.join(root, 'dest');
+    writeFile(path.join(src, 'keep.png'), 'keep');
+    writeFile(path.join(src, 'skip.png'), 'skip');
+    writeFile(path.join(dest, 'skip.png'), 'old');
+    const stats = createMirrorStats();
+    mirrorDir(src, dest, { stats, accept: (rel) => rel === 'keep.png' });
+    expect(fs.existsSync(path.join(dest, 'keep.png'))).toBe(true);
+    expect(fs.existsSync(path.join(dest, 'skip.png'))).toBe(false);
+  });
+
+  it('子目录按完整相对路径过滤，空目录不留', () => {
+    const root = tmpDir();
+    const src = path.join(root, 'src');
+    const dest = path.join(root, 'dest');
+    writeFile(path.join(src, 'boot', 'splash.jpg'), 'splash');
+    writeFile(path.join(src, 'hero', 'keep.png'), 'keep');
+    writeFile(path.join(src, 'hero', 'skip.png'), 'skip');
+    writeFile(path.join(src, 'junk', 'old.png'), 'old');
+    const used = new Set(['boot/splash.jpg', 'hero/keep.png']);
+    mirrorDir(src, dest, { accept: (rel) => used.has(rel) });
+    expect(fs.readFileSync(path.join(dest, 'boot', 'splash.jpg'), 'utf8')).toBe('splash');
+    expect(fs.readFileSync(path.join(dest, 'hero', 'keep.png'), 'utf8')).toBe('keep');
+    expect(fs.existsSync(path.join(dest, 'hero', 'skip.png'))).toBe(false);
+    expect(fs.existsSync(path.join(dest, 'junk'))).toBe(false);
+  });
+});
+
 describe('copyFileIfStale', () => {
   it('bundle 变了会覆盖', () => {
     const root = tmpDir();

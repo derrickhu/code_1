@@ -1,6 +1,6 @@
 /**
  * 启动全屏 Loading（对齐 xiaochu2 / 花花）
- * 插画 cover + 标题 + 暖金进度条 + 著作权 / 健康游戏忠告
+ * 插画 cover + 标题 + 暖金进度条 + 健康游戏忠告
  */
 import * as PIXI from 'pixi.js';
 import { Game } from '@/core/Game';
@@ -9,10 +9,7 @@ import { GOLD } from '@/ui/paint';
 
 const TITLE = '村口大战外星人';
 
-/** 软著尚未下证，编号空着；下证后补一行即可 */
 const LOADING_LEGAL_TEXT = [
-  '著作权人：深圳幸运呱科技有限公司',
-  '',
   '《健康游戏忠告》',
   '抵制不良游戏，拒绝盗版游戏。注意自我保护，谨防受骗上当。',
   '适度游戏益脑，沉迷游戏伤身。合理安排时间，享受健康生活。',

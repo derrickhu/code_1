@@ -1,0 +1,28 @@
+Full-screen vertical 9:16 mobile game BACKGROUND only.
+
+Use the reference prototype as a STRICT layout and style lock.
+Keep the SAME camera, SAME village buildings, SAME dusk sky, SAME winding cream-ochre dirt PATH.
+The path is the hero: thick, raised dirt banks, tire ruts, light sand against darker mud, S-curve from the BOTTOM of the frame to the TOP, fully visible in one phone screen.
+
+REMOVE from the reference (do not paint these):
+- All UI plates, buttons, arrows, chapter title
+- The villager / character
+- Level labels, numbers, stars
+- The five rust-iron pucks / tire discs (those are separate sprites)
+
+KEEP and lock:
+- Left rusted blue 五金 shack
+- Right scrap pile, bicycle frames, tire, megaphone pole
+- Distant village houses, utility poles, dusk orange-to-indigo sky
+- The exact S-shaped dirt road
+
+On the empty path, leave five faint circular worn dirt marks (flat earth only, no metal, no discs) for later sprites, at about:
+1) 52% x, 80% y
+2) 36% x, 66% y
+3) 58% x, 52% y
+4) 40% x, 38% y
+5) 54% x, 24% y
+Leave the top 12% and bottom 16% visually calmer.
+
+NO UI. No buttons. No characters. No people. No pucks. No stars. No flags. No map pins.
+NO TEXT except the existing 五金 shop sign. No English, no numbers, no logos, no watermarks.

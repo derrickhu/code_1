@@ -1,0 +1,20 @@
+Game UI chrome sprite sheet, 3 columns x 2 rows, six equal square panels, thin pale gutter, flat pale warm gray backdrop (easy to cut out).
+
+CRITICAL: Match the painted rusty-iron language of the attached village HOME and 图鉴 mockups.
+This is illustrated rust: flaky orange oxidation, dark umber pitted iron, bolted rivets, grimy scratches, weathered wood grain.
+Same cheap-fun Chinese small-town sticker look: fat comic ink outlines, two-tone cel shade.
+NOT flat vector brown rounded boxes. NOT clean modern UI. NOT glossy AAA. NOT cream blank cards.
+
+Use the reference images for MATERIAL and STYLE only. Do not copy any text from the references.
+Each object isolated, centered, tiny contact shadow. Empty faces so we print words later.
+NO TEXT, no labels, no letters, no numbers, no Chinese, no logos, no watermarks, no writing anywhere.
+
+Row 1:
+1 TITLE PLANK: a WIDE horizontal rusted iron / bolted wood banner, rivets left and right, orange rust patches, empty dark face. About 6:1. For a village-level title.
+2 RESOURCE STAMP: a compact horizontal rusted iron plate, four corner rivets, dark rusty face, empty. About 2.4:1. For a currency cell.
+3 WOOD SIGN: a short weathered wooden roadside plank, nails, chipped paint, empty face, small dirt tuft at a post optional. About 3:1.
+
+Row 2:
+4 FOLKS TILE: a nearly-square rusted iron card, rivets on all four corners, dark recessed center, empty. For a character grid cell.
+5 RUST BUTTON: a wide dark rusted iron door-plate, heavy bolts, empty face, clickable. About 4:1. Darker than a gold enamel button.
+6 EXP FRAME: a thin long rusted iron track / trough for a progress bar, rivets at both ends, empty dark channel, no fill. About 8:1.

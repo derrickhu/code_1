@@ -99,6 +99,8 @@ def collect_source_files(root: Path):
         root / 'src' / 'core' / 'BackendService.ts',
         root / 'src' / 'core' / 'CloudSyncManager.ts',
         root / 'src' / 'core' / 'RunMemory.ts',
+        root / 'src' / 'core' / 'ensureAssets.ts',
+        root / 'src' / 'core' / 'CdnAssetService.ts',
         root / 'src' / 'game' / 'BattleEngine.ts',
     ]
     for fp in first_files:

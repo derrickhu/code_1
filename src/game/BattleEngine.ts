@@ -7,8 +7,8 @@
  * 失败条件是**漏怪到底线或超时**（§4.4），不再是队灭。三件事必须让
  * 「谁放哪一格」真的有后果，否则布阵就是假决策：
  *
- * 1. **阻挡几何**：地面怪被这一路上最靠前的活人挡住，挡住才开打。
- *    所以谁站 cell 0 决定谁先挨，这是布阵最直接的一笔。
+ * 1. **阻挡几何**：地面怪被这一路上最靠前的活人挡住，走到他脚前才停、才开打。
+ *    空格不挡。所以谁站最前决定谁先挨，这是布阵最直接的一笔。
  * 2. **飞碟点后排**：飞的不被阻挡，而且专挑这一路**最后排**的人打。
  *    把脆皮塞到后面躲刀，遇到飞碟章就是送 —— 后排不是安全区。
  * 3. **空路直接漏**：一列没人挡就是一列通天。打/修能支援邻列，
@@ -19,7 +19,7 @@
  * 随机会把信号埋进噪声里。变化量交给布阵和养成，不交给骰子。
  */
 import {
-  ARMOR_K, CELL_COUNT, GOAL_POS, HEAL_ATK_CUT, HEAL_MUL,
+  ARMOR_K, BLOCK_GAP, CELL_COUNT, GOAL_POS, HEAL_ATK_CUT, HEAL_MUL,
   LANE_COUNT, LEAK_ALLOW, RAGE_BONUS, SLOW_MS, SLOW_MUL, TICK_MS, WAVE_GAP_MS,
   cellPos, moveSpd,
 } from '@/balance/combat';
@@ -352,6 +352,21 @@ export function blockerFor(foe: Foe, team: readonly Fighter[]): Fighter | undefi
   return best;
 }
 
+/** 该停在哪。地面怪贴挡人脚前；飞的按自己射程悬停。没人挡就是 undefined，一路走到头 */
+export function foeHaltPos(foe: Foe, team: readonly Fighter[]): number | undefined {
+  if (foe.def.flying) {
+    const t = sniperTarget(foe, team);
+    return t ? t.pos - foe.def.range : undefined;
+  }
+  const b = blockerFor(foe, team);
+  return b ? b.pos - BLOCK_GAP : undefined;
+}
+
+function inHitRange(e: Foe, target: Fighter): boolean {
+  const gap = target.pos - e.pos;
+  return gap <= e.def.range && gap >= -0.5;
+}
+
 /** 飞的专挑这一路最后排的人 */
 export function sniperTarget(foe: Foe, team: readonly Fighter[]): Fighter | undefined {
   let best: Fighter | undefined;
@@ -602,23 +617,28 @@ export function tick(state: BattleState): void {
     const target = e.def.flying
       ? sniperTarget(e, state.team)
       : blockerFor(e, state.team);
-    const inRange = target !== undefined
-      && target.pos - e.pos <= e.def.range
-      && target.pos - e.pos >= -0.5;
+    const haltAt = foeHaltPos(e, state.team);
+    const reached = haltAt !== undefined && e.pos >= haltAt;
 
-    if (inRange && target) {
+    // 地面怪走到挡人脚前才停。射程够着就停，会在空着的前一格趴下。
+    // 够得着可以边走边砍，但不能把空格当成停车位。
+    if (!reached) {
+      e.pos += moveSpd(e.def.spd, e.pos) * (e.slowMs > 0 ? SLOW_MUL : 1) * (TICK_MS / 1000);
+      if (haltAt !== undefined && e.pos > haltAt) e.pos = haltAt;
+      if (e.pos > GOAL_POS) {
+        e.alive = false;
+        state.leaked += 1;
+        state.events.push({ kind: 'leak', foeId: e.id, lane: e.lane });
+        continue;
+      }
+    }
+
+    if (target && inHitRange(e, target)) {
       e.cd -= TICK_MS;
       if (e.cd <= 0) {
         e.cd = e.def.interval;
         const damage = dmgOf(e.atk, target.armor, laneMul(e.def.lane, target.def.lane));
         hurtVillager(state, target, e, damage);
-      }
-    } else {
-      e.pos += moveSpd(e.def.spd, e.pos) * (e.slowMs > 0 ? SLOW_MUL : 1) * (TICK_MS / 1000);
-      if (e.pos > GOAL_POS) {
-        e.alive = false;
-        state.leaked += 1;
-        state.events.push({ kind: 'leak', foeId: e.id, lane: e.lane });
       }
     }
   }

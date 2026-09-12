@@ -33,10 +33,10 @@ describe('落点序列帧', () => {
 
   it('进战斗要预载的表文件不漏', () => {
     const files = flipFiles();
-    expect(files).toContain('images/vfx_fb_slash.png');
-    expect(files).toContain('images/vfx_fb_smash.png');
-    expect(files).toContain('images/vfx_fb_blast.png');
-    expect(files).toContain('images/vfx_fb_bolt.png');
-    expect(files).toContain('images/vfx_fb_spark.png');
+    expect(files).toContain('images/vfx/fb_slash.png');
+    expect(files).toContain('images/vfx/fb_smash.png');
+    expect(files).toContain('images/vfx/fb_blast.png');
+    expect(files).toContain('images/vfx/fb_bolt.png');
+    expect(files).toContain('images/vfx/fb_spark.png');
   });
 });

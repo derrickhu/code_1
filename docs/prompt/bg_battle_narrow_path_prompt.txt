@@ -1,0 +1,17 @@
+Vertical mobile game battlefield background, portrait 9:16.
+
+Use the reference ONLY for art style and village props (sunset dirt, blue brick, plastic crates, washing machine). Do NOT copy the wide-road composition.
+
+Style: dumb-cool cartoon Chinese small-town edge, present day. Fat comic ink outlines, flat colors, cheap sticker look. 6-8 colors, two-tone cel shade. NOT dark fantasy, NOT premium painterly, NOT candy fantasy.
+Palette: warm earth yellow, cement gray, plastic blue, rust red. ONE cold violet glow far on the horizon.
+
+COMPOSITION — this is the whole point:
+- The PLAYABLE ROAD is a NARROW dirt/cement path in the CENTER, only about 42% of the image width. Cracked ochre dirt, weeds in cracks. Completely EMPTY. No props, no tiles, no grid, no fences across the middle.
+- LEFT 29% (from about 10% to 29% of width, hugging the path): faded blue brick wall coming RIGHT UP to the road edge, stacked blue plastic crates, hardware-store roll shutter, green weeds, one utility pole. Props sit close to the path so the sides feel packed.
+- RIGHT 29% (from about 71% to 90% of width, hugging the path): wooden drying rack, rusty top-load washing machine, scrap pipes, buckets, junk pile pressed against the road edge.
+- Do NOT put important props in the outer 8% of the frame (those edges get cropped on tall phones).
+- BOTTOM 18% of the image, BELOW the road: village threshold / home side. Low rust-red brick curb spanning the width, sandbags, wooden planks, a few rusted iron scraps, a coil of hose, one overturned stool. This area must feel occupied, not empty dirt. Still no characters.
+
+Sky: dusk teal to peach, village house silhouettes, purple alien glow at the far end of the NARROW path.
+
+NO characters, NO UI, NO TEXT, no labels, no letters, no numbers, no logos, no watermarks, no grid overlay.

@@ -146,11 +146,12 @@ function followedStat(abs, dirent) {
 /**
  * @param {string} from
  * @param {string} to
- * @param {{ skip?: Set<string>, prune?: boolean, stats?: ReturnType<typeof createMirrorStats> }} [opts]
+ * @param {{ skip?: Set<string>, prune?: boolean, accept?: (rel: string) => boolean, stats?: ReturnType<typeof createMirrorStats> }} [opts]
  */
 export function mirrorDir(from, to, opts = {}) {
   const skip = opts.skip ?? new Set();
   const prune = opts.prune !== false;
+  const accept = opts.accept;
   const stats = opts.stats ?? createMirrorStats();
 
   const toStat = lstatOrNull(to);
@@ -161,14 +162,26 @@ export function mirrorDir(from, to, opts = {}) {
   const keep = new Set();
   for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
     if (entry.name.startsWith('.') || skip.has(entry.name)) continue;
-    keep.add(entry.name);
     const src = path.join(from, entry.name);
     const dest = path.join(to, entry.name);
     const kind = followedStat(src, entry);
     if (kind.isDirectory()) {
-      mirrorDir(src, dest, { prune, stats });
+      const childAccept = accept
+        ? (rel) => accept(`${entry.name}/${rel}`)
+        : undefined;
+      mirrorDir(src, dest, { prune, accept: childAccept, stats });
+      const leftover = fs.existsSync(dest)
+        ? fs.readdirSync(dest).filter((n) => !n.startsWith('.') && !n.endsWith(TMP_SUFFIX))
+        : [];
+      if (leftover.length === 0 && accept) {
+        rm(dest);
+        continue;
+      }
+      keep.add(entry.name);
       continue;
     }
+    if (accept && !accept(entry.name)) continue;
+    keep.add(entry.name);
     atomicCopyFile(src, dest, fs.statSync(src), stats);
   }
 

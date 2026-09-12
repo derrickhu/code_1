@@ -1,5 +1,5 @@
 /**
- * GM 面板：跳关 + 局内跳过本波。
+ * GM 面板：跳关 + 加弹子 + 局内跳过本波。
  */
 import * as PIXI from 'pixi.js';
 import { Game } from '@/core/Game';
@@ -13,6 +13,7 @@ import { bindPointerTap } from '@/minigame';
 
 const PAD = 16;
 const JUMP_PRESETS = [1, 3, 5, 8] as const;
+const PELLET_PRESETS = [10, 20, 50, 99] as const;
 
 const C = {
   panelBg: 0x1a1d33,
@@ -74,7 +75,7 @@ export class GMPanel extends PIXI.Container {
     bindPointerTap(this._bg, () => this.close());
 
     const panelW = Math.min(700, w - 24);
-    const panelH = 660;
+    const panelH = 980;
     const panelX = (w - panelW) / 2;
     const panelY = Math.max(Game.safeTop + 8, (h - panelH) / 2);
 
@@ -105,9 +106,11 @@ export class GMPanel extends PIXI.Container {
     const cardY = panelY + 64;
     const cardW = panelW - PAD * 2;
     const jumpH = this._buildJumpCard(cardX, cardY, cardW);
-    this._buildSkipCard(cardX, cardY + jumpH + 12, cardW);
+    const roadH = this._buildRoadCard(cardX, cardY + jumpH + 12, cardW);
+    const pelletH = this._buildPelletCard(cardX, cardY + jumpH + roadH + 24, cardW);
+    this._buildSkipCard(cardX, cardY + jumpH + roadH + pelletH + 36, cardW);
 
-    const result = new PIXI.Text('选一关，或进战斗后跳过本波', {
+    const result = new PIXI.Text('选一关、加弹子，或进战斗后跳过本波', {
       fontFamily: 'sans-serif',
       fontSize: 16,
       fill: C.muted,
@@ -194,6 +197,101 @@ export class GMPanel extends PIXI.Container {
     card.addChildAt(bg, 0);
     this._root.addChild(card);
     return rowY;
+  }
+
+  private _buildRoadCard(x: number, y: number, w: number): number {
+    const card = new PIXI.Container();
+    card.position.set(x, y);
+
+    const head = new PIXI.Text('路径图墩子', {
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fill: C.btnText,
+      fontWeight: 'bold',
+    });
+    head.position.set(12, 10);
+    card.addChild(head);
+
+    const desc = new PIXI.Text(
+      GMManager.roadEditMode
+        ? '正在编辑：路上拖墩子对准土坑，再点打印坐标。'
+        : '进路上拖五个墩子。对齐后打印坐标发给我固化。',
+      {
+        fontFamily: 'sans-serif',
+        fontSize: 15,
+        fill: C.accent,
+        wordWrap: true,
+        wordWrapWidth: w - 24,
+      },
+    );
+    desc.position.set(12, 38);
+    card.addChild(desc);
+
+    const actionW = (w - 32) / 2;
+    const edit = this._chip(
+      GMManager.roadEditMode ? '退出编辑' : '编辑墩子位置',
+      actionW,
+      48,
+      () => {
+        this._show(GMManager.toggleRoadEdit());
+      },
+      C.accentFill,
+      C.accent,
+    );
+    edit.position.set(12, 78);
+    const print = this._chip('打印坐标', actionW, 48, () => {
+      this._show(GMManager.printRoadLayout());
+    }, C.okFill, C.ok);
+    print.position.set(20 + actionW, 78);
+    card.addChild(edit, print);
+
+    const h = 78 + 48 + 16;
+    const bg = new PIXI.Graphics();
+    bg.beginFill(C.btnFill, 1).lineStyle(1.5, C.accent, 0.45).drawRoundedRect(0, 0, w, h, 12).endFill();
+    card.addChildAt(bg, 0);
+    this._root.addChild(card);
+    return h;
+  }
+
+  private _buildPelletCard(x: number, y: number, w: number): number {
+    const card = new PIXI.Container();
+    card.position.set(x, y);
+
+    const head = new PIXI.Text('加弹子', {
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fill: C.btnText,
+      fontWeight: 'bold',
+    });
+    head.position.set(12, 10);
+    card.addChild(head);
+
+    const desc = new PIXI.Text('白给次数，可越过日常上限，方便连打摊子。', {
+      fontFamily: 'sans-serif',
+      fontSize: 15,
+      fill: C.accent,
+      wordWrap: true,
+      wordWrapWidth: w - 24,
+    });
+    desc.position.set(12, 38);
+    card.addChild(desc);
+
+    const gap = 6;
+    const chipW = (w - 24 - gap * (PELLET_PRESETS.length - 1)) / PELLET_PRESETS.length;
+    PELLET_PRESETS.forEach((n, i) => {
+      const chip = this._chip(`+${n}`, chipW, 44, () => {
+        this._show(GMManager.grantPellets(n));
+      }, C.okFill, C.ok);
+      chip.position.set(12 + i * (chipW + gap), 72);
+      card.addChild(chip);
+    });
+
+    const h = 72 + 44 + 16;
+    const bg = new PIXI.Graphics();
+    bg.beginFill(C.btnFill, 1).lineStyle(1.5, C.ok, 0.45).drawRoundedRect(0, 0, w, h, 12).endFill();
+    card.addChildAt(bg, 0);
+    this._root.addChild(card);
+    return h;
   }
 
   private _buildSkipCard(x: number, y: number, w: number): void {

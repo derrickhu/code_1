@@ -1,0 +1,20 @@
+Vertical 9:16 WeChat minigame UI mockup: ONE VILLAGER EVOLUTION PAGE 铁柱.
+Use references for 铁柱 face (red moto helmet, color-block puffer) and rust/wood UI chrome.
+
+Same village dusk alley behind a rusted iron sheet. Fat comic ink, 6-8 colors, two-tone shade.
+NOT shop storefront, NOT glowing awakening, NOT English.
+
+Layout:
+- Top iron resource bar (same as village): 废铁 380  零件 6
+- Name wood plaque: 铁柱 · 焊了钢板
+- Small cream strip: 挨得住 · 挨打的  · 二阶 ★2
+- Job line on iron slat: 站最前面挨，倒了还能自己爬起来
+- THREE equal cream cards in a row (this is the hero):
+  1 一阶 三层棉袄 — 铁柱 in thick cotton coat + helmet, slightly faded if already passed
+  2 二阶 焊了钢板 — CURRENT, gold nail rim, steel plates welded on coat, caption 正面来的伤害先削一刀
+  3 三阶 顶着高压锅 — dimmer, pressure cooker on head + mattress on back, caption 倒下一次能原地起来
+- Big cream play-plate button: 喂到三阶
+- Subtext on the plate: 400 废铁 + 18 零件
+- Footer: 回村民
+
+Chinese only. Evolution is welded junk changing the person, not a light beam.

@@ -5,25 +5,24 @@
  */
 import '@/core/pixiUnsafeEvalPatch';
 import { analytics, initAnalytics, setAnalyticsUserId } from '@/analytics';
+import { MAIN_PRELOAD_IMAGES, VILLAGE_HOME_SHELL } from '@/config/assetPreload';
+import { warmupCdnAssets } from '@/config/CdnWarmup';
 import { SAVE_KEY } from '@/config/CloudConfig';
 import { BASE_GAME_KEY } from '@/config/gameKeyScope';
+import { CdnAssetService } from '@/core/CdnAssetService';
 import { BackendService } from '@/core/BackendService';
 import { CloudSyncManager } from '@/core/CloudSyncManager';
 import { EventBus } from '@/core/EventBus';
+import { ensureAssets } from '@/core/ensureAssets';
 import { Game } from '@/core/Game';
 import { PersistService } from '@/core/PersistService';
 import { SceneManager } from '@/core/SceneManager';
 import { Platform } from '@/core/PlatformService';
-import {
-  LOADING_SPLASH,
-  LOADING_TITLE,
-  preloadPaths,
-  villageArtPaths,
-} from '@/core/TextureLoader';
 import { OverlayManager } from '@/core/OverlayManager';
 import { BgmPlayer } from '@/core/BgmPlayer';
 import { GMManager } from '@/core/GMManager';
 import { BattleScene } from '@/scenes/BattleScene';
+import { RoadScene } from '@/scenes/RoadScene';
 import { VillageScene } from '@/scenes/VillageScene';
 import { LoadingScreenOverlay } from '@/ui/LoadingScreenOverlay';
 import { GMEntryButton } from '@/ui/GMEntryButton';
@@ -97,15 +96,22 @@ async function main(): Promise<void> {
   Game.syncFrameToScreen();
   const shownAt = Date.now();
 
-  await preloadPaths([LOADING_SPLASH, LOADING_TITLE]);
+  await ensureAssets(MAIN_PRELOAD_IMAGES);
   loading.applySplashTexture();
   loading.applyTitleTexture();
-  loading.setProgress(0.12);
+  loading.setProgress(0.18);
   Game.syncFrameToScreen();
 
-  await preloadPaths(villageArtPaths(), (loaded, total) => {
-    const ratio = total > 0 ? loaded / total : 1;
-    loading.setProgress(0.12 + ratio * 0.72);
+  CdnAssetService.prepareLocalCache();
+  warmupCdnAssets();
+  await CdnAssetService.fetchManifest().catch(() => false);
+  loading.setProgress(0.28);
+
+  // 村口壳在分包里，出插画后再等，避免主界面空壳。立绘 / 战斗仍后台 CDN。
+  await ensureAssets(VILLAGE_HOME_SHELL, (loaded, total) => {
+    loading.setProgress(0.28 + 0.58 * (total > 0 ? loaded / total : 1));
+  }).catch((e) => {
+    console.warn('[main] 村口壳预热失败', e);
   });
   loading.setProgress(0.86);
 
@@ -113,6 +119,7 @@ async function main(): Promise<void> {
   loading.setProgress(0.92);
 
   SceneManager.register(new VillageScene());
+  SceneManager.register(new RoadScene());
   SceneManager.register(new BattleScene());
   SceneManager.switchTo('village');
 

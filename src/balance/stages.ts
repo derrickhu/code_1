@@ -505,6 +505,15 @@ export function findStage(chapter: number, index: number): StageDef | undefined 
   return STAGES.find((s) => s.chapter === chapter && s.index === index);
 }
 
+export function stagesOfChapter(chapter: number): readonly StageDef[] {
+  const ch = Math.max(1, Math.min(CHAPTER_COUNT, Math.floor(chapter)));
+  return STAGES.filter((s) => s.chapter === ch);
+}
+
+export function chapterTitle(chapter: number): string {
+  return findStage(chapter, 1)?.name ?? `第${chapter}章`;
+}
+
 /** 这一关一共要放多少只 */
 export function stageEnemyCount(s: StageDef): number {
   return s.waves.reduce(

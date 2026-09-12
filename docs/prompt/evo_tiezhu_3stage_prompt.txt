@@ -1,0 +1,47 @@
+铁柱三阶进化立绘（剪影测试版）
+================================
+
+用途：验证「进化必须改剪影」的美术规格。三张并排，同一个人，轮廓一眼分得出。
+参考图：assets/images/hero_tiezhu.png（一阶，风格与脸型基准）
+
+--- PROMPT ---
+
+One horizontal row, 3 panels, equal width, plain flat white background.
+The SAME chunky cartoon character in all 3 panels: a stocky Chinese rural young man,
+big head, thick black outlines, flat cel shading with only two shadow steps,
+limited palette of warm earth yellow, cement grey, plastic blue, rusty red.
+Same face in all three: thick angry eyebrows, small determined eyes, no smile.
+Full body, front-facing, standing, feet on ground, same eye level across all 3 panels.
+
+PANEL 1 (left) - baseline, copy the reference image exactly:
+Red and blue and olive-green layered puffer jacket, three visible horizontal quilted bands.
+Dark red motorcycle helmet with grey visor brim. Blue padded trousers, blue boots.
+Empty hands hanging at sides. Compact narrow silhouette, shoulders normal width.
+
+PANEL 2 (middle) - welded steel plates, MUST look wider and bulkier:
+Same puffer jacket underneath, but now crude rusty steel plates are bolted onto the chest,
+both shoulders and both forearms, with visible rivets and rough weld seams.
+Shoulder plates stick out sideways beyond the body, making the silhouette clearly WIDER.
+The helmet now has a flipped-up welding mask attached on top, breaking the head outline upward.
+He holds a heavy rusted pipe wrench in his right hand, resting on his shoulder.
+Overall color shifts greyer and more metallic than panel 1.
+
+PANEL 3 (right) - pressure cooker head and mattress backpack, MUST be the biggest and tallest:
+The motorcycle helmet is GONE, replaced by a big battered aluminium pressure cooker worn
+upside down as a helmet, its handle and pressure valve sticking up above the head.
+A thick striped spring mattress is strapped vertically to his back like a shield,
+clearly taller and wider than his body, sticking out well beyond both shoulders and above.
+More steel plates, chains and rope wrapped around torso and legs.
+He holds a big round pot lid as a shield in the left hand and the pipe wrench in the right.
+Rusty red and metallic highlights, the most cluttered and heaviest of the three.
+
+CRITICAL SILHOUETTE REQUIREMENT:
+If all three figures were filled in solid black as pure silhouettes, a stranger must
+instantly tell them apart and rank them from weakest to strongest.
+Panel 2 must be noticeably wider than panel 1.
+Panel 3 must be noticeably taller and bulkier than panel 2, with things sticking out
+above the head and behind the back.
+Do NOT just add small badges or recolor - the outline itself must change.
+
+NO TEXT, no labels, no captions, no numbers, no writing anywhere in the image.
+No panel borders, no frames, no drop shadows on the background.

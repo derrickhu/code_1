@@ -1,0 +1,32 @@
+Portrait 9:16 mobile game UI mockup: village-entrance formation screen. Hand-drawn fat-ink cartoon, rusted iron UI, warm dusk dirt road.
+
+Use references for STYLE and CAMERA only. Do NOT copy the current in-game yellow lane slabs, big dark ovals, or raised dirt pads. Those are the failed look.
+
+INDUSTRY RULE (Tata / TFT / Arknights):
+The dirt road IS the board. Markings are almost invisible until you look for them. Never cover the ground with UI panels.
+
+BATTLEFIELD (middle 55% of frame):
+- Same village dirt alley: cracked ochre earth, blue brick, washing machine, crates, sandbags at the near edge.
+- High almost-top-down, path stays wide (about 70% width), barely tapers.
+- THREE lanes implied only by faint worn wagon-ruts / packed-dust tracks in the dirt. Same color as the ground, just slightly darker dust. NO yellow, NO brown glass, NO tinted rectangles.
+- Lower half of the road: a 3-column × 4-row deploy zone.
+- Empty slots: hairline dashed squares scratched into the dirt, like a stick dragged on dry earth. Extremely light. You can still see every crack and pebble through them.
+- Occupied slots: ONLY a small soft contact shadow under the character's feet (tiny oval, 30% of a cell, like late-afternoon sun). No pad, no platform, no big stamp.
+- One selected unit: a thin gold ring drawn ON the dirt around the feet, small, not a glow slab.
+- Upper road (enemy approach): empty dirt, 4–5 tiny grey alien silhouettes far away. No grid there.
+
+UNITS:
+- Three village loafers as chess pieces, about 1/3 of a lane wide. Feet planted on dirt.
+- 王大锤 (hammer, overalls), 铁柱 (helmet, padded jacket), 弹弓叔 (slingshot). Small dark name tags at feet.
+
+UI (keep village rust, do not invent candy UI):
+- Top: three rusted iron plates — 1-1 村口 / 上场 3/5 / 来12只 · 3波
+- Thin banner: 敌方门路：挨得住
+- Bottom rust dock: two rows of readable character cards, some with checkmarks
+- Wide yellow iron 开打, small 回村口
+
+FORBIDDEN:
+- Yellow or brown semi-transparent lane panels
+- Raised mats, 3D dirt blocks, thick ovals
+- Covering the road texture
+- Photoreal, dark fantasy, candy fantasy

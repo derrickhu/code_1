@@ -7,5 +7,13 @@
     "connectSocket": 10000,
     "uploadFile": 10000,
     "downloadFile": 10000
-  }
+  },
+  "subpackages": [
+    { "name": "pkg-home", "root": "subpackages/pkg-home" },
+    { "name": "pkg-home-art", "root": "subpackages/pkg-home-art" }
+  ],
+  "subPackages": [
+    { "name": "pkg-home", "root": "subpackages/pkg-home/" },
+    { "name": "pkg-home-art", "root": "subpackages/pkg-home-art/" }
+  ]
 }

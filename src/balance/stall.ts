@@ -238,7 +238,85 @@ export interface ShotResult {
   gain: Yield;
   /** 连击了几次（铁盆） */
   rebounds: number;
+  /** 工分是保底补上的，不是打中喇叭。抽卡那种「保底亮了」靠这个分 */
+  pityHit: boolean;
 }
+
+/**
+ * 按「拿到了什么」分层，不按打中哪个靶。
+ * 铁皮罐碰上保底工分，也是 jackpot —— 塔塔 / 爪机 / Coin Master 都是看掉出来的东西。
+ */
+export type PrizeTier = 'common' | 'uncommon' | 'rare' | 'jackpot';
+
+export function prizeTier(gain: Yield): PrizeTier {
+  if (gain.credits > 0) return 'jackpot';
+  if (gain.parts > 0) return 'rare';
+  if (gain.scrap > 0) return 'uncommon';
+  return 'common';
+}
+
+export interface PrizeChip {
+  kind: Drop;
+  amount: number;
+}
+
+/** 每种资源一枚筹码。经验就地飘，废铁/零件/工分再飞进口袋。 */
+export function prizeChips(gain: Yield): PrizeChip[] {
+  const out: PrizeChip[] = [];
+  if (gain.exp > 0) out.push({ kind: 'exp', amount: Math.round(gain.exp) });
+  if (gain.scrap > 0) out.push({ kind: 'scrap', amount: Math.round(gain.scrap) });
+  if (gain.parts > 0) out.push({ kind: 'parts', amount: Math.round(gain.parts) });
+  if (gain.credits > 0) out.push({ kind: 'credits', amount: Math.round(gain.credits) });
+  return out;
+}
+
+export function prizeBanner(result: ShotResult): string | null {
+  if (result.gain.credits > 0) {
+    const n = Math.round(result.gain.credits);
+    return result.pityHit ? `保底工分 +${n}` : `工分 +${n}`;
+  }
+  if (result.gain.parts > 0) return `零件 +${Math.round(result.gain.parts)}`;
+  return null;
+}
+
+/** 卡面上头那一行。比横幅短，给揭幕用。 */
+export function prizeTitle(result: ShotResult): string | null {
+  if (result.gain.credits > 0) return result.pityHit ? '保底到了' : '工分入手';
+  if (result.gain.parts > 0) return '零件到手';
+  return null;
+}
+
+export function prizeSub(result: ShotResult): string | null {
+  if (result.pityHit) return '这一发算在保底上';
+  if (result.gain.credits > 0 && result.hit.id === 'horn') return '旧喇叭响了一声';
+  if (result.gain.parts > 0 && result.hit.id === 'tv') return '破电视里掉出来';
+  if (result.gain.parts > 0 && result.hit.id === 'crate') return '筐底翻出零件';
+  if (result.gain.parts > 0) return '零件到手了';
+  return null;
+}
+
+export function prizeAccent(tier: PrizeTier): number {
+  if (tier === 'jackpot') return 0xffe08a;
+  if (tier === 'rare') return 0x7ec8ff;
+  if (tier === 'uncommon') return 0xe8a05a;
+  return 0x9be08a;
+}
+
+/**
+ * 一发的演出节拍。对标爪机 / 弹珠台 / Peggle：
+ * 普通也要让人看清砸上、罐子晃完。稀有再停一拍出卡。
+ */
+export const PRIZE_BEAT: Readonly<Record<PrizeTier, {
+  hitStop: number;
+  hold: number;
+  fly: number;
+  punch: number;
+}>> = {
+  common: { hitStop: 0.06, hold: 0.62, fly: 0.48, punch: 8 },
+  uncommon: { hitStop: 0.07, hold: 0.68, fly: 0.5, punch: 10 },
+  rare: { hitStop: 0.09, hold: 0.74, fly: 0.52, punch: 14 },
+  jackpot: { hitStop: 0.16, hold: 0.92, fly: 0.56, punch: 18 },
+};
 
 /** 打一发。pityCount 是「离上次出工分过了几发」，调用方自己累计 */
 export function shoot(rng: Rng, villageLv: number, pityCount: number): {
@@ -275,13 +353,15 @@ export function shoot(rng: Rng, villageLv: number, pityCount: number): {
     rebounds += 1;
   }
 
+  let pityHit = false;
   const need = creditPity(villageLv);
   if (pity >= need) {
     gain = addYield(gain, { exp: 0, scrap: 0, parts: 0, credits: 1 });
     pity = 0;
+    pityHit = true;
   }
 
-  return { result: { hit: first, gain, rebounds }, pityCount: pity };
+  return { result: { hit: first, gain, rebounds, pityHit }, pityCount: pity };
 }
 
 /** 靶面权重之和必须是 1000，改配比时别算错 */

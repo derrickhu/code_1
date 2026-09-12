@@ -1,0 +1,11 @@
+3 columns x 1 row game UI sprite sheet, landscape 16:9.
+
+Three SHORT isometric circular pucks / bottle-cap platforms for a village level map.
+Same size, same camera (slightly above, showing top disc + front rim), fat comic ink outlines, two-tone cel shade, cheap-fun rust-iron sticker look.
+
+LEFT (cleared): warm copper-rust top, gold rivet rim, worn but bright.
+MIDDLE (active): brighter gold rim, warm highlight on the disc, looks selected.
+RIGHT (locked): dark sooty iron, dull rim, no gold.
+
+Solid dark background behind all three (easy to cut). Even spacing, no overlap.
+NO TEXT, no numbers, no stars, no characters, no path, no labels, no watermarks.

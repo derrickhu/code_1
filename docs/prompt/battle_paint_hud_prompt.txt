@@ -1,0 +1,11 @@
+Spritesheet 4 columns x 2 rows, equal cells, thin dark gutters, each cell one isolated Chinese word on a flat pale warm gray backdrop.
+
+Same weathered metallic GOLD-YELLOW paint as the attached 村子 glyph.
+Fat calligraphic strokes, gold leaf, dark umber rim, slight chips and rust flecks in the paint.
+Cheap-fun Chinese small-town sticker look. Fat comic ink outlines.
+
+Cells left-to-right, top-to-bottom:
+1 上场   2 来   3 只   4 波
+5 第     6 漏   7 场上  8 门路
+
+Only that one word per cell. No extra words, no English, no numbers, no logos, no watermarks, no rust plates behind the letters.

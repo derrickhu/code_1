@@ -36,9 +36,9 @@ export function flipLife(count: number, fps: number): number {
 }
 
 export function flipFiles(): string[] {
-  const files = new Set<string>([`images/vfx_${SPARK_FLIP.file}.png`]);
+  const files = new Set<string>([`images/vfx/${SPARK_FLIP.file}.png`]);
   for (const spec of Object.values(VFX_FLIP)) {
-    files.add(`images/vfx_${spec.file}.png`);
+    files.add(`images/vfx/${spec.file}.png`);
   }
   return [...files];
 }

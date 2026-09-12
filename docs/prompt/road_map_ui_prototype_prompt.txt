@@ -1,0 +1,36 @@
+9:16 mobile game UI PROTOTYPE mockup for a CHAPTER LEVEL PATH screen.
+This is a design review image. UI chrome and short Chinese labels ARE allowed.
+
+LAYOUT (first reference, Tata / survivor map):
+- High-angle board-game map. The PATH is the hero: a thick, continuous, light cream-ochre dirt track winding in a clear S from the BOTTOM of the screen to the TOP.
+- Five circular rust-iron pucks sit ON the path, evenly spaced, easy to tap.
+- Decorations stay in the left and right margins, never covering the track.
+- Do NOT copy forest, pines, van, zombies, or Tata UI text.
+
+PATH STRUCTURE (second reference, xiaochu2):
+- Same S-curve readability: start bottom-center, swing left-right-left, end at a slightly larger pad near the top.
+- Do NOT copy mint fantasy hills, lotuses, or pavilions.
+
+UI CHROME (third reference, current game screenshot):
+- Keep the rusty riveted iron plates, painted cream stencil type, chunky scrap buttons.
+- Top: small rust plate 〈  |  wide rust plank "2 · 上路"  |  small rust plate 〉
+- Bottom left: rust button 回村口. Bottom right: larger rust button 开打.
+- Do NOT copy the current street-level composition or the tiny brown ovals floating on a vanishing road.
+
+STYLE (fourth reference, village dusk):
+- Cheap-fun Chinese small-town sticker look, fat comic ink, two-tone cel shade, painted dusk.
+- Rusted blue 五金 shack, scrap pile, megaphone pole, tile houses, dusk sky — as MAP scenery on the sides.
+
+CAMERA: 50–60 degree high-angle diorama. The whole S-path visible in one phone frame.
+NOT eye-level street. NOT a road vanishing to the horizon.
+
+NODES:
+- 2-1 near bottom, then 2-2, 2-3, 2-4, 2-5 near top.
+- 2-1 2-2 2-3 copper-rust pucks with ★★★. 2-4 gold-rim active puck. 2-5 dark iron locked puck.
+- One stocky village welder in a blue padded jacket stands ON 2-4 only.
+
+PATH must read as a track even with UI on: raised dirt banks, tire ruts, lighter than the surrounding mud.
+Leave top 12% and bottom 16% for the rust plates.
+
+Allowed text only: 2 · 上路, 〈, 〉, 2-1, 2-2, 2-3, 2-4, 2-5, ★, 回村口, 开打, 五金 on the shack.
+No English, no extra slogans, no watermarks, no GM button.

@@ -2,6 +2,7 @@
  * 局外 / 局内背景乐。一首 InnerAudioContext，切曲才重建。
  * 音量压过音效：BGM 常驻，抬太高会盖掉点击和打击。
  */
+import { CdnAssetService, isWxTempPath } from '@/core/CdnAssetService';
 import { Platform } from '@/core/PlatformService';
 
 export const BGM_FILE = {
@@ -45,12 +46,21 @@ class BgmPlayerClass {
     this._paused = false;
     ctx.loop = true;
     ctx.volume = VOLUME[id] ?? this._volume;
-    ctx.src = src;
     ctx.onError((err) => {
       console.warn('[Bgm] 播失败', id, err);
       this.stop();
     });
-    try { ctx.play(); } catch { /* 开发者工具没手势时不炸 */ }
+    void CdnAssetService.resolveOrDownload(src).then((resolved) => {
+      if (this._ctx !== ctx) return;
+      // 微信 InnerAudio 读不了 downloadFile 的 http://tmp/，会 request:fail timeout
+      ctx.src = isWxTempPath(resolved) ? CdnAssetService.cdnUrl(src) : resolved;
+      try { ctx.play(); } catch { /* 开发者工具没手势时不炸 */ }
+    }).catch((e) => {
+      console.warn('[Bgm] CDN 解析失败', id, e);
+      if (this._ctx !== ctx) return;
+      ctx.src = src;
+      try { ctx.play(); } catch { /* */ }
+    });
   }
 
   pause(): void {
@@ -63,6 +73,13 @@ class BgmPlayerClass {
     if (!this._ctx || !this._paused) return;
     try { this._ctx.play(); } catch { /* */ }
     this._paused = false;
+  }
+
+  /** 亮大奖时把村子 BGM 压下去，卡收完再抬回来 */
+  duck(on: boolean): void {
+    if (!this._ctx || !this._id) return;
+    const base = VOLUME[this._id] ?? this._volume;
+    this._ctx.volume = on ? base * 0.32 : base;
   }
 
   stop(): void {

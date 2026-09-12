@@ -326,4 +326,5 @@ describe('下一个目标', () => {
     expect(goal.kind).toBe('stars');
     expect(goal.text).toContain('没打利索');
   });
+
 });

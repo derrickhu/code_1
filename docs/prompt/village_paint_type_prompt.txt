@@ -1,0 +1,12 @@
+Spritesheet 4 columns x 3 rows, equal cells, thin dark gutters, each cell one isolated glyph on a flat pale warm gray backdrop.
+
+Weathered metallic GOLD-YELLOW paint, the same brush/stencil look as 村子 1级 on the attached rust header.
+Fat calligraphic strokes, gold leaf, dark umber rim, slight chips and rust flecks in the paint.
+Cheap-fun Chinese small-town sticker look. Fat comic ink outlines.
+
+Cells left-to-right, top-to-bottom:
+1 村子   2 级   3 0   4 1
+5 2      6 3   7 4   8 5
+9 6      10 7  11 8  12 9
+
+Only that one glyph per cell. No extra words, no English, no logos, no watermarks, no rust plates behind the letters.

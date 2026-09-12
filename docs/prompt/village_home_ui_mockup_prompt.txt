@@ -1,0 +1,18 @@
+Vertical 9:16 mobile game UI screenshot mockup of a WeChat minigame village HOME hub.
+Fat comic ink outlines, flat 6-8 colors, two-tone cel shade, cheap-fun Chinese small-town sticker look.
+NOT dark fantasy, NOT candy fantasy, NOT premium painterly, NOT photoreal, NOT generic casual purple UI.
+
+This is a PLACE, not a menu. Dusty village lane at dusk: warm earth yellow dirt, cement gray, faded plastic-blue hardware store left, rusty scrap pile right, tangled utility wires. Tiny cold violet glow far on the horizon only.
+
+UI chrome is rusty nailed iron plates, never clean rounded app cards.
+
+Exact Chinese labels, short and legible:
+- Top iron bar: 村子 4级, gold exp bar, 再 40 点 · 多上一人
+- Four counters: 废铁 380, 零件 6, 工分 2, 弹子 12
+- Small wooden pole notice: 3-2 村口那条沟
+- Center tin gate CTA: 出村
+- Left real stall building: 弹弓摊  12发
+- Right loudspeaker board: 大喇叭  8/20人
+- Leaning dirt sign: 去喊一嗓子
+
+Seven big-head village people standing on the dirt road with welded junk (wok lid, cotton jacket, sledgehammer, slingshot, boombox). No tab bar, no gem shop, no English.

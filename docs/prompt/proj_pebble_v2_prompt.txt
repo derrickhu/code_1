@@ -1,0 +1,10 @@
+Single game sprite of ONE river pebble only, isolated in the exact center.
+County-town Chinese sticker illustration: thick wobbly charcoal outline, 6-8 flat colors,
+two-tone chunky shading, grainy weathered surface, no gradients, no photorealism.
+Irregular lumpy oblong river stone, wider than tall, bumpy silhouette with dents.
+NOT a perfect oval, NOT a sphere, NOT a gem, NOT a cartoon rock emoji, NOT a meteor.
+Olive-grey dusty brown body, two cream mineral patches on the top face,
+thin white rim-light on the upper-left edge, dark cracks and pit specks on the bottom-right.
+Must read as a real slingshot pebble picked from a riverbed, even at 48 pixels.
+Flat solid bright cyan background #00E5FF only, no drop shadow, no ground, no other objects, no glow.
+NO TEXT, no labels, no captions, no writing anywhere in the image.

@@ -20,7 +20,21 @@
     "postcss": false
   },
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      { "type": "folder", "value": "images/hero" },
+      { "type": "folder", "value": "images/anim" },
+      { "type": "folder", "value": "images/enemy" },
+      { "type": "folder", "value": "images/vfx" },
+      { "type": "folder", "value": "images/proj" },
+      { "type": "folder", "value": "images/mod" },
+      { "type": "folder", "value": "images/wep" },
+      { "type": "folder", "value": "images/fx" },
+      { "type": "folder", "value": "images/bg" },
+      { "type": "folder", "value": "images/ui" },
+      { "type": "file", "value": "audio/bgm_battle.mp3" },
+      { "type": "file", "value": "audio/bgm_battle_hot.mp3" },
+      { "type": "file", "value": "audio/bgm_village.mp3" }
+    ],
     "include": []
   }
 }

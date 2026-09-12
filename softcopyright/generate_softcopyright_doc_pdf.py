@@ -73,27 +73,27 @@ SCREENSHOTS = {
     'loading': [(_pic('cunkou_01_loading.png', 'cunkou_01_loading.jpg', '01_loading.png'),
                  '图1  启动加载界面 - 游戏名称、进度条与健康游戏忠告')],
     'home': [(_pic('cunkou_02_home.png', 'cunkou_02_home.jpg', '02_home.png'),
-              '图2  村口主界面 - 资源条、村民、弹弓摊、关卡木牌、图鉴墙与出村铁门')],
+              '图2  村口主界面 - 资源条、弹弓摊、大喇叭杆、图鉴墙、木牌与出村铁门')],
     'stall': [(_pic('cunkou_03_stall.png', 'cunkou_03_stall.jpg', '03_stall.png'),
                '图3  弹弓摊界面 - 靶面、弹子、工分保底与广告补弹')],
-    'folks': [(_pic('cunkou_04_folks.png', 'cunkou_04_folks.jpg', '04_folks.png'),
-               '图4  村民图鉴 - 已入伙/未见过、定位筛选与喊人入口')],
-    'one': [(_pic('cunkou_05_one.png', 'cunkou_05_one.jpg', '05_one.png'),
-             '图5  单个村民三阶详情 - 立绘对照与喂料消耗')],
-    'call': [(_pic('cunkou_06_call.png', 'cunkou_06_call.jpg', '06_call.png'),
-              '图6  喊人入伙反馈 - 新人入伙或熟人加星')],
-    'place': [(_pic('cunkou_07_place.png', 'cunkou_07_place.jpg', '07_place.png'),
-               '图7  布阵界面 - 三路四格、底部坞与敌方门路提示')],
-    'fight': [(_pic('cunkou_08_fight.png', 'cunkou_08_fight.jpg', '08_fight.png'),
-               '图8  战斗进行中 - 分路进场、自动出手、漏怪与底线')],
-    'revive': [(_pic('cunkou_09_revive.png', 'cunkou_09_revive.jpg', '09_revive.png'),
-                '图9  漏怪复活弹窗 - 倒下村民、漏怪数与广告复活')],
-    'settle': [(_pic('cunkou_10_settle.png', 'cunkou_10_settle.jpg', '10_settle.png'),
-                '图10  通关结算 - 星评、废铁、弹子与广告翻倍')],
-    'stars': [(_pic('cunkou_11_stars.png', 'cunkou_11_stars.jpg', '11_stars.png'),
-               '图11  关卡木牌带星评 - 当前关卡与最高星')],
-    'goal': [(_pic('cunkou_12_goal.png', 'cunkou_12_goal.jpg', '12_goal.png'),
-              '图12  下一步目标 - 能喂 / 能喊 / 推图 / 打利索')],
+    'horn': [(_pic('cunkou_04_horn.png', 'cunkou_04_horn.jpg', '04_horn.png'),
+              '图4  大喇叭喊人 - 花工分喊一嗓子、新人入伙或熟人加星')],
+    'folks': [(_pic('cunkou_05_folks.png', 'cunkou_05_folks.jpg', '05_folks.png'),
+               '图5  村民图鉴 - 已入伙/未见过、抗打治筛选，只看书不喊人')],
+    'one': [(_pic('cunkou_06_one.png', 'cunkou_06_one.jpg', '06_one.png'),
+             '图6  单个村民三阶详情 - 立绘对照与喂料消耗')],
+    'road': [(_pic('cunkou_07_road.png', 'cunkou_07_road.jpg', '07_road.png'),
+              '图7  出村章节路径 - S 形土路、圆墩选关')],
+    'place': [(_pic('cunkou_08_place.png', 'cunkou_08_place.jpg', '08_place.png'),
+               '图8  布阵界面 - 三路四格、底部坞与敌方门路提示')],
+    'fight': [(_pic('cunkou_09_fight.png', 'cunkou_09_fight.jpg', '09_fight.png'),
+               '图9  战斗进行中 - 分路进场、自动出手、漏怪与底线')],
+    'revive': [(_pic('cunkou_10_revive.png', 'cunkou_10_revive.jpg', '10_revive.png'),
+                '图10  漏怪复活弹窗 - 倒下村民、漏怪数与广告复活')],
+    'settle': [(_pic('cunkou_11_settle.png', 'cunkou_11_settle.jpg', '11_settle.png'),
+                '图11  通关结算 - 星评、废铁、弹子与广告翻倍')],
+    'lose': [(_pic('cunkou_12_lose.png', 'cunkou_12_lose.jpg', '12_lose.png'),
+              '图12  失败结算 - 漏怪或超时、败因与回村')],
 }
 
 
@@ -372,11 +372,12 @@ def write_document(pdf):
         '    2.3 模块划分与关系',
         '    2.4 场景与界面系统设计',
         '    2.5 主循环与资源加载设计',
+        '    2.6 分包与 CDN 按需加载',
         '三、核心模块详细设计',
         '    3.1 游戏入口与平台适配模块',
-        '    3.2 村口主界面与目标导航',
+        '    3.2 村口主界面与章节路径',
         '    3.3 弹弓摊与资源产出模块',
-        '    3.4 村民图鉴与喊人收集模块',
+        '    3.4 大喇叭喊人与村民图鉴',
         '    3.5 手艺养成与三阶进化模块',
         '    3.6 星级与手艺上限模块',
         '    3.7 村庄等级与上场人数模块',
@@ -385,6 +386,7 @@ def write_document(pdf):
         '    3.10 战斗引擎与自动战斗模块',
         '    3.11 结算、复活与广告模块',
         '    3.12 存档与云同步模块',
+        '    3.13 贴图加载与到货刷新',
         '四、数据结构设计',
         '五、数据接口设计',
         '六、出错处理设计',
@@ -411,18 +413,19 @@ def write_document(pdf):
     pdf.write_body(
         '村口大战外星人是一款基于微信小游戏运行环境开发的村民收集与分路自动塔防游戏。'
         '外星人降落在县城，村口闲人翻出五金店和废品堆的破烂往身上焊；人手不够就去村委会大喇叭喊一嗓子，再叫一个来。'
-        '玩家在村口攒人、喂手艺、排三路四格，开打后自动战斗；局外用弹弓摊打靶换资源。'
+        '玩家在村口攒人、喂手艺，出村先看章节路径再排三路四格，开打后自动战斗；局外用弹弓摊打靶换资源。'
     )
     pdf.write_body('本软件的主要功能包括:')
     for text in [
-        '村口经营系统: 管理废铁、零件、工分、村庄经验四条资源，并给出下一步目标。',
+        '村口经营系统: 管理废铁、零件、工分、村庄经验四条资源。',
         '弹弓摊系统: 消耗弹子打靶，按权重掉落经验、废铁、零件或工分，支持广告补弹。',
-        '村民收集系统: 二十名村民按五门路四定位组成完整方阵，工分喊人入伙或加星。',
+        '村民收集系统: 二十名村民按五门路四定位组成完整方阵，大喇叭花工分喊人入伙或加星。',
         '手艺与进化系统: 手艺档位决定数值，三档与六档切换二阶、三阶立绘和攻击方式。',
-        '布阵系统: 三路四格共十二格，玩家从底部坞拎人上场，开打后锁死。',
+        '章节路径与布阵: 出村先走 S 形土路点墩选关，再在三路四格上拎人上场，开打后锁死。',
         '自动战斗系统: 确定性 tick 引擎驱动分路阻挡、跨列支援、漏怪与超时判定。',
         '关卡与星评系统: 八十章共四百关，按漏怪、倒人和清场时间评一至三星。',
         '存档同步系统: 使用本地 Storage 与 CloudBase HTTP 后端进行存档同步，按平台隔离账号数据。',
+        '资源加载系统: 主包出加载页，村口壳走分包，立绘与战斗图 CDN 按需拉取，到货后再刷界面。',
     ]:
         pdf.write_bullet(text)
 
@@ -466,52 +469,54 @@ def write_document(pdf):
     pdf.write_h3('第一步 启动与健康游戏忠告')
     pdf.write_body(
         '打开小游戏后先进入全屏加载页。画面展示游戏名称、加载进度条、著作权人，以及《健康游戏忠告》全文。'
-        '此阶段同时预热云同步、预加载村口与战场贴图。最短展示 900 毫秒。忠告文字必须可读，属于出版审查必查项。'
+        '主包只带加载插画与标题，出图后再拉取村口主界面分包 (pkg-home / pkg-home-art)；'
+        '立绘、战斗图和背景音乐走 CDN 后台预热，不挡首屏。最短展示 900 毫秒。'
+        '忠告文字必须可读，属于出版审查必查项。'
     )
     p, c = img('loading')
     pdf.write_image(p, c)
 
     pdf.write_h3('第二步 进入村口')
     pdf.write_body(
-        '加载完成后进入村口。顶部四条资源一目了然；路中间站着已入伙的人；'
-        '左侧弹弓摊、中间关卡木牌和下一步目标、右侧图鉴墙、底部出村铁门。'
-        '玩家在这里只做一件事：决定下一步去摊子、图鉴还是出村。'
+        '加载完成后进入村口。顶部四条资源一目了然；路上只站几个闲人，不是花名册。'
+        '左侧弹弓摊、大喇叭杆、中间进度木牌、右侧图鉴墙、底部出村铁门。'
+        '玩家在这里只做一件事：决定下一步去摊子、大喇叭、图鉴还是出村看路。'
+        '木牌只报最近一关通了没和最高星，不在这儿切关。'
     )
     p, c = img('home')
-    pdf.write_image(p, c)
-    p, c = img('goal')
-    pdf.write_image(p, c)
-    p, c = img('stars')
     pdf.write_image(p, c)
 
     pdf.write_h3('第三步 弹弓摊打靶换资源')
     pdf.write_body(
-        '点摊子进入弹弓摊。消耗一发弹子打靶，按权重掉落村庄经验、废铁、零件或工分。'
+        '点摊子进入弹弓摊。消耗一发弹子，向下拉弹弓松手打出去，按权重掉落村庄经验、废铁、零件或工分。'
         '弹子靠离线回复、通关补给和广告补充。工分有保底，面板写还差几发。'
         '打完回到村口，经验条和资源数字会变。'
     )
     p, c = img('stall')
     pdf.write_image(p, c)
 
-    pdf.write_h3('第四步 图鉴、喊人与喂料')
+    pdf.write_h3('第四步 大喇叭喊人、图鉴与喂料')
     pdf.write_body(
-        '点图鉴墙进入二十人名单。已入伙的能点进去看三阶立绘并喂手艺；没见过的暗着。'
-        '工分够六就点「喊一嗓子」：前四次必出新人，之后可能加星。'
-        '喂料花废铁和零件，三档、六档换立绘和打法。'
+        '点大喇叭杆进入村委会喇叭页。工分够六就点「喊一嗓子」：前四次必出新人，之后可能给熟人加星。'
+        '点图鉴墙进入二十人名单，只看书不喊人：已入伙的能点进去看三阶立绘并喂手艺，没见过的暗着。'
+        '喂料花废铁和零件，三档、六档换立绘和打法。路上闲人也可点进详情。'
     )
-    p, c = img('folks')
+    p, c = img('horn')
     pdf.write_image(p, c)
-    p, c = img('call')
+    p, c = img('folks')
     pdf.write_image(p, c)
     p, c = img('one')
     pdf.write_image(p, c)
 
-    pdf.write_h3('第五步 出村布阵')
+    pdf.write_h3('第五步 出村看路再布阵')
     pdf.write_body(
-        '点铁门进入当前关。开战前先看敌方主门路，再从底部坞把人拎到三路四格上。'
+        '点铁门先进入章节路径。底图自带 S 形土路，圆墩叠在坑上；点墩选关，过关后再进来时人沿土路走到下一坑。'
+        '选关后进入布阵：开战前先看敌方主门路，再从底部坞把人拎到三路四格上。'
         '谁站第一格谁先挨，空路会直接漏。上一关的排法会带过来，可以改。'
         '点开战后面板锁死，进入自动战斗。'
     )
+    p, c = img('road')
+    pdf.write_image(p, c)
     p, c = img('place')
     pdf.write_image(p, c)
 
@@ -519,13 +524,16 @@ def write_document(pdf):
     pdf.write_body(
         '敌人从上往下走，村民自动出手。地面怪被本路最前排挡住，飞碟点后排。'
         '漏满三只弹出复活；看广告可以继续打。打完出结算：星评、废铁、弹子，可选广告翻倍。'
-        '回村口后木牌更新关卡和星，目标木牌指向下一件该做的事。'
+        '不复活或超时则走失败结算，仍给一发弹子，避免空手回村。'
+        '回村口后木牌更新最近通关关号和最高星，图2 已经能看见，不再单截。'
     )
     p, c = img('fight')
     pdf.write_image(p, c)
     p, c = img('revive')
     pdf.write_image(p, c)
     p, c = img('settle')
+    pdf.write_image(p, c)
+    p, c = img('lose')
     pdf.write_image(p, c)
 
     pdf.write_h3('闭环')
@@ -563,15 +571,17 @@ def write_document(pdf):
     pdf.write_table(
         ['操作', '手势', '结果'],
         [
-            ['出村', '点底部铁门', '进入当前关布阵'],
-            ['打靶', '点摊子后点发射', '耗一发弹子，掉资源'],
-            ['喊人', '图鉴页点喊一嗓子', '耗 6 工分，新人入伙或熟人加星'],
+            ['出村', '点底部铁门', '进入章节路径'],
+            ['选关', '路径图上点圆墩', '进入该关布阵'],
+            ['打靶', '点摊子后向下拉、松手', '耗一发弹子，掉资源'],
+            ['喊人', '点大喇叭杆后点喊一嗓子', '耗 6 工分，新人入伙或熟人加星'],
+            ['看书', '点图鉴墙', '看二十人名单，已入伙可进详情'],
             ['喂料', '详情页点喂', '耗废铁和零件，手艺 +1'],
             ['上阵', '坞里向上拖到格子', '该格站上这个人'],
             ['换位 / 下场', '场上拖到另一格或拖回坞', '改排法'],
             ['开战', '点开战', '锁阵，自动战斗'],
-            ['复活', '漏满 3 只后点广告复活', '漏怪清零，继续打'],
-            ['回村', '结算或布阵点回村口', '回到 home'],
+            ['复活', '漏满 3 只后点广告复活', '漏怪清零，场上敌人清一半，继续打'],
+            ['回村', '结算或路径图点回村口', '回到 home'],
         ],
         [28, 50, 87],
     )
@@ -590,11 +600,12 @@ def write_document(pdf):
     )
     pdf.write_body('软件核心需求包括以下几个方面:')
     for text in [
-        '提供稳定的分路自动塔防，包括布阵、阻挡、跨列支援、漏怪、超时和星评。',
-        '提供村民收集与养成进度，包括喊人入伙、手艺喂料、三阶进化、星级上限和村庄等级。',
+        '提供稳定的分路自动塔防，包括章节路径选关、布阵、阻挡、跨列支援、漏怪、超时和星评。',
+        '提供村民收集与养成进度，包括大喇叭喊人入伙、手艺喂料、三阶进化、星级上限和村庄等级。',
         '提供局外资源循环，包括弹弓摊打靶、弹子回复、通关结算和广告补弹。',
         '提供可靠的本地存档与云存档，保证退出、断网、重进及不同设备之间的存档一致性。',
         '提供平台适配，使微信、抖音和 H5 复用同一套游戏规则。',
+        '提供分包与 CDN 按需加载，保证首屏出图快，后续立绘和战斗图后台补齐。',
     ]:
         pdf.write_bullet(text)
 
@@ -611,9 +622,14 @@ def write_document(pdf):
         '  +-- core/BackendService.ts       HTTP 登录、pull、push 请求封装',
         '  +-- core/CloudSyncManager.ts     启动拉取、防抖上传、冲突覆盖',
         '  +-- core/RunMemory.ts            养成存档读写与业务动作',
+        '  +-- core/ensureAssets.ts         分包 + CDN + 纹理解码统一入口',
+        '  +-- core/CdnAssetService.ts      CDN manifest、下载与本地缓存',
+        '  +-- config/HomePack.ts           村口壳图分包路径',
+        '  +-- config/Subpackages.ts        wx/tt.loadSubpackage',
         '  +-- game/BattleEngine.ts         战斗规则唯一真源',
         '  +-- balance/*                    村民、关卡、摊子、村庄纯数据',
-        '  +-- scenes/VillageScene.ts       村口四页: home / stall / folks / one',
+        '  +-- scenes/VillageScene.ts       村口五页: home / horn / stall / folks / one',
+        '  +-- scenes/RoadScene.ts          出村章节路径、圆墩选关',
         '  +-- scenes/BattleScene.ts        布阵与战斗渲染',
         '  +-- cloudfunctions/cunkou-api    CloudBase HTTP 后端服务',
     ])
@@ -626,9 +642,9 @@ def write_document(pdf):
             ['平台层', 'PlatformService', '封装 request、storage、login、广告、生命周期'],
             ['服务层', 'PersistService / BackendService', '封装本地存储、云同步快照、后端 HTTP'],
             ['规则层', 'BattleEngine / RunMemory / balance', '战斗、养成、关卡、摊子的唯一规则'],
-            ['场景层', 'VillageScene / BattleScene', '绘制界面、处理点击和反馈'],
+            ['场景层', 'VillageScene / RoadScene / BattleScene', '绘制界面、处理点击和反馈'],
             ['浮层', 'SettleOverlay / ReviveOverlay / Loading', '结算、复活、加载与健康忠告'],
-            ['资源层', 'TextureLoader / SfxPlayer / BgmPlayer', '贴图、音效、背景音乐加载'],
+            ['资源层', 'ensureAssets / CdnAssetService / TextureLoader', '分包、CDN 按需、贴图到货刷新'],
             ['后端层', 'cunkou-api', '平台登录、JWT 鉴权、存档拉取与上传'],
         ],
         [28, 50, 87],
@@ -639,7 +655,7 @@ def write_document(pdf):
         '战斗渲染层只读 BattleEngine 的状态和事件，不自己算伤害。'
     )
     pdf.write_code_block([
-        'main.ts -> 初始化 Pixi、TextureLoader、SceneManager、云同步预热',
+        'main.ts -> 初始化 Pixi、ensureAssets(MAIN_PRELOAD)、村口分包、云同步预热',
         'VillageScene -> 调用 RunMemory 方法 -> 修改养成存档',
         'BattleScene -> BattleEngine.tick -> 消费 BattleEvent 放特效',
         'PersistService.subscribe(changedKeys) -> CloudSyncManager.scheduleSync(reason)',
@@ -648,33 +664,57 @@ def write_document(pdf):
 
     pdf.write_h2('2.4 场景与界面系统设计')
     pdf.write_body(
-        '软件采用两个主场景加若干浮层的结构。VillageScene 用四个页面覆盖局外全部功能，'
-        '刻意不做编队、废品站、门路研发等多入口：home 出村，stall 打靶，folks 图鉴与喊人，one 看三阶再喂料。'
-        'BattleScene 覆盖布阵与自动战斗。结算、复活、加载由独立 Overlay 管理。'
+        '软件采用三个主场景加若干浮层的结构。VillageScene 用五个页面覆盖局外功能：'
+        'home 出村，horn 大喇叭喊人，stall 打靶，folks 图鉴只看书，one 看三阶再喂料。'
+        'RoadScene 覆盖出村后的章节路径与选关。BattleScene 覆盖布阵与自动战斗。'
+        '结算、复活、加载由独立 Overlay 管理。'
     )
     pdf.write_table(
         ['界面', '入口', '玩家在这里决定什么'],
         [
             ['加载', '启动', '无决策，展示健康游戏忠告'],
-            ['村口 home', '加载完成 / 回村', '下一步去摊子、图鉴还是出村'],
+            ['村口 home', '加载完成 / 回村', '下一步去摊子、大喇叭、图鉴还是出村看路'],
+            ['大喇叭 horn', '村口喇叭杆', '花工分喊人，看新人入伙或熟人加星'],
             ['弹弓摊 stall', '村口摊子', '打哪一发、要不要看广告补弹'],
-            ['图鉴 folks', '村口图鉴墙', '喊谁、筛哪一种力'],
-            ['详情 one', '图鉴点人', '喂不喂、升完长什么样'],
-            ['布阵', '出村铁门', '谁上场、站哪一路哪一格'],
+            ['图鉴 folks', '村口图鉴墙', '看书、筛抗打治，点人进详情'],
+            ['详情 one', '图鉴或路上闲人', '喂不喂、升完长什么样'],
+            ['章节路径', '出村铁门', '点墩选哪一关'],
+            ['布阵', '路径图选关', '谁上场、站哪一路哪一格'],
             ['战斗', '开战按钮', '观战；漏怪时可选择复活'],
-            ['结算', '胜负判定', '看星评、拿废铁和弹子、是否翻倍'],
+            ['通关结算', '打赢', '看星评、拿废铁和弹子、是否翻倍'],
+            ['失败结算', '漏怪不复活或超时', '看败因、拿一发弹子、回村'],
         ],
         [32, 38, 95],
     )
     pdf.write_h2('2.5 主循环与资源加载设计')
     pdf.write_body(
-        '游戏启动时先挂 LoadingScreenOverlay，展示插画、进度条和健康游戏忠告，'
-        '同时预热 CloudSyncManager，并按清单预加载村口与战场贴图。'
-        '最短展示 900 毫秒，避免一闪而过。资源就绪后再切换到 VillageScene。'
+        '游戏启动时先挂 LoadingScreenOverlay，用主包内的插画和标题立刻出画面，展示进度条和健康游戏忠告，'
+        '同时预热 CloudSyncManager。出图后再等待村口主界面分包解码，立绘与战斗图不进这一步。'
+        '最短展示 900 毫秒，避免一闪而过。村口壳就绪后再切换到 VillageScene。'
     )
     pdf.write_body(
         '主循环由 Pixi Ticker 驱动。村子页按需重绘；战场按 100 毫秒逻辑步长调用 BattleEngine.tick，'
         '渲染层插值位置并消费事件数组播放特效与音效。切后台时触发立即存档与云端 flush。'
+    )
+
+    pdf.write_h2('2.6 分包与 CDN 按需加载')
+    pdf.write_body(
+        '微信主包与单个分包均不超过 4MB。加载插画留在主包；村口底图与壳 UI 拆到 pkg-home，'
+        '两张大门图单独放 pkg-home-art。英雄立绘、动画、敌人、特效、战斗底图和 BGM 走腾讯云 CDN，'
+        '按当前页清单 ensureAssets 拉取，不在开局把全村立绘写入本地缓存。'
+    )
+    pdf.write_code_block([
+        'MAIN_PRELOAD_IMAGES = loading_splash + title_logo     // 主包，不含 subpackages/',
+        'VILLAGE_HOME_SHELL   = village bg + home UI           // pkg-home / pkg-home-art',
+        'ensureAssets(paths):',
+        '  loadSubpackagesForPaths(paths)   // 失败不卡死',
+        '  CdnAssetService.preloadPaths()   // 超时继续后台',
+        '  TextureLoader.preloadPaths()     // 解码；失败退色块',
+        'Village/Battle 入场后再 ensureAssets(本屏清单)',
+    ])
+    pdf.write_body(
+        '浏览器开发期没有分包目录，CdnAssetService 会把 subpackages/pkg-home/... 剥回 assets 逻辑路径。'
+        'BGM 必须落到 USER_DATA 再交给 InnerAudio，禁止把 downloadFile 临时路径当作播放地址。'
     )
 
     # =============== 三、核心模块详细设计 ===============
@@ -682,7 +722,8 @@ def write_document(pdf):
     pdf.write_h2('3.1 游戏入口与平台适配模块')
     pdf.write_body(
         '游戏入口模块完成 Pixi 应用初始化、舞台创建、安全区计算、加载页挂载、启动期云同步等待、生命周期事件绑定等工作。'
-        '平台适配模块通过 PlatformService 统一封装微信、抖音和 H5 的差异，包括 storage、request、login、onHide、onShow、激励视频等能力。'
+        '启动顺序固定为：主包插画出图 -> 清旧 CDN 缓存并拉 manifest -> 等待村口分包解码 -> 进村。'
+        '平台适配模块通过 PlatformService 统一封装微信、抖音和 H5 的差异，包括 storage、request、login、onHide、onShow、loadSubpackage、激励视频等能力。'
         '业务代码禁止直接写 typeof wx / typeof tt。'
     )
     pdf.write_code_block([
@@ -698,28 +739,25 @@ def write_document(pdf):
         '避免两个宿主串档。'
     )
 
-    pdf.write_h2('3.2 村口主界面与目标导航')
+    pdf.write_h2('3.2 村口主界面与章节路径')
     pdf.write_body(
         '村口是全部功能的中枢。顶部资源条常驻废铁、零件、工分、村庄经验，大数用万/亿格式化。'
-        '路中间站已入伙村民；左侧弹弓摊、中间关卡木牌与下一步目标、右侧图鉴墙、底部出村铁门。'
-        'nextGoal 按“能喂 > 能喊 > 推图 > 打利索”排序，任何时候点开村子都有下一步。'
+        '路上只站几个闲人；左侧弹弓摊、大喇叭杆、中间进度木牌、右侧图鉴墙、底部出村铁门。'
+        '点摊子打靶，点喇叭杆喊人，点图鉴墙看书，点闲人进详情喂料，点铁门出村看路。'
+        '木牌调用 homeRoadBrief，只报最近通关关号和最高星，不可点、不切关。'
     )
-    pdf.write_code_block([
-        'nextGoal(mem):',
-        '  if someone can afford nextFeed: return { kind: craft, short: "能喂" }',
-        '  if mem.credits >= CALL_COST: return { kind: call, short: "能喊" }',
-        '  if stageTop not yet cleared: return { kind: stage, short: "推图" }',
-        '  if any cleared stage has stars < 3: return { kind: stars, short: "打利索" }',
-        '  return { kind: done, short: "齐了" }',
-    ])
-    p, c = img('goal')
+    pdf.write_body(
+        'RoadScene 是独立场景。底图自带 S 形土路，圆墩叠在坑上。点已解锁的墩进入该关布阵；'
+        '过关后再进来时村民沿土路走到下一坑。章节按 stageTop 解锁，最多八十章。'
+    )
+    p, c = img('home')
     pdf.write_image(p, c)
-    p, c = img('stars')
+    p, c = img('road')
     pdf.write_image(p, c)
 
     pdf.write_h2('3.3 弹弓摊与资源产出模块')
     pdf.write_body(
-        '弹弓摊是局外唯一的资源出口。玩家消耗一发弹子打靶，系统按千分权重抽取靶位，'
+        '弹弓摊是局外唯一的资源出口。玩家消耗一发弹子，向下拉弹弓松手打出去，系统按千分权重抽取靶位，'
         '掉落村庄经验、废铁、零件或工分。弹子是次数不是货币：不进资源条、不能买卖、没有第二个去处。'
     )
     pdf.write_table(
@@ -751,11 +789,12 @@ def write_document(pdf):
     p, c = img('stall')
     pdf.write_image(p, c)
 
-    pdf.write_h2('3.4 村民图鉴与喊人收集模块')
+    pdf.write_h2('3.4 大喇叭喊人与村民图鉴')
     pdf.write_body(
         '村民池固定二十人，按五门路乘四定位组成完整方阵。启动时 assertRosterComplete 校验每格恰好一人，'
         '否则“这关克你的坦克、换另一条门路的坦克上来”会变成无解。'
-        '图鉴页已入伙的能点进去喂，没见过的暗着；抗、打、治三种力可筛选。'
+        '喊人只在大喇叭页：花六工分点「喊一嗓子」，揭晓动画和新人走路都在这一页。'
+        '图鉴页只看书，不喊人。已入伙的能点进去喂，没见过的暗着；抗、打、治三种力可筛选。'
     )
     pdf.write_table(
         ['门路', '克谁', '代表村民'],
@@ -780,9 +819,9 @@ def write_document(pdf):
         '  else if res.starTo: stars[res.starTo] += 1',
         '  credits -= 6; scrap += res.scrap',
     ])
-    p, c = img('folks')
+    p, c = img('horn')
     pdf.write_image(p, c)
-    p, c = img('call')
+    p, c = img('folks')
     pdf.write_image(p, c)
 
     pdf.write_h2('3.5 手艺养成与三阶进化模块')
@@ -932,9 +971,10 @@ def write_document(pdf):
 
     pdf.write_h2('3.11 结算、复活与广告模块')
     pdf.write_body(
-        '漏满三只时弹出 ReviveOverlay。玩家可看激励视频复活一次（日限两次），'
-        '复活后漏怪计数清零并继续打。不复活或次数用尽则进入失败结算。'
-        '失败也给一发弹子，避免空手回村。'
+        '漏满三只时弹出 ReviveOverlay。玩家可看激励视频复活（AdDay 日限两次），'
+        '复活后漏怪计数清零、场上存活敌人清一半、倒地村民以百分之四十五生命起来，回到战斗。'
+        '不复活或次数用尽则进入失败结算。'
+        '失败也给一发弹子，避免空手回村。结算废铁广告翻倍日限五次；摊子补弹日限三次、每次五发。'
     )
     pdf.write_body(
         '胜利结算展示星评、本关废铁和弹子。首次通关废铁五十（乘产出倍率），重打十五；'
@@ -951,6 +991,8 @@ def write_document(pdf):
     p, c = img('revive')
     pdf.write_image(p, c)
     p, c = img('settle')
+    pdf.write_image(p, c)
+    p, c = img('lose')
     pdf.write_image(p, c)
 
     pdf.write_h2('3.12 存档与云同步模块')
@@ -973,6 +1015,25 @@ def write_document(pdf):
         'pushSave(snapshot):',
         '  POST /cunkou-api/save/push Authorization: Bearer token',
         '  body = { schemaVersion, updatedAt, payload, clientFingerprint }',
+    ])
+
+    pdf.write_h2('3.13 贴图加载与到货刷新')
+    pdf.write_body(
+        '全部贴图走统一入口 tex() / uiTex() / heroTex()，由 TextureLoader 经 CdnAssetService 解析本地包、分包或 CDN 缓存。'
+        '未就绪或失败时返回空，场景退回色块，不挡玩。失败会在控制台留下路径，记入 missing；'
+        'ensureAssets / loadOne 再给一次机会，避免首包超时后整局不再拉。'
+    )
+    pdf.write_body(
+        '贴图到货后 watchArt 通知场景重绘。村口五页每次渲染都会重新读贴图；'
+        '弹弓摊货架为了射击动画只 mount 一次，到货后只调用 refreshArt 换靶面，不重置倒下状态。'
+        '浏览器开发期把分包路径剥回 assets 目录，与真机逻辑路径分离。'
+    )
+    pdf.write_code_block([
+        'tex(path):',
+        '  cache hit -> Texture',
+        '  else kick(resolveAsset | download) ; return null',
+        'watchArt(fn)  // 到货通知',
+        'StallYard.refreshArt()  // 已挂货架只换贴图',
     ])
 
     # =============== 四、数据结构设计 ===============
@@ -1020,7 +1081,7 @@ def write_document(pdf):
             ['cunkou_run_memory', '微信养成主存档'],
             ['cunkou_tt_run_memory', '抖音养成主存档'],
             ['cunkou_token / cunkou_anon_id', '仅本地，不上云'],
-            ['cunkou_ad_day', '广告日限，仅本地'],
+            ['cunkou_ad_day', '广告日限账本 AdDay，仅本地'],
         ],
         [58, 107],
     )
@@ -1109,7 +1170,9 @@ def write_document(pdf):
 
     pdf.write_h2('6.3 资源加载异常处理')
     pdf.write_body(
-        'TextureLoader 在贴图未就绪时返回空纹理，场景层退回色块绘制，不挡玩。'
+        'TextureLoader 在贴图未就绪或下载失败时返回空，场景层退回色块绘制，不挡玩。'
+        '分包加载失败、CDN 超时或 manifest 缺条目都只记警告，不中断进村。'
+        '失败路径会打 [tex] 加载失败 日志；ensureAssets 会对 missing 再试一次。'
         '战场和村子都按“贴图缺失仍可操作”设计，避免单张资源失败导致白屏。'
     )
 
@@ -1133,7 +1196,7 @@ def write_document(pdf):
     pdf.write_body(
         '设计分辨率 750x1334，舞台按宽度等比缩放，长屏用 logicHeight 把底栏落到安全区，避免悬空。'
         '战场单位用 UnitActor 复用精灵，特效由 CombatFx 统一调度，避免每帧 new 对象。'
-        '村子四页按打开页重绘，不在后台页保留完整显示列表。'
+        '村子五页按打开页重绘，不在后台页保留完整显示列表。'
     )
 
     pdf.write_h2('7.2 战斗步进与模拟')
@@ -1154,6 +1217,14 @@ def write_document(pdf):
     pdf.write_body(
         '后端接口仅保存白名单存档 payload，不上传 token 和广告日限；同时限制存档大小 256KB。'
         '通过 userId 唯一索引定位用户存档，pull/push 均为单文档读写，适合小游戏高频轻量同步场景。'
+    )
+
+    pdf.write_h2('7.5 分包体积与 CDN 缓存')
+    pdf.write_body(
+        '构建时 assemble 只拷贝游戏引用到的资源，再从主包剔除已上 CDN 的文件。'
+        '当前主包约 1.81MB，pkg-home 约 2.84MB，pkg-home-art 约 2.49MB，均低于微信 4MB 上限。'
+        'CDN 缓存按代清理 (cdn_cache_v3)，额度满时本局改用临时文件顶图，BGM 仍必须落盘或回退 https 地址。'
+        '各页只预热本屏清单，避免开局把全村立绘写入本地存储。'
     )
 
     pdf.write_h1('八、结论')

@@ -1,0 +1,10 @@
+Vertical 9:16 pre-battle placement. STYLE LOCK: copy the attached battle-hud AND village-home screenshots. Warm sunset dirt path, SAME three hero drawings (弹弓叔 / 王大锤 / 三婶 / 铁柱). Cream-iron HUD, not black dungeon UI.
+
+3 lanes x 4 cells (four cells per lane, stacked toward camera). Dashed cream-rust cell boxes.
+Top HUD: 3-2 村口那条沟 | 上场 5/5 | 来 28 只 · 4 波
+Mustard strip: 敌方门路：下手重
+Each lane TOP has a small enemy preview card: left 8 小灰, mid 14 铁罐+飞碟 (densest), right 6 小灰. Cute-dumb grey aliens / tin can, not horror.
+铁柱 stands on mid-lane front cell with green enamel tag 对路 and a faint green range ghost. One wrong cell has red enamel 挨打.
+Bottom bench: horizontal cream cards of the real heroes, 铁柱 selected gold rim.
+Footer: 回村口 | cream play-plate 开打
+NO 推荐阵容. Chinese only. Bright like village-home, not night.

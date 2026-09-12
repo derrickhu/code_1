@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { stallYardLay } from '@/ui/StallYard';
+import { stallHudLay } from '@/ui/lintel';
+import { STALL_SLOT, stallYardLay } from '@/ui/StallYard';
 
 describe('弹弓摊货架', () => {
-  it('两排脚落在底图木梁上，中间留得开名字', () => {
+  it('两排格子等高，下排还能放下图和字', () => {
     const lay = stallYardLay(217, 1152, 1132);
-    expect(lay.shelves[1] - lay.shelves[0]).toBeGreaterThan(140);
+    const slot = STALL_SLOT.pad + STALL_SLOT.h + 22;
+    expect(lay.shelves[1] - lay.shelves[0]).toBeGreaterThan(slot);
     expect(lay.shelves[0]).toBeGreaterThan(400);
     expect(lay.shelves[1]).toBeLessThan(lay.slingY - 200);
     expect(lay.originX).toBeGreaterThan(180);
@@ -17,5 +19,12 @@ describe('弹弓摊货架', () => {
     const short = stallYardLay(217, 1152, 1132);
     expect(short.shelves[0]).toBeLessThan(tall.shelves[0]);
     expect(short.shelves[1] + 90).toBeLessThan(short.slingY);
+  });
+
+  it('口袋叠在门楣里，货架不用往下让', () => {
+    const chrome = stallHudLay(47, 1334);
+    const lay = stallYardLay(chrome.barBottom - 16, 1152, 1132);
+    expect(chrome.pocket.y + chrome.pocket.h / 2).toBeLessThan(chrome.barBottom);
+    expect(lay.shelves[0]).toBeGreaterThan(chrome.barBottom + 80);
   });
 });

@@ -1,0 +1,23 @@
+4x2 sprite sheet, 8 equal cells, village junk props for a slingshot stall.
+
+STYLE LOCK from the reference images: fat comic ink outlines, flat cheap-fun 6-8 sticker colors, two-tone hard shade, rustic Chinese village hardware. Warm ochre wood, rust orange, plastic blue, enamel cream. NOT premium painterly, NOT dark fantasy, NOT candy, NOT 3D render.
+
+Each cell: ONE object centered, generous padding, sitting on nothing. Flat solid hot-pink background #F04AA8 in every cell. Thin dark divider lines between cells. No drop shadow on the pink. No shelf, no wall, no hands.
+
+Row 1 (left to right):
+1) Three rusty orange tin cans in a tight row, dented, cream rims, village scrap.
+2) Two green glass wine bottles, fat comic, dark corks, standing together.
+3) Broken old CRT television, chunky grey box, cracked dark screen, two knobs, antenna bent.
+4) One blue plastic crate, the cheap stacked market kind, empty, visible grid holes.
+
+Row 2 (left to right):
+5) Hanging enamel iron basin, cream-white with rust rim, thin rope up, swinging.
+6) Old rusty brass loudspeaker horn / village PA horn, hanging, dented, not a gramophone on a table.
+7) Chunky wooden Y-fork slingshot standing upright, leather pouch, rust-red rubber band. Same wood language as the stall chalkboard slingshot.
+8) One steel slingshot pebble / ball bearing, fat round, metallic highlight.
+
+CRITICAL:
+- NO TEXT, no labels, no captions, no numbers, no Chinese, no writing anywhere
+- NO characters, people, hands, UI, buttons
+- NO extra objects in a cell
+- Keep all 8 objects the same visual scale family, readable at 96px
