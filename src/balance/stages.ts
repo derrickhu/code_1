@@ -19,6 +19,20 @@
 import { PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
 import type { Lane } from './villagers';
 
+/**
+ * 外星人的光环。**只影响同一路，而且不加给自己。**
+ *
+ * 不加给自己是硬的：光环怪必须能被单独点掉，否则「先点掉支援」这个解法
+ * 就变成了「先打穿它自己给自己的罩子」，那是把答案藏起来。
+ */
+export type EnemyAura =
+  /** 给同路的其他怪一层罩子，按比例减伤 */
+  | { kind: 'shield'; pct: number }
+  /** 给同路的其他怪加攻 */
+  | { kind: 'atk'; pct: number }
+  /** 照住这一路**最前面**的村民，他出手变慢。往后挪一格就废了，是站位题 */
+  | { kind: 'dim'; pct: number };
+
 export interface EnemyDef {
   id: string;
   name: string;
@@ -33,10 +47,43 @@ export interface EnemyDef {
   interval: number;
   /** 射程（格）。> 1 的会站在村民射程外点人，比如飞碟 */
   range: number;
-  /** 飞行单位，贴脸的拦不住（不被阻挡） */
+  /** 飞行单位，贴脸的拦不住（不被阻挡），而且专挑最后排 */
   flying?: boolean;
+  /** 钻地：同样不被阻挡、同样奔最后排，但要贴上去才打得着 */
+  burrow?: boolean;
+  /** 免疫减速。「拦」位打它不掉速，只能靠挡和打 */
+  steady?: boolean;
+  /** 跳过挡在最前面的那个人，一整局只跳一次 */
+  leap?: boolean;
+  /** 血过半破壳：护甲清零，速度翻倍 */
+  crack?: boolean;
+  aura?: EnemyAura;
+  /** 下蛋：每 everyMs 放一只，一共放 times 只 */
+  spawn?: { enemy: string; everyMs: number; times: number };
 }
 
+/**
+ * 外星人池。**结构是 5 门路 × 4 位**，和村民那个 20 人方阵对着排，
+ * 四个位分别是：冲（快而脆）、扛（硬而慢）、术（带一条规则）、援（加强别人）。
+ *
+ *          冲          扛          术          援
+ *   reach  saucer      —           lamp        mast
+ *   stand  cube        canister    pier        —
+ *   heavy  —           armor       drill       wire
+ *   rage   rusher      keg         spring      —
+ *   band   grunt       —           —           hatch
+ *
+ * 空着的四格是二期，不是漏了。
+ *
+ * **每只怪是一道题，答案必须已经在村民池里。** 加新怪之前先回答「这道题用谁解」，
+ * 答不上来就别加 —— 那就是只会更厚的血条，正好是反目标第二条。
+ *
+ * 两条红线：
+ *
+ * 1. **`steady` 不许和 `flying` / `burrow` 同时给。** 既拦不住又挡不住等于无解，
+ *    玩家只能硬吃，撞 §6 第 4 条「被克的阵容仍要有打过去的办法」。
+ * 2. **`aura` 不加给自己**（见 EnemyAura）。支援怪要能被单独点掉。
+ */
 export const ENEMIES: readonly EnemyDef[] = [
   {
     id: 'cube', name: '方块',
@@ -62,6 +109,57 @@ export const ENEMIES: readonly EnemyDef[] = [
   {
     id: 'armor', name: '装甲',
     lane: 'heavy', hp: 1050, atk: 58, def: 34, spd: 0.24, interval: 1800, range: 1,
+  },
+
+  /* ---- 二期补的八只。题面写在每一条的注释里 ---- */
+
+  {
+    // 题：这一路最前面那个出手变慢。解：把主输出往后挪一格，或者先点掉它
+    id: 'lamp', name: '探照灯',
+    lane: 'reach', hp: 380, atk: 18, def: 10, spd: 0.34, interval: 1400, range: 1,
+    aura: { kind: 'dim', pct: 0.35 },
+  },
+  {
+    // 题：同路的怪都罩了一层。解：穿透和横扫越过前排先点它
+    id: 'mast', name: '天线杆',
+    lane: 'reach', hp: 300, atk: 14, def: 8, spd: 0.30, interval: 1600, range: 1,
+    aura: { kind: 'shield', pct: 0.25 },
+  },
+  {
+    // 题：减速对它没用。解：靠挡和纯输出，别指望渔网婶石磨姨
+    id: 'pier', name: '水泥墩',
+    lane: 'stand', hp: 700, atk: 30, def: 26, spd: 0.26, interval: 1600, range: 1,
+    steady: true,
+  },
+  {
+    // 题：绕过前排直接咬最后排。解：后排别只放脆皮，或者整路都要够得着
+    id: 'drill', name: '电钻',
+    lane: 'heavy', hp: 420, atk: 52, def: 12, spd: 0.40, interval: 1000, range: 1,
+    burrow: true,
+  },
+  {
+    // 题：同路的怪打得更疼。解：先点掉它，或者前排换成反伤的钢板哥
+    id: 'wire', name: '高压线',
+    lane: 'heavy', hp: 360, atk: 20, def: 12, spd: 0.32, interval: 1500, range: 1,
+    aura: { kind: 'atk', pct: 0.3 },
+  },
+  {
+    // 题：血过半破壳，护甲没了但速度翻倍。解：留第二段输出，别把火力全压开场
+    id: 'keg', name: '闷罐',
+    lane: 'rage', hp: 780, atk: 40, def: 30, spd: 0.26, interval: 1500, range: 1,
+    crack: true,
+  },
+  {
+    // 题：一整局跳一次，越过最前面那个。解：第二格必须有人，不然它落在治疗脸上
+    id: 'spring', name: '弹簧腿',
+    lane: 'rage', hp: 240, atk: 46, def: 4, spd: 0.85, interval: 850, range: 1,
+    leap: true,
+  },
+  {
+    // 题：一路走一路下蛋。解：清线能力（穿透、横扫），或者拦位把小灰堆在网前
+    id: 'hatch', name: '孵化器',
+    lane: 'band', hp: 560, atk: 16, def: 16, spd: 0.22, interval: 1800, range: 1,
+    spawn: { enemy: 'grunt', everyMs: 3500, times: 4 },
   },
 ];
 
@@ -123,12 +221,20 @@ interface ChapterSeed {
 /**
  * 章节总数。8 章 40 关 → 80 章 400 关。
  *
- * 前 8 章的**配方**（地名、敌人组合、台词）全是手写的，一个字没动；
- * 第 9 章往后是 400 关主线接上的跑道，地名从池子里取、敌人组合按 6 种循环。
+ * 前 8 章的配方（地名、敌人组合、台词）是手写的；第 9 章往后是跑道，
+ * 地名从 CH_NAME_POOL 取、敌人组合走 TAIL_MIX_POOL。
  *
- * **6 种敌人铺 80 章，平均每种要撑 13 章。** 这是明知故犯：
- * 数值骨架今天就能立起来，敌人种类是美术排期。二期不把敌人补到 20 种以上，
- * 第 50 关往后就是同一批怪血更厚 —— 那正好是反目标第二条的定义。
+ * **数值一个都没动，改的只有「来的是谁」。** 曲线那几段校准史
+ * （3-2 是墙、章间下探形成锯齿、卡关落在每章后半段）全都还在，
+ * 因为 hpMul / atkMul / 只数 / 路数预算都不看敌人 id。
+ *
+ * 第 5~8 章换了配方：原来那四章是同一批怪往上堆血，现在各换进两三只带规则的
+ * （弹簧腿、探照灯、水泥墩、电钻、高压线、闷罐、孵化器、天线杆）。
+ * **每章的领头那只没换**，所以 mainLane 和克制关系是原样的。
+ *
+ * **14 种铺 80 章，平均每种撑 6 章 —— 比原来的 13 章好一倍，但还不够。**
+ * 二期要上的是词缀（给任意一只挂罩子 / 发条 / 膏药），
+ * 那个是用修饰词做量，不用新模型做量，美术成本低一个数量级。
  */
 const CHAPTER_TOTAL = 80;
 
@@ -178,28 +284,54 @@ const TUNED_CHAPTERS: readonly ChapterSeed[] = [
   },
   {
     name: '混战',
-    mix: ['grunt', 'rusher', 'saucer', 'cube'],
-    pitches: ['什么都有', '小灰扑脸', '快的先到', '又快又硬', '这章最挤'],
+    mix: ['grunt', 'rusher', 'saucer', 'spring'],
+    pitches: ['什么都有', '小灰扑脸', '快的先到', '有蹦的，第二格别空着', '这章最挤'],
     suggestLv: [11, 13],
   },
   {
     name: '夜路',
-    mix: ['armor', 'canister', 'saucer'],
-    pitches: ['装甲第一次来', '装甲带飞碟', '壳更厚', '两路装甲', '夜路走完'],
+    mix: ['armor', 'pier', 'lamp'],
+    pitches: ['装甲第一次来', '夜里有灯照人', '水泥墩拦不住', '被照住的手就慢了', '夜路走完'],
     suggestLv: [14, 16],
   },
   {
     name: '硬仗',
-    mix: ['armor', 'rusher', 'saucer', 'canister'],
-    pitches: ['不留空档', '快的和硬的一起', '三路齐推', '装甲铺路', '硬仗收尾'],
+    mix: ['armor', 'rusher', 'drill', 'wire'],
+    pitches: ['不留空档', '快的和硬的一起', '有从底下钻过来的', '高压线一挂全变猛', '硬仗收尾'],
     suggestLv: [17, 18],
   },
   {
     name: '死守',
-    mix: ['armor', 'saucer', 'rusher', 'grunt'],
-    pitches: ['还没完', '更密一档', '四波连打', '五波连打', '整条后路压过来'],
+    mix: ['armor', 'saucer', 'keg', 'hatch', 'mast'],
+    pitches: ['还没完', '更密一档', '闷罐砸开了反而更快', '一路走一路下蛋', '整条后路压过来'],
     suggestLv: [19, 20],
   },
+];
+
+/**
+ * 第 9 章往后的敌人配方池。
+ *
+ * 上一版直接循环手写那 8 章的 mix，于是第 50 关往后**真的**就是同一批怪血更厚 ——
+ * 反目标第二条的字面定义。现在换成一张独立的池子：每组都是
+ * 「一个肉 + 一个快的 + 一个带规则的 + 一个支援」，四个位各出一道题，
+ * 拆解法的顺序（先点支援还是先清快的）就是这一关的花样。
+ *
+ * 领头那只决定这一关的敌方主门路（见 pickMainLane），所以 12 组的**头一只
+ * 刻意铺满五条门路**，不然后半程会一直在克同一条，克制就退化成固定答案。
+ */
+const TAIL_MIX_POOL: readonly (readonly string[])[] = [
+  ['canister', 'grunt', 'spring', 'mast'],
+  ['armor', 'rusher', 'drill', 'wire'],
+  ['hatch', 'saucer', 'lamp', 'cube'],
+  ['keg', 'cube', 'hatch', 'mast'],
+  ['saucer', 'spring', 'lamp', 'canister'],
+  ['pier', 'rusher', 'drill', 'mast'],
+  ['armor', 'grunt', 'keg', 'wire'],
+  ['grunt', 'cube', 'spring', 'hatch'],
+  ['lamp', 'armor', 'pier', 'saucer'],
+  ['keg', 'rusher', 'drill', 'wire'],
+  ['canister', 'spring', 'hatch', 'lamp'],
+  ['drill', 'grunt', 'mast', 'pier'],
 ];
 
 /** 村庄等级的分界。和 village.ts 的 VILLAGE_LV_TUNED / VILLAGE_LV_MAX 对齐 */
@@ -209,22 +341,19 @@ const LV_MAX = 120;
 /**
  * 第 9 章往后的章节种子。
  *
- * 地名从池子里按序取，敌人组合拿手写那 8 章的配方循环用，
+ * 地名从池子里按序取，敌人组合走 TAIL_MIX_POOL，
  * 建议等级从 Lv.20 线性铺到 Lv.120。
- *
- * **敌人组合循环是这一版最明显的短板**，不是疏漏。见 CHAPTER_TOTAL 的注释。
  */
 function buildChapters(): ChapterSeed[] {
   const out: ChapterSeed[] = [...TUNED_CHAPTERS];
   const tuned = TUNED_CHAPTERS.length;
   const tail = CHAPTER_TOTAL - tuned;
   for (let k = 0; k < tail; k += 1) {
-    const from = TUNED_CHAPTERS[k % tuned]!;
     const t0 = k / tail;
     const t1 = (k + 1) / tail;
     out.push({
       name: CH_NAME_POOL[k % CH_NAME_POOL.length]!,
-      mix: from.mix,
+      mix: TAIL_MIX_POOL[k % TAIL_MIX_POOL.length]!,
       pitches: CH_PITCH_POOL,
       suggestLv: [
         Math.round(LV_TUNED + t0 * (LV_MAX - LV_TUNED)),
@@ -422,7 +551,14 @@ function buildWaves(seed: ChapterSeed, chapter: number, index: number): Wave[] {
       : Math.max(1, Math.round((total * weights[w]!) / wSum));
     left -= want;
 
-    // 头一波先少开一路当预告，之后铺满这一章的路数预算
+    /*
+     * 头一波先少开一路当预告，之后铺满这一章的路数预算。
+     *
+     * 试过让第一波也铺满：早期上场才 4~5 人，第一波就要同时挡两路，
+     * 前排没纵深，漏怪从 2.7% 涨到 5.6%、第 8 章整章变墙。
+     * 「第一波窄」确实会让玩家以为这关只有一路，但解法在别处
+     * （让跨列支援真能够着，见 `@/game/reach`），不是把预告砍掉。
+     */
     const budget = chapterLaneBudget(chapter);
     const set = LANE_SET[budget] ?? LANE_SET[3]!;
     const laneCount = w === 0 ? Math.max(1, budget - 1) : budget;
@@ -472,7 +608,7 @@ function buildStages(): StageDef[] {
         // 3 波 86s、5 波 120s，都在 §5 的 1~2 分钟里。
         // 超时只兜「打不动的死局」，正常打不过应该是**漏怪**判负 —— 那个看得懂
         timeLimitMs: 35_000 + waves.length * 17_000,
-        parMs: lastSpawnMs(waves) + PAR_GRACE_MS,
+        parMs: lastSpawnMs(waves) + spawnTailMs(waves) + PAR_GRACE_MS,
         mainLane: pickMainLane(seed.mix),
         suggestLv,
       });
@@ -520,6 +656,25 @@ export function stageEnemyCount(s: StageDef): number {
     (sum, w) => sum + w.groups.reduce((a, g) => a + g.count, 0),
     0,
   );
+}
+
+/**
+ * 下蛋的那些，最后一个蛋比它自己晚出场这么久。
+ *
+ * **par 时间必须算上这一段。** 不算的话带孵化器的关卡**注定**拿不到 ★3：
+ * 最后一个蛋才刚落地，「最后一只出场 + 14 秒」早就过去了，
+ * 「清得利索」于是成了物理上做不到的事，重打多少遍都一样 ——
+ * 那就把星评当成惩罚发给了玩家，而不是「我排得更好了」的反馈（§4.4）。
+ */
+export function spawnTailMs(waves: readonly Wave[]): number {
+  let tail = 0;
+  for (const w of waves) {
+    for (const g of w.groups) {
+      const s = getEnemy(g.enemy).spawn;
+      if (s) tail = Math.max(tail, s.everyMs * s.times);
+    }
+  }
+  return tail;
 }
 
 /** 最后一只什么时候出场 */

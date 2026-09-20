@@ -55,26 +55,43 @@ export const BLOCK_POS = cellPos(0) - BLOCK_GAP;
 export const VIS_ENGAGE_POS = cellPos(0) - 1;
 
 /**
- * 空场要走多久才贴脸。
- *
- * 对标皇室：骑士 1 格/秒，过桥到塔大约 6–8 秒；野猪大约 3 秒。
- * 植物大战僵尸过整片草坪要 30 秒，对我们 1–2 分钟的关太慢。
- * 本项目自己写过「小灰 5 秒走进来」（docs/01），表里的 spd 却让它 1.4 秒就到。
- * 突破之后仍用表里的 spd，漏怪那段不能一起放慢。
- *
- * 真机「走太快」多半是人太小：同一秒里掠过好几个身位。
- * 人放大、空场收短之后，身位速度会自己掉下来。
- * 别再拉长入场秒数 —— 模拟器里那会让 40 关提前一周打完。
+ * 走出门洞才许开火。匾牌底下那一截是出场，不是战场。
+ * 钉在空场前 1/4：人已经落在土路上，弹也不会再打进锈铁板里。
+ * 够得着多出来的射程是为了站最后一格仍够到挡点，不是隔着门楣点刚露头的怪。
  */
-export function approachWalkSec(spd: number): number {
-  return Math.max(3, Math.min(9, 2 / spd + 1.5));
+export const COMBAT_POS = VIS_ENGAGE_POS * 0.28;
+
+export function inCombatZone(pos: number): boolean {
+  return pos >= COMBAT_POS;
 }
 
-/** 还在空场用入场步频，过了贴脸线就恢复表里的走速 */
+/**
+ * 空场要走多久。由 moveSpd 反推，别再手写一套秒数 ——
+ * 上一版按秒数校入场、过线再换回表里的 spd，屏幕上就是踩一脚刹车。
+ */
+export function approachWalkSec(spd: number): number {
+  return VIS_ENGAGE_POS / moveSpd(spd, 0);
+}
+
+/**
+ * 走路速度。过了贴脸线用表里的 spd；空场按屏幕匀速反推轴速度。
+ *
+ * 空场 1 格轴距占了屏幕 60%，可站区 5 格只占 40%。同一套 spd 直接用，
+ * 空场上会快 7.5 倍，过线再换挡 —— 看上去就是「走下来一会停顿一下」。
+ *
+ * 王国保卫战 / PvZ / 塔塔都是路上匀速，减速只来自冰冻这类状态，
+ * 不会为了入场把整条行军切成两档。我们空场要拉长当舞台，只能在轴速度上
+ * 补这个视觉比，不能在过线时换挡。
+ *
+ * 最慢的壳也别在空场走上 12 秒：1–2 分钟的关会把前半场堵死。
+ */
 export function moveSpd(spd: number, pos: number): number {
   if (pos >= VIS_ENGAGE_POS) return spd;
-  return VIS_ENGAGE_POS / approachWalkSec(spd);
+  const want = spd * combatScreenPerPos() / approachScreenPerPos();
+  return Math.max(want, VIS_ENGAGE_POS / APPROACH_SEC_MAX);
 }
+
+const APPROACH_SEC_MAX = 11;
 
 /** 漏几个判负。留 3 个是为了给星评腾出档位，也别让第一次漏就劝退 */
 export const LEAK_ALLOW = 3;
@@ -83,7 +100,7 @@ export const LEAK_ALLOW = 3;
 export const WAVE_GAP_MS = 10_000;
 
 /** 最后一只出场后再给多久算「清得利索」。★3 的 par 时间 = 最后出场 + 这个 */
-export const PAR_GRACE_MS = 14_000;
+export const PAR_GRACE_MS = 17_000;
 
 /**
  * 护甲的软化常数。减伤 = def / (def + ARMOR_K)。
@@ -99,7 +116,11 @@ export const PAR_GRACE_MS = 14_000;
  */
 export const ARMOR_K = 200;
 
-/** 「拦」位打中之后的减速 */
+/**
+ * 减速只给「钉死」那一阶。拦位的活是挡路，不是每锤一记 hitstun。
+ * 塔塔 / 王国保卫战 / PvZ：走路是节拍器，挨打闪一下继续走，
+ * 冻和慢是技能身份，不是普攻附带。
+ */
 export const SLOW_MUL = 0.65;
 export const SLOW_MS = 1600;
 /** 「修」位每次回多少（按 atk 的倍数），以及它出手打人的折扣 */
@@ -127,6 +148,24 @@ export const LANE_W = FIELD_W / LANE_COUNT;
  */
 export const VIS_ROWS = 10;
 export const VIS_APPROACH_ROWS = VIS_ROWS - CELL_COUNT;
+
+/** 空场每一格轴距占屏幕的比例。moveSpd 必须用同一套，否则过线会换挡 */
+function approachScreenPerPos(): number {
+  return VIS_APPROACH_ROWS / VIS_ROWS / VIS_ENGAGE_POS;
+}
+
+/** 可站区每一格轴距占屏幕的比例 */
+function combatScreenPerPos(): number {
+  return (1 - VIS_APPROACH_ROWS / VIS_ROWS) / (GOAL_POS - VIS_ENGAGE_POS);
+}
+
+/**
+ * 可站区里 1 格轴距占多少像素。
+ * 射程扇形用这把尺画，站前排后排一样大；空场那 60% 拉伸不进这把尺。
+ */
+export function combatCellPx(topY: number, goalY: number): number {
+  return Math.max(1, (goalY - topY) * combatScreenPerPos());
+}
 
 export function laneScreenX(lane: number): number {
   return FIELD_X + LANE_W * (lane + 0.5);
@@ -181,10 +220,17 @@ export function cellScreenH(topY: number, goalY: number): number {
 }
 
 /**
- * 门楣下沿到出场线。人从锈铁板底下走出来，头可以先被挡住一截。
- * 路不许再钻进顶板后面 —— 顶板就是村口门楣，和土路要切开。
+ * 门楣下沿到出场脚底。整只怪要落在土路上，头可以略伸进门洞，
+ * 身子不许还埋在匾牌里。路从锈铁板底下切开，不许再钻进顶板后面。
  */
-export const GATE_GAP = 4;
+export const GATE_GAP_MIN = 40;
+
+/** 按这一局格高算出门洞深度，人和怪放大时出场线跟着往下推 */
+export function gateThroat(chromeBottom: number, goalY: number): number {
+  const cellH = Math.max(1, (goalY - chromeBottom) / VIS_ROWS);
+  return Math.max(GATE_GAP_MIN, Math.round(cellH * FIELD_VILLAGER_FILL * 0.72));
+}
+
 /** 开打后坞收掉，底线落到沙袋那么高，人跟着下去，空场变长 */
 export const FIGHT_BAG_H = 48;
 
@@ -196,9 +242,10 @@ export function battleFieldLay(args: {
   safeBottom: number;
   benchH: number;
 }): { spawnY: number; goalY: number } {
-  const spawnY = args.chromeBottom + GATE_GAP;
   const floor = args.placing ? args.benchH : FIGHT_BAG_H;
   const goalY = args.height - args.safeBottom - floor;
+  const fightGoal = args.height - args.safeBottom - FIGHT_BAG_H;
+  const spawnY = args.chromeBottom + gateThroat(args.chromeBottom, fightGoal);
   return { spawnY, goalY };
 }
 
@@ -235,6 +282,16 @@ export const FIELD_ENEMY_MUL: Readonly<Record<string, number>> = {
   saucer: 0.88,
   canister: 1,
   armor: 1.16,
+  // 二期八只。剪影高矮得跟机制对得上：支援的（天线杆、高压线）要瘦高好认，
+  // 冲脸的（弹簧腿、电钻）压矮一点，不然一屏怪全一样高就看不出哪一路要崩
+  lamp: 0.96,
+  mast: 1.08,
+  pier: 1.04,
+  drill: 0.86,
+  wire: 1.08,
+  keg: 1.02,
+  spring: 0.84,
+  hatch: 1.1,
 };
 
 export function fieldEnemyH(id: string, villagerH: number): number {

@@ -228,35 +228,40 @@ export function queuePad(
 }
 
 /**
- * 够得到哪儿：贴地椭圆，不是竖条。近战是围着人的一小片，远程铺到最远点。
- *
- * 布阵阶段每个人都画一层淡的。§8.1 记着那个 bug —— 上一版战场太长而射程太短，
- * 后排两格打不到任何东西，而屏幕上完全看不出来。这一层就是为了让
- * 「他站这儿够不够得着」变成看一眼的事，而不是打完一局才发现。
+ * 点人看射程：把 `reachScreenPoly` 填上。
+ * 顶点来自 `@/game/reach`，已经是能出手的点，这里不再算距离。
  */
-export function rangeArea(
+export function reachPoly(
   g: PIXI.Graphics,
-  cx: number,
-  feetY: number,
-  reachY: number,
+  pts: readonly { x: number; y: number }[],
   color: number,
-  melee: boolean,
+  pulse: number,
 ): void {
-  const forward = Math.max(40, Math.abs(feetY - reachY));
-  if (melee) {
-    const rx = Math.max(78, forward * 1.2);
-    const ry = Math.max(52, forward * 0.9);
-    const cy = feetY - ry * 0.28;
-    g.beginFill(color, 0.18).drawEllipse(cx, cy, rx, ry).endFill();
-    g.lineStyle(2.6, color, 0.78).drawEllipse(cx, cy, rx, ry).lineStyle(0);
-    g.lineStyle(1.2, 0xffffff, 0.32).drawEllipse(cx, cy, rx * 0.9, ry * 0.9).lineStyle(0);
-    return;
-  }
-  const ry = forward * 0.52;
-  const rx = Math.min(300, Math.max(120, forward * 0.4));
-  const cy = (feetY + reachY) / 2;
-  g.beginFill(color, 0.1).drawEllipse(cx, cy, rx, ry).endFill();
-  g.lineStyle(2.2, color, 0.55).drawEllipse(cx, cy, rx, ry).lineStyle(0);
+  if (pts.length < 3) return;
+  g.beginFill(color, 0.18 * pulse);
+  g.moveTo(pts[0]!.x, pts[0]!.y);
+  for (let i = 1; i < pts.length; i += 1) g.lineTo(pts[i]!.x, pts[i]!.y);
+  g.closePath();
+  g.endFill();
+
+  const farN = Math.ceil(pts.length / 2);
+  g.lineStyle(2.6, color, 0.72 * pulse);
+  g.moveTo(pts[0]!.x, pts[0]!.y);
+  for (let i = 1; i < farN; i += 1) g.lineTo(pts[i]!.x, pts[i]!.y);
+  g.lineStyle(0);
+  const mid = Math.floor(farN / 2);
+  const a = pts[Math.max(0, mid - 3)]!;
+  const b = pts[mid]!;
+  const c = pts[Math.min(farN - 1, mid + 3)]!;
+  g.lineStyle(4, color, 0.92 * pulse);
+  g.moveTo(a.x, a.y);
+  g.lineTo(b.x, b.y);
+  g.lineTo(c.x, c.y);
+  g.lineStyle(0);
+  g.lineStyle(1.4, 0xfff4c4, 0.45 * pulse);
+  g.moveTo(a.x, a.y + 3);
+  g.lineTo(c.x, c.y + 3);
+  g.lineStyle(0);
 }
 
 /**
@@ -280,6 +285,32 @@ export function expBar(
     g.beginFill(done ? 0x9be08a : GOLD, 0.95).drawRoundedRect(x, y, w, h, r).endFill();
   }
   g.lineStyle(1.2, GOLD, 0.45).drawRoundedRect(x, y, width, h, r).lineStyle(0);
+}
+
+/**
+ * 槽里的填充。对标 Godot TextureProgressBar 的 under / progress / over：
+ * 槽底是 rust_exp，这里只画 progress，最后用沿口阴影当 over。
+ * 不用奶油金胶囊——那是系统滑块，不是槽里的铜浆。
+ */
+export function paintTroughFill(
+  g: PIXI.Graphics,
+  well: { x: number; y: number; w: number; h: number },
+  ratio: number,
+  done: boolean,
+): void {
+  const w = done ? well.w : Math.max(0, Math.min(1, ratio)) * well.w;
+  if (w < 1) return;
+  const x = well.x;
+  const y = well.y;
+  const h = well.h;
+  const r = Math.min(2, Math.max(1, Math.round(h * 0.18)));
+  const body = done ? 0x8a6a28 : 0x7a4e1e;
+  g.beginFill(body, 0.92).drawRoundedRect(x, y, w, h, r).endFill();
+  g.beginFill(0x3a2410, 0.38).drawRoundedRect(x, y + h * 0.55, w, Math.max(1, h * 0.45), r).endFill();
+  const shineH = Math.max(1, Math.round(h * 0.28));
+  g.beginFill(GOLD, 0.28).drawRoundedRect(x + 1, y + 1, Math.max(0, w - 2), shineH, Math.max(1, r - 1)).endFill();
+  g.beginFill(0x000000, 0.28).drawRect(well.x, well.y, well.w, 2).endFill();
+  g.beginFill(0x000000, 0.16).drawRect(well.x, well.y, 2, well.h).endFill();
 }
 
 /** 铺满一块矩形。顶栏锈牌、出村铁门要拉到设计尺寸，不能按原图比例缩成小方块。 */

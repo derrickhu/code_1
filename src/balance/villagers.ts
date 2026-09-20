@@ -102,10 +102,12 @@ interface RoleBase {
 }
 
 /**
- * 射程是按战场几何定的，别单独调。
+ * 射程是角色身上的固定半径，不随摆到第几格变。三婶永远 3 格。
+ * 出手和地上那片只走 `@/game/reach`，这里只定数字。
  *
- * 四格在 pos 2/3/4/5，敌人被最前面的人挡在 pos 1.5（见 combat.SPAWN_GAP）。
- * 每个定位的射程恰好够它**该站的那一格**打到挡点：
+ * 覆盖是正向扇形，不是整路长条。四格在 pos 2/3/4/5，
+ * 敌人被最前面的人挡在 pos 1.5。每个定位的数字恰好够它
+ * **该站的那一格**打到挡点（站远了半径不变，只是目标更远）：
  *
  *   挨 range 1 → 站 cell 0（pos 2），够到 1.0
  *   拦 range 2 → 站 cell 1（pos 3），够到 1.0
@@ -113,7 +115,7 @@ interface RoleBase {
  *   修 range 3 → 站 cell 3（pos 5），够不到，活是回血
  *
  * 「站远点打」+1 射程：只有这条门路的「打」站最后一格还够得着。
- * 「打 / 修」还能跨一列支援邻路，挨只挡本路。
+ * 邻列按 REACH_LANE_WEIGHT 折算，「打」站 cell 2 够到邻列挡点。
  */
 const ROLE_BASE: Readonly<Record<Role, RoleBase>> = {
   tank: { hp: 1700, atk: 60, def: 50, range: 1, interval: 1000 },
@@ -246,7 +248,7 @@ export const VILLAGERS: readonly VillagerDef[] = [
     job: '远距离网住一整排，不用贴脸就能拦',
     flavor: '河边打渔出身，撒网又快又准',
     evo: [
-      { name: '撒渔网', pitch: '往前撒一张网，网住的走不动' },
+      { name: '撒渔网', pitch: '往前撒一张网，不用贴脸就能拦' },
       { name: '带铅渔网', pitch: '网上挂了铅坨，网住的还掉血' },
       { name: '拦河大网', pitch: '整条路横一张大网，后面的怪堆在网前面挤成一团' },
     ],
@@ -351,11 +353,11 @@ export const VILLAGERS: readonly VillagerDef[] = [
     name: '王大锤',
     lane: 'heavy',
     role: 'block',
-    job: '锤一下晕半天，把冲脸的按住',
+    job: '站中排抡锤，把路堵住',
     flavor: '五金店老板，抡起大锤来不看人',
     evo: [
-      { name: '大锤', pitch: '被他锤到的，两秒内动作变慢' },
-      { name: '双手锤', pitch: '换成双手锤，一下锤一片，都变慢' },
+      { name: '大锤', pitch: '抡大锤砸前面的，把路堵住' },
+      { name: '双手锤', pitch: '换成双手锤，一下锤一片' },
       { name: '风镐', pitch: '扛来工地的风镐，锤中的直接钉在原地' },
     ],
   },

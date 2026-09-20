@@ -2,6 +2,7 @@
  * 战斗场景：3 路 × 4 格的分路自动塔防。
  *
  * 渲染层不含任何战斗规则，只读 BattleEngine 的状态。规则改动一律回引擎。
+ * 点人看射程只填 `@/game/reach` 给的多边形，这里不算距离。
  * 贴图缺失时退回色块，不挡玩。
  *
  * 画面的三条硬规矩（docs/00-体验目标.md §4.4 / 反目标）：
@@ -23,22 +24,23 @@ import { SceneManager, type Scene } from '@/core/SceneManager';
 import { bindPointerTap } from '@/minigame';
 import { getTouchCanvas } from '@/utils/touchCanvas';
 import {
-  CELL_COUNT, FIELD_W, FIELD_X, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
-  battleFieldLay, cellScreenY, fieldEnemyH, fieldFightUnitH, hitDeployCell,
+  CELL_COUNT, COMBAT_POS, FIELD_W, FIELD_X, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
+  battleFieldLay, cellPos, cellScreenY, fieldEnemyH, fieldFightUnitH, hitDeployCell,
   laneScreenX, posScreenY,
 } from '@/balance/combat';
 import { getStage, stageEnemyCount } from '@/balance/stages';
 import { resolveAttackFx, resolveEnemyFx, resolveFxSkin } from '@/balance/fx';
-import { LANE_NAME, getVillager } from '@/balance/villagers';
+import { LANE_NAME, evoKindOf, getVillager, statsOf } from '@/balance/villagers';
 import {
   BENCH_FOOTER_H, BENCH_H, BenchDock, LANE_TINT, benchFooterTop, type BenchItem,
 } from '@/ui/BenchDock';
+import { LeaveAskOverlay } from '@/ui/LeaveAskOverlay';
 import { ReviveOverlay } from '@/ui/ReviveOverlay';
 import { SettleOverlay } from '@/ui/SettleOverlay';
 import { CombatFx } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
 import { motionForSkin, UnitActor } from '@/fx/UnitActor';
-import { BATTLE_FX_IMAGES, battlePreloadImages, type HeroArtNeed } from '@/config/assetPreload';
+import { BATTLE_FX_IMAGES, battleFaceImages, battlePreloadImages, type HeroArtNeed } from '@/config/assetPreload';
 import { ensureAssets } from '@/core/ensureAssets';
 import { bgTex, fillCover, heroTex, uiTex, watchArt, type UiName } from '@/core/TextureLoader';
 import { playSfx } from '@/core/SfxPlayer';
@@ -54,12 +56,16 @@ import {
 } from '@/core/AdDay';
 import { battleHudLay, type BattleHudLay } from '@/ui/lintel';
 import { numGlyphs, paintFrac, paintGlyphs } from '@/ui/glyphs';
-import { GOLD, fillSprite, fitSprite, goldBtn, hpBar, ironSlab, label, painted } from '@/ui/paint';
 import {
-  autoPlace, createBattle, foeHaltPos, foesAlive, gmWin, placeAt, placedOf, removeAt,
+  GOLD, fillSprite, fitSprite, goldBtn, hpBar, ironSlab, label, painted, reachPoly,
+} from '@/ui/paint';
+import {
+  autoPlace, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin,
+  placeAt, placedOf, removeAt,
   reviveAfterLeak, startFight, tick,
   type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
+import { canReach, reachScreenPoly } from '@/game/reach';
 
 /**
  * 开打已经收进坞底，底线直接贴坞顶。
@@ -75,6 +81,16 @@ const PLACE_LIFT = 18;
 type PlaceHand =
   | { mode: 'bench'; id: string; ox: number; oy: number; x: number; y: number }
   | { mode: 'scroll'; lastX: number }
+  | {
+    /** 场上按下还没挪：松手点看射程，挪过阈值才拎起来换位 */
+    mode: 'press';
+    id: string;
+    origin: { lane: number; cell: number };
+    ox: number;
+    oy: number;
+    x: number;
+    y: number;
+  }
   | {
     mode: 'drag';
     id: string;
@@ -94,6 +110,9 @@ export class BattleScene implements Scene {
   private _accMs = 0;
 
   private readonly _field = new PIXI.Graphics();
+  /** 战场层：人、怪、特效都裁在匾牌下沿以下，打进锈铁板里的弹和影子都不画 */
+  private readonly _arena = new PIXI.Container();
+  private readonly _arenaMask = new PIXI.Graphics();
   private readonly _unitLayer = new PIXI.Container();
   private readonly _villagerActors = new Map<string, UnitActor>();
   private readonly _foeActors = new Map<number, UnitActor>();
@@ -117,6 +136,10 @@ export class BattleScene implements Scene {
     () => { void this._acceptRevive(); },
     () => this._giveUpRevive(),
   );
+  private readonly _leaveAsk = new LeaveAskOverlay(
+    () => this._stayInBattle(),
+    () => this._leaveBattle(),
+  );
   private readonly _fx = new CombatFx();
   private readonly _vitals = new VisualVitals();
 
@@ -126,20 +149,26 @@ export class BattleScene implements Scene {
   private readonly _timeBar = new PIXI.Graphics();
   private readonly _guide = label(26, 0xffd66b, true);
   private _startBtn: PIXI.Container | null = null;
-  /** 只在布阵阶段出现。开打之后没有回头路，输赢都走结算 */
+  /** 布阵坞底「回路上」。开打后坞收起来，改走顶栏「撤」 */
   private _backBtn: PIXI.Container | null = null;
+  /** 开打后钉在门楣左边。点下去先问一句，不直接走 */
+  private _leaveBtn: PIXI.Container | null = null;
   private _gmSkip: PIXI.Container | null = null;
   /** 布阵条按钮不走 Pixi hitTest：真机上底下那一截 toLocal 经常对不上 */
   private _stripDetach: (() => void) | null = null;
 
   private _guideLife = 0;
+  /**
+   * 点人看射程。Clash / 王国保卫战都是点选不暂停。
+   * 布阵阶段是村民 id，开打后是 Fighter.uid —— 两套人表不是同一份。
+   */
+  private _inspectUid: string | null = null;
   private _settled = false;
   private _waveTold = 0;
   private _startedAt = 0;
 
   /** 上一逻辑帧的轴坐标，用来在 100ms 步长之间把走路插成滑步 */
   private readonly _prevPos = new Map<number, number>();
-  private readonly _hitFlash = new Map<number, number>();
   private readonly _hurtFlash = new Map<string, number>();
   private readonly _lastFoeXY = new Map<number, { x: number; y: number; feetY: number; h: number }>();
 
@@ -163,9 +192,12 @@ export class BattleScene implements Scene {
 
   constructor() {
     this.container.addChild(this._field);
-    this.container.addChild(this._unitLayer);
-    this.container.addChild(this._nameLayer);
-    this.container.addChild(this._fx.layer);
+    this._arena.addChild(this._unitLayer);
+    this._arena.addChild(this._nameLayer);
+    this._arena.addChild(this._fx.layer);
+    this._arena.addChild(this._arenaMask);
+    this._arena.mask = this._arenaMask;
+    this.container.addChild(this._arena);
     this.container.addChild(this._hud);
     this._computeLayout();
     this.container.addChild(this._bench);
@@ -174,9 +206,11 @@ export class BattleScene implements Scene {
     this.container.addChild(this._ghost);
     this.container.addChild(this._revive);
     this.container.addChild(this._settle);
+    this.container.addChild(this._leaveAsk);
     this._buildHud();
     watchArt(() => {
       this._rebuildStripBtns();
+      this._rebuildLeaveBtn();
       this._bench.paintChrome();
       this._bench.invalidate();
       this._renderBench();
@@ -186,10 +220,7 @@ export class BattleScene implements Scene {
         this._paintGhost(this._hand.id);
         this._raiseGhost();
       }
-      for (const [uid, a] of this._villagerActors) {
-        const f = this._state.team.find((x) => x.uid === uid);
-        if (f) a.bindHero(f.def.id, f.def.lane, f.evoStage);
-      }
+      this._rebindFieldArt();
       for (const e of this._state.foes) this._foeActors.get(e.id)?.bindEnemy(e.def.id);
     });
   }
@@ -201,6 +232,7 @@ export class BattleScene implements Scene {
     this._applyHudLayout();
     this._settle.hide();
     this._revive.hide();
+    this._leaveAsk.hide();
     this._fx.reset();
     this._clearActors();
 
@@ -216,10 +248,16 @@ export class BattleScene implements Scene {
       evo: c.evoStage,
       lane: c.villager.lane,
     }));
-    void ensureAssets(battlePreloadImages(stageId, heroes)).catch((e) => {
-      console.warn('[Battle] 本局预热失败', e);
-    });
-    void ensureAssets(BATTLE_FX_IMAGES).catch(() => { /* tex() 缺图时战斗特效降级 */ });
+    void ensureAssets(battleFaceImages(heroes))
+      .catch((e) => {
+        console.warn('[Battle] 上场立绘预热失败', e);
+      })
+      .then(() => {
+        void ensureAssets(battlePreloadImages(stageId, heroes)).catch((e) => {
+          console.warn('[Battle] 本局预热失败', e);
+        });
+        void ensureAssets(BATTLE_FX_IMAGES).catch(() => { /* tex() 缺图时战斗特效降级 */ });
+      });
     const cap = capOf(this._mem);
     this._state = createBattle(
       stage,
@@ -236,11 +274,11 @@ export class BattleScene implements Scene {
     this._guideLife = 0;
     this._guide.visible = false;
     this._prevPos.clear();
-    this._hitFlash.clear();
     this._hurtFlash.clear();
     this._lastFoeXY.clear();
     this._vitals.reset();
     this._clearHand();
+    this._inspectUid = null;
 
     this._renderBench();
     this._syncPhaseUi();
@@ -258,6 +296,7 @@ export class BattleScene implements Scene {
     this._gmSkip = null;
     this._stripDetach?.();
     this._stripDetach = null;
+    this._leaveAsk.hide();
     this._bench.destroyDock();
     BgmPlayer.stop();
   }
@@ -376,6 +415,11 @@ export class BattleScene implements Scene {
     this.container.addChild(this._ghost);
     this.container.addChild(this._revive);
     this.container.addChild(this._settle);
+    this.container.addChild(this._leaveAsk);
+  }
+
+  private _chromeBusy(): boolean {
+    return this._settle.visible || this._revive.visible || this._leaveAsk.visible;
   }
 
   private _paintGhost(id: string): void {
@@ -429,8 +473,12 @@ export class BattleScene implements Scene {
   }
 
   private _onPlaceDown(e: Event): void {
+    if (this._chromeBusy()) return;
+    if (this._state.phase === 'fighting') {
+      this._onFightTap(e);
+      return;
+    }
     if (!this._placing() || this._hand || this._ptrId != null) return;
-    if (this._settle.visible || this._revive.visible) return;
     const p = this._fingerOf(e);
     if (!p) return;
     const strip = this._hitStrip(p.x, p.y);
@@ -444,8 +492,16 @@ export class BattleScene implements Scene {
       const sitting = this._state.placed.find((x) => x.lane === unit.lane && x.cell === unit.cell);
       if (sitting) {
         this._ptrId = p.id;
-        this._beginDrag(sitting.villager.id, 'field', unit, p.x, p.y);
-        this._say('拖到另一格换位 · 拖回底下撤下');
+        this._hand = {
+          mode: 'press',
+          id: sitting.villager.id,
+          origin: unit,
+          ox: p.x,
+          oy: p.y,
+          x: p.x,
+          y: p.y,
+        };
+        this._bench.select(sitting.villager.id);
       }
       return;
     }
@@ -454,6 +510,13 @@ export class BattleScene implements Scene {
       this._ptrId = p.id;
       this._hand = { mode: 'bench', id: card, ox: p.x, oy: p.y, x: p.x, y: p.y };
       this._bench.select(card);
+      return;
+    }
+    if (this._inspectUid) {
+      this._inspectUid = null;
+      this._bench.select(null);
+      this._drawField();
+      this._drawUnits();
     }
   }
 
@@ -463,6 +526,18 @@ export class BattleScene implements Scene {
     if (!p) return;
     const hand = this._hand;
     if (hand.mode === 'btn') return;
+    if (hand.mode === 'press') {
+      hand.x = p.x;
+      hand.y = p.y;
+      const dx = p.x - hand.ox;
+      const dy = p.y - hand.oy;
+      if (Math.abs(dx) <= PLACE_SLOP && Math.abs(dy) <= PLACE_SLOP) return;
+      this._beginDrag(hand.id, 'field', hand.origin, p.x, p.y);
+      this._inspectUid = null;
+      this._say('拖到另一格换位 · 拖回底下撤下');
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
     if (hand.mode === 'scroll') {
       this._bench.scrollBy(p.x - hand.lastX);
       hand.lastX = p.x;
@@ -509,14 +584,21 @@ export class BattleScene implements Scene {
 
     if (hand.mode === 'btn') {
       this._bench.select(null);
-      if (!this._placing() || this._settle.visible || this._revive.visible) return;
+      if (!this._placing() || this._chromeBusy()) return;
       if (this._hitStrip(p.x, p.y) !== hand.which) return;
       if (hand.which === 'start') this._beginFight();
-      else this._backToVillage();
+      else this._askLeave();
       return;
     }
     if (hand.mode === 'scroll') {
       this._bench.select(null);
+      return;
+    }
+    if (hand.mode === 'press') {
+      this._toggleInspect(hand.id);
+      if (!this._inspectUid) this._bench.select(null);
+      this._drawField();
+      this._drawUnits();
       return;
     }
     if (hand.mode === 'bench') {
@@ -563,6 +645,9 @@ export class BattleScene implements Scene {
       placed: this._state.placed.length,
       lanes: this._state.placed.map((p) => p.lane),
     });
+    if (this._inspectUid && !placedOf(this._state, this._inspectUid)) {
+      this._inspectUid = null;
+    }
     this._renderBench();
     this._drawField();
     this._drawUnits();
@@ -594,6 +679,7 @@ export class BattleScene implements Scene {
       return;
     }
     console.log('[battle-tap] 已开打', this._state.phase, '上场', this._state.team.length);
+    this._inspectUid = null;
     this._startedAt = Date.now();
     adMarkRunStart();
     track('run_start', {
@@ -613,6 +699,9 @@ export class BattleScene implements Scene {
     this._computeLayout();
     const placing = this._placing();
     if (!placing) this._clearHand();
+    if (this._state.phase !== 'placing' && this._state.phase !== 'fighting') {
+      this._inspectUid = null;
+    }
     this._bench.visible = placing;
     if (this._startBtn) {
       this._startBtn.visible = placing;
@@ -622,6 +711,7 @@ export class BattleScene implements Scene {
       this._backBtn.visible = placing;
       if (placing) this.container.addChild(this._backBtn);
     }
+    this._syncLeaveBtn();
     this._drawField();
     this._drawUnits();
     this._updateHud();
@@ -630,17 +720,15 @@ export class BattleScene implements Scene {
   /* ---------------- 主循环 ---------------- */
 
   update(dt: number): void {
-    if (this._settle.visible || this._revive.visible) {
+    if (this._chromeBusy()) {
       this._fx.update(dt);
       return;
     }
 
+    // 顿帧只给受击那一下留残影，不许冻整条行军。
+    // 分路塔防里每秒十几下，冻世界就是「走下来一会停顿一下」。
     if (this._fx.hitStop > 0) {
       this._fx.hitStop = Math.max(0, this._fx.hitStop - dt);
-      this._drawField();
-      this._drawUnits(this._accMs / TICK_MS);
-      this._updateHud();
-      return;
     }
 
     if (this._state.phase === 'fighting') {
@@ -672,11 +760,6 @@ export class BattleScene implements Scene {
   }
 
   private _tickFlash(dt: number): void {
-    for (const [k, v] of this._hitFlash) {
-      const n = v - dt;
-      if (n <= 0) this._hitFlash.delete(k);
-      else this._hitFlash.set(k, n);
-    }
     for (const [k, v] of this._hurtFlash) {
       const n = v - dt;
       if (n <= 0) this._hurtFlash.delete(k);
@@ -718,9 +801,9 @@ export class BattleScene implements Scene {
           skin,
           melee: f.range <= 1,
           enemyId: ev.foeId,
-          slowed: f.def.role === 'block' && !ev.killed,
+          slowed: evoKindOf(f.def, f.evoStage) === 'slowHard' && !ev.killed,
           onLand: () => {
-            this._hitFlash.set(ev.foeId, 0.12);
+            this._foeActors.get(ev.foeId)?.flash(140);
             this._vitals.landEnemy(`e${ev.foeId}`, ev.damage);
           },
         });
@@ -825,6 +908,8 @@ export class BattleScene implements Scene {
       safeBottom: Game.safeBottom,
       benchH: BENCH_H + START_STRIP,
     });
+    this._arenaMask.clear();
+    this._arenaMask.beginFill(0xffffff).drawRect(0, chrome.barBottom, 750, height - chrome.barBottom).endFill();
   }
 
   private _villagerXY(f: Fighter): { x: number; y: number; h: number } {
@@ -901,16 +986,134 @@ export class BattleScene implements Scene {
     if (!placing) {
       g.beginFill(0x8b2e1f, 0.92).drawRect(FIELD_X, goalY - 3, FIELD_W, 6).endFill();
     }
+    this._drawInspect(g);
     this._drawThreshold(g, goalY, this._lay.height, placing);
   }
 
-  /** 门楣下沿压一条暗坎，土路从门洞里伸出来，不是钻进锈铁板后面 */
+  /**
+   * 开打点人：地上画出真实覆盖，战斗不停。
+   * 再点同一人收起，点别人换看，点空地关掉。
+   */
+  private _onFightTap(e: Event): void {
+    const p = this._fingerOf(e);
+    if (!p) return;
+    if (this._inRect(p, this._leaveRect())) {
+      this._askLeave();
+      return;
+    }
+    const hit = this._hitFighter(p.x, p.y);
+    this._toggleInspect(hit?.uid ?? null);
+  }
+
+  /** 点开看的时候名字后面挂上射程格数 */
+  private _reachTag(name: string, range: number): string {
+    return `${name} ${range}格`;
+  }
+
+  /** 点同一人收起，点别人换看，传空关掉 */
+  private _toggleInspect(uid: string | null): void {
+    if (!uid) {
+      this._inspectUid = null;
+      return;
+    }
+    this._inspectUid = this._inspectUid === uid ? null : uid;
+    if (this._inspectUid) playSfx('ui_tap', 0);
+  }
+
+  private _hitFighter(x: number, y: number): Fighter | null {
+    const h = this._unitH;
+    let best: { f: Fighter; d: number } | null = null;
+    for (const f of this._state.team) {
+      if (!f.alive) continue;
+      const ux = laneScreenX(f.lane);
+      const uy = cellScreenY(f.cell, this._lay.spawnY, this._lay.goalY, h);
+      if (Math.abs(x - ux) > LANE_W * 0.42) continue;
+      if (y < uy - h - 20 || y > uy + 24) continue;
+      const d = Math.abs(x - ux) + Math.abs(y - (uy - h * 0.45));
+      if (!best || d < best.d) best = { f, d };
+    }
+    return best?.f ?? null;
+  }
+
+  /**
+   * 点人看射程的数据。布阵按格子现算，开打后读场上那个人。
+   * 地上那片只走 reachScreenPoly，和出手同一套 canReach。
+   */
+  private _inspectReach(): {
+    lane: number;
+    cell: number;
+    pos: number;
+    range: number;
+    def: Fighter['def'];
+    feet: { x: number; y: number };
+    fighter: Fighter | null;
+  } | null {
+    if (!this._inspectUid) return null;
+    if (this._placing()) {
+      const p = this._state.placed.find((x) => x.villager.id === this._inspectUid);
+      if (!p) {
+        this._inspectUid = null;
+        return null;
+      }
+      const s = statsOf(p.villager, p.evoStage, p.stars, this._state.villageMul, p.craft);
+      return {
+        lane: p.lane,
+        cell: p.cell,
+        pos: cellPos(p.cell),
+        range: s.range,
+        def: p.villager,
+        feet: {
+          x: laneScreenX(p.lane),
+          y: cellScreenY(p.cell, this._lay.spawnY, this._lay.goalY, this._unitH),
+        },
+        fighter: null,
+      };
+    }
+    if (this._state.phase !== 'fighting') return null;
+    const f = this._state.team.find((x) => x.uid === this._inspectUid);
+    if (!f?.alive) {
+      this._inspectUid = null;
+      return null;
+    }
+    return {
+      lane: f.lane,
+      cell: f.cell,
+      pos: f.pos,
+      range: f.range,
+      def: f.def,
+      feet: this._villagerXY(f),
+      fighter: f,
+    };
+  }
+
+  /** 地上那片 = reachScreenPoly。开打后能打到的怪再点一层脚底，仍问 canReach。 */
+  private _drawInspect(g: PIXI.Graphics): void {
+    const sub = this._inspectReach();
+    if (!sub) return;
+    const { spawnY, goalY } = this._lay;
+    const pulse = 0.82 + 0.18 * Math.sin(Date.now() / 210);
+    const color = LANE_TINT[sub.def.lane];
+    reachPoly(g, reachScreenPoly(sub, spawnY, goalY), color, pulse);
+    this._stampFeet(g, sub.feet.x, sub.feet.y, true);
+    const f = sub.fighter;
+    if (!f) return;
+    for (const e of this._state.foes) {
+      if (!e.alive || !canReach(f, e)) continue;
+      const p = this._lastFoeXY.get(e.id);
+      if (!p) continue;
+      g.beginFill(color, 0.22 * pulse).drawEllipse(p.x, p.feetY + 4, 22, 8).endFill();
+      g.lineStyle(2, 0xfff4c4, 0.55 * pulse).drawEllipse(p.x, p.feetY + 4, 20, 7).lineStyle(0);
+    }
+  }
+
+  /** 门楣下沿压一条暗坎，土路从门洞里伸出来，匾牌和战场从这里切开 */
   private _drawVillageMouth(g: PIXI.Graphics, seam: number): void {
-    g.beginFill(0x0a0604, 0.78).drawRect(0, seam, 750, 10).endFill();
-    g.beginFill(0x1a1008, 0.4).drawRect(0, seam + 10, 750, 16).endFill();
-    g.beginFill(0x2a2010, 0.16).drawRect(0, seam + 26, 750, 14).endFill();
-    g.beginFill(0x3a2418, 0.85).drawRect(0, seam, 750, 2).endFill();
-    g.beginFill(0x6a4a28, 0.45).drawRect(0, seam + 2, 750, 1).endFill();
+    g.beginFill(0x0a0604, 0.88).drawRect(0, seam, 750, 14).endFill();
+    g.beginFill(0x1a1008, 0.45).drawRect(0, seam + 14, 750, 18).endFill();
+    g.beginFill(0x2a2010, 0.18).drawRect(0, seam + 32, 750, 16).endFill();
+    g.beginFill(0x2a1810, 0.92).drawRect(0, seam, 750, 4).endFill();
+    g.beginFill(0x6a4a28, 0.55).drawRect(0, seam + 4, 750, 2).endFill();
+    g.beginFill(0xc4a06a, 0.22).drawRect(FIELD_X + 18, seam + 3, FIELD_W - 36, 2).endFill();
   }
 
   /** 人站在土上：一小团接触影。选中再加细金环，不要铺整格 */
@@ -1005,6 +1208,12 @@ export class BattleScene implements Scene {
     return best;
   }
 
+  private _rebindFieldArt(): void {
+    for (const b of fieldHeroBinds(this._state)) {
+      this._villagerActors.get(b.uid)?.bindHero(b.id, b.lane, b.evo);
+    }
+  }
+
   /* ---------------- 画单位 ---------------- */
 
   private _actorFor(f: Fighter): UnitActor {
@@ -1040,11 +1249,15 @@ export class BattleScene implements Scene {
         const lifting = this._draggingId() === p.villager.id;
         a.view.alpha = lifting ? 0.32 : 1;
         a.holdPulse = lifting;
+        const looking = this._inspectUid === p.villager.id;
+        const s = looking
+          ? statsOf(p.villager, p.evoStage, p.stars, this._state.villageMul, p.craft)
+          : null;
         this._tag(
-          p.villager.name,
+          s ? this._reachTag(p.villager.name, s.range) : p.villager.name,
           x,
           y,
-          lifting ? GOLD : LANE_TINT[p.villager.lane],
+          lifting || looking ? GOLD : LANE_TINT[p.villager.lane],
         );
       }
       this._reapActors(new Set(this._state.placed.map((p) => `pre:${p.villager.id}`)));
@@ -1080,7 +1293,6 @@ export class BattleScene implements Scene {
         const haltAt = foeHaltPos(e, this._state.team);
         a.walkBob = haltAt === undefined || e.pos < haltAt - 0.02;
         a.place(p.x, p.feetY, p.h);
-        a.holdPulse = this._hitFlash.has(e.id);
         this._foeHp(e, p.x, p.feetY, p.h);
       } else {
         const pose = this._lastFoeXY.get(e.id);
@@ -1088,7 +1300,6 @@ export class BattleScene implements Scene {
           a.place(pose.x, pose.feetY, pose.h);
           this._foeHp(e, pose.x, pose.feetY, pose.h);
         }
-        a.holdPulse = this._hitFlash.has(e.id);
       }
     }
     for (const [id, a] of [...this._foeActors]) {
@@ -1140,7 +1351,9 @@ export class BattleScene implements Scene {
     const t = label(13, f.alive ? 0xfff4c4 : 0x8a8a92, true);
     t.anchor.set(0.5);
     t.position.set(x, feetY + 6);
-    t.text = f.def.name;
+    t.text = this._inspectUid === f.uid
+      ? this._reachTag(f.def.name, f.range)
+      : f.def.name;
     this._nameLayer.addChild(t);
   }
 
@@ -1179,6 +1392,7 @@ export class BattleScene implements Scene {
     this._hud.addChild(this._guide);
 
     this._rebuildStripBtns();
+    this._rebuildLeaveBtn();
     this._paintHudChrome();
     this._applyHudLayout();
   }
@@ -1276,18 +1490,80 @@ export class BattleScene implements Scene {
   }
 
   /**
-   * 布阵还没开打，回路上不算弃关。
-   *
-   * 排法先存下来：下一关 / 再进来直接铺上，别让「我只是回去喂个人」变成重摆。
-   * 开打之后这条路关掉 —— 中途退出会让漏怪判负变成「算了不打」，结算和星评都空了。
+   * 钉在左上角，跟微信/抖音「收起」胶囊同一条水平中线。
+   * 高度跟着胶囊走，不要再压进锈铁门楣的左边框。
    */
-  private _backToVillage(): void {
-    if (!this._placing()) return;
-    if (this._state.placed.length > 0) {
+  private _leaveBtnLay(): { cx: number; cy: number; w: number; h: number } {
+    const capH = Math.max(32, Game.safeCapsuleBottom - Game.safeCapsuleTop);
+    const h = capH;
+    const w = Math.round(h * 2.05);
+    // 再往右让开左边铁框和铆钉，别贴在门楣左缘
+    const pad = 72;
+    return { cx: pad + w / 2, cy: Game.safeHeaderCenterY, w, h };
+  }
+
+  /** 热区按设计坐标算。开打后点人走同一条 canvas 手势，不能再靠 Pixi hitTest */
+  private _leaveRect(): { x: number; y: number; w: number; h: number } {
+    const { cx, cy, w, h } = this._leaveBtnLay();
+    return { x: cx - w / 2 - 14, y: cy - h / 2 - 14, w: w + 28, h: h + 28 };
+  }
+
+  private _rebuildLeaveBtn(): void {
+    this._leaveBtn?.destroy({ children: true });
+    const { w, h } = this._leaveBtnLay();
+    const box = this._makeStripBtn(w, h, '撤', 'rust_btn', Math.max(16, Math.round(h * 0.48)), 0xfff4c4);
+    box.eventMode = 'none';
+    box.interactiveChildren = false;
+    this.container.addChild(box);
+    this._leaveBtn = box;
+  }
+
+  private _syncLeaveBtn(): void {
+    if (!this._leaveBtn) return;
+    const show = !this._placing()
+      && this._state.phase === 'fighting'
+      && !this._settle.visible
+      && !this._revive.visible
+      && !this._leaveAsk.visible
+      && !this._settled;
+    this._leaveBtn.visible = show;
+    if (show) this.container.addChild(this._leaveBtn);
+    this.container.addChild(this._leaveAsk);
+  }
+
+  private _askLeave(): void {
+    if (this._settled || this._chromeBusy()) return;
+    if (!this._placing() && this._state.phase !== 'fighting') return;
+    this._clearHand();
+    this._leaveAsk.show(this._lay.height, !this._placing());
+    this._syncLeaveBtn();
+    this.container.addChild(this._leaveAsk);
+  }
+
+  private _stayInBattle(): void {
+    this._leaveAsk.hide();
+    this._syncLeaveBtn();
+  }
+
+  /**
+   * 布阵离开不算弃关：排法先存下来，再进来直接铺上。
+   * 开打后再走：这局不算赢也不走结算，避免中途退出变成「算了不打还拿败场奖励」。
+   */
+  private _leaveBattle(): void {
+    const placing = this._placing();
+    if (placing && this._state.placed.length > 0) {
       saveLayout(this._state.placed.map((p): Slot => ({
         id: p.villager.id, lane: p.lane, cell: p.cell,
       })));
     }
+    track('run_leave', {
+      stage_id: this._state.stage.id,
+      fighting: !placing,
+      leaked: this._state.leaked,
+      wave: this._state.wave,
+      play_ms: this._startedAt > 0 ? Date.now() - this._startedAt : 0,
+    });
+    this._leaveAsk.hide();
     SceneManager.switchTo('road');
   }
 
@@ -1325,6 +1601,12 @@ export class BattleScene implements Scene {
       this._startBtn.position.set(437, footer + BENCH_FOOTER_H / 2);
       this.container.addChild(this._startBtn);
     }
+    if (this._leaveBtn) {
+      const lay = this._leaveBtnLay();
+      this._leaveBtn.position.set(lay.cx, lay.cy);
+      this.container.addChild(this._leaveBtn);
+    }
+    this._syncLeaveBtn();
     this._updateHud();
   }
 
@@ -1459,6 +1741,7 @@ export class BattleScene implements Scene {
   }
 
   private _updateHud(): void {
+    this._syncLeaveBtn();
     const s = this._state;
     const chrome = this._lay.chrome;
     this._clearHudBits();
@@ -1511,6 +1794,8 @@ export class BattleScene implements Scene {
      * 要是哪天涨到三成以上，先回去看曲线，不是在这儿放宽条件。
      */
     if (s.phase === 'lost' && s.loseReason === 'leak' && adCanShow('revive')) {
+      this._leaveAsk.hide();
+      this._syncLeaveBtn();
       this._revive.show(s.team, s.leaked, adRemaining('revive'), this._lay.height);
       playSfx('lose', 0);
       return;
@@ -1541,6 +1826,7 @@ export class BattleScene implements Scene {
       if (e.alive) this._vitals.seed(`e${e.id}`, e.hp, 0, true);
     }
     this._revive.hide();
+    this._syncLeaveBtn();
     this._consumeEvents();
     this._updateHud();
     this._say('缓过来了，接着挡');
@@ -1556,6 +1842,8 @@ export class BattleScene implements Scene {
   private _openSettle(): void {
     if (this._settled) return;
     this._settled = true;
+    this._leaveAsk.hide();
+    this._syncLeaveBtn();
     const s = this._state;
     const won = s.phase === 'won';
 
@@ -1675,5 +1963,6 @@ export class BattleScene implements Scene {
     bindPointerTap(box, () => Platform.showToast(this._gmWin(), 'none'));
     this.container.addChildAt(box, this.container.getChildIndex(this._settle));
     this._gmSkip = box;
+    this.container.addChild(this._leaveAsk);
   }
 }

@@ -3,6 +3,7 @@
  *
  * **这是战斗规则的唯一真源。** 渲染层（BattleScene）和模拟器（formulas/simulate）
  * 都驱动同一个 `tick`，不许任何一边自己算一套 —— 否则护栏测的就不是真代码。
+ * 村民「打不打得到」只走 `@/game/reach`，引擎里不再写第二套距离。
  *
  * 失败条件是**漏怪到底线或超时**（§4.4），不再是队灭。三件事必须让
  * 「谁放哪一格」真的有后果，否则布阵就是假决策：
@@ -19,9 +20,9 @@
  * 随机会把信号埋进噪声里。变化量交给布阵和养成，不交给骰子。
  */
 import {
-  ARMOR_K, BLOCK_GAP, CELL_COUNT, GOAL_POS, HEAL_ATK_CUT, HEAL_MUL,
+  ARMOR_K, BLOCK_GAP, CELL_COUNT, COMBAT_POS, GOAL_POS, HEAL_ATK_CUT, HEAL_MUL,
   LANE_COUNT, LEAK_ALLOW, RAGE_BONUS, SLOW_MS, SLOW_MUL, TICK_MS, WAVE_GAP_MS,
-  cellPos, moveSpd,
+  cellPos, inCombatZone, moveSpd,
 } from '@/balance/combat';
 import {
   getEnemy, rateStars,
@@ -31,6 +32,7 @@ import {
   evoKindOf, laneMul, statsOf,
   type EvoKind, type Role, type VillagerDef,
 } from '@/balance/villagers';
+import { canReach } from '@/game/reach';
 
 /** 进化打法的数字。护栏红了先砍这里，不改几何、不加新系统 */
 const PIERCE_MUL = 0.28;
@@ -47,6 +49,22 @@ const BURST_RANGE = 1.4;
 const SLOW_HARD_MUL = 1.2;
 const HASTE_MUL = 0.96;
 const ALL_HEAL_CUT = 0.35;
+
+/**
+ * 外星人机制的数字。和上面那批一样：护栏红了先砍这里，不改几何。
+ *
+ * 三个上限（CAP）不是保险丝，是设计红线。光环能叠满就会出现
+ * 「这一波怎么打都打不动」的场面，而玩家在开战前根本看不出来 ——
+ * 那正是 §6 第 4 条禁止的「被克了就没办法」。
+ */
+const AURA_SHIELD_CAP = 0.5;
+const AURA_ATK_CAP = 0.6;
+const AURA_DIM_CAP = 0.5;
+/** 破壳线：血掉到一半，护甲清零、速度翻倍 */
+const CRACK_HP = 0.5;
+const CRACK_SPD = 2;
+/** 下的蛋落在自己身后一点，不和自己叠在一个点上 */
+const HATCH_BACK = 0.3;
 
 /* ---------------- 状态 ---------------- */
 
@@ -71,7 +89,7 @@ export interface Fighter {
   lane: number;
   cell: number;
   pos: number;
-  /** 几阶。渲染层按它换家伙和穿戴，见 gear.handIdOf / gear.wearOf */
+  /** 几阶。渲染层按它换立绘，出手皮见 gear.handIdOf */
   evoStage: number;
   stars: number;
   craft?: number;
@@ -101,9 +119,23 @@ export interface Foe {
   atk: number;
   armor: number;
   cd: number;
-  /** 减速剩余 ms，由「拦」位施加 */
+  /** 减速剩余 ms，由「拦」位施加。`steady` 的怪身上永远是 0 */
   slowMs: number;
   alive: boolean;
+  /** 走路速度。破壳之后会翻倍，所以不能直接读 def.spd */
+  spd: number;
+  /** 破壳过了没。只破一次 */
+  cracked: boolean;
+  /** 跳过挡路那一下用掉没 */
+  leapt: boolean;
+  /** 跳过去的是谁，之后不再被他挡 */
+  skipUid?: string;
+  /** 还能下几个蛋 */
+  spawnLeft: number;
+  spawnCd: number;
+  /** 这一刻同路友军给的减伤 / 加攻。每 tick 重算，不累计 */
+  shieldPct: number;
+  atkPct: number;
 }
 
 /**
@@ -230,6 +262,34 @@ export function createBattle(
   };
 }
 
+export interface FieldHeroBind {
+  uid: string;
+  id: string;
+  lane: string;
+  evo: number;
+}
+
+/**
+ * 贴图后到时该重绑谁。
+ * 布阵阶段 team 还是空的，场上的人挂在 `pre:id`；只扫 team 会让晚到的立绘永远不贴。
+ */
+export function fieldHeroBinds(state: Pick<BattleState, 'phase' | 'team' | 'placed'>): FieldHeroBind[] {
+  if (state.phase === 'placing') {
+    return state.placed.map((p) => ({
+      uid: `pre:${p.villager.id}`,
+      id: p.villager.id,
+      lane: p.villager.lane,
+      evo: p.evoStage,
+    }));
+  }
+  return state.team.map((f) => ({
+    uid: f.uid,
+    id: f.def.id,
+    lane: f.def.lane,
+    evo: f.evoStage,
+  }));
+}
+
 function fighterOf(p: Placement, villageMul: number, i: number): Fighter {
   const s = statsOf(p.villager, p.evoStage, p.stars, villageMul, p.craft);
   return {
@@ -341,28 +401,62 @@ export function removeAt(state: BattleState, lane: number, cell: number): boolea
 
 /* ---------------- 目标选择 ---------------- */
 
+/** 飞的和钻地的都不被阻挡，也都奔这一路最后排 */
+function unblocked(def: EnemyDef): boolean {
+  return def.flying === true || def.burrow === true;
+}
+
 /** 地面怪被这一路最靠前的活人挡住。返回那个人 */
 export function blockerFor(foe: Foe, team: readonly Fighter[]): Fighter | undefined {
   let best: Fighter | undefined;
   for (const f of team) {
     if (!f.alive || f.lane !== foe.lane) continue;
+    if (f.uid === foe.skipUid) continue; // 弹簧腿已经跳过他了
     if (f.pos < foe.pos - 0.5) continue; // 已经被越过去了
     if (!best || f.pos < best.pos) best = f;
   }
   return best;
 }
 
-/** 该停在哪。地面怪贴挡人脚前；飞的按自己射程悬停。没人挡就是 undefined，一路走到头 */
+/** 这一刻该打谁。地面怪打挡路的，飞的和钻地的直奔最后排 */
+export function foeTarget(foe: Foe, team: readonly Fighter[]): Fighter | undefined {
+  return unblocked(foe.def) ? sniperTarget(foe, team) : blockerFor(foe, team);
+}
+
+/**
+ * 该停在哪。没活人挡就是 undefined，一路走到头。
+ *
+ * 停点只跟**人**走，不跟格子走。前排空着就穿过，倒了的也不再挡。
+ * 飞碟按射程悬在那个人面前（后排不是安全区）；钻地的要贴到最后排那个人脚前。
+ */
 export function foeHaltPos(foe: Foe, team: readonly Fighter[]): number | undefined {
-  if (foe.def.flying) {
-    const t = sniperTarget(foe, team);
-    return t ? t.pos - foe.def.range : undefined;
+  const t = foeTarget(foe, team);
+  if (!t || !t.alive) return undefined;
+  /*
+   * 飞的按射程悬在那个人面前，**但不许悬到开火线外**。
+   *
+   * 射程 3 的飞碟狙最后排：这一路只有前两格站了人时，最后排在轴位 3，
+   * 悬停点算出来正好是 0，比开火线 0.28 还靠外。那儿谁也不许开火 ——
+   * 飞碟打不到人，人也打不到飞碟，满血钉在出场点，一局就这么僵到超时。
+   * 实测 4-1 / 5-1 全种子卡死在这儿，我方零阵亡、场上剩 3~5 只飞碟一动不动，
+   * 时限从 86 秒放到 117 秒剩的只数一只不差 —— 光给时间根本不是解。
+   */
+  if (foe.def.flying) return Math.max(COMBAT_POS, t.pos - foe.def.range);
+  return t.pos - BLOCK_GAP;
+}
+
+/** 探照灯照的是这一路最前面那个。把人往后挪一格就照不到了 */
+function frontOf(team: readonly Fighter[], lane: number): Fighter | undefined {
+  let best: Fighter | undefined;
+  for (const f of team) {
+    if (!f.alive || f.lane !== lane) continue;
+    if (!best || f.pos < best.pos) best = f;
   }
-  const b = blockerFor(foe, team);
-  return b ? b.pos - BLOCK_GAP : undefined;
+  return best;
 }
 
 function inHitRange(e: Foe, target: Fighter): boolean {
+  if (!inCombatZone(e.pos)) return false;
   const gap = target.pos - e.pos;
   return gap <= e.def.range && gap >= -0.5;
 }
@@ -377,22 +471,14 @@ export function sniperTarget(foe: Foe, team: readonly Fighter[]): Fighter | unde
   return best;
 }
 
-/**
- * 跨列射程。挨 / 拦只打本列（挡是列的意义）；
- * 打 / 修能照顾左右各一列，邻列按多 1 格射程算，本列仍然优先。
- */
-function laneReachOf(role: Role): number {
-  return role === 'tank' || role === 'block' ? 0 : 1;
+/** 会不会出手。规则在 `@/game/reach`，这里不另写距离。 */
+export function inFighterRange(f: Fighter, e: Foe): boolean {
+  return canReach(f, e);
 }
 
-const LANE_GAP_COST = 1;
-
 function reachGap(f: Fighter, e: Foe): number | undefined {
-  const side = Math.abs(e.lane - f.lane);
-  if (side > laneReachOf(f.def.role)) return undefined;
-  const gap = f.pos - e.pos + side * LANE_GAP_COST;
-  if (gap > f.range || gap < -0.5) return undefined;
-  return side;
+  if (!canReach(f, e)) return undefined;
+  return Math.abs(e.lane - f.lane);
 }
 
 /** 村民打射程内最靠前的那只。本列优先于邻列 */
@@ -464,11 +550,11 @@ function tickRegen(state: BattleState, f: Fighter, kind: EvoKind): void {
   state.events.push({ kind: 'heal', uid: f.uid, targetUid: f.uid, amount });
 }
 
-function tryHeal(state: BattleState, f: Fighter, kind: EvoKind): boolean {
+function tryHeal(state: BattleState, f: Fighter, kind: EvoKind, cdMul: number): boolean {
   if (kind === 'allHeal') {
     const hurts = state.team.filter((t) => t.alive && t.hp < t.maxHp);
     if (hurts.length === 0) return false;
-    f.cd = f.interval;
+    f.cd = f.interval * cdMul;
     for (const hurt of hurts) {
       const amount = Math.min(hurt.maxHp - hurt.hp, Math.round(f.atk * HEAL_MUL * ALL_HEAL_CUT));
       if (amount <= 0) continue;
@@ -481,23 +567,23 @@ function tryHeal(state: BattleState, f: Fighter, kind: EvoKind): boolean {
   if (!hurt) return false;
   const amount = Math.min(hurt.maxHp - hurt.hp, Math.round(f.atk * HEAL_MUL));
   hurt.hp += amount;
-  f.cd = f.interval;
+  f.cd = f.interval * cdMul;
   state.events.push({ kind: 'heal', uid: f.uid, targetUid: hurt.uid, amount });
   return true;
 }
 
 function strike(state: BattleState, f: Fighter, foe: Foe, mul: number, kind: EvoKind): void {
   const raw = effAtk(f) * (f.def.role === 'heal' ? HEAL_ATK_CUT : 1) * mul;
-  const damage = dmgOf(raw, foe.armor, laneMul(f.def.lane, foe.def.lane));
+  const damage = foeTake(foe, dmgOf(raw, foe.armor, laneMul(f.def.lane, foe.def.lane)));
   foe.hp -= damage;
   const killed = foe.hp <= 0;
   state.events.push({ kind: 'hit', uid: f.uid, foeId: foe.id, damage, killed });
   if (killed) {
     foe.alive = false;
     state.events.push({ kind: 'foeDown', foeId: foe.id, lane: foe.lane });
-  } else if (f.def.role === 'block' || kind === 'slowHard') {
-    const hold = kind === 'slowHard' ? SLOW_MS * SLOW_HARD_MUL : SLOW_MS;
-    foe.slowMs = Math.max(foe.slowMs, hold);
+  } else if (kind === 'slowHard' && !foe.def.steady) {
+    // 只有「钉死」这一阶才减速。拦位普攻再叠 hitstun，看起来像挨一下停一下
+    foe.slowMs = Math.max(foe.slowMs, SLOW_MS * SLOW_HARD_MUL);
   }
   if (kind !== 'lifesteal') return;
   const sink = f.def.role === 'heal' ? (pickHurt(state.team) ?? f) : f;
@@ -512,7 +598,7 @@ function fireBurst(state: BattleState, f: Fighter): void {
   for (const e of state.foes) {
     if (!e.alive || reachGap(f, e) === undefined) continue;
     if (Math.abs(f.pos - e.pos) > BURST_RANGE) continue;
-    const damage = dmgOf(f.atk * BURST_ATK, e.armor, laneMul(f.def.lane, e.def.lane));
+    const damage = foeTake(e, dmgOf(f.atk * BURST_ATK, e.armor, laneMul(f.def.lane, e.def.lane)));
     e.hp -= damage;
     const killed = e.hp <= 0;
     state.events.push({ kind: 'hit', uid: f.uid, foeId: e.id, damage, killed });
@@ -528,7 +614,7 @@ function hurtVillager(state: BattleState, target: Fighter, e: Foe, damage: numbe
   state.events.push({ kind: 'foeHit', foeId: e.id, uid: target.uid, damage });
   const kind = evoKindOf(target.def, target.evoStage);
   if (kind === 'reflect' && e.alive) {
-    const back = Math.max(1, Math.round(damage * REFLECT_MUL));
+    const back = foeTake(e, damage * REFLECT_MUL);
     e.hp -= back;
     if (e.hp <= 0) {
       e.alive = false;
@@ -563,12 +649,87 @@ export function effAtk(f: Fighter): number {
   return f.atk * (1 + RAGE_BONUS * (1 - f.hp / f.maxHp));
 }
 
+/** 打在外星人身上的一下，先过一遍同路支援给的罩子 */
+function foeTake(foe: Foe, raw: number): number {
+  return Math.max(1, Math.round(raw * (1 - foe.shieldPct)));
+}
+
+/**
+ * 把这一刻的光环算到每只怪身上，顺便返回每条路的「照住」强度。
+ *
+ * **先按路求和再减掉自己那一份**，不是两两相加：场上同时有三四十只怪，
+ * O(n²) 会被模拟器跑护栏时放大成几百万次运算。
+ */
+function applyAuras(state: BattleState): number[] {
+  const shield = new Array<number>(LANE_COUNT).fill(0);
+  const atkUp = new Array<number>(LANE_COUNT).fill(0);
+  const dim = new Array<number>(LANE_COUNT).fill(0);
+
+  for (const e of state.foes) {
+    const a = e.def.aura;
+    if (!e.alive || !a) continue;
+    if (a.kind === 'shield') shield[e.lane]! += a.pct;
+    else if (a.kind === 'atk') atkUp[e.lane]! += a.pct;
+    else dim[e.lane]! += a.pct;
+  }
+
+  for (const e of state.foes) {
+    if (!e.alive) continue;
+    const own = e.def.aura;
+    // 光环不加给自己，支援怪必须能被单独点掉
+    const s = shield[e.lane]! - (own?.kind === 'shield' ? own.pct : 0);
+    const k = atkUp[e.lane]! - (own?.kind === 'atk' ? own.pct : 0);
+    e.shieldPct = Math.min(AURA_SHIELD_CAP, Math.max(0, s));
+    e.atkPct = Math.min(AURA_ATK_CAP, Math.max(0, k));
+  }
+
+  return dim.map((d) => Math.min(AURA_DIM_CAP, d));
+}
+
 /* ---------------- 主循环 ---------------- */
 
 function lose(state: BattleState, reason: LoseReason): void {
   state.phase = 'lost';
   state.loseReason = reason;
   state.stars = 0;
+}
+
+/** 一只外星人的初始状态，还没吃关卡倍率。出怪、下蛋、测试都从这儿起 */
+export function foeOf(def: EnemyDef, id: number, lane: number, pos = 0): Foe {
+  return {
+    id,
+    def,
+    lane,
+    pos,
+    hp: def.hp,
+    maxHp: def.hp,
+    atk: def.atk,
+    armor: def.def,
+    cd: 0,
+    slowMs: 0,
+    alive: true,
+    spd: def.spd,
+    cracked: false,
+    leapt: false,
+    spawnLeft: def.spawn?.times ?? 0,
+    spawnCd: def.spawn?.everyMs ?? 0,
+    shieldPct: 0,
+    atkPct: 0,
+  };
+}
+
+/**
+ * 造一只进场的外星人。出怪时间轴和孵化器下的蛋走同一条，
+ * 否则「蛋没吃到关卡倍率」这种 bug 要到第 30 章才看得出来。
+ */
+function newFoe(state: BattleState, enemyId: string, lane: number, pos = 0): Foe {
+  const def = getEnemy(enemyId);
+  const foe = foeOf(def, state.nextFoeId, lane, pos);
+  foe.hp = Math.round(def.hp * state.stage.hpMul);
+  foe.maxHp = foe.hp;
+  foe.atk = def.atk * state.stage.atkMul;
+  state.nextFoeId += 1;
+  return foe;
 }
 
 /**
@@ -587,43 +748,57 @@ export function tick(state: BattleState): void {
   while (state.spawnIdx < state.schedule.length
     && state.schedule[state.spawnIdx]!.atMs <= state.elapsedMs) {
     const s = state.schedule[state.spawnIdx]!;
-    const def = getEnemy(s.enemy);
     if (s.wave > state.wave) {
       state.wave = s.wave;
       state.events.push({ kind: 'waveStart', wave: s.wave });
     }
-    state.foes.push({
-      id: state.nextFoeId,
-      def,
-      lane: s.lane,
-      pos: 0,
-      hp: Math.round(def.hp * stage.hpMul),
-      maxHp: Math.round(def.hp * stage.hpMul),
-      atk: def.atk * stage.atkMul,
-      armor: def.def,
-      cd: 0,
-      slowMs: 0,
-      alive: true,
-    });
-    state.nextFoeId += 1;
+    state.foes.push(newFoe(state, s.enemy, s.lane));
     state.spawnIdx += 1;
   }
 
-  // 外星人动
+  const dim = applyAuras(state);
+
+  // 外星人动。下的蛋先攒着，循环完再进场 —— 边遍历边 push 会让它当帧就走一步
+  const hatched: Foe[] = [];
   for (const e of state.foes) {
     if (!e.alive) continue;
     if (e.slowMs > 0) e.slowMs = Math.max(0, e.slowMs - TICK_MS);
 
-    const target = e.def.flying
-      ? sniperTarget(e, state.team)
-      : blockerFor(e, state.team);
-    const haltAt = foeHaltPos(e, state.team);
-    const reached = haltAt !== undefined && e.pos >= haltAt;
+    // 破壳：血掉到一半，壳没了但跑得更快。只破一次
+    if (e.def.crack && !e.cracked && e.hp <= e.maxHp * CRACK_HP) {
+      e.cracked = true;
+      e.armor = 0;
+      e.spd = e.def.spd * CRACK_SPD;
+    }
 
-    // 地面怪走到挡人脚前才停。射程够着就停，会在空着的前一格趴下。
-    // 够得着可以边走边砍，但不能把空格当成停车位。
+    // 下蛋。次数是有限的，不然点不掉它就只能等超时 —— 那个玩家看不懂
+    if (e.def.spawn && e.spawnLeft > 0) {
+      e.spawnCd -= TICK_MS;
+      if (e.spawnCd <= 0) {
+        e.spawnCd = e.def.spawn.everyMs;
+        e.spawnLeft -= 1;
+        hatched.push(newFoe(state, e.def.spawn.enemy, e.lane, Math.max(0, e.pos - HATCH_BACK)));
+      }
+    }
+
+    let target = foeTarget(e, state.team);
+    let haltAt = foeHaltPos(e, state.team);
+    let reached = haltAt !== undefined && e.pos >= haltAt;
+
+    // 弹簧腿：第一次被挡下来的那一刻直接越过去，一整局只跳一次。
+    // 跳完必须重算挡点，否则会被钉在刚跳过的那个人脚前
+    if (reached && e.def.leap && !e.leapt && target) {
+      e.leapt = true;
+      e.skipUid = target.uid;
+      target = foeTarget(e, state.team);
+      haltAt = foeHaltPos(e, state.team);
+      reached = haltAt !== undefined && e.pos >= haltAt;
+    }
+
+    // 空格不是墙。没贴到活人脚前就接着走，射程够着也不许在空格子里趴下挥刀 ——
+    // 一挥走路动画就被盖住，看上去就像「碰到人物格就停」。
     if (!reached) {
-      e.pos += moveSpd(e.def.spd, e.pos) * (e.slowMs > 0 ? SLOW_MUL : 1) * (TICK_MS / 1000);
+      e.pos += moveSpd(e.spd, e.pos) * (e.slowMs > 0 ? SLOW_MUL : 1) * (TICK_MS / 1000);
       if (haltAt !== undefined && e.pos > haltAt) e.pos = haltAt;
       if (e.pos > GOAL_POS) {
         e.alive = false;
@@ -633,14 +808,24 @@ export function tick(state: BattleState): void {
       }
     }
 
-    if (target && inHitRange(e, target)) {
+    if (reached && target && inHitRange(e, target)) {
       e.cd -= TICK_MS;
       if (e.cd <= 0) {
         e.cd = e.def.interval;
-        const damage = dmgOf(e.atk, target.armor, laneMul(e.def.lane, target.def.lane));
+        const atk = e.atk * (1 + e.atkPct);
+        const damage = dmgOf(atk, target.armor, laneMul(e.def.lane, target.def.lane));
         hurtVillager(state, target, e, damage);
       }
     }
+  }
+  if (hatched.length > 0) state.foes.push(...hatched);
+
+  // 探照灯照住的是每一路最前面那个。照到谁每 tick 重算，人倒了就换下一个
+  const dimmed = new Set<string>();
+  for (let lane = 0; lane < LANE_COUNT; lane += 1) {
+    if (dim[lane]! <= 0) continue;
+    const front = frontOf(state.team, lane);
+    if (front) dimmed.add(front.uid);
   }
 
   // 村民动
@@ -651,14 +836,16 @@ export function tick(state: BattleState): void {
     f.cd -= TICK_MS;
     if (f.cd > 0) continue;
 
+    const cdMul = dimmed.has(f.uid) ? 1 + dim[f.lane]! : 1;
+
     // 吸血奶（杀猪匠）靠砍人回血，不走独占治疗，否则局里永远看不见他动手
     if (f.def.role === 'heal' && kind !== 'lifesteal') {
-      if (tryHeal(state, f, kind)) continue;
+      if (tryHeal(state, f, kind, cdMul)) continue;
     }
 
     const marks = pickFoes(f, state.foes, kind);
     if (marks.length === 0) continue;
-    f.cd = f.interval;
+    f.cd = f.interval * cdMul;
     for (const m of marks) strike(state, f, m.foe, m.mul, kind);
   }
 
