@@ -229,7 +229,7 @@ export function queuePad(
 
 /**
  * 点人看射程：把 `reachScreenPoly` 填上。
- * 顶点来自 `@/game/reach`，已经是能出手的点，这里不再算距离。
+ * 顶点来自 `@/game/reach`，和出手是同一套 reachSep，这里不再算距离。
  */
 export function reachPoly(
   g: PIXI.Graphics,

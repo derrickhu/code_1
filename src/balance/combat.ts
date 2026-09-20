@@ -55,11 +55,13 @@ export const BLOCK_POS = cellPos(0) - BLOCK_GAP;
 export const VIS_ENGAGE_POS = cellPos(0) - 1;
 
 /**
- * 走出门洞才许开火。匾牌底下那一截是出场，不是战场。
- * 钉在空场前 1/4：人已经落在土路上，弹也不会再打进锈铁板里。
- * 够得着多出来的射程是为了站最后一格仍够到挡点，不是隔着门楣点刚露头的怪。
+ * 走出空场才许开火。空场是走路舞台，不是战场。
+ *
+ * 钉在可站区上沿（和 VIS_ENGAGE_POS 同一条线）：从这儿开始
+ * posScreenY 按格匀速，出手和地上那片用同一把尺。
+ * 再往门洞里开（旧的 0.28）会让轴距和屏幕距拧成两套，换格子扇形就变形。
  */
-export const COMBAT_POS = VIS_ENGAGE_POS * 0.28;
+export const COMBAT_POS = VIS_ENGAGE_POS;
 
 export function inCombatZone(pos: number): boolean {
   return pos >= COMBAT_POS;
@@ -87,7 +89,7 @@ export function approachWalkSec(spd: number): number {
  */
 export function moveSpd(spd: number, pos: number): number {
   if (pos >= VIS_ENGAGE_POS) return spd;
-  const want = spd * combatScreenPerPos() / approachScreenPerPos();
+  const want = spd * combatVisualPerPos() / approachScreenPerPos();
   return Math.max(want, VIS_ENGAGE_POS / APPROACH_SEC_MAX);
 }
 
@@ -154,17 +156,54 @@ function approachScreenPerPos(): number {
   return VIS_APPROACH_ROWS / VIS_ROWS / VIS_ENGAGE_POS;
 }
 
-/** 可站区每一格轴距占屏幕的比例 */
-function combatScreenPerPos(): number {
+/**
+ * 可站区 1 格轴距对应的视觉比例。射程只认这把尺。
+ * posScreenY / visualReachGap / combatCellPx 必须同出这里，不许各写一套。
+ */
+export function combatVisualPerPos(): number {
   return (1 - VIS_APPROACH_ROWS / VIS_ROWS) / (GOAL_POS - VIS_ENGAGE_POS);
+}
+
+/** 轴 pos → 场上视觉比例 0..1。怪的脚底和射程轮廓都走这里。 */
+export function posVisualFrac(pos: number): number {
+  const approach = VIS_APPROACH_ROWS / VIS_ROWS;
+  if (pos <= VIS_ENGAGE_POS) {
+    return approach * (pos / VIS_ENGAGE_POS);
+  }
+  const t = (pos - VIS_ENGAGE_POS) / (GOAL_POS - VIS_ENGAGE_POS);
+  return approach + (1 - approach) * t;
+}
+
+/** posVisualFrac 的反函数。描射程弧线时用。 */
+export function posFromVisualFrac(frac: number): number {
+  const approach = VIS_APPROACH_ROWS / VIS_ROWS;
+  if (frac <= approach) {
+    return VIS_ENGAGE_POS * (frac / approach);
+  }
+  const u = (frac - approach) / (1 - approach);
+  return VIS_ENGAGE_POS + u * (GOAL_POS - VIS_ENGAGE_POS);
+}
+
+/**
+ * 从 from 看到 to 的视觉格差（可站区格）。
+ * 可站区里等于轴距；空场被拉长，同一段轴距算更多格。
+ * 出手和地上那片只问这个，不另写 pos 相减。
+ */
+export function visualReachGap(fromPos: number, toPos: number): number {
+  return (posVisualFrac(fromPos) - posVisualFrac(toPos)) / combatVisualPerPos();
+}
+
+/** 从 from 沿视觉尺往前（正）或往后（负）gap 格，落在哪个轴 pos */
+export function posFromVisualGap(fromPos: number, gap: number): number {
+  return posFromVisualFrac(posVisualFrac(fromPos) - gap * combatVisualPerPos());
 }
 
 /**
  * 可站区里 1 格轴距占多少像素。
- * 射程扇形用这把尺画，站前排后排一样大；空场那 60% 拉伸不进这把尺。
+ * = 场高 × combatVisualPerPos。和 visualReachGap 是同一把尺的像素写法。
  */
 export function combatCellPx(topY: number, goalY: number): number {
-  return Math.max(1, (goalY - topY) * combatScreenPerPos());
+  return Math.max(1, (goalY - topY) * combatVisualPerPos());
 }
 
 export function laneScreenX(lane: number): number {
@@ -183,13 +222,7 @@ export function visualRowY(row: number, topY: number, goalY: number): number {
  * 贴到可站区上沿才开打 —— 敌人要走一段路才碰到人，人还是站在 4 格里。
  */
 export function posScreenY(pos: number, topY: number, goalY: number): number {
-  const span = goalY - topY;
-  const approach = (VIS_APPROACH_ROWS / VIS_ROWS) * span;
-  if (pos <= VIS_ENGAGE_POS) {
-    return topY + approach * (pos / VIS_ENGAGE_POS);
-  }
-  const t = (pos - VIS_ENGAGE_POS) / (GOAL_POS - VIS_ENGAGE_POS);
-  return topY + approach + (span - approach) * t;
+  return topY + (goalY - topY) * posVisualFrac(pos);
 }
 
 /** 第 i 格（可站区）顶边 */

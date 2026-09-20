@@ -1,27 +1,31 @@
 /**
  * 攻击范围。出手判定和地上那片展示的唯一真源。
  *
- * ── 尺子 ────────────────────────────────────────────
- * 射程 N 格 = 从自己身上量出去的固定半径，不随站第几排变。
- * 三婶永远是 3 格：放前排放后排，相对位移相同则出手续论相同。
+ * ── 一把尺子 ────────────────────────────────────────
+ * 前后距离只问 visualReachGap（和怪脚底同一套 posScreenY）。
+ * 可站区里它等于轴距；空场被拉长，同一段轴距算更多格。
  *
- *   距离 = hypot(|路差| × REACH_LANE_WEIGHT, 前后格差)
+ *   距离 = hypot(|路差| × REACH_LANE_WEIGHT, visualReachGap)
  *   在射程里 ⇔ 距离 ≤ N
  *
- * 邻列按 1.5 格折算（见 REACH_LANE_WEIGHT）。这是半径怎么量，不是两套射程。
+ * 王大锤永远是 2 格：换格子只平移，扇形一样大。
+ * 邻列按 1.5 格折算。这是半径怎么量，不是两套射程。
  *
- * ── 开火线（另一条全员规则，不是射程）────────────────
- * 门洞里（COMBAT_POS 外）不许打。前排多出来的射程会顶到这条线，
- * 扇形看起来矮一截 —— 裁的是门洞，不是这人射程变了。
+ * ── 开火线（不是射程）────────────────────────────────
+ * 空场（COMBAT_POS 外）不许打。只挡「现在能不能出手」，不裁扇形。
  *
- * ── 出手和展示 ──────────────────────────────────────
- * 会不会出手：canReach
- * 地上画什么：reachScreenPoly（只描 canReach === true 的点，
- * 用和敌人脚底同一套 laneScreenX / posScreenY）
+ * ── 出手 = 展示 ──────────────────────────────────────
+ * reachSep → inReachRadius
+ * 会不会出手：canReach = 开火线内 + inReachRadius
+ * 地上画什么：reachScreenPoly，顶点都在 inReachRadius 上，
+ * 用 posScreenY 映到屏幕。怪的脚底也是 posScreenY，所以
+ * 能打到 ⇔ 脚底在扇形里（开火线外除外）。
  *
  * BattleEngine / BattleScene 都不许再写第二套距离公式。
  */
-import { COMBAT_POS, inCombatZone, laneScreenX, posScreenY } from '@/balance/combat';
+import {
+  inCombatZone, laneScreenX, posFromVisualGap, posScreenY, visualReachGap,
+} from '@/balance/combat';
 
 /** 一次出手 / 一块展示共用的人 */
 export interface ReachAtk {
@@ -57,7 +61,7 @@ export function reachDist(dlane: number, dpos: number): number {
   return Math.hypot(Math.abs(dlane) * REACH_LANE_WEIGHT, dpos);
 }
 
-/** 这条路正前方最远还能打多远。NaN = 半径罩不到这条路 */
+/** 这条路正前方最远还能打多远（视觉格）。NaN = 半径罩不到这条路 */
 export function reachAhead(range: number, side: number): number {
   const w = Math.abs(side) * REACH_LANE_WEIGHT;
   if (w > range) return Number.NaN;
@@ -65,27 +69,34 @@ export function reachAhead(range: number, side: number): number {
 }
 
 /**
+ * 出手和展示共用的相对位移。
+ * dpos 是视觉格差，不是 pos 相减。
+ */
+export function reachSep(atk: ReachAtk, tgt: ReachTgt): { dlane: number; dpos: number } {
+  return {
+    dlane: tgt.lane - atk.lane,
+    dpos: visualReachGap(atk.pos, tgt.pos),
+  };
+}
+
+/**
  * 相对位移在不在半径里。不看站哪一排，只看差了几路几格。
- *
- * 这是「攻击范围不随摆放位置变化」的那一层。
  */
 export function inReachRadius(range: number, dlane: number, dpos: number): boolean {
   if (dpos < -REACH_BACK) return false;
   return reachDist(dlane, dpos) <= range + 1e-6;
 }
 
-/**
- * 会不会出手。引擎挑怪、点人看射程、地上那片，只问这个。
- *
- * = 开火线内 + inReachRadius。没有第三套。
- */
+/** 这个人打不打得到这个点。引擎挑怪、点人看射程，只问这个。 */
 export function canReach(atk: ReachAtk, tgt: ReachTgt): boolean {
   if (!inCombatZone(tgt.pos)) return false;
-  return inReachRadius(atk.range, tgt.lane - atk.lane, atk.pos - tgt.pos);
+  const { dlane, dpos } = reachSep(atk, tgt);
+  return inReachRadius(atk.range, dlane, dpos);
 }
 
 /**
- * 能出手的那块地，轴坐标描一圈。每个顶点都满足 canReach。
+ * 射程轮廓，轴坐标描一圈。每个顶点的 reachSep 都在半径上。
+ * 不裁开火线：裁了换格子扇形会变矮。
  */
 export function reachPoly(atk: ReachAtk, steps = 28): ReachTgt[] {
   const maxSide = atk.range / REACH_LANE_WEIGHT;
@@ -96,26 +107,30 @@ export function reachPoly(atk: ReachAtk, steps = 28): ReachTgt[] {
     const side = -maxSide + (2 * maxSide * i) / steps;
     const ahead = reachAhead(atk.range, side);
     if (!Number.isFinite(ahead)) continue;
+    if (!inReachRadius(atk.range, side, ahead)) continue;
     const lane = atk.lane + side;
-    const posFar = Math.max(COMBAT_POS, atk.pos - ahead);
-    if (!canReach(atk, { lane, pos: posFar })) continue;
-    far.push({ lane, pos: posFar });
+    far.push({ lane, pos: posFromVisualGap(atk.pos, ahead) });
     let lo = 0;
     let hi = REACH_BACK;
     for (let k = 0; k < 10; k += 1) {
       const mid = (lo + hi) / 2;
-      if (canReach(atk, { lane, pos: atk.pos + mid })) lo = mid;
+      if (inReachRadius(atk.range, side, -mid)) lo = mid;
       else hi = mid;
     }
-    near.push({ lane, pos: atk.pos + lo });
+    near.push({ lane, pos: posFromVisualGap(atk.pos, -lo) });
   }
   if (far.length < 2) return far;
   return far.concat(near.reverse());
 }
 
+/** 扇形原点的屏幕 y。人和怪的脚底、reachScreenPoly 都落这儿。 */
+export function reachOriginY(pos: number, topY: number, goalY: number): number {
+  return posScreenY(pos, topY, goalY);
+}
+
 /**
- * 出手范围映到屏幕。和怪的脚底用同一套 laneScreenX / posScreenY。
- * 禁止按格高另算半径 —— 那会比真出手短。
+ * 射程轮廓映到屏幕。顶点和怪的脚底都走 posScreenY，没有第二套投影。
+ * 弧线按视觉格差取样，所以换格子高度不变。
  */
 export function reachScreenPoly(
   atk: ReachAtk,

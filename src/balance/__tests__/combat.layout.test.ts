@@ -6,7 +6,8 @@ import {
   VIS_ENGAGE_POS, VIS_ROWS, approachWalkSec, battleFieldLay, cellHitBox,
   cellRectTop, cellScreenH, cellScreenY, combatCellPx, fieldEnemyH, fieldFightUnitH,
   COMBAT_POS, fieldVillagerH, gateThroat, hitDeployCell, inCombatZone, moveSpd,
-  posScreenY, villagerSpriteH,
+  posFromVisualFrac, posFromVisualGap, posScreenY, posVisualFrac, villagerSpriteH,
+  visualReachGap,
 } from '@/balance/combat';
 
 describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
@@ -61,6 +62,11 @@ describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
     expect(combatCellPx(top, goal)).toBeCloseTo((goal - top) * 0.4 / 5, 5);
     expect(posScreenY(BLOCK_POS, top, goal)).toBeGreaterThan(door);
     expect(posScreenY(1, top, goal)).toBeCloseTo(cellRectTop(0, top, goal), 5);
+    expect(posScreenY(3, top, goal)).toBeCloseTo(top + (goal - top) * posVisualFrac(3), 8);
+    expect(visualReachGap(3, 1)).toBeCloseTo(2, 8);
+    expect(visualReachGap(2, 0.28)).toBeGreaterThan(2);
+    expect(posFromVisualGap(3, 2)).toBeCloseTo(1, 8);
+    expect(posVisualFrac(posFromVisualFrac(0.4))).toBeCloseTo(0.4, 8);
   });
 
   it('人站在格正中：脚底 = 格心 + 半个身高', () => {
@@ -127,7 +133,7 @@ describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
     expect(fight.spawnY).toBe(place.spawnY);
     expect(inCombatZone(0)).toBe(false);
     expect(inCombatZone(COMBAT_POS)).toBe(true);
-    expect(COMBAT_POS).toBeLessThan(VIS_ENGAGE_POS);
+    expect(COMBAT_POS).toBe(VIS_ENGAGE_POS);
     expect(place.goalY).toBe(height - benchH);
     expect(fight.goalY).toBe(height - FIGHT_BAG_H);
     expect(fight.goalY - fight.spawnY).toBeGreaterThan(place.goalY - place.spawnY);

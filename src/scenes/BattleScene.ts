@@ -24,8 +24,8 @@ import { SceneManager, type Scene } from '@/core/SceneManager';
 import { bindPointerTap } from '@/minigame';
 import { getTouchCanvas } from '@/utils/touchCanvas';
 import {
-  CELL_COUNT, COMBAT_POS, FIELD_W, FIELD_X, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
-  battleFieldLay, cellPos, cellScreenY, fieldEnemyH, fieldFightUnitH, hitDeployCell,
+  CELL_COUNT, FIELD_W, FIELD_X, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
+  battleFieldLay, cellPos, fieldEnemyH, fieldFightUnitH, hitDeployCell,
   laneScreenX, posScreenY,
 } from '@/balance/combat';
 import { getStage, stageEnemyCount } from '@/balance/stages';
@@ -65,7 +65,7 @@ import {
   reviveAfterLeak, startFight, tick,
   type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
-import { canReach, reachScreenPoly } from '@/game/reach';
+import { canReach, reachOriginY, reachScreenPoly } from '@/game/reach';
 
 /**
  * 开打已经收进坞底，底线直接贴坞顶。
@@ -916,9 +916,13 @@ export class BattleScene implements Scene {
     const h = this._unitH;
     return {
       x: laneScreenX(f.lane),
-      y: cellScreenY(f.cell, this._lay.spawnY, this._lay.goalY, h),
+      y: reachOriginY(f.pos, this._lay.spawnY, this._lay.goalY),
       h,
     };
+  }
+
+  private _standY(cell: number): number {
+    return reachOriginY(cellPos(cell), this._lay.spawnY, this._lay.goalY);
   }
 
   private _foeXY(e: Foe, frac = 0): { x: number; y: number; feetY: number; h: number } {
@@ -966,11 +970,10 @@ export class BattleScene implements Scene {
             .endFill();
         }
       }
-      const h = this._unitH;
       for (let cell = 0; cell < CELL_COUNT; cell += 1) {
         for (let lane = 0; lane < LANE_COUNT; lane += 1) {
           const cx = laneScreenX(lane);
-          const feetY = cellScreenY(cell, spawnY, goalY, h);
+          const feetY = this._standY(cell);
           const sitting = this._state.placed.find((p) => p.lane === lane && p.cell === cell);
           const over = hover?.lane === lane && hover?.cell === cell;
           if (sitting) {
@@ -1026,7 +1029,7 @@ export class BattleScene implements Scene {
     for (const f of this._state.team) {
       if (!f.alive) continue;
       const ux = laneScreenX(f.lane);
-      const uy = cellScreenY(f.cell, this._lay.spawnY, this._lay.goalY, h);
+      const uy = reachOriginY(f.pos, this._lay.spawnY, this._lay.goalY);
       if (Math.abs(x - ux) > LANE_W * 0.42) continue;
       if (y < uy - h - 20 || y > uy + 24) continue;
       const d = Math.abs(x - ux) + Math.abs(y - (uy - h * 0.45));
@@ -1037,7 +1040,7 @@ export class BattleScene implements Scene {
 
   /**
    * 点人看射程的数据。布阵按格子现算，开打后读场上那个人。
-   * 地上那片只走 reachScreenPoly，和出手同一套 canReach。
+   * 地上那片只走 reachScreenPoly。人和怪的脚底都落在 reachOriginY。
    */
   private _inspectReach(): {
     lane: number;
@@ -1064,7 +1067,7 @@ export class BattleScene implements Scene {
         def: p.villager,
         feet: {
           x: laneScreenX(p.lane),
-          y: cellScreenY(p.cell, this._lay.spawnY, this._lay.goalY, this._unitH),
+          y: this._standY(p.cell),
         },
         fighter: null,
       };
@@ -1086,7 +1089,7 @@ export class BattleScene implements Scene {
     };
   }
 
-  /** 地上那片 = reachScreenPoly。开打后能打到的怪再点一层脚底，仍问 canReach。 */
+  /** 地上那片 = reachScreenPoly。开打后能出手的怪再点一层脚底，仍问 canReach。 */
   private _drawInspect(g: PIXI.Graphics): void {
     const sub = this._inspectReach();
     if (!sub) return;
@@ -1199,7 +1202,7 @@ export class BattleScene implements Scene {
     let best: { lane: number; cell: number; d: number } | null = null;
     for (const p of this._state.placed) {
       const ux = laneScreenX(p.lane);
-      const uy = cellScreenY(p.cell, this._lay.spawnY, this._lay.goalY, h);
+      const uy = this._standY(p.cell);
       if (Math.abs(x - ux) > LANE_W * 0.42) continue;
       if (y < uy - h - 20 || y > uy + 24) continue;
       const d = Math.abs(x - ux) + Math.abs(y - (uy - h * 0.45));
@@ -1235,7 +1238,7 @@ export class BattleScene implements Scene {
       for (const p of this._state.placed) {
         const h = this._unitH;
         const x = laneScreenX(p.lane);
-        const y = cellScreenY(p.cell, this._lay.spawnY, this._lay.goalY, h);
+        const y = this._standY(p.cell);
         const uid = `pre:${p.villager.id}`;
         let a = this._villagerActors.get(uid);
         if (!a) {
