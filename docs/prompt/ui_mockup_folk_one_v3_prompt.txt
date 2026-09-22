@@ -1,0 +1,45 @@
+Vertical 9:16 WeChat minigame UI mockup: ONE villager detail / upgrade page for 弹弓叔.
+
+CRITICAL STYLE LOCK — copy attached village-home mockup chrome, NOT the current dark rust game screenshot:
+- Warm sunset alley behind, bright orange-pink sky, dusty yellow dirt
+- Fat comic ink, flat 6-8 colors, two-tone cel shade
+- UI is LIGHT enamel: cream / off-white bolted plates, mustard-gold rims, a few nails
+- Hanging wood plaque uses mustard peeled-paint face
+- Character MUST be the attached 弹弓叔: thinning black hair, bored eyes, white tank with riveted steel plates, dark blue pants with knee plates, blue slippers, TWO-prong metal slingshot (二阶双股弹弓)
+FORBIDDEN: grimdark brown rust wall filling the screen, three tiny portraits in a row, overlapping tiny grey text, purple gacha, English, glass cards, painterly RPG frames, photoreal
+
+This page answers one question: how do I make THIS man stronger.
+
+Exact layout, big readable Chinese only:
+
+1. TOP cream lintel, same family as home:
+   村子 6级   mustard exp bar 86/172
+   Four counters: 废铁 8300   零件 35   工分 0   弹子 26
+
+2. Mustard hanging wood plaque, large:
+   弹弓叔 · 双股弹弓
+   Small cream strip under it: 站远点打 · 打 · 二阶
+
+3. HERO — ONE full-body 弹弓叔 only, large, standing on the dirt road, breaking out of any frame. No second or third clone. No faded locked silhouettes.
+
+4. STAR BOARD — the loudest widget after the man. Wide cream plate with mustard rim:
+   Left title 星级   big 2 / 10
+   A row of TEN riveted brass stars: first TWO filled solid mustard-gold, next EIGHT stamped empty outlines
+   Tiny line: 再喊 1 颗星，手艺上限到 6
+
+5. CRAFT BOARD — equally loud, wide cream plate:
+   Left title 手艺   huge  Lv.3
+   Right 上限 6 / 75
+   Fat mustard progress trough, fill about 4 percent, a white notch mark at the cap
+   Green-cream preview line: 下手 312 → 340    抗造 1283 → 1400
+
+6. One thin cream slat, not a paragraph:
+   连珠 · 撂倒一个立刻再打一下
+
+7. BIG cream play-plate CTA, same weight as home 出村:
+   喂一手艺
+   副行: Lv.3 → Lv.4    80 废铁 + 3 零件
+
+8. Small footer plate: 回图鉴
+
+Generous air. One man. Stars and craft must read from a meter away. Chinese only.

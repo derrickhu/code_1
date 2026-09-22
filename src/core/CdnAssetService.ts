@@ -51,6 +51,30 @@ export function isWxTempPath(src: string): boolean {
   return /(?:wxfile|http):\/\/tmp\//i.test(src);
 }
 
+/**
+ * 开发者工具 USER_DATA_PATH 是 `http://usr/...`。
+ * 文件系统认这条；InnerAudio 当 HTTP 会 request:fail。
+ * 真机已经是 `wxfile://usr`。
+ * Mac 模拟器里两套路径不是同一份，改过去就是 readFile no such file。
+ */
+export function toInnerAudioSrc(path: string): string {
+  if (/^https?:\/\/usr\//i.test(path)) {
+    return path.replace(/^https?:\/\/usr\//i, 'wxfile://usr/');
+  }
+  return path;
+}
+
+/** InnerAudio 能稳播的地址：真机本地缓存 / HTTPS。模拟器 http://usr 一律走 CDN。 */
+export function playableInnerAudioSrc(
+  src: string,
+  cdnUrl: string,
+  localExists?: (path: string) => boolean,
+): string {
+  if (!src || isWxTempPath(src) || /^https?:\/\/usr\//i.test(src)) return cdnUrl;
+  if (/^wxfile:\/\/usr\//i.test(src) && localExists && !localExists(src)) return cdnUrl;
+  return src;
+}
+
 class CdnAssetServiceClass {
   private readonly _config: CdnConfig = CDN_CONFIG;
   private readonly _cdnPrefixes = this._config.cdnPrefixes?.length
@@ -137,6 +161,7 @@ class CdnAssetServiceClass {
     if (resolved) return this._playableSrc(logicalPath, resolved);
 
     if (!this.isCdnPath(logicalPath)) return logicalPath;
+    if (this._skipDownload()) return this._getCdnUrl(logicalPath);
 
     // manifest 尚未就绪时先拉一次，避免空清单把下载误杀
     if (!this._manifestReady) {
@@ -144,7 +169,9 @@ class CdnAssetServiceClass {
     }
 
     const ok = await this.download(logicalPath);
-    if (ok && this._isCacheValid(logicalPath)) return this._getCachePath(logicalPath);
+    if (ok && this._isCacheValid(logicalPath)) {
+      return this._playableSrc(logicalPath, this._getCachePath(logicalPath));
+    }
     if (this._isAudioPath(logicalPath)) return this._getCdnUrl(logicalPath);
     const temp = this._temps.get(logicalPath);
     if (temp) return temp;
@@ -158,9 +185,39 @@ class CdnAssetServiceClass {
     return logicalPath.startsWith('audio/');
   }
 
+  /**
+   * 开发者工具里不往本地缓存搬，直接吃 HTTPS。
+   *
+   * 工具的 downloadFile 内部是 XHR，回包过结构化克隆会抛
+   * `An object could not be cloned.` —— 点一下布阵里的人去取立绘就刷一条。
+   * createImage / InnerAudio 都认 HTTPS，绕开这次下载就没这回事。
+   * 真机不动：照旧下到 USER_DATA，省流量也省启动。
+   */
+  private _skipDownload(): boolean {
+    return Platform.isDevtools;
+  }
+
+  /**
+   * 给 InnerAudio 的 src。图可以读 `http://usr`，BGM 不行。
+   * 模拟器不要改成 wxfile://usr（文件不在那），直接 HTTPS。
+   */
   private _playableSrc(logicalPath: string, src: string): string {
-    if (this._isAudioPath(logicalPath) && isWxTempPath(src)) return this._getCdnUrl(logicalPath);
-    return src;
+    if (!this._isAudioPath(logicalPath)) return src;
+    return playableInnerAudioSrc(
+      src,
+      this._getCdnUrl(logicalPath),
+      (path) => this._localFileExists(path),
+    );
+  }
+
+  /** BGM 专用：本地播不了就回 HTTPS，别把 http://usr 丢给 InnerAudio */
+  async resolveAudioSrc(path: string): Promise<string> {
+    const logicalPath = this._normalize(path);
+    try {
+      return await this.resolveOrDownload(logicalPath);
+    } catch {
+      return this._getCdnUrl(logicalPath);
+    }
   }
 
   /**
@@ -346,6 +403,7 @@ class CdnAssetServiceClass {
     const cdnPaths = paths
       .map((p) => this._normalize(p))
       .filter((p) => {
+        if (this._skipDownload()) return false;
         if (!this.isCdnPath(p) || this._isCacheValid(p) || this._packageFileExists(p)) return false;
         if (this._temps.has(p)) return false;
         if (this._knownMissing(p)) return false;

@@ -33,7 +33,7 @@ import {
   expectedPerPellet, mulberry32, type Rng,
 } from '@/balance/stall';
 import {
-  CALL_COST, addVillageExp, craftOf, evoFromCraft, evoOf, nextFeed,
+  CALL_COST, addVillageExp, craftOf, evoOf, nextFeed,
   rollCall, squadCap, starsOf, villageMul, yieldMul,
   type Progress,
 } from '@/balance/village';
@@ -119,29 +119,48 @@ function evoPriority(l: Live): string[] {
 /**
  * 花废铁和零件喂手艺。
  *
- * 先全员推到 3（二阶），再推到 6（三阶），最后才往 10 走。
- * 星卡住就跳过这个人。零件先花在「人人看得见的二阶」上，别集中焊一个人。
+ * 星卡住就跳过这个人。喂料只买面板 —— 形态归星管（village.evoFromStars），
+ * 所以这里不再写 `l.evo`。
+ */
+function feedTo(l: Live, id: string, target: number): void {
+  for (;;) {
+    const p = asProgress(l);
+    if (craftOf(p, id) >= target) break;
+    const cost = nextFeed(p, id);
+    if (!cost) break;
+    // 各人的下一档价不再一致（星卡的位置不同），买不起这个还可能买得起下一个
+    if (l.scrap < cost.scrap || l.parts < cost.parts) break;
+    l.scrap -= cost.scrap;
+    l.parts -= cost.parts;
+    l.craft[id] = craftOf(p, id) + 1;
+  }
+}
+
+/**
+ * 花废铁和零件喂手艺。铺开喂：先全员推到 3，再推到 6，再到 10，之后逐档抬。
+ * 3 和 6 不再是形态的门槛，但仍是 CRAFT_MUL 手校段里最划算的两格
+ * （×1.55 / ×2.4），所以铺开的顺序照旧。
+ *
+ * 上一版这里写死到 10 就停了，于是 400 关跑道上账面躺着 56 万废铁没人花。
+ * 补上跑道时图省事写成 `feedTo(id, CRAFT_MAX)`，等于把料全灌给排序第一的人
+ * 直到破产才轮到第二个 —— 实测 D120 出现 15 人卡 craft 10、5 人冲到 28 的分布。
+ * 那和这个游戏自己的结论是反的（3 路 × 4 格靠换人吃克制，一个超人覆盖不了三条路，
+ * 见 village.rollCall 的三版实测），所以 10 往上照样一档一档铺。
  */
 function spendEvo(l: Live): void {
   const order = evoPriority(l);
-    // 先全员二阶、再全员三阶，然后才一个个往手艺上限焊。
-    // 上一版这里写死到 10 就停了，于是 400 关跑道上账面躺着 56 万废铁没人花
-    for (const target of [3, 6, 10, CRAFT_MAX]) {
+  for (const target of [3, 6, 10]) {
+    for (const id of order) feedTo(l, id, target);
+  }
+  for (let target = 11; target <= CRAFT_MAX; target += 1) {
+    let broke = false;
     for (const id of order) {
-      for (;;) {
-        const p = asProgress(l);
-        if (craftOf(p, id) >= target) break;
-        const cost = nextFeed(p, id);
-        if (!cost) break;
-        // 各人的下一档价不再一致（星卡的位置不同），买不起这个还可能买得起下一个
-        if (l.scrap < cost.scrap || l.parts < cost.parts) break;
-        l.scrap -= cost.scrap;
-        l.parts -= cost.parts;
-        const next = craftOf(p, id) + 1;
-        l.craft[id] = next;
-        l.evo[id] = evoFromCraft(next);
-      }
+      feedTo(l, id, target);
+      const p = asProgress(l);
+      // 没够着这一档、却还有下一档可买 = 钱不够。星卡住的人 nextFeed 为空，不算
+      if (craftOf(p, id) < target && nextFeed(p, id)) broke = true;
     }
+    if (broke) break;
   }
 }
 
@@ -298,7 +317,18 @@ export function simulate(opts: SimOptions = {}): SimResult {
       } else {
         losses += 1;
         stuckAt = stage.label;
-        break; // 打不过就不硬撞，当天到此为止
+        /*
+         * 打不过就不硬撞，当天到此为止 —— 这是刻意的保守假设，别顺手「修」。
+         *
+         * 真机里卡关的人会回头刷通过的关换废铁（重打不花弹子、一把一分钟、
+         * 给 SETTLE_SCRAP_REPLAY），所以这里少算了一条活水。2026-09-21 试着补上，
+         * 结果整条 40 关曲线提前十天：8 章首达 D28→D8，种子 555 在 D16 就推完 40 关，
+         * 直接顶穿「≥ D18」那条护栏。
+         *
+         * 也就是说：**补这条活水不是改模型，是在改难度。** 手校了一个月的关卡曲线
+         * 全是贴着这个保守口径校出来的，要动得连着 hpMul 一起重校，不能单改一边。
+         */
+        break;
       }
     }
 

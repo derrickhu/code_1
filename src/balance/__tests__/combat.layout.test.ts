@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BLOCK_POS, CELL_COUNT, FIELD_ENEMY_MUL, FIELD_VILLAGER_FILL, FIELD_W, FIELD_X,
-  FIGHT_BAG_H, GATE_GAP_MIN, GOAL_POS, LANE_COUNT, LANE_W, VIS_APPROACH_ROWS,
-  VIS_ENGAGE_POS, VIS_ROWS, approachWalkSec, battleFieldLay, cellHitBox,
+  FIGHT_BAG_H, GATE_LIP, GOAL_POS, LANE_COUNT, LANE_W, VIS_APPROACH_ROWS,
+  VIS_ENGAGE_POS, VIS_ROWS, battleFieldLay, cellHitBox,
   cellRectTop, cellScreenH, cellScreenY, combatCellPx, fieldEnemyH, fieldFightUnitH,
-  COMBAT_POS, fieldVillagerH, gateThroat, hitDeployCell, inCombatZone, moveSpd,
+  COMBAT_POS, fieldVillagerH, hitDeployCell, inCombatZone,
   posFromVisualFrac, posFromVisualGap, posScreenY, posVisualFrac, villagerSpriteH,
   visualReachGap,
 } from '@/balance/combat';
@@ -50,7 +50,7 @@ describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
     expect(fightH).toBeGreaterThan(70);
   });
 
-  it('空场映射到上 6 行，近战停点贴着可站区上沿', () => {
+  it('空场映射到上 6 行，人站底下 4 格', () => {
     const top = 100;
     const goal = 1300;
     const span = goal - top;
@@ -99,25 +99,6 @@ describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
     expect(hitDeployCell(375, top + 10, top, goal)).toBeNull();
   });
 
-  it('空场按屏幕匀速走，过线不换挡', () => {
-    expect(moveSpd(0.72, VIS_ENGAGE_POS)).toBe(0.72);
-    expect(moveSpd(0.72, 0)).toBeLessThan(0.72);
-    expect(approachWalkSec(0.72)).toBeGreaterThanOrEqual(8);
-    expect(approachWalkSec(0.72)).toBeLessThanOrEqual(11);
-    expect(approachWalkSec(1.05)).toBeLessThan(approachWalkSec(0.42));
-
-    // 小灰过线前后，屏幕速度要接得上。对不上就是玩家看见的那一脚刹车
-    const screenVel = (spd: number, pos: number): number => {
-      const a = posScreenY(pos, 0, 1000);
-      const b = posScreenY(pos + 0.01, 0, 1000);
-      return ((b - a) / 0.01) * moveSpd(spd, pos);
-    };
-    expect(screenVel(0.72, VIS_ENGAGE_POS - 0.02))
-      .toBeCloseTo(screenVel(0.72, VIS_ENGAGE_POS), 0);
-    expect(screenVel(1.05, VIS_ENGAGE_POS - 0.02))
-      .toBeCloseTo(screenVel(1.05, VIS_ENGAGE_POS), 0);
-  });
-
   it('路从顶板下沿开始，开打后人落到近底', () => {
     const chromeBottom = 240;
     const height = 1334;
@@ -128,12 +109,16 @@ describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
     const fight = battleFieldLay({
       chromeBottom, height, placing: false, safeBottom: 0, benchH,
     });
-    expect(place.spawnY).toBe(chromeBottom + gateThroat(chromeBottom, fight.goalY));
-    expect(place.spawnY - chromeBottom).toBeGreaterThanOrEqual(GATE_GAP_MIN);
+    expect(place.spawnY).toBe(chromeBottom + GATE_LIP);
     expect(fight.spawnY).toBe(place.spawnY);
-    expect(inCombatZone(0)).toBe(false);
-    expect(inCombatZone(COMBAT_POS)).toBe(true);
-    expect(COMBAT_POS).toBe(VIS_ENGAGE_POS);
+    expect(GATE_LIP).toBeGreaterThanOrEqual(80);
+    expect(place.spawnY - chromeBottom).toBeGreaterThan(
+      fieldEnemyH('hatch', fieldFightUnitH({
+        chromeBottom, height, safeBottom: 0, benchH,
+      })),
+    );
+    expect(inCombatZone(0)).toBe(true);
+    expect(COMBAT_POS).toBe(0);
     expect(place.goalY).toBe(height - benchH);
     expect(fight.goalY).toBe(height - FIGHT_BAG_H);
     expect(fight.goalY - fight.spawnY).toBeGreaterThan(place.goalY - place.spawnY);

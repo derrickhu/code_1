@@ -1,0 +1,34 @@
+Monster rank sheets. The game is NOT an all-fodder roster.
+Same craft as village portraits: fat black outlines, two-tone cel, finished faces when a grey is visible.
+White backdrop. NO TEXT, no labels, no letters, no numbers, no watermarks.
+
+HARD RULE: different RANKS must be different BODY TYPES, not the same grey in a new hat.
+- 杂兵 = tiny naked grey person, ~35% of panel
+- 冲 = still person-scale, loud color, lean
+- 机关 / 飞 = the MACHINE is the body (tripod, dish-tower, saucer, incubator)
+- 扛 = huge shell, 70%+ of panel
+- 关底装甲 = mini-boss, fills the panel
+
+Sheet RANK 1x4 left to right, same ground line:
+1 小灰 tiny
+2 方块 medium walking cube
+3 铁罐 large walking barrel
+4 装甲 mega walking fort
+
+Sheet WAVE1 2x3
+1 小灰 tiny person
+2 方块 body IS a purple cube, face in window
+3 铁罐 body IS a blue barrel helmet-tank
+4 突击 person-scale magenta + jet
+5 飞碟 the saucer IS the unit, tiny pilot
+6 装甲 mini-boss black fort
+
+Sheet WAVE2 2x4
+1 探照灯 tripod walker, lamp is the torso
+2 天线杆 tower-tall dish on tiny legs
+3 水泥墩 squat concrete mass
+4 电钻 drill-body machine
+5 高压线 pylon / cable body, not a man in a suit
+6 闷罐 huge keg-body
+7 弹簧腿 tiny grey, springs taller than the body
+8 孵化器 walking pod machine, eggs in glass belly, tiny face window

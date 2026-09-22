@@ -261,11 +261,19 @@ if (isDevtools) {
   // ======== 模拟器环境 ========
   // window 已存在（浏览器环境），用 defineProperty 补充/覆盖
   const _win = typeof window !== 'undefined' ? window : GameGlobal;
-  const _forceDevtoolsOverwrite = ['XMLHttpRequest'];
-  _forceInstallGlobal('XMLHttpRequest', XMLHttpRequest, [_win, _realGlobal, typeof GameGlobal !== 'undefined' ? GameGlobal : null]);
+  // 开发者工具自带浏览器 XHR。盖掉之后 downloadFile / fetch / 埋点都会走适配器，
+  // 布阵挪人一上报就抛 An object could not be cloned。工具里留给宿主 XHR。
+  try {
+    if (typeof _win.XMLHttpRequest === 'function') {
+      GameGlobal.__hostXMLHttpRequest = _win.XMLHttpRequest;
+    }
+  } catch (_) { /* */ }
+  const _skipDevtoolsOverwrite = { XMLHttpRequest: true };
+  const _forceDevtoolsOverwrite = [];
 
   for (const key in _allGlobals) {
     if (key === 'window' || key === 'self') continue;
+    if (_skipDevtoolsOverwrite[key]) continue;
     try {
       const desc = Object.getOwnPropertyDescriptor(_win, key);
       const force = _forceDevtoolsOverwrite.indexOf(key) !== -1;
@@ -281,7 +289,6 @@ if (isDevtools) {
       if (_forceDevtoolsOverwrite.indexOf(key) !== -1) GameGlobal[key] = _allGlobals[key];
     } catch (_) {}
   }
-  _forceInstallGlobal('XMLHttpRequest', XMLHttpRequest, [_win, _realGlobal, typeof GameGlobal !== 'undefined' ? GameGlobal : null]);
 
   // 关键修复：包装 window.addEventListener / removeEventListener
   // PixiJS EventSystem 在 globalThis(window) 上注册 pointermove / pointerup，

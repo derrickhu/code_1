@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { FOLK_SIGN, FOLK_USE, folkSheet, folkSignName, folkIdentPeak } from '@/balance/folkSheet';
-import { VILLAGERS, getVillager } from '@/balance/villagers';
-import { oneFolkLay } from '@/ui/FolkSheetView';
+import {
+  FOLK_SIGN, FOLK_USE, folkIdentPeak, folkLivePeak, folkSheet, folkSignName,
+} from '@/balance/folkSheet';
+import { STAR_STEP, VILLAGERS, getVillager, statsOf } from '@/balance/villagers';
+import { folkSheetContentH, oneFolkLay } from '@/ui/FolkSheetView';
 
 describe('村民能力表', () => {
   it('二十人各有两字招牌，不重名', () => {
@@ -23,7 +25,7 @@ describe('村民能力表', () => {
     expect(uncle.sign.kindName).toBe('');
     expect(uncle.stats.map((s) => s.label)).toEqual(['下手', '抗造', '够得着', '出手']);
     expect(uncle.stats[0]!.text).toMatch(/^\d+$/);
-    expect(uncle.stats[2]!.text).toBe('4格');
+    expect(uncle.stats[2]!.text).toBe(`${statsOf(getVillager('laoyanqiang')).range}格`);
     expect(uncle.stats[3]!.text).toMatch(/秒$/);
 
     const heal = folkSheet(getVillager('erjiu'), { craft: 1, stars: 0, stage: 1 });
@@ -40,13 +42,53 @@ describe('村民能力表', () => {
     expect(grind.sign.kindName).toBe('回血砍');
   });
 
-  it('三阶弹弓叔才盖穿透章，条不跟手艺一起涨', () => {
-    const low = folkSheet(getVillager('laoyanqiang'), { craft: 1, stars: 0, stage: 1 });
-    const high = folkSheet(getVillager('laoyanqiang'), { craft: 6, stars: 2, villageMul: 1.2, stage: 3 });
+  it('三阶弹弓叔才盖穿透章，练过的那一截要在条上看得见', () => {
+    const peak = folkLivePeak([
+      { def: getVillager('laoyanqiang'), craft: 6, stars: 2, villageMul: 1.2 },
+      { def: getVillager('tiezhu'), craft: 6, stars: 2, villageMul: 1.2 },
+    ]);
+    const low = folkSheet(getVillager('laoyanqiang'), { craft: 1, stars: 0, stage: 1, peak });
+    const high = folkSheet(getVillager('laoyanqiang'), {
+      craft: 6, stars: 2, villageMul: 1.2, stage: 3, peak,
+    });
     expect(high.sign.kindName).toBe('穿透');
     expect(Number(high.stats[0]!.text)).toBeGreaterThan(Number(low.stats[0]!.text));
-    expect(high.stats[0]!.ratio).toBeCloseTo(low.stats[0]!.ratio, 5);
-    expect(high.stats[2]!.ratio).toBeCloseTo(low.stats[2]!.ratio, 5);
+    // 下手吃成长：条要跟着长，天生那一段不动
+    expect(high.stats[0]!.ratio).toBeGreaterThan(low.stats[0]!.ratio);
+    expect(high.stats[0]!.identRatio).toBeCloseTo(low.stats[0]!.identRatio, 5);
+    expect(high.stats[0]!.ratio).toBeGreaterThan(high.stats[0]!.identRatio);
+    // 够得着不吃成长：两段必须一样长，不许拿亮色糊出个「练过了」
+    expect(high.stats[2]!.ratio).toBeCloseTo(high.stats[2]!.identRatio, 5);
+    expect(high.stats[3]!.ratio).toBeCloseTo(high.stats[3]!.identRatio, 5);
+  });
+
+  it('喂下一档要先给出升完的数，且只有下手抗造会变', () => {
+    const now = folkSheet(getVillager('tiezhu'), {
+      craft: 5, stars: 2, villageMul: 1.2, stage: 2,
+      next: { craft: 6, stage: 3 },
+    });
+    const hit = now.stats.find((s) => s.key === 'hit')!;
+    const hide = now.stats.find((s) => s.key === 'hide')!;
+    expect(Number(hit.next)).toBeGreaterThan(Number(hit.text));
+    expect(Number(hide.next)).toBeGreaterThan(Number(hide.text));
+    expect(now.stats.find((s) => s.key === 'reach')!.next).toBeUndefined();
+    expect(now.stats.find((s) => s.key === 'tempo')!.next).toBeUndefined();
+
+    const flat = folkSheet(getVillager('tiezhu'), { craft: 5, stars: 2, stage: 2 });
+    expect(flat.stats.every((s) => s.next === undefined)).toBe(true);
+  });
+
+  it('来源那一行要把三层乘数摊开，别烤成一个数', () => {
+    const sheet = folkSheet(getVillager('tiezhu'), { craft: 6, stars: 2, villageMul: 1.2, stage: 3 });
+    const star = 1 + 2 * STAR_STEP;
+    expect(sheet.grow.craft).toBeCloseTo(2.4, 5);
+    expect(sheet.grow.star).toBeCloseTo(star, 5);
+    expect(sheet.grow.village).toBeCloseTo(1.2, 5);
+    expect(sheet.grow.total).toBeCloseTo(2.4 * star * 1.2, 5);
+    expect(sheet.grow.text).toContain('下手·抗造');
+    expect(sheet.grow.text).toContain('手艺2.40');
+    expect(sheet.grow.text).toContain(`星${star.toFixed(2)}`);
+    expect(sheet.grow.text).toContain('村子1.20');
   });
 
   it('下手重出手更慢，挨得住抗造更长', () => {
@@ -64,13 +106,21 @@ describe('村民能力表', () => {
     expect(peak.reach).toBeGreaterThanOrEqual(4);
   });
 
-  it('名牌在上，立绘在中，能力表竖着压在脚下', () => {
+  it('人卡、养成卡、黄按钮三块，属性列在养成卡里', () => {
     const lay = oneFolkLay(422, 1334, 34);
-    expect(lay.plateH).toBeLessThan(90);
-    expect(lay.cardTop).toBeGreaterThan(lay.plateTop + lay.plateH);
-    expect(lay.sheetTop).toBeGreaterThan(lay.cardTop + lay.cardH);
-    expect(lay.sheetTop + lay.sheetH).toBeLessThan(lay.btnY);
-    expect(lay.sheetH).toBeGreaterThan(200);
-    expect(lay.sheetH).toBeLessThan(300);
+    expect(lay.growTop).toBeGreaterThan(lay.heroTop + lay.heroH);
+    expect(lay.growTop - (lay.heroTop + lay.heroH)).toBeLessThanOrEqual(16);
+    expect(lay.growTop + lay.growH).toBeLessThan(lay.btnY - lay.btnH / 2);
+    expect((lay.btnY - lay.btnH / 2) - (lay.growTop + lay.growH)).toBeLessThanOrEqual(16);
+    expect(lay.heroH).toBeGreaterThanOrEqual(176);
+    expect(lay.btnH).toBeGreaterThanOrEqual(96);
+    expect(lay.heroW).toBe(lay.plateW);
+    expect(lay.backW).toBeGreaterThanOrEqual(150);
+    expect(lay.btnW).toBeGreaterThan(lay.backW);
+    expect(lay.backCx + lay.backW / 2).toBeLessThan(lay.btnCx - lay.btnW / 2);
+    expect(lay.backW + lay.btnW).toBeLessThanOrEqual(lay.plateW);
+    expect(folkSheetContentH() + 20).toBeLessThanOrEqual(lay.growH);
+    expect(lay.growH).toBeGreaterThan(lay.heroH * 0.7);
+    expect(folkSheetContentH()).toBe(44 + 42 + 26 * 4);
   });
 });

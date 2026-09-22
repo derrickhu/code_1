@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { battleHudLay, lintelLay, stallHudLay } from '@/ui/lintel';
+import { battleHudLay, lintelLay, RUST_EXP_WELL, rustExpFillRect, stallHudLay } from '@/ui/lintel';
 
 describe('门楣槽位', () => {
   it('村子楣带经验槽和四枚章', () => {
@@ -8,6 +8,7 @@ describe('门楣槽位', () => {
     expect(lay.titleH).toBeGreaterThan(200);
     expect(lay.titleH).toBeLessThanOrEqual(Math.round(1334 * 0.34));
     expect(lay.title.cy + lay.titleGlyphH / 2).toBeLessThan(lay.exp.y);
+    expect(lay.exp.h).toBeGreaterThan(0);
     expect(lay.stamp.cxs).toHaveLength(4);
     expect(lay.barBottom).toBe(lay.titleH);
   });
@@ -49,6 +50,27 @@ describe('门楣槽位', () => {
       expect(stall.pocket.h).toBeGreaterThanOrEqual(40);
       expect(stall.pocket.w).toBeLessThan(180);
     }
+  });
+
+  it('经验槽是独立 rust_exp，夹在大牌和四格中间，门楣一拉跟着走', () => {
+    const a = lintelLay(16, 1334);
+    const b = lintelLay(88, 1000);
+    for (const lay of [a, b]) {
+      const fill = rustExpFillRect(lay.exp);
+      expect(lay.title.cy + lay.titleGlyphH / 2).toBeLessThan(lay.hintY);
+      expect(lay.hintY + 14).toBeLessThan(lay.exp.y);
+      expect(lay.exp.y + lay.exp.h).toBeLessThan(lay.stamp.y - lay.stamp.h / 2);
+      expect(fill.x).toBeGreaterThan(lay.exp.x);
+      expect(fill.y).toBeGreaterThan(lay.exp.y);
+      expect(fill.x + fill.w).toBeLessThan(lay.exp.x + lay.exp.w);
+      expect(fill.y + fill.h).toBeLessThan(lay.exp.y + lay.exp.h);
+      expect((fill.x - lay.exp.x) / lay.exp.w).toBeCloseTo(RUST_EXP_WELL.x0, 1);
+      expect((fill.y - lay.exp.y) / lay.exp.h).toBeCloseTo(RUST_EXP_WELL.y0, 1);
+      expect((fill.y + fill.h - lay.exp.y) / lay.exp.h).toBeLessThan(RUST_EXP_WELL.y1 + 0.02);
+      expect(lay.exp.y + lay.exp.h).toBeLessThan(lay.stamp.y - lay.stamp.h / 2);
+    }
+    expect(a.exp.y / a.titleH).toBeCloseTo(b.exp.y / b.titleH, 2);
+    expect(a.exp.w / 750).toBeCloseTo(b.exp.w / 750, 2);
   });
 
   it('弹子在底牌上下居中，刘海高也不把字往下推', () => {

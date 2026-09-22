@@ -24,3 +24,20 @@ export function yardPeople(
   }
   return take;
 }
+
+/**
+ * 村口要预热的人：路上那几个闲人，加上阵上实际要打的。
+ * 三婶若只在编队里、不在村口闲逛，进战斗才开始下图，就会半天才露脸。
+ */
+export function homePreloadPeople(mem: RunMemory, limit = 8): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: string): void => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  for (const id of yardPeople(mem, '')) add(id);
+  for (const slot of mem.layout) add(slot.id);
+  return ids.slice(0, Math.max(1, limit));
+}

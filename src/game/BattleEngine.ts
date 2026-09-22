@@ -3,12 +3,13 @@
  *
  * **这是战斗规则的唯一真源。** 渲染层（BattleScene）和模拟器（formulas/simulate）
  * 都驱动同一个 `tick`，不许任何一边自己算一套 —— 否则护栏测的就不是真代码。
- * 村民「打不打得到」只走 `@/game/reach`，引擎里不再写第二套距离。
+ * 村民「打不打得到」只走 `@/game/reach`。
+ * 怪物怎么走只走 `@/game/march`，停哪 / 挥不挥刀只走 `@/game/foeEngage`。
  *
  * 失败条件是**漏怪到底线或超时**（§4.4），不再是队灭。三件事必须让
  * 「谁放哪一格」真的有后果，否则布阵就是假决策：
  *
- * 1. **阻挡几何**：地面怪被这一路上最靠前的活人挡住，走到他脚前才停、才开打。
+ * 1. **阻挡几何**：地面怪被这一路上最靠前的活人挡住，走到自己射程里才停、才开打。
  *    空格不挡。所以谁站最前决定谁先挨，这是布阵最直接的一笔。
  * 2. **飞碟点后排**：飞的不被阻挡，而且专挑这一路**最后排**的人打。
  *    把脆皮塞到后面躲刀，遇到飞碟章就是送 —— 后排不是安全区。
@@ -20,9 +21,9 @@
  * 随机会把信号埋进噪声里。变化量交给布阵和养成，不交给骰子。
  */
 import {
-  ARMOR_K, BLOCK_GAP, CELL_COUNT, COMBAT_POS, GOAL_POS, HEAL_ATK_CUT, HEAL_MUL,
+  ARMOR_K, CELL_COUNT, GOAL_POS, HEAL_ATK_CUT, HEAL_MUL,
   LANE_COUNT, LEAK_ALLOW, RAGE_BONUS, SLOW_MS, SLOW_MUL, TICK_MS, WAVE_GAP_MS,
-  cellPos, inCombatZone, moveSpd,
+  cellPos,
 } from '@/balance/combat';
 import {
   getEnemy, rateStars,
@@ -32,7 +33,11 @@ import {
   evoKindOf, laneMul, statsOf,
   type EvoKind, type Role, type VillagerDef,
 } from '@/balance/villagers';
+import { foeCanSwing, foeHaltPos, foeTarget } from '@/game/foeEngage';
+import { marchStep } from '@/game/march';
 import { canReach } from '@/game/reach';
+
+export { blockerFor, foeCanSwing, foeHaltPos, foeInRange, foeTarget, sniperTarget } from '@/game/foeEngage';
 
 /** 进化打法的数字。护栏红了先砍这里，不改几何、不加新系统 */
 const PIERCE_MUL = 0.28;
@@ -401,72 +406,12 @@ export function removeAt(state: BattleState, lane: number, cell: number): boolea
 
 /* ---------------- 目标选择 ---------------- */
 
-/** 飞的和钻地的都不被阻挡，也都奔这一路最后排 */
-function unblocked(def: EnemyDef): boolean {
-  return def.flying === true || def.burrow === true;
-}
-
-/** 地面怪被这一路最靠前的活人挡住。返回那个人 */
-export function blockerFor(foe: Foe, team: readonly Fighter[]): Fighter | undefined {
-  let best: Fighter | undefined;
-  for (const f of team) {
-    if (!f.alive || f.lane !== foe.lane) continue;
-    if (f.uid === foe.skipUid) continue; // 弹簧腿已经跳过他了
-    if (f.pos < foe.pos - 0.5) continue; // 已经被越过去了
-    if (!best || f.pos < best.pos) best = f;
-  }
-  return best;
-}
-
-/** 这一刻该打谁。地面怪打挡路的，飞的和钻地的直奔最后排 */
-export function foeTarget(foe: Foe, team: readonly Fighter[]): Fighter | undefined {
-  return unblocked(foe.def) ? sniperTarget(foe, team) : blockerFor(foe, team);
-}
-
-/**
- * 该停在哪。没活人挡就是 undefined，一路走到头。
- *
- * 停点只跟**人**走，不跟格子走。前排空着就穿过，倒了的也不再挡。
- * 飞碟按射程悬在那个人面前（后排不是安全区）；钻地的要贴到最后排那个人脚前。
- */
-export function foeHaltPos(foe: Foe, team: readonly Fighter[]): number | undefined {
-  const t = foeTarget(foe, team);
-  if (!t || !t.alive) return undefined;
-  /*
-   * 飞的按射程悬在那个人面前，**但不许悬到开火线外**。
-   *
-   * 射程 3 的飞碟狙最后排：这一路只有前两格站了人时，最后排在轴位 3，
-   * 悬停点算出来正好是 0，比开火线 0.28 还靠外。那儿谁也不许开火 ——
-   * 飞碟打不到人，人也打不到飞碟，满血钉在出场点，一局就这么僵到超时。
-   * 实测 4-1 / 5-1 全种子卡死在这儿，我方零阵亡、场上剩 3~5 只飞碟一动不动，
-   * 时限从 86 秒放到 117 秒剩的只数一只不差 —— 光给时间根本不是解。
-   */
-  if (foe.def.flying) return Math.max(COMBAT_POS, t.pos - foe.def.range);
-  return t.pos - BLOCK_GAP;
-}
-
 /** 探照灯照的是这一路最前面那个。把人往后挪一格就照不到了 */
 function frontOf(team: readonly Fighter[], lane: number): Fighter | undefined {
   let best: Fighter | undefined;
   for (const f of team) {
     if (!f.alive || f.lane !== lane) continue;
     if (!best || f.pos < best.pos) best = f;
-  }
-  return best;
-}
-
-function inHitRange(e: Foe, target: Fighter): boolean {
-  if (!inCombatZone(e.pos)) return false;
-  const gap = target.pos - e.pos;
-  return gap <= e.def.range && gap >= -0.5;
-}
-
-/** 飞的专挑这一路最后排的人 */
-export function sniperTarget(foe: Foe, team: readonly Fighter[]): Fighter | undefined {
-  let best: Fighter | undefined;
-  for (const f of team) {
-    if (!f.alive || f.lane !== foe.lane) continue;
-    if (!best || f.cell > best.cell) best = f;
   }
   return best;
 }
@@ -795,10 +740,9 @@ export function tick(state: BattleState): void {
       reached = haltAt !== undefined && e.pos >= haltAt;
     }
 
-    // 空格不是墙。没贴到活人脚前就接着走，射程够着也不许在空格子里趴下挥刀 ——
-    // 一挥走路动画就被盖住，看上去就像「碰到人物格就停」。
+    // 空格不是墙。村民还没进自己射程就接着走，进了才停、才挥刀。
     if (!reached) {
-      e.pos += moveSpd(e.spd, e.pos) * (e.slowMs > 0 ? SLOW_MUL : 1) * (TICK_MS / 1000);
+      e.pos = marchStep(e.pos, e.spd, TICK_MS / 1000, e.slowMs > 0 ? SLOW_MUL : 1);
       if (haltAt !== undefined && e.pos > haltAt) e.pos = haltAt;
       if (e.pos > GOAL_POS) {
         e.alive = false;
@@ -808,7 +752,7 @@ export function tick(state: BattleState): void {
       }
     }
 
-    if (reached && target && inHitRange(e, target)) {
+    if (reached && target && foeCanSwing(e, target)) {
       e.cd -= TICK_MS;
       if (e.cd <= 0) {
         e.cd = e.def.interval;

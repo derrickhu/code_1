@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { yardPeople } from '@/core/yardRoster';
+import { homePreloadPeople, yardPeople } from '@/core/yardRoster';
 import type { RunMemory } from '@/core/RunMemory';
 
 function mem(roster: string[]): RunMemory {
@@ -37,5 +37,15 @@ describe('yardPeople', () => {
     const ids = yardPeople(mem(['a', 'b', 'c', 'd']), 'd', 3);
     expect(ids).toContain('d');
     expect(ids).toHaveLength(3);
+  });
+
+  it('村口预热要把阵上的人也算上，别等进战斗才下三婶', () => {
+    const base = mem(['tiezhu', 'dachui', 'laoyanqiang', 'sanshen']);
+    const ids = homePreloadPeople({
+      ...base,
+      layout: [{ id: 'sanshen', lane: 1, cell: 1 }],
+    } as RunMemory);
+    expect(ids).toContain('sanshen');
+    expect(ids).toContain('dachui');
   });
 });

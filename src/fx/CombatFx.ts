@@ -6,7 +6,7 @@ import * as PIXI from 'pixi.js';
 import type { AttackFx, EnemyFx } from '@/balance/fx';
 import { projSprite } from '@/balance/fx';
 import { playSfx, buzz } from '@/core/SfxPlayer';
-import { fillContain, gearTex, projTex, tex, vfxTex, wepPath } from '@/core/TextureLoader';
+import { fillContain, projTex, vfxTex } from '@/core/TextureLoader';
 import type { BattleEvent } from '@/game/BattleEngine';
 import { VfxKit } from '@/fx/VfxKit';
 import { attackLook, enemyLook, playImpact, playMuzzle, shouldFly, shotFlight, skinLook, type FxLook, type ShotBody } from '@/fx/FxRecipe';
@@ -207,7 +207,7 @@ export class CombatFx {
     }
 
     if (ev.kind === 'heal' && pos.tx !== undefined && pos.ty !== undefined) {
-      this._kit.plate('heal', pos.tx, pos.ty, { tint: 0x86efac, s0: 0.4, s1: 0.95, life: 0.32 });
+      this._kit.plate('heal', pos.tx, pos.ty, { tint: 0x86efac, s0: 0.28, s1: 0.55, life: 0.32, add: false });
       this._kit.spray(pos.tx, pos.ty, { n: 7, tint: 0x86efac, kind: 'glow', speed: 80, gy: -40 });
       if (ev.amount > 0) {
         this._spawnPlainFloat(`+${Math.round(ev.amount)}`, pos.tx, pos.ty - 24, 0x86efac, 24, 0.5);
@@ -216,14 +216,14 @@ export class CombatFx {
     }
 
     if (ev.kind === 'villagerUp' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._kit.plate('heal', pos.hx, pos.hy, { tint: 0xfde68a, s0: 0.5, s1: 1.1, life: 0.4 });
+      this._kit.plate('heal', pos.hx, pos.hy, { tint: 0xfde68a, s0: 0.32, s1: 0.62, life: 0.4, add: false });
       this._kit.spray(pos.hx, pos.hy, { n: 10, tint: 0xfde68a, kind: 'glow', speed: 90, gy: -30 });
       this._spawnPlainFloat('爬起来', pos.hx, pos.hy - 20, 0xfde68a, 22, 0.55);
       playSfx('win', 80);
     }
 
     if (ev.kind === 'burst' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._kit.plate('blast', pos.hx, pos.hy, { tint: 0xff8a4a, s0: 0.6, s1: 1.35, life: 0.36 });
+      this._kit.plate('blast', pos.hx, pos.hy, { tint: 0xffffff, s0: 0.32, s1: 0.48, life: 0.36 });
       this._kit.spray(pos.hx, pos.hy, { n: 12, tint: 0xff8a4a, kind: 'spark', speed: 120, gy: 10 });
       playSfx('hit_smash', 40);
     }
@@ -235,7 +235,7 @@ export class CombatFx {
      * 所以这里要靠一次红闪 + 一行字把它砸出来。少了它失败就变成莫名其妙。
      */
     if (ev.kind === 'leak' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xff5a5a, s0: 0.6, s1: 1.6, life: 0.4 });
+      this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xff5a5a, s0: 0.36, s1: 0.7, life: 0.4, add: false });
       this._kit.ring(pos.hx, pos.hy, 0xff5a5a, 0.6);
       this._kit.spray(pos.hx, pos.hy, { n: 14, tint: 0xff7a7a, kind: 'spark', speed: 200, life: 0.4 });
       this._spawnFlash('漏了一个', pos.hx, pos.hy - 40);
@@ -250,7 +250,7 @@ export class CombatFx {
     this.landPulse = 0.28;
     if (x !== undefined && y !== undefined) {
       this._kit.ring(x, y, 0xffd66b, 0.5);
-      this._kit.plate('flash', x, y, { tint: 0xffe08a, s0: 0.4, s1: 1.3, life: 0.34 });
+      this._kit.plate('flash', x, y, { tint: 0xffe08a, s0: 0.28, s1: 0.58, life: 0.34, add: false });
     }
     playSfx('hero_land', 0);
   }
@@ -488,7 +488,7 @@ export class CombatFx {
     const physName = energy ? null : (spec.look?.proj ?? projSprite(spec.kind as AttackFx));
     const physical = !!physName;
     const shot = energy ? vfxTex(energy)
-      : physName ? (projTex(physName) ?? gearTex(physName) ?? tex(wepPath(physName)))
+      : physName ? projTex(physName)
         : null;
     let spr: PIXI.Sprite | null = null;
     if (shot) {
@@ -658,10 +658,10 @@ export class CombatFx {
   }
 
   private _death(x: number, y: number, tint: number): void {
-    this._kit.plate('blast', x, y, { tint, s0: 0.4, s1: 1.2, life: 0.28 });
+    this._kit.plate('blast', x, y, { tint: 0xffffff, s0: 0.28, s1: 0.44, life: 0.28 });
     this._kit.ring(x, y, tint, 0.3);
     this._kit.spray(x, y, { n: 16, tint, kind: 'spark', speed: 260, life: 0.34, gy: 40 });
-    this._kit.spray(x, y, { n: 6, tint, kind: 'glow', speed: 90, life: 0.3, scale: 0.5, gy: 20 });
+    this._kit.spray(x, y, { n: 6, tint, kind: 'glow', speed: 90, life: 0.3, scale: 0.16, gy: 20 });
   }
 
   private _point(s: ShotBit, t: number): { x: number; y: number } {

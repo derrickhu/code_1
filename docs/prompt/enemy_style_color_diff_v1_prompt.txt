@@ -1,0 +1,29 @@
+Enemy style revision: COLOR + DIFFICULTY must read at a glance.
+Keep the chubby pulp-chrome family from the reference. Pale gray panels, fat outlines.
+NO TEXT, no labels, no letters, no numbers, no watermarks.
+
+Visual bible (must obey):
+- 冲 rush = small body + loud accent (yellow / magenta)
+- 扛 tank = BIG dark metal (steel-blue / black + brass)
+- 术 rule = violet body + ONE glowing gadget
+- 援 support = teal-cyan glow on a skinny or pod shape
+- Flying = wide horizontal + teal ring
+- Size = HP: grey tiny, armor fills the panel. Never same height.
+
+Sheet A 2x3 first wave, left-to-right top then bottom:
+1 小灰 grunt 冲/杂兵 HP130 SMALLEST: bare pale mint-grey skin, no metal suit, tiny, vacant. Occupies ~40% of panel.
+2 方块 cube 冲 HP260 MEDIUM: purple-blue cube helmet, cyan visor bar, clearly bigger than grey.
+3 铁罐 canister 扛 HP620 LARGE: steel-blue milk-churn bucket helmet, brass rivets, dark slit. Darker and fatter than cube.
+4 突击 rusher 冲 HP190 SMALL-LEAN: hot magenta body, yellow hazard stripes on jetpack, swept fin. Same size class as grey, NOT silver.
+5 飞碟 saucer 冲/飞 HP340 MEDIUM-WIDE: chrome disc, TEAL glowing ring, glass dome, grey pilot. Horizontal silhouette.
+6 装甲 armor 扛 HP1050 LARGEST: charcoal-black plate suit, gold seam lights, tiny visor head. Fills the panel. NOT a treaded tank.
+
+Sheet B 2x4 later wave:
+1 探照灯 lamp 术: violet tripod, huge yellow-white searchlight head
+2 天线杆 mast 援: tallest skinny, teal glowing dish head
+3 水泥墩 pier 扛/术: squat LARGE concrete-grey bollard body, cyan crack lights, immovable
+4 电钻 drill 术: medium, copper-orange corkscrew drill for a head, crouched
+5 高压线 wire 援: skinny violet, teal electric arcs on hands
+6 闷罐 keg 扛: LARGE dark-red/brown keg armor, bright orange crack across lid
+7 弹簧腿 spring 冲/术: SMALL grey on tall YELLOW coil springs
+8 孵化器 hatch 援: LARGE teal-white walking pod, two pale eggs in glass belly

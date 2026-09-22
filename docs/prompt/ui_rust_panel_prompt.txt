@@ -1,0 +1,11 @@
+One isolated game UI plate on solid hot-pink #FF00AA background. A single wide rectangular rust-iron panel, landscape, filling most of the frame.
+
+Same rust-iron enamel family as the village UI: pitted dark brown-black iron, orange rust blooms and flakes, worn enamel chips, hand-painted texture, thin dark outline. No plastic, no chrome, no sci-fi, no wood.
+
+Shape: four sides straight and square, only a tiny 4-6px corner radius. NOT a notched plaque. NOT a dog-bone. NOT chamfered like a ticket. A clean rectangle so UI text and bars can sit flush to the edges.
+
+NO rivets, NO nails, NO bolts, NO screws, NO studs, NO corner hardware, NO decorative dots.
+
+Empty usable face. No wells, no inner frames, no slots, no bars, no stars.
+
+NO TEXT, no labels, no captions, no writing, no numbers, no extra objects.

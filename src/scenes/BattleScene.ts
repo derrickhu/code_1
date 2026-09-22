@@ -30,7 +30,7 @@ import {
 } from '@/balance/combat';
 import { getStage, stageEnemyCount } from '@/balance/stages';
 import { resolveAttackFx, resolveEnemyFx, resolveFxSkin } from '@/balance/fx';
-import { LANE_NAME, evoKindOf, getVillager, statsOf } from '@/balance/villagers';
+import { LANE_NAME, evoKindOf, getVillager, jobOf, statsOf } from '@/balance/villagers';
 import {
   BENCH_FOOTER_H, BENCH_H, BenchDock, LANE_TINT, benchFooterTop, type BenchItem,
 } from '@/ui/BenchDock';
@@ -65,6 +65,7 @@ import {
   reviveAfterLeak, startFight, tick,
   type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
+import { marchLerp } from '@/game/march';
 import { canReach, reachOriginY, reachScreenPoly } from '@/game/reach';
 
 /**
@@ -909,6 +910,7 @@ export class BattleScene implements Scene {
       benchH: BENCH_H + START_STRIP,
     });
     this._arenaMask.clear();
+    // 战场从牌下沿起。怪和弹都不许画进锈铁里。
     this._arenaMask.beginFill(0xffffff).drawRect(0, chrome.barBottom, 750, height - chrome.barBottom).endFill();
   }
 
@@ -927,7 +929,7 @@ export class BattleScene implements Scene {
 
   private _foeXY(e: Foe, frac = 0): { x: number; y: number; feetY: number; h: number } {
     const prev = this._prevPos.get(e.id) ?? e.pos;
-    const pos = prev + (e.pos - prev) * Math.max(0, Math.min(1, frac));
+    const pos = marchLerp(prev, e.pos, frac);
     const y = posScreenY(pos, this._lay.spawnY, this._lay.goalY);
     // 同一路上的怪按 id 微微错开，不然一队铁罐会叠成一个
     const x = laneScreenX(e.lane) + (((e.id * 37) % 5) - 2) * 8;
@@ -1020,7 +1022,32 @@ export class BattleScene implements Scene {
       return;
     }
     this._inspectUid = this._inspectUid === uid ? null : uid;
-    if (this._inspectUid) playSfx('ui_tap', 0);
+    if (!this._inspectUid) return;
+    playSfx('ui_tap', 0);
+    this._sayPanel(uid);
+  }
+
+  /**
+   * 布阵时点开一个人，就把他的面板念出来。
+   *
+   * 局内原本一处都看不见养成结果 —— 打完一关不知道自己比上一关强在哪，
+   * 局外那条线也就白攒了。村子乘数单写一截，因为那是全员共享的那一层，
+   * 不写的话玩家只会把数字记在这个人头上。
+   */
+  private _sayPanel(uid: string): void {
+    if (!this._placing()) return;
+    const p = this._state.placed.find((x) => x.villager.id === uid);
+    if (!p) return;
+    const s = statsOf(p.villager, p.evoStage, p.stars, this._state.villageMul, p.craft);
+    const star = p.stars > 0 ? `★${p.stars}` : '';
+    const heal = jobOf(p.villager.role) === 'heal';
+    const boost = this._state.villageMul > 1
+      ? ` · 含村子 +${Math.round((this._state.villageMul - 1) * 100)}%`
+      : '';
+    this._say(
+      `${p.villager.name} Lv.${p.craft}${star} · ${heal ? '修' : '打'}${s.atk} 抗${s.hp}`
+      + ` · ${s.range}格 ${(s.interval / 1000).toFixed(1)}秒${boost}`,
+    );
   }
 
   private _hitFighter(x: number, y: number): Fighter | null {
@@ -1109,14 +1136,11 @@ export class BattleScene implements Scene {
     }
   }
 
-  /** 门楣下沿压一条暗坎，土路从门洞里伸出来，匾牌和战场从这里切开 */
+  /** 牌下沿就是村口。路从这儿起，怪也从这儿下面露头 */
   private _drawVillageMouth(g: PIXI.Graphics, seam: number): void {
-    g.beginFill(0x0a0604, 0.88).drawRect(0, seam, 750, 14).endFill();
-    g.beginFill(0x1a1008, 0.45).drawRect(0, seam + 14, 750, 18).endFill();
-    g.beginFill(0x2a2010, 0.18).drawRect(0, seam + 32, 750, 16).endFill();
-    g.beginFill(0x2a1810, 0.92).drawRect(0, seam, 750, 4).endFill();
-    g.beginFill(0x6a4a28, 0.55).drawRect(0, seam + 4, 750, 2).endFill();
-    g.beginFill(0xc4a06a, 0.22).drawRect(FIELD_X + 18, seam + 3, FIELD_W - 36, 2).endFill();
+    g.beginFill(0x2a1810, 0.92).drawRect(0, seam, 750, 3).endFill();
+    g.beginFill(0x6a4a28, 0.55).drawRect(0, seam + 3, 750, 2).endFill();
+    g.beginFill(0xc4a06a, 0.28).drawRect(FIELD_X + 18, seam + 2, FIELD_W - 36, 2).endFill();
   }
 
   /** 人站在土上：一小团接触影。选中再加细金环，不要铺整格 */

@@ -1,5 +1,6 @@
 /**
  * 村子门楣只给主界面、图鉴、详情用：大牌 + 经验槽 + 四枚资源章。
+ * 底板 top_lintel 是纯锈板（大牌 + 四格），经验槽是独立的 rust_exp，金条铺在槽图里。
  * 编队 / 战斗 / 弹弓摊另用切下来的上半块锈铁，不要把经验条和四格硬塞进去。
  * 摊顶走 stallHudLay：同一张底板，门楣更矮；三枚小口袋叠在板上，不抬高度。
  */
@@ -7,35 +8,85 @@ export interface LintelLay {
   titleH: number;
   title: { cx: number; cy: number; w: number; h: number };
   titleGlyphH: number;
-  /** 中间凹槽中线，经验条 / 门路字落在这儿 */
-  exp: { x: number; y: number; w: number };
+  /** rust_exp 整张槽的外框，随 titleH 走 */
+  exp: { x: number; y: number; w: number; h: number };
   hintY: number;
   stamp: { y: number; w: number; h: number; cxs: readonly number[] };
   barBottom: number;
 }
 
+export const LINTEL_ART = { w: 1280, h: 720 } as const;
+
+/** rust_exp.png 原图像素。内凹是量过的，不是左右对折 */
+export const RUST_EXP_ART = { w: 348, h: 84 } as const;
+
+/**
+ * 槽图里那块凹下去的板。标定：左 34 顶 22 右 340 底 56。
+ * 底停在内凹亮边（原图 y≈58）之上，避免铜浆盖住下沿。顶沿不动。
+ */
+export const RUST_EXP_WELL = {
+  x0: 34 / RUST_EXP_ART.w,
+  y0: 22 / RUST_EXP_ART.h,
+  x1: 340 / RUST_EXP_ART.w,
+  y1: 56 / RUST_EXP_ART.h,
+} as const;
+
+export function rustExpFillRect(slot: { x: number; y: number; w: number; h: number }): {
+  x: number; y: number; w: number; h: number;
+} {
+  const x = Math.round(slot.x + slot.w * RUST_EXP_WELL.x0);
+  const y = Math.round(slot.y + slot.h * RUST_EXP_WELL.y0);
+  const r = Math.round(slot.x + slot.w * RUST_EXP_WELL.x1);
+  const b = Math.round(slot.y + slot.h * RUST_EXP_WELL.y1);
+  const insetTop = 1;
+  const insetBot = 2;
+  return {
+    x: x + 1,
+    y: y + insetTop,
+    w: Math.max(1, r - x - 2),
+    h: Math.max(2, b - y - insetTop - insetBot),
+  };
+}
+
+/** 大牌和四格章中间那条带。顶沿不动，只把底往上收，躲开下面那道边 */
+export function lintelExpRect(titleH: number, destW = 750): {
+  x: number; y: number; w: number; h: number;
+} {
+  const w = Math.round(destW * 0.70);
+  const h = Math.max(24, Math.round(titleH * 0.068));
+  return {
+    x: Math.round((destW - w) / 2),
+    y: Math.round(titleH * 0.445),
+    w,
+    h,
+  };
+}
+
 export function lintelLay(safeTop: number, height: number): LintelLay {
   const safe = Math.max(safeTop, 16);
-  let titleH = Math.round(750 * 9 / 16);
+  let titleH = Math.round(750 * LINTEL_ART.h / LINTEL_ART.w);
   if (titleH > height * 0.32) titleH = Math.round(height * 0.32);
   if (titleH < safe + 200) titleH = Math.min(Math.round(height * 0.34), safe + 240);
-  const slotTop = titleH * 0.35;
-  const slotMid = titleH * 0.405;
-  const plateTop = titleH * 0.10;
+  const exp = lintelExpRect(titleH);
+  const plateTop = titleH * 0.08;
+  const plateBot = exp.y - 8;
   let glyphH = Math.max(44, Math.round(titleH * 0.15));
-  let titleCy = (plateTop + slotTop) / 2 + 12;
-  if (titleCy + glyphH / 2 > slotTop - 10) {
-    titleCy = slotTop - 10 - glyphH / 2;
+  let titleCy = (plateTop + plateBot) / 2;
+  if (titleCy + glyphH / 2 > plateBot) {
+    titleCy = plateBot - glyphH / 2;
   }
   if (titleCy - glyphH / 2 < 8) {
     glyphH = Math.max(32, (titleCy - 8) * 2);
   }
+  const titleBottom = titleCy + glyphH / 2;
+  let hintY = titleBottom + 6;
+  if (hintY + 16 > exp.y - 4) hintY = Math.max(titleBottom + 2, exp.y - 20);
   return {
     titleH,
     title: { cx: 375, cy: titleCy, w: 750, h: titleH },
     titleGlyphH: glyphH,
-    exp: { x: 78, y: slotMid, w: 594 },
-    hintY: slotTop + titleH * 0.12,
+    exp,
+    hintY,
     stamp: {
       y: titleH * 0.71,
       w: 750 * 0.20,

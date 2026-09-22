@@ -1,0 +1,11 @@
+2x2 grid, 4 equal square cells, even hot-pink #FF00AA gutters, each cell one isolated game UI sprite centered on solid hot-pink #FF00AA. Same rust-iron enamel family as the village UI: pitted dark iron, orange rust blooms, tiny rivets, worn mustard gold, hand-painted enamel chips. No plastic, no chrome sci-fi, no glass, no neon.
+
+Top-left: one five-point metal STAR, filled, worn gold enamel, rust in the grooves, a small rivet in the center, front-facing, large in the cell, no plate behind it.
+
+Top-right: the same five-point metal STAR shape, empty dull pewter iron, darker unlit, front-facing, large in the cell, no plate behind it.
+
+Bottom-left: a short horizontal recessed rust BAR TRACK, dark iron trough, thin stadium/capsule, small rivets at both ends, empty dark well inside, no colored fill.
+
+Bottom-right: a short horizontal enamel BAR FILL capsule, cream-white smooth enamel with tiny rust speckles, solid fill, no rivets, no dark rim, made for tinting.
+
+NO TEXT, no labels, no captions, no writing, no numbers, no extra objects, no characters, no frames around the cells.

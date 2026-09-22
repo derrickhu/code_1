@@ -6,10 +6,9 @@
  * - Loading 出图后再等 VILLAGE_HOME_SHELL（分包村口壳，不含全英雄）
  * - 立绘 / 战斗 / 摊子走 CDN，各页 ensureAssets(本屏清单) 后台预热
  */
-import { HAND_GEAR, resolveHandGear, wearOf } from '@/balance/gear';
-import { ENEMIES, getStage, type StageDef } from '@/balance/stages';
+import { ENEMIES, getEnemy, getStage, type StageDef } from '@/balance/stages';
 import {
-  DEFAULT_SQUAD, VILLAGERS, getVillager, jobOf, type Job,
+  DEFAULT_SQUAD, VILLAGERS, jobOf, type Job,
 } from '@/balance/villagers';
 import {
   BATTLE_BG,
@@ -25,11 +24,8 @@ import {
   animPath,
   enemyArtId,
   enemyArtPath,
-  hasHeroGrip,
   heroEvoPath,
-  heroGripPath,
   heroStillPath,
-  modPath,
   projPath,
   uiPath,
   vfxPath,
@@ -49,15 +45,6 @@ function unique(paths: readonly string[]): string[] {
 
 function clampEvo(raw?: number): number {
   return Math.max(1, Math.min(3, Math.floor(raw ?? 1)));
-}
-
-function laneOf(need: HeroArtNeed): string {
-  if (need.lane) return need.lane;
-  try {
-    return getVillager(need.id).lane;
-  } catch {
-    return 'stand';
-  }
 }
 
 const PAINT_DIGITS = [
@@ -93,7 +80,8 @@ const ROAD_CHROME = [
 
 const FOLKS_CHROME = [
   'top_lintel', 'rust_stamp', 'rust_exp', 'rust_tile', 'rust_plank', 'rust_btn',
-  'rust_sheet', 'rust_badge',
+  'rust_sheet', 'rust_panel', 'rust_badge', 'fight_btn',
+  'star_on', 'star_off', 'star_rail', 'craft_rail', 'bar_track', 'bar_fill',
   'icon_scrap', 'icon_parts', 'icon_credits', 'icon_pellets',
   'paint_scrap', 'paint_parts', 'paint_credits', 'paint_pellets',
   ...PAINT_DIGITS,
@@ -143,31 +131,36 @@ export const BATTLE_FX_IMAGES: readonly string[] = unique([
   ...VFX_FILES.map((n) => vfxPath(n)),
   ...flipFiles(),
   ...PROJ_FILES.map((n) => projPath(n)),
-  'images/fx/hammer.png',
 ]);
 
 export function heroStillArt(need: HeroArtNeed): string[] {
   const evo = clampEvo(need.evo);
-  const paths = [heroEvoPath(need.id, evo), heroStillPath(need.id)];
-  if (hasHeroGrip(need.id)) paths.push(heroGripPath(need.id));
-  return paths;
+  return [heroEvoPath(need.id, evo), heroStillPath(need.id)];
+}
+
+/**
+ * 先下站姿切片，人能立刻站出来。高清立绘随后补。
+ * 真机 CDN 并发只有 4，立绘若排在最前，三婶这种没在村口缓存过的人会空等半晌。
+ */
+export function heroFaceArt(need: HeroArtNeed): string[] {
+  const evo = clampEvo(need.evo);
+  return [
+    animPath(need.id, 'idle', 0),
+    animPath(need.id, 'idle', 1),
+    heroStillPath(need.id),
+    heroEvoPath(need.id, evo),
+  ];
 }
 
 export function heroIdleArt(need: HeroArtNeed): string[] {
-  const paths = heroStillArt(need);
-  for (let i = 0; i < 4; i += 1) paths.push(animPath(need.id, 'idle', i));
+  const paths = heroFaceArt(need);
+  for (let i = 2; i < 4; i += 1) paths.push(animPath(need.id, 'idle', i));
   return paths;
 }
 
 export function heroBattleArt(need: HeroArtNeed): string[] {
-  const evo = clampEvo(need.evo);
   const paths = heroIdleArt(need);
   for (let i = 0; i < 4; i += 1) paths.push(animPath(need.id, 'atk', i));
-  paths.push(resolveHandGear(need.id, evo).path);
-  const wear = wearOf(need.id, laneOf(need), evo);
-  for (const item of [wear.head, wear.back, wear.body]) {
-    if (item) paths.push(modPath(item));
-  }
   return paths;
 }
 
@@ -182,10 +175,22 @@ export function enemyBattleArt(id: string): string[] {
   return paths;
 }
 
+/**
+ * 这一关会出现哪些怪。
+ *
+ * **要把下的蛋也算进来。** 孵化器的蛋不写在波次表里，但它一定会上场；
+ * 第 8 章正好有孵化器而没有小灰，漏掉就是打到一半蹦出一排白方块。
+ */
 export function stageEnemyIds(stage: StageDef): string[] {
   const ids = new Set<string>();
+  const add = (id: string): void => {
+    if (ids.has(id)) return;
+    ids.add(id);
+    const egg = getEnemy(id).spawn?.enemy;
+    if (egg) add(egg);
+  };
   for (const wave of stage.waves) {
-    for (const g of wave.groups) ids.add(g.enemy);
+    for (const g of wave.groups) add(g.enemy);
   }
   return [...ids];
 }
@@ -236,15 +241,26 @@ export function villagerDetailImages(id: string, evo = 1): string[] {
   return unique(paths);
 }
 
+/** 上场的人先露脸。进战斗先拉这一批，顶板和特效往后排 */
+export function battleFaceImages(heroes: readonly HeroArtNeed[]): string[] {
+  const paths: string[] = [];
+  for (const h of heroes) paths.push(...heroFaceArt(h));
+  return unique(paths);
+}
+
 export function battlePreloadImages(
   stageId: number,
   heroes: readonly HeroArtNeed[],
 ): string[] {
   const stage = getStage(stageId);
-  const paths = [...BATTLE_SHELL_IMAGES];
-  for (const h of heroes) paths.push(...heroBattleArt(h));
-  for (const id of stageEnemyIds(stage)) paths.push(...enemyBattleArt(id));
-  return unique(paths);
+  const faces: string[] = [];
+  const rest = [...BATTLE_SHELL_IMAGES];
+  for (const h of heroes) {
+    faces.push(...heroFaceArt(h));
+    rest.push(...heroBattleArt(h));
+  }
+  for (const id of stageEnemyIds(stage)) rest.push(...enemyBattleArt(id));
+  return unique([...faces, ...rest]);
 }
 
 /** 出手预览台：本机浏览器，可以把当前池子一次性拉齐。 */
@@ -255,7 +271,6 @@ export function animLabImages(): string[] {
       paths.push(...heroBattleArt({ id: v.id, evo: s, lane: v.lane }));
     }
   }
-  for (const g of Object.values(HAND_GEAR)) paths.push(g.path);
   for (const e of ENEMIES) paths.push(...enemyBattleArt(e.id));
   return unique(paths);
 }

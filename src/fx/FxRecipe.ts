@@ -217,17 +217,17 @@ const SKIN: Readonly<Record<string, Partial<FxLook>>> = {
   radio: { tint: 0xa78b5a, dry: true, curve: true, proj: 'disc', projPx: 28, spin: 10 },
   sling: { tint: 0xc4b59a, dry: true, loft: 40, proj: 'pebble', projPx: 24, spin: 9 },
   pipe: { tint: 0x8aa0aa, dry: true, proj: 'pipe', projPx: 22 },
-  weight: { tint: 0x5c5346, dry: true, swing: true, loft: 22, proj: 'weight', projPx: 22, spin: 8, ring: false },
+  weight: { tint: 0x5c5346, dry: true, swing: true, loft: 22, proj: 'pipe', projPx: 22, spin: 8, ring: false },
   blower: { tint: 0x7a9e7e, dry: true, curve: true, proj: 'leaf', projPx: 18 },
   wire: {
     tint: 0xc9a227, dry: true, beam: false, ribbon: false, loft: 10,
-    proj: 'wire', projPx: 20,
+    proj: 'needle', projPx: 20,
     plates: [{ name: 'pierce', tint: 0xe8c84a, s0: 0.26, s1: 0.3, life: 0.28 }],
     spray: { n: 5, kind: 'spark', speed: 70, tint: 0xe8c84a, spread: 0.6 },
   },
   chainsaw: { tint: 0xcc6b2a, instant: true, dry: false, muzzle: 'saw' },
   firecracker: { tint: 0xe85a2a, dry: false, proj: 'cracker', projPx: 16 },
-  pot: { tint: 0xb87333, dry: true, swing: true, loft: 20, proj: 'pot', projPx: 22, spin: 9, ring: false },
+  pot: { tint: 0xb87333, dry: true, swing: true, loft: 20, proj: 'disc', projPx: 22, spin: 9, ring: false },
   speaker: { tint: 0x7c6a4a, dry: true, curve: true, proj: 'disc', projPx: 26, spin: 9 },
 };
 
@@ -270,21 +270,23 @@ export function playMuzzle(kit: VfxKit, look: FxLook, x: number, y: number, ang:
       gy: 30,
       dir: ang,
       spread: 0.6,
-      scale: 0.16,
+      scale: 0.09,
     });
     return;
   }
   if (look.muzzle && look.muzzle !== 'orb' && look.muzzle !== 'blast') {
+    const flip = vfxHasFlip(look.muzzle);
     kit.plate(look.muzzle, x, y, {
-      tint: look.tint,
+      tint: flip ? 0xffffff : look.tint,
       rot: ang,
       s0: 0.16,
       s1: 0.3,
       life: 0.08,
       a0: 0.7,
+      add: flip,
     });
   }
-  kit.spray(x, y, { n: 4, tint: look.tint, kind: 'spark', speed: 90, life: 0.12, dir: ang, spread: 0.7, scale: 0.18 });
+  kit.spray(x, y, { n: 4, tint: look.tint, kind: 'spark', speed: 90, life: 0.12, dir: ang, spread: 0.7, scale: 0.1 });
   if (look.swing) {
     kit.arc(x, y - 8, x + Math.cos(ang) * 40, y + Math.sin(ang) * 40, look.tint);
   }
@@ -338,11 +340,12 @@ export function playImpact(kit: VfxKit, look: FxLook, x: number, y: number, crit
   } else if (!hasFlip) {
     kit.burst(x, y, look.tint, 0.55 * scale);
   } else {
-    kit.plate('flash', x, y, { tint: look.tint, s0: 0.1 * scale, s1: 0.16 * scale, life: 0.06, a0: 0.65 });
+    kit.plate('flash', x, y, { tint: look.tint, s0: 0.1 * scale, s1: 0.16 * scale, life: 0.06, a0: 0.65, add: false });
   }
   for (const p of look.plates) {
+    const flip = vfxHasFlip(p.name);
     kit.plate(p.name, x, y, {
-      tint: p.tint ?? look.tint,
+      tint: flip ? 0xffffff : (p.tint ?? look.tint),
       s0: p.s0 * scale,
       s1: p.s1 * scale,
       sy0: p.sy0 !== undefined ? p.sy0 * scale : undefined,
@@ -350,6 +353,7 @@ export function playImpact(kit: VfxKit, look: FxLook, x: number, y: number, crit
       life: p.life,
       vr: p.vr,
       a0: 0.92,
+      add: flip,
     });
   }
   if (look.ring && !hasFlip) kit.ring(x, y, look.tint, 0.16);
@@ -360,11 +364,11 @@ export function playImpact(kit: VfxKit, look: FxLook, x: number, y: number, crit
     tint: look.spray.tint ?? look.tint,
     gy: look.spray.gy,
     spread: look.spray.spread,
-    scale: 0.2,
+    scale: 0.1,
   });
   if (crit && !look.dry) {
-    kit.plate('flash', x, y, { tint: 0xffe066, s0: 0.16, s1: 0.24, life: 0.08 });
-    kit.spray(x, y, { n: 4, tint: 0xffe066, kind: 'spark', speed: 160, life: 0.14, scale: 0.18 });
+    kit.plate('flash', x, y, { tint: 0xffe066, s0: 0.16, s1: 0.24, life: 0.08, add: false });
+    kit.spray(x, y, { n: 4, tint: 0xffe066, kind: 'spark', speed: 160, life: 0.14, scale: 0.1 });
   }
   return look.hitStop[crit ? 1 : 0];
 }

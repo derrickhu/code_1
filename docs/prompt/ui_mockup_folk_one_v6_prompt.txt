@@ -1,0 +1,32 @@
+Vertical 9:16 WeChat minigame UI mockup: villager upgrade page, rust family.
+
+STYLE LOCK from attached in-game screenshot, rust_sheet, and yellow fight_btn:
+flaky orange rust, dark umber iron, rivets, fat comic ink, two-tone cel shade.
+Info is gold/cream on dark rust. Primary CTA is the yellow mustard enamel fight_btn.
+
+FOUR zones only, generous air:
+
+ZONE A lintel: gold 村子 6级, rust exp trough, stamps 废铁 8300  零件 35  工分 0  弹子 26
+
+ZONE B one rust_sheet hero card. Name ON the plate: 弹弓叔 · 双股弹弓
+Small gold: 站远点打 · 打 · 二阶
+ONE large slingshot man from the character reference, full body, on dirt inside the card.
+No extra name bar. No second portrait. No well.
+
+ZONE C one rust_sheet grow card, THREE bands stacked inside the SAME plate:
+Band 1: 星级  2 / 10  ten riveted stars, ONLY first two filled gold
+Band 2: 手艺  Lv.3  fat copper trough  上限 6 / 75
+Band 3 ATTRIBUTE PANEL — four compact rust rows with dark troughs and colored fills:
+  下手  312 → 340   orange fill bar
+  抗造  1283 → 1400  tan fill bar
+  够得着  5格        green fill bar
+  出手  1.2秒        gold fill bar
+Do NOT put stars, craft, and attributes on three separate full-width plates.
+Do NOT drop the four attribute rows.
+
+ZONE D huge yellow fight_btn, brightest object below the man: 喂一手艺
+Lv.3 → Lv.4    80 废铁 + 3 零件
+Tiny muted text only, not a button: 回图鉴
+
+FORBIDDEN: cream locker UI, six stacked identical bars, competing dark rust button, English, three portraits.
+Chinese only. Same rust as the rest of the game.

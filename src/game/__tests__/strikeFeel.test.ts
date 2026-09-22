@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { COMBAT_POS, cellPos } from '@/balance/combat';
+import { VIS_ENGAGE_POS, cellPos } from '@/balance/combat';
 import { getEnemy, getStage } from '@/balance/stages';
 import { resolveAttackFx } from '@/balance/fx';
 import { evoKindOf, getVillager } from '@/balance/villagers';
 import { createBattle, foeOf, pickFoe, startFight, tick } from '@/game/BattleEngine';
 
 describe('弹弓叔打击', () => {
-  it('人还在门洞里不许打，走出门洞才进战斗区', () => {
+  it('整条土路都是战场，只认半径，不另画一条开火线', () => {
     const uncle = getVillager('laoyanqiang');
     const state = createBattle(
       getStage(1),
@@ -19,16 +19,16 @@ describe('弹弓叔打击', () => {
     startFight(state);
     state.schedule = [];
     const grunt = getEnemy('grunt');
-    const inside = { ...foeOf(grunt, 1, 1, 0), hp: 400, maxHp: 400, atk: 1, armor: 0, cd: 99 };
-    const out = { ...foeOf(grunt, 2, 1, COMBAT_POS), hp: 400, maxHp: 400, atk: 1, armor: 0, cd: 99 };
-    expect(pickFoe(state.team[0]!, [inside])).toBeUndefined();
-    expect(pickFoe(state.team[0]!, [out])?.id).toBe(2);
-    state.foes = [inside];
+    const spawn = { ...foeOf(grunt, 1, 1, 0), hp: 400, maxHp: 400, atk: 1, armor: 0, cd: 99 };
+    const door = { ...foeOf(grunt, 2, 1, VIS_ENGAGE_POS), hp: 400, maxHp: 400, atk: 1, armor: 0, cd: 99 };
+    expect(pickFoe(state.team[0]!, [spawn])).toBeUndefined();
+    expect(pickFoe(state.team[0]!, [door])?.id).toBe(2);
+    state.foes = [spawn];
     state.team[0]!.cd = 0;
     state.events.length = 0;
     tick(state);
     expect(state.events.filter((e) => e.kind === 'hit')).toHaveLength(0);
-    expect(inside.hp).toBe(400);
+    expect(spawn.hp).toBe(400);
   });
 
   it('三阶一发穿两个，不是只开花不结算', () => {

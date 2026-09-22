@@ -249,7 +249,7 @@ export class BenchDock extends PIXI.Container {
     evo.anchor.set(0.5);
     evo.position.set(CARD_W / 2, 98);
     const craft = item.craft ?? (item.evoStage >= 3 ? 6 : item.evoStage >= 2 ? 3 : 1);
-    evo.text = `${folkSignName(v.id)} · 手艺${craft}${item.stars > 0 ? ` ★${item.stars}` : ''}`;
+    evo.text = `${folkSignName(v.id)} · Lv.${craft}${item.stars > 0 ? ` ★${item.stars}` : ''}`;
     box.addChild(evo);
 
     if (item.placed) {

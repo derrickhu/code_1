@@ -1,0 +1,9 @@
+1 column x 2 rows grid, two equal landscape cells, even hot-pink #FF00AA gutters, solid hot-pink #FF00AA background.
+
+Each cell is ONE empty wide game UI RAIL, a thin horizontal plate filling most of the cell. Same rust-iron enamel family as the village UI: pitted iron, orange rust blooms, worn chips, thin dark outline. No plastic, no chrome, no sci-fi.
+
+Top cell: DARK CHARCOAL iron rail for a star row. Recessed inner well, slightly lighter than the rim, empty usable face. Rounded-rect / stadium ends, four sides straight. NO stars, NO rivets on the face, NO bolts, NO hardware.
+
+Bottom cell: WARM COPPER-BROWN enamel rail for a craft row. Flatter face, rust-orange brown, slight darker rim. Empty usable face. Same rounded-rect shape. NO badge, NO icons, NO hardware.
+
+NO TEXT, no labels, no captions, no writing, no numbers, no stars, no extra objects.

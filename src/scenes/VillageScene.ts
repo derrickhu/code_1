@@ -12,7 +12,7 @@
  * - `horn`  村委会大喇叭。喊人、揭晓、新人走路，都在这一页。
  * - `stall` 弹弓摊。弹子的唯一去处，也是村庄经验/零件/工分的唯一来源。
  * - `folks` 图鉴。已入伙的能升阶，没见过的暗着 —— 只看书，不在这里喊人。
- * - `one`   单个村民的三阶详情。升阶前要看得见「升完他会变成什么样」（§4.1）。
+ * - `one`   单个村民。只画当前这一阶，升阶换形象；星和手艺是这页的主信息。
  *
  * 资源条常驻在村子、图鉴、详情顶上。弹弓摊改用战斗那种矮锈铁板，
  * 弹子数 + 三枚小口袋（废铁/零件/工分），不抬门楣。
@@ -24,20 +24,22 @@ import { BgmPlayer } from '@/core/BgmPlayer';
 import type { Scene } from '@/core/SceneManager';
 import { SceneManager } from '@/core/SceneManager';
 import { TweenManager, Ease } from '@/core/TweenManager';
-import { bindPointerTap } from '@/minigame';
+import { bindPointerTap, clientEventToDesign } from '@/minigame';
+import { getTouchCanvas } from '@/utils/touchCanvas';
 import { UnitActor } from '@/fx/UnitActor';
-import { packPortraitRow, portraitCardScale, portraitWidth } from '@/fx/portraitFit';
-import { yardPeople } from '@/core/yardRoster';
+import { packPortraitRow, portraitWidth } from '@/fx/portraitFit';
+import { homePreloadPeople, yardPeople } from '@/core/yardRoster';
 import { LANE_TINT } from '@/ui/BenchDock';
-import { folkSheet, folkSignName } from '@/balance/folkSheet';
-import { oneFolkLay, paintFolkSheetPlate } from '@/ui/FolkSheetView';
+import { folkLivePeak, folkSheet, folkSignName, type FolkPeak } from '@/balance/folkSheet';
+import { oneFolkLay, paintGrowCard, type OneFolkLay } from '@/ui/FolkSheetView';
+import { folkBrowseIds, folkNeighborId, isFolkOneSwipeBlocked } from '@/ui/folkOneSwipe';
 import { StallYard, STALL_BG_LAY } from '@/ui/StallYard';
 import {
-  CALL_COST, CRAFT_MAX, craftCap, craftOf, evoOf, nextCapLv, nextFeed,
-  nextVillageCost, starsOf, villageCumExp, villageMul,
+  CALL_COST, CRAFT_MAX, craftCap, craftOf, evoOf,
+  nextCapStars, nextEvoStars, nextFeed, starsOf, villageBar, villageMul, villageNeedHint,
 } from '@/balance/village';
 import {
-  JOB_NAME, JOBS, LANE_NAME, VILLAGERS, getVillager, jobOf,
+  JOB_NAME, JOBS, LANE_NAME, VILLAGERS, evoNameOf, getVillager, jobOf, statsOf,
   type Job, type VillagerDef,
 } from '@/balance/villagers';
 import {
@@ -47,7 +49,7 @@ import { homeRoadBrief } from '@/balance/roadMap';
 import { Platform } from '@/core/PlatformService';
 import { track } from '@/core/Analytics';
 import {
-  buyEvo, callVillager, claimAdPellets, loadMemory, progressOf,
+  buyEvo, callVillager, claimAdPellets, loadMemory, nextGoal, progressOf,
   settlePellets, shootStall, stallAdLeft, stallPityLeft,
   type RunMemory,
 } from '@/core/RunMemory';
@@ -66,12 +68,12 @@ import {
   villageBgTex, villageHomeBgTex, watchArt,
   type UiName,
 } from '@/core/TextureLoader';
-import { lintelLay, stallHudLay, type StallHudLay } from '@/ui/lintel';
+import { lintelLay, rustExpFillRect, stallHudLay, type StallHudLay } from '@/ui/lintel';
 import { glyphRowWidth, numGlyphs, paintGlyphs } from '@/ui/glyphs';
 import { CallReveal } from '@/ui/CallReveal';
 import {
-  GOLD, copperRust, expBar, fillSprite, fitSprite, goldBtn, ironSlab, label,
-  plate, standSprite, woodPlank,
+  GOLD, copperRust, fillSprite, fitSprite, goldBtn, ironSlab, label, paintTroughFill,
+  standSprite, woodPlank,
 } from '@/ui/paint';
 
 const CREAM = 0xfff4c4;
@@ -87,7 +89,7 @@ interface HomeLay {
   title: { cx: number; cy: number; w: number; h: number };
   titleH: number;
   titleGlyphH: number;
-  exp: { x: number; y: number; w: number };
+  exp: { x: number; y: number; w: number; h: number };
   hintY: number;
   stamp: { y: number; w: number; h: number; cxs: readonly number[] };
   peopleY: number;
@@ -191,10 +193,6 @@ function compactNum(n: number): string {
   return `${Math.round((v / 100_000_000) * 10) / 10}亿`;
 }
 
-function evoName(v: VillagerDef, stage: number): string {
-  return v.evo[Math.max(0, Math.min(2, stage - 1))]!.name;
-}
-
 function painted(size: number, color: number, rim = '#1a1008', thick = 4): PIXI.Text {
   const t = label(size, color, true);
   t.style.stroke = rim;
@@ -214,7 +212,7 @@ function chalked(size: number, color = 0xf0e6c0, tilt = -0.03): PIXI.Text {
 interface UvBox { x: number; y: number; w: number; h: number }
 
 /** stall_chalk：发数跟贴图里「弹弓摊」同一水平中心，落在标题底下空着的那半块。 */
-const STALL_SHOTS: UvBox = { x: 0.18, y: 0.40, w: 0.36, h: 0.16 };
+const STALL_SHOTS: UvBox = { x: 0.18, y: 0.34, w: 0.36, h: 0.16 };
 /** stage_post：两行收在整块横牌正中，不要各贴上下沿。 */
 const POST_TOP: UvBox = { x: 0.20, y: 0.185, w: 0.56, h: 0.11 };
 const POST_BOT: UvBox = { x: 0.20, y: 0.295, w: 0.56, h: 0.11 };
@@ -282,6 +280,22 @@ export class VillageScene implements Scene {
   private _artTimer: ReturnType<typeof setTimeout> | 0 = 0;
   /** 刚收进口袋的那一格，刷新后面要弹一下 */
   private _prizePop: 'scrap' | 'parts' | 'credits' | null = null;
+  private _oneTrack: PIXI.Container | null = null;
+  private _oneIncoming: PIXI.Container | null = null;
+  private _oneIncomingId = '';
+  private _oneIncomingDelta = 0;
+  private _oneLay: OneFolkLay | null = null;
+  private _oneHeaderBottom = 0;
+  private _oneDockTop = 0;
+  private _oneLock = false;
+  private _oneDragging = false;
+  private _oneMoved = false;
+  private _oneAxis: 'none' | 'h' | 'v' = 'none';
+  private _oneDelta = 0;
+  private _oneStartX = 0;
+  private _oneStartY = 0;
+  private _oneLastX = 0;
+  private _oneSwipeOff: (() => void) | null = null;
 
   constructor() {
     for (const p of PAGES) {
@@ -322,6 +336,8 @@ export class VillageScene implements Scene {
   onExit(): void {
     if (this._artTimer) clearTimeout(this._artTimer);
     this._artTimer = 0;
+    this._detachOneSwipe();
+    this._oneLock = false;
     this._clearActors();
     this._reveal.close();
     this._yard.sleep();
@@ -390,7 +406,7 @@ export class VillageScene implements Scene {
   }
 
   private _homeArtPeople(): HeroArtNeed[] {
-    return yardPeople(this._mem, '').map((id) => {
+    return homePreloadPeople(this._mem).map((id) => {
       try {
         return { id, evo: evoOf(progressOf(this._mem), id), lane: getVillager(id).lane };
       } catch {
@@ -402,6 +418,15 @@ export class VillageScene implements Scene {
   /* ---------------- 渲染总入口 ---------------- */
 
   private _render(): void {
+    if (this._page !== 'one') {
+      this._detachOneSwipe();
+      if (this._oneTrack && !this._oneTrack.destroyed) TweenManager.cancelTarget(this._oneTrack);
+      this._oneTrack = null;
+      this._oneIncoming = null;
+      this._oneIncomingId = '';
+      this._oneLock = false;
+    }
+    if (this._oneLock) return;
     if (this._page === 'stall' && this._yard.busy) return;
     this._clearActors();
     if (this._page !== 'stall') {
@@ -466,8 +491,7 @@ export class VillageScene implements Scene {
   private _bar(layer: PIXI.Container): number {
     const lay = homeLay(Game.safeTop, this._height(), Game.safeBottom, Game.safeCapsuleLeft);
     const lv = this._mem.villageLv;
-    const need = nextVillageCost(lv);
-    const into = this._mem.villageExp - villageCumExp(lv);
+    const barProg = villageBar(lv, this._mem.villageExp);
 
     const lintelH = lay.titleH;
     const lintelOn = !!fillSprite(layer, uiTex('top_lintel'), 375, lintelH / 2, 750, lintelH);
@@ -485,25 +509,19 @@ export class VillageScene implements Scene {
       layer.addChild(lvTx);
     }
 
+    const slot = lay.exp;
+    this._skin(layer, 'rust_exp', slot.x + slot.w / 2, slot.y + slot.h / 2, slot.w, slot.h, (g) => {
+      g.beginFill(0x1a120c, 0.9).drawRoundedRect(slot.x, slot.y, slot.w, slot.h, 6).endFill();
+    });
+    const well = rustExpFillRect(slot);
     const bar = new PIXI.Graphics();
-    const ratio = need === undefined ? 1 : into / need;
-    if (lintelOn) {
-      const fill = need === undefined ? lay.exp.w : Math.max(0, Math.min(1, ratio)) * lay.exp.w;
-      if (fill > 0) {
-        bar.beginFill(need === undefined ? 0x9be08a : GOLD, 0.95)
-          .drawRoundedRect(lay.exp.x, lay.exp.y, fill, 10, 5)
-          .endFill();
-      }
-    } else {
-      this._skin(layer, 'rust_exp', lay.exp.x + lay.exp.w / 2, lay.exp.y + 6, lay.exp.w + 24, 22, () => { /* 轨道没来就只画金条 */ });
-      expBar(bar, lay.exp.x, lay.exp.y, lay.exp.w, ratio, need === undefined);
-    }
+    paintTroughFill(bar, well, barProg.ratio, barProg.maxed);
     layer.addChild(bar);
 
-    const hint = label(16, CREAM, true);
+    const hint = label(14, MUTED, false);
     hint.anchor.set(0.5, 0);
     hint.position.set(375, lay.hintY);
-    hint.text = villageNeedText(this._mem);
+    hint.text = villageNeedHint(lv, this._mem.villageExp);
     layer.addChild(hint);
 
     const cells: readonly [UiName, number, 'icon_scrap' | 'icon_parts' | 'icon_credits' | 'icon_pellets', string, (() => void) | null][] = [
@@ -607,7 +625,7 @@ export class VillageScene implements Scene {
     h: number,
     text: string,
     onTap: () => void,
-    opts: { sub?: string; enabled?: boolean; art?: UiName } = {},
+    opts: { sub?: string; note?: string; enabled?: boolean; art?: UiName } = {},
   ): PIXI.Container {
     const on = opts.enabled !== false;
     const box = new PIXI.Container();
@@ -622,17 +640,27 @@ export class VillageScene implements Scene {
       goldBtn(g, -w / 2, -h / 2, w, h);
       box.addChild(g);
     }
-    const t = label(opts.sub ? 26 : 28, on ? CREAM : MUTED, true);
+    const ink = art === 'fight_btn' ? 0x2a160c : (on ? CREAM : MUTED);
+    const subInk = art === 'fight_btn' ? 0x5a3a14 : (on ? GOLD : MUTED);
+    const stacked = !!(opts.sub && opts.note);
+    const t = label(stacked ? 28 : (opts.sub ? 26 : 28), ink, true);
     t.anchor.set(0.5);
-    t.position.set(0, opts.sub ? -12 : 0);
+    t.position.set(0, stacked ? -26 : (opts.sub ? -12 : 0));
     t.text = text;
     box.addChild(t);
     if (opts.sub) {
-      const s = label(16, on ? GOLD : MUTED, true);
+      const s = label(stacked ? 20 : 16, subInk, true);
       s.anchor.set(0.5);
-      s.position.set(0, 16);
+      s.position.set(0, stacked ? 2 : 16);
       s.text = opts.sub;
       box.addChild(s);
+    }
+    if (opts.note) {
+      const n = label(16, subInk, true);
+      n.anchor.set(0.5);
+      n.position.set(0, stacked ? 26 : 16);
+      n.text = opts.note;
+      box.addChild(n);
     }
     box.alpha = on ? 1 : 0.55;
     if (on) bindPointerTap(box, onTap);
@@ -657,6 +685,39 @@ export class VillageScene implements Scene {
     this._homeStall(layer, lay);
     this._homeAtlas(layer, lay);
     this._homeGate(layer, lay);
+    this._homeGoal(layer, lay);
+  }
+
+  /**
+   * 把 `nextGoal()` 挂到它指的那个入口上。
+   *
+   * 这个函数早就写好了，但一直只有测试在读 —— 于是「随时有下一个目标」那条验收
+   * 在代码里立着、在屏幕上不存在。牌子只贴一块：同时能喂又能喊的时候，
+   * 按 nextGoal 的排序先说喂，因为喂是立刻看得见的那件。
+   */
+  private _homeGoal(layer: PIXI.Container, lay: HomeLay): void {
+    const goal = nextGoal(this._mem);
+    const at = goal.kind === 'craft'
+      ? { x: lay.atlas.x + lay.atlas.w / 2, y: lay.atlas.y - 16 }
+      : goal.kind === 'call'
+        ? { x: lay.horn.cx, y: lay.horn.cy - lay.horn.h / 2 - 12 }
+        : goal.kind === 'stage' || goal.kind === 'stars'
+          ? { x: lay.gate.x + lay.gate.w / 2, y: lay.gate.y - 16 }
+          : undefined;
+    if (!at) return;
+
+    const t = painted(16, CREAM, '#1a1008', 3);
+    t.anchor.set(0.5);
+    t.text = goal.text;
+    const w = t.width + 28;
+    const box = new PIXI.Container();
+    box.position.set(at.x, at.y);
+    const g = new PIXI.Graphics();
+    g.beginFill(0x3a2a1c, 0.88).drawRoundedRect(-w / 2, -15, w, 30, 8).endFill();
+    g.lineStyle(2, 0xe08a28, 0.9).drawRoundedRect(-w / 2, -15, w, 30, 8);
+    box.addChild(g);
+    box.addChild(t);
+    layer.addChild(box);
   }
 
   private _homePeople(layer: PIXI.Container, lay: HomeLay): void {
@@ -1097,7 +1158,16 @@ export class VillageScene implements Scene {
     const hint = painted(16, MUTED, '#1a1008', 3);
     hint.anchor.set(0.5, 0);
     hint.position.set(375, hornCy + hornH / 2 + 6);
-    hint.text = '新人从这条路上过来，熟人捎废铁加星';
+    /*
+     * 星自动补给星最少的那个，玩家插不上手 —— 这件事必须写出来。
+     * 不写的话玩家会一直找那个并不存在的「指定培养」按钮，
+     * 以为自己漏了个操作（这正是「不知道怎么给人物升级」的来处）。
+     * 真去开那个按钮是量过的，反而更慢，见 rollCall 的注释。
+     */
+    const lag = this._starLag();
+    hint.text = lag
+      ? `新人从这条路上过来 · 喊重了捎废铁，星补给${lag}`
+      : '新人从这条路上过来，熟人捎废铁加星';
     layer.addChild(hint);
 
     const peopleH = 156;
@@ -1109,6 +1179,25 @@ export class VillageScene implements Scene {
         ? `${CALL_COST} 工分 · 手上 ${this._mem.credits}`
         : `还差 ${CALL_COST - this._mem.credits} 工分`,
     });
+  }
+
+  /** 下一颗星会落到谁头上。名单里星最少的那个，跟 rollCall 同一条规则 */
+  private _starLag(): string {
+    const mem = this._mem;
+    const p = progressOf(mem);
+    let who = '';
+    let least = Number.POSITIVE_INFINITY;
+    for (const id of mem.roster) {
+      const n = starsOf(p, id);
+      if (n >= least) continue;
+      try {
+        who = getVillager(id).name;
+      } catch {
+        continue;
+      }
+      least = n;
+    }
+    return who;
   }
 
   private _hornPeople(layer: PIXI.Container, midX: number, peopleY: number, peopleH: number): void {
@@ -1160,11 +1249,33 @@ export class VillageScene implements Scene {
 
   /* ---------------- 村民 ---------------- */
 
+  /**
+   * 条拿全村现役当 1。名单里每个人按自己当下的手艺星级算，
+   * 所以你把谁喂上去，他的条就会顶到头 —— 这是条会动的前提。
+   */
+  private _livePeak(): FolkPeak {
+    const mem = this._mem;
+    const p = progressOf(mem);
+    const vm = villageMul(mem.villageLv);
+    const rows: { def: VillagerDef; craft: number; stars: number; villageMul: number }[] = [];
+    for (const id of mem.roster) {
+      let def: VillagerDef;
+      try {
+        def = getVillager(id);
+      } catch {
+        continue;
+      }
+      rows.push({ def, craft: craftOf(p, id), stars: starsOf(p, id), villageMul: vm });
+    }
+    return folkLivePeak(rows);
+  }
+
   private _renderFolks(layer: PIXI.Container): void {
     this._backdrop(layer, villageBgTex(), 0.12);
     const top = this._bar(layer);
     const mem = this._mem;
     const p = progressOf(mem);
+    const vm = villageMul(mem.villageLv);
     const owned = new Set(mem.roster);
     const seen = new Set(mem.seenIds);
     const backY = this._height() - Game.safeBottom - 52;
@@ -1229,15 +1340,19 @@ export class VillageScene implements Scene {
       this._skin(box, 'rust_tile', cardW / 2, cardH / 2, cardW, cardH, (g) => {
         ironSlab(g, 0, 0, cardW, cardH, 10);
       });
+      // 卡够高才塞第三行面板数；矮了宁可不写，也别把立绘压成一条缝
+      const wide = has && cardH - 76 >= 60;
+      const footH = wide ? 60 : 42;
       const shade = new PIXI.Graphics();
-      shade.beginFill(0x0a0604, 0.42).drawRoundedRect(4, cardH - 46, cardW - 8, 42, 8).endFill();
+      shade.beginFill(0x0a0604, 0.42)
+        .drawRoundedRect(4, cardH - footH - 4, cardW - 8, footH, 8).endFill();
       box.addChild(shade);
       const lane = new PIXI.Graphics();
       lane.beginFill(LANE_TINT[v.lane], has ? 0.55 : 0.16)
         .drawRoundedRect(8, 7, cardW - 16, 5, 2).endFill();
       box.addChild(lane);
 
-      const faceH = cardH - 58;
+      const faceH = cardH - footH - 12;
       const face = fitSprite(
         box, heroTex(v.id, has ? evoOf(p, v.id) : 1),
         cardW / 2, 12 + faceH / 2, cardW - 18, faceH,
@@ -1249,17 +1364,27 @@ export class VillageScene implements Scene {
 
       const nm = label(17, has ? CREAM : MUTED, true);
       nm.anchor.set(0.5, 0);
-      nm.position.set(cardW / 2, cardH - 42);
+      nm.position.set(cardW / 2, cardH - footH);
       nm.text = known ? v.name : '???';
       box.addChild(nm);
 
       const tag = label(13, has ? GOLD : MUTED, true);
       tag.anchor.set(0.5, 0);
-      tag.position.set(cardW / 2, cardH - 22);
+      tag.position.set(cardW / 2, cardH - footH + 20);
       tag.text = has
-        ? `${folkSignName(v.id)} · 手艺 ${craftOf(p, v.id)}/${CRAFT_MAX} ${stars(starsOf(p, v.id))}`.trim()
+        ? `${folkSignName(v.id)} Lv.${craftOf(p, v.id)} ${stars(starsOf(p, v.id))}`.trim()
         : known ? `${LANE_NAME[v.lane]}·${job}` : '还没见过';
       box.addChild(tag);
+
+      if (wide) {
+        // 20 个人里谁是主力，不该点进去才知道
+        const s = statsOf(v, evoOf(p, v.id), starsOf(p, v.id), vm, craftOf(p, v.id));
+        const num = label(13, 0xc4b59a, true);
+        num.anchor.set(0.5, 0);
+        num.position.set(cardW / 2, cardH - footH + 39);
+        num.text = `${jobOf(v.role) === 'heal' ? '修' : '打'}${compactNum(s.atk)} · 抗${compactNum(s.hp)}`;
+        box.addChild(num);
+      }
 
       if (has && v.id === pick) {
         const rim = new PIXI.Graphics();
@@ -1318,139 +1443,323 @@ export class VillageScene implements Scene {
   /* ---------------- 单个村民 ---------------- */
 
   private _renderOne(layer: PIXI.Container): void {
+    this._detachOneSwipe();
+    this._oneIncoming = null;
+    this._oneIncomingId = '';
+    this._oneIncomingDelta = 0;
     this._backdrop(layer);
     const top = this._bar(layer);
-    const mem = this._mem;
-    const p = progressOf(mem);
-    let v: VillagerDef;
     try {
-      v = getVillager(this._focus);
+      getVillager(this._focus);
     } catch {
       this._open('folks');
       return;
     }
+    const lay = oneFolkLay(top, this._height(), Game.safeBottom);
+    this._oneLay = lay;
+    this._oneHeaderBottom = top;
+    this._oneDockTop = lay.btnY - lay.btnH / 2;
+
+    const track = new PIXI.Container();
+    this._oneTrack = track;
+    layer.addChild(track);
+    const slide = new PIXI.Container();
+    track.addChild(slide);
+    this._paintOneSheet(slide, this._focus, lay);
+    this._paintOneDock(layer, lay, this._focus);
+    this._preloadOneNeighbors();
+    this._attachOneSwipe();
+  }
+
+  private _browseOneIds(): string[] {
+    return folkBrowseIds(this._mem.roster, this._jobFilter, this._focus);
+  }
+
+  private _paintOneSheet(parent: PIXI.Container, id: string, lay: OneFolkLay): void {
+    const mem = this._mem;
+    const p = progressOf(mem);
+    const v = getVillager(id);
     const stage = evoOf(p, v.id);
     const craft = craftOf(p, v.id);
     const star = starsOf(p, v.id);
     const cap = craftCap(star);
     const jobName = JOB_NAME[jobOf(v.role)];
-    const lay = oneFolkLay(top, this._height(), Game.safeBottom);
+    const feed = nextFeed(p, v.id);
     const sheet = folkSheet(v, {
-      craft, stars: star, stage, villageMul: villageMul(mem.villageLv),
+      craft,
+      stars: star,
+      stage,
+      villageMul: villageMul(mem.villageLv),
+      peak: this._livePeak(),
+      // 喂料只动面板，形态不跟着变，所以 next 的 stage 就是现在这一身
+      next: feed ? { craft: craft + 1, stage } : undefined,
     });
 
-    this._skin(layer, 'rust_plank', lay.plateCx, lay.plateTop + lay.plateH / 2, lay.plateW, lay.plateH, (g) => {
-      ironSlab(g, (750 - lay.plateW) / 2, lay.plateTop, lay.plateW, lay.plateH, 16);
-    });
+    fillSprite(parent, uiTex('rust_sheet'), lay.heroCx, lay.heroTop + lay.heroH / 2, lay.heroW, lay.heroH);
 
-    const nm = label(30, GOLD, true);
+    const nm = label(26, GOLD, true);
     nm.anchor.set(0.5, 0);
-    nm.position.set(375, lay.plateTop + 12);
-    nm.text = `${v.name} · ${evoName(v, stage)}`;
-    layer.addChild(nm);
+    nm.position.set(lay.heroCx, lay.heroTop + 12);
+    nm.text = `${v.name} · ${evoNameOf(v, stage)}`;
+    parent.addChild(nm);
 
-    const tag = label(18, LANE_TINT[v.lane], true);
+    const tag = label(16, MUTED, true);
     tag.anchor.set(0.5, 0);
-    tag.position.set(375, lay.plateTop + 46);
-    tag.text = `${LANE_NAME[v.lane]} · ${jobName} · 手艺 ${craft}/${CRAFT_MAX} ${stars(star)}`.trim();
-    layer.addChild(tag);
+    tag.position.set(lay.heroCx, lay.heroTop + 42);
+    tag.text = `${LANE_NAME[v.lane]} · ${jobName}`;
+    parent.addChild(tag);
 
-    /*
-     * 三阶并排静帧。图鉴必须一体重绘，战场才继续人武分离。
-     * 叠货架图标看不出剪影变化，所以这里不再用 UnitActor 叠件。
-     * 按身体定高、各自缩放：一阶画布矮时不能跟高画布二三阶共用像素比例。
-     * 能力表竖着压在脚下，不占上头。
-     */
-    const cardTop = lay.cardTop;
-    const cardH = lay.cardH;
-    const titleY = cardTop + 8;
-    const holeX = 100;
-    const holeTop = cardTop + 52;
-    const holeH = cardH - 62;
-    const stillW = 188;
-    const stillH = holeH;
-    const feetY = holeTop + holeH;
-    const stills = [1, 2, 3].map((s) => heroTex(v.id, s));
-
-    for (let s = 1; s <= 3; s += 1) {
-      const cx = 150 + (s - 1) * 225;
-      const on = s <= stage;
-
-      const card = new PIXI.Container();
-      this._skin(card, 'rust_tile', cx, cardTop + cardH / 2, 208, cardH, (g) => {
-        plate(g, cx - 104, cardTop, 208, cardH, 12);
-      });
-      if (s === stage) {
-        const rim = new PIXI.Graphics();
-        rim.lineStyle(3, GOLD, 0.9).drawRoundedRect(cx - 104, cardTop, 208, cardH, 12);
-        card.addChild(rim);
-      }
-      layer.addChild(card);
-
-      const tex = stills[s - 1] ?? null;
-      const fit = tex?.baseTexture.valid && tex.width > 1
-        ? portraitCardScale(v.id, s, tex.width, tex.height, stillW, stillH)
-        : { scale: 1, plantY: 0 };
-      const still = standSprite(layer, tex, cx, feetY + fit.plantY, stillW, stillH, fit.scale);
-      if (still) {
-        still.alpha = on ? 1 : 0.42;
-        const mask = new PIXI.Graphics();
-        mask.beginFill(0xffffff)
-          .drawRoundedRect(cx - holeX, holeTop, holeX * 2, holeH, 10)
-          .endFill();
-        still.mask = mask;
-        layer.addChild(mask);
-      }
-
-      const sn = label(17, on ? CREAM : MUTED, true);
-      sn.anchor.set(0.5, 0);
-      sn.position.set(cx, titleY);
-      sn.text = `${'一二三'[s - 1]}阶 ${evoName(v, s)}`;
-      layer.addChild(sn);
-
-      const pitch = label(12, on ? 0xc4b59a : MUTED, true);
-      pitch.anchor.set(0.5, 0);
-      pitch.position.set(cx, titleY + 20);
-      pitch.style.wordWrap = true;
-      pitch.style.wordWrapWidth = 188;
-      pitch.style.align = 'center';
-      pitch.text = v.evo[s - 1]!.pitch;
-      layer.addChild(pitch);
+    const holeTop = lay.heroTop + 68;
+    const holeBot = lay.heroTop + lay.heroH - 26;
+    const holeH = Math.max(80, holeBot - holeTop);
+    const holeW = lay.heroW - 80;
+    const tex = heroTex(v.id, stage);
+    if (tex?.baseTexture.valid && tex.width > 1) {
+      const scale = Math.min(holeW / tex.width, holeH / tex.height);
+      standSprite(parent, tex, lay.heroCx, holeBot, holeW, holeH, scale);
     }
 
-    paintFolkSheetPlate(layer, sheet, lay.plateCx, lay.sheetTop, lay.plateW, lay.sheetH);
+    paintGrowCard(parent, {
+      stars: star, craft, cap, max: CRAFT_MAX, sheet,
+    }, lay.plateCx, lay.growTop, lay.plateW, lay.growH);
+  }
 
-    const cost = nextFeed(p, v.id);
-    const btnY = lay.btnY;
-    if (!cost) {
-      const done = label(22, craft >= CRAFT_MAX ? 0x9be08a : MUTED, true);
-      done.anchor.set(0.5);
-      done.position.set(375, btnY);
-      done.text = craft >= CRAFT_MAX
-        ? '手艺焊满了'
-        : `再喊到他加星才能继续喂（★${star} 上限 ${cap}）`;
-      layer.addChild(done);
+  private _paintOneDock(layer: PIXI.Container, lay: OneFolkLay, id: string): void {
+    const mem = this._mem;
+    const p = progressOf(mem);
+    const v = getVillager(id);
+    const craft = craftOf(p, v.id);
+    const star = starsOf(p, v.id);
+    const cap = craftCap(star);
+    const feed = nextFeed(p, v.id);
+    const gate = nextCapStars(star);
+
+    this._btn(layer, lay.backCx, lay.btnY, lay.backW, lay.btnH, '回图鉴', () => this._open('folks'));
+
+    if (!feed) {
+      if (craft >= CRAFT_MAX) {
+        fillSprite(layer, uiTex('fight_btn'), lay.btnCx, lay.btnY, lay.btnW, lay.btnH);
+        const done = label(28, 0x2a160c, true);
+        done.anchor.set(0.5);
+        done.position.set(lay.btnCx, lay.btnY);
+        done.text = '手艺焊满了';
+        layer.addChild(done);
+      } else {
+        /*
+         * 下一颗星给两样：换形态（有时）和抬手艺上限（每次）。
+         * 报形态优先 —— 那是玩家看得见的一下，上限只是数字。
+         */
+        const form = nextEvoStars(star);
+        const turn = form?.need === 1 ? evoNameOf(v, form.stage) : undefined;
+        this._btn(layer, lay.btnCx, lay.btnY, lay.btnW, lay.btnH, '去大喇叭加星', () => this._open('horn'), {
+          sub: gate
+            ? `${v.name}再加一颗星`
+            : `星级 ${star} 卡住了`,
+          note: turn
+            ? `焊成「${turn}」`
+            : (gate ? `手艺就能焊到 Lv.${gate.cap}` : `手艺上限 ${cap}`),
+          art: 'fight_btn',
+        });
+      }
+      return;
+    }
+    const can = mem.scrap >= feed.scrap && mem.parts >= feed.parts;
+    const next = craft + 1;
+    this._btn(layer, lay.btnCx, lay.btnY, lay.btnW, lay.btnH, '喂一手艺', () => this._evolve(v.id), {
+      sub: `Lv.${craft}→Lv.${next}`,
+      note: `${compactNum(feed.scrap)}废铁+${compactNum(feed.parts)}零件`,
+      enabled: can,
+      art: 'fight_btn',
+    });
+  }
+
+  private _preloadOneNeighbors(): void {
+    const p = progressOf(this._mem);
+    for (const d of [-1, 1] as const) {
+      const id = folkNeighborId(this._browseOneIds(), this._focus, d);
+      if (!id) continue;
+      void ensureAssets(villagerDetailImages(id, evoOf(p, id)));
+    }
+  }
+
+  private _clearOneIncoming(): void {
+    if (this._oneIncoming && !this._oneIncoming.destroyed) {
+      this._oneIncoming.destroy({ children: true });
+    }
+    this._oneIncoming = null;
+    this._oneIncomingId = '';
+    this._oneIncomingDelta = 0;
+  }
+
+  private _ensureOneIncoming(delta: number): boolean {
+    const next = folkNeighborId(this._browseOneIds(), this._focus, delta);
+    const lay = this._oneLay;
+    const track = this._oneTrack;
+    if (!next || !lay || !track || track.destroyed) return false;
+    if (this._oneIncomingId === next && this._oneIncoming && !this._oneIncoming.destroyed) {
+      return true;
+    }
+    this._clearOneIncoming();
+    const slide = new PIXI.Container();
+    slide.x = delta * Game.logicWidth;
+    this._paintOneSheet(slide, next, lay);
+    track.addChild(slide);
+    this._oneIncoming = slide;
+    this._oneIncomingId = next;
+    this._oneIncomingDelta = delta;
+    const p = progressOf(this._mem);
+    void ensureAssets(villagerDetailImages(next, evoOf(p, next)));
+    return true;
+  }
+
+  private _snapOneHome(clearIncoming: boolean): void {
+    const track = this._oneTrack;
+    if (!track || track.destroyed) {
+      if (clearIncoming) this._clearOneIncoming();
+      this._oneLock = false;
+      return;
+    }
+    TweenManager.cancelTarget(track);
+    this._oneLock = true;
+    TweenManager.to({
+      target: track,
+      props: { x: 0 },
+      duration: 0.18,
+      ease: Ease.easeOutCubic,
+      onComplete: () => {
+        if (clearIncoming) this._clearOneIncoming();
+        this._oneLock = false;
+      },
+    });
+  }
+
+  private _commitOneIncoming(delta: number): void {
+    if (!this._ensureOneIncoming(delta)) {
+      this._snapOneHome(true);
+      return;
+    }
+    const track = this._oneTrack;
+    const nextId = this._oneIncomingId;
+    if (!track || track.destroyed || !nextId) {
+      this._snapOneHome(true);
+      return;
+    }
+    this._oneLock = true;
+    TweenManager.cancelTarget(track);
+    TweenManager.to({
+      target: track,
+      props: { x: -delta * Game.logicWidth },
+      duration: 0.24,
+      ease: Ease.easeOutCubic,
+      onComplete: () => {
+        this._focus = nextId;
+        this._oneLock = false;
+        this._kickPageArt('one');
+        this._render();
+      },
+    });
+  }
+
+  private _detachOneSwipe(): void {
+    this._oneSwipeOff?.();
+    this._oneSwipeOff = null;
+    this._oneDragging = false;
+    this._oneMoved = false;
+    this._oneAxis = 'none';
+  }
+
+  private _attachOneSwipe(): void {
+    this._oneSwipeOff?.();
+    this._oneSwipeOff = null;
+    if (this._browseOneIds().length <= 1) return;
+    const threshold = 48;
+    const lock = 12;
+    const w = Game.logicWidth;
+
+    const onDown = (e: Event): void => {
+      if (this._oneLock || this._page !== 'one') return;
+      const p = clientEventToDesign(e);
+      if (isFolkOneSwipeBlocked({
+        y: p.y,
+        headerBottom: this._oneHeaderBottom,
+        dockTop: this._oneDockTop,
+      })) {
+        return;
+      }
+      this._oneDragging = true;
+      this._oneMoved = false;
+      this._oneAxis = 'none';
+      this._oneDelta = 0;
+      this._oneStartX = p.x;
+      this._oneStartY = p.y;
+      this._oneLastX = p.x;
+    };
+    const onMove = (e: Event): void => {
+      if (!this._oneDragging || this._oneLock || this._page !== 'one') return;
+      const p = clientEventToDesign(e);
+      const dx = p.x - this._oneStartX;
+      const dy = p.y - this._oneStartY;
+      if (this._oneAxis === 'none') {
+        if (Math.abs(dx) < lock && Math.abs(dy) < lock) return;
+        this._oneAxis = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+        if (this._oneAxis === 'v') {
+          this._oneDragging = false;
+          this._snapOneHome(true);
+          return;
+        }
+      }
+      if (this._oneAxis !== 'h') return;
+      (e as { preventDefault?: () => void }).preventDefault?.();
+      this._oneMoved = true;
+      this._oneLastX = p.x;
+      const delta = dx < 0 ? 1 : -1;
+      if (delta !== this._oneDelta) {
+        this._oneDelta = delta;
+        this._ensureOneIncoming(delta);
+      }
+      const track = this._oneTrack;
+      if (track && !track.destroyed) {
+        TweenManager.cancelTarget(track);
+        track.x = Math.max(-w * 0.95, Math.min(w * 0.95, dx));
+      }
+    };
+    const onUp = (): void => {
+      if (!this._oneDragging) return;
+      this._oneDragging = false;
+      const dx = this._oneLastX - this._oneStartX;
+      const moved = this._oneMoved && this._oneAxis === 'h';
+      const delta = dx < 0 ? 1 : -1;
+      if (!moved || Math.abs(dx) < threshold) {
+        if (moved) this._snapOneHome(true);
+        return;
+      }
+      this._commitOneIncoming(delta);
+    };
+
+    const canvas = getTouchCanvas();
+    if (Platform.isMinigame) {
+      canvas.addEventListener('touchstart', onDown, { passive: true });
+      canvas.addEventListener('touchmove', onMove, { passive: false });
+      canvas.addEventListener('touchend', onUp);
+      canvas.addEventListener('touchcancel', onUp);
+      this._oneSwipeOff = () => {
+        canvas.removeEventListener('touchstart', onDown);
+        canvas.removeEventListener('touchmove', onMove);
+        canvas.removeEventListener('touchend', onUp);
+        canvas.removeEventListener('touchcancel', onUp);
+      };
     } else {
-      const can = mem.scrap >= cost.scrap && mem.parts >= cost.parts;
-      const next = craft + 1;
-      const title = next === 3 ? '升到二阶' : next === 6 ? '升到三阶' : `喂一手艺 → ${next}`;
-      this._btn(layer, 375, btnY, 420, 92, title, () => this._evolve(v.id), {
-        sub: `${compactNum(cost.scrap)} 废铁 + ${compactNum(cost.parts)} 零件${can ? '' : '（不够）'}`,
-        enabled: can,
-        art: 'rust_btn',
-      });
-      if (!can) {
-        const lack = label(17, MUTED, true);
-        lack.anchor.set(0.5, 0);
-        lack.position.set(375, btnY + 56);
-        lack.text = mem.parts < cost.parts
-          ? '零件只有摊子的破电视出，去打几发'
-          : '废铁主要靠通关结算，去推一关';
-        layer.addChild(lack);
-      }
+      canvas.addEventListener('pointerdown', onDown);
+      canvas.addEventListener('pointermove', onMove);
+      canvas.addEventListener('pointerup', onUp);
+      canvas.addEventListener('pointercancel', onUp);
+      this._oneSwipeOff = () => {
+        canvas.removeEventListener('pointerdown', onDown);
+        canvas.removeEventListener('pointermove', onMove);
+        canvas.removeEventListener('pointerup', onUp);
+        canvas.removeEventListener('pointercancel', onUp);
+      };
     }
-
-    this._back(layer, 'folks');
   }
 
   private _evolve(id: string): void {
@@ -1462,16 +1771,14 @@ export class VillageScene implements Scene {
     this._mem = mem;
     const v = getVillager(id);
     const p = progressOf(mem);
-    const now = evoOf(p, id);
     const craft = craftOf(p, id);
-    track('evolve', { id, to: now, craft, village_lv: mem.villageLv });
+    track('evolve', { id, to: evoOf(p, id), craft, village_lv: mem.villageLv });
     playSfx('win', 0);
-    Platform.showToast(
-      craft === 3 || craft === 6
-        ? `${v.name} → ${evoName(v, now)}`
-        : `${v.name} 手艺 ${craft}`,
-      'success',
-    );
+    /*
+     * 喂料只报手艺。换形态归星管（见 village.EVO_STAR_GATE），
+     * 那一下在大喇叭揭晓的牌面上报，不在这里 —— 一个入口报一件事。
+     */
+    Platform.showToast(`${v.name} 手艺 Lv.${craft}`, 'success');
     this._render();
   }
 }
@@ -1485,16 +1792,6 @@ function yardSlots(
 ): { x: number; y: number }[] {
   const widths = ids.map((id, i) => portraitWidth(id, evos[i] ?? 1, peopleH));
   return packPortraitRow(widths, midX).map((x) => ({ x, y: midY }));
-}
-
-function villageNeedText(mem: RunMemory): string {
-  const need = nextVillageCost(mem.villageLv);
-  if (need === undefined) return '村子满级了';
-  const into = mem.villageExp - villageCumExp(mem.villageLv);
-  const left = Math.max(0, Math.ceil(need - into));
-  const capLv = nextCapLv(mem.villageLv);
-  if (capLv === mem.villageLv + 1) return `再 ${left} 点 · 多上一人`;
-  return `再 ${left} 点 · 升到 ${mem.villageLv + 1} 级`;
 }
 
 /** 图鉴墙上头四个格子：路上站着的先露脸，空着写 ??? */

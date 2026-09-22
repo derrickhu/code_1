@@ -1,5 +1,5 @@
 /**
- * GM 面板：跳关 + 加弹子 + 局内跳过本波。
+ * GM 面板：跳关 + 加工分/废铁/零件/经验/弹子 + 局内跳过本波。
  */
 import * as PIXI from 'pixi.js';
 import { Game } from '@/core/Game';
@@ -13,7 +13,13 @@ import { bindPointerTap } from '@/minigame';
 
 const PAD = 16;
 const JUMP_PRESETS = [1, 3, 5, 8] as const;
-const PELLET_PRESETS = [10, 20, 50, 99] as const;
+const GRANT_ROWS = [
+  { kind: 'credits' as const, name: '工分', amounts: [10, 50, 200, 999] },
+  { kind: 'scrap' as const, name: '废铁', amounts: [100, 500, 2000, 9999] },
+  { kind: 'parts' as const, name: '零件', amounts: [10, 50, 200, 999] },
+  { kind: 'pellets' as const, name: '弹子', amounts: [10, 20, 50, 99] },
+  { kind: 'villageExp' as const, name: '经验', amounts: [50, 200, 1000] },
+] as const;
 
 const C = {
   panelBg: 0x1a1d33,
@@ -75,7 +81,8 @@ export class GMPanel extends PIXI.Container {
     bindPointerTap(this._bg, () => this.close());
 
     const panelW = Math.min(700, w - 24);
-    const panelH = 980;
+    const maxH = h - Game.safeTop - Game.safeBottom - 16;
+    const panelH = Math.min(1180, maxH);
     const panelX = (w - panelW) / 2;
     const panelY = Math.max(Game.safeTop + 8, (h - panelH) / 2);
 
@@ -107,10 +114,10 @@ export class GMPanel extends PIXI.Container {
     const cardW = panelW - PAD * 2;
     const jumpH = this._buildJumpCard(cardX, cardY, cardW);
     const roadH = this._buildRoadCard(cardX, cardY + jumpH + 12, cardW);
-    const pelletH = this._buildPelletCard(cardX, cardY + jumpH + roadH + 24, cardW);
-    this._buildSkipCard(cardX, cardY + jumpH + roadH + pelletH + 36, cardW);
+    const grantH = this._buildGrantCard(cardX, cardY + jumpH + roadH + 24, cardW);
+    this._buildSkipCard(cardX, cardY + jumpH + roadH + grantH + 36, cardW);
 
-    const result = new PIXI.Text('选一关、加弹子，或进战斗后跳过本波', {
+    const result = new PIXI.Text('选一关、加工分或其它货币，或进战斗后跳过本波', {
       fontFamily: 'sans-serif',
       fontSize: 16,
       fill: C.muted,
@@ -253,11 +260,11 @@ export class GMPanel extends PIXI.Container {
     return h;
   }
 
-  private _buildPelletCard(x: number, y: number, w: number): number {
+  private _buildGrantCard(x: number, y: number, w: number): number {
     const card = new PIXI.Container();
     card.position.set(x, y);
 
-    const head = new PIXI.Text('加弹子', {
+    const head = new PIXI.Text('加资源', {
       fontFamily: 'sans-serif',
       fontSize: 18,
       fill: C.btnText,
@@ -266,7 +273,7 @@ export class GMPanel extends PIXI.Container {
     head.position.set(12, 10);
     card.addChild(head);
 
-    const desc = new PIXI.Text('白给次数，可越过日常上限，方便连打摊子。', {
+    const desc = new PIXI.Text('工分 / 废铁 / 零件 / 村庄经验，弹子是次数。只加不减。', {
       fontFamily: 'sans-serif',
       fontSize: 15,
       fill: C.accent,
@@ -276,22 +283,52 @@ export class GMPanel extends PIXI.Container {
     desc.position.set(12, 38);
     card.addChild(desc);
 
+    const labelW = 56;
     const gap = 6;
-    const chipW = (w - 24 - gap * (PELLET_PRESETS.length - 1)) / PELLET_PRESETS.length;
-    PELLET_PRESETS.forEach((n, i) => {
-      const chip = this._chip(`+${n}`, chipW, 44, () => {
-        this._show(GMManager.grantPellets(n));
-      }, C.okFill, C.ok);
-      chip.position.set(12 + i * (chipW + gap), 72);
-      card.addChild(chip);
+    const rowH = 40;
+    let rowY = 68;
+    GRANT_ROWS.forEach((row) => {
+      const name = new PIXI.Text(row.name, {
+        fontFamily: 'sans-serif',
+        fontSize: 15,
+        fill: C.btnText,
+        fontWeight: 'bold',
+      });
+      name.anchor.set(0, 0.5);
+      name.position.set(12, rowY + rowH / 2);
+      card.addChild(name);
+
+      const extra = row.kind === 'villageExp' ? 1 : 0;
+      const n = row.amounts.length + extra;
+      const chipW = (w - 24 - labelW - gap * (n - 1)) / n;
+      row.amounts.forEach((amt, i) => {
+        const chip = this._chip(`+${this._grantLabel(amt)}`, chipW, rowH, () => {
+          this._show(GMManager.grant(row.kind, amt));
+        }, C.okFill, C.ok);
+        chip.position.set(12 + labelW + i * (chipW + gap), rowY);
+        card.addChild(chip);
+      });
+      if (row.kind === 'villageExp') {
+        const chip = this._chip('升1级', chipW, rowH, () => {
+          this._show(GMManager.grantVillageLevel());
+        }, C.accentFill, C.accent);
+        chip.position.set(12 + labelW + row.amounts.length * (chipW + gap), rowY);
+        card.addChild(chip);
+      }
+      rowY += rowH + 6;
     });
 
-    const h = 72 + 44 + 16;
+    const h = rowY + 10;
     const bg = new PIXI.Graphics();
     bg.beginFill(C.btnFill, 1).lineStyle(1.5, C.ok, 0.45).drawRoundedRect(0, 0, w, h, 12).endFill();
     card.addChildAt(bg, 0);
     this._root.addChild(card);
     return h;
+  }
+
+  private _grantLabel(n: number): string {
+    if (n >= 1000) return `${Math.round(n / 1000)}千`;
+    return String(n);
   }
 
   private _buildSkipCard(x: number, y: number, w: number): void {

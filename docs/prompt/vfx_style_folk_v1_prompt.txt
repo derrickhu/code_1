@@ -1,0 +1,25 @@
+Game VFX style board for 「村口大战外星人」.
+Same craft as the village / folk-alien portraits:
+- Fat even black comic outlines
+- Super-deformed two-tone cel shade only
+- Cheap county-town materials: rust flakes, welding sparks, firecracker paper, pot-lid clang, pebbles, iron filings
+- NOT Unity particle orbs, NOT anime energy slashes, NOT magic circles, NOT lens flares, NOT neon sci-fi beams
+- Each panel is ONE readable impact glyph, like a fighting-game hit stamp
+- Dark dusty dirt-road backdrop in every panel so the FX reads as in-battle
+NO TEXT, no labels, no captions, no letters, no numbers, no watermarks.
+
+Sheet A — 3 columns x 2 rows, equal panels, thin dark gutter
+1 锤砸: fat gold-white impact star, bent rust-iron shock ring, ochre dust puffs, a few scrap flakes. Looks like a sledgehammer hit a pot lid.
+2 菜刀斩: short silver crescent, dry, with 4-6 orange welding sparks and rust chips. No long anime sword trail.
+3 鞭炮炸: red paper scraps, orange-white flash core, grey cheap smoke, leftover fuse. Street firecracker, not a fireball.
+4 弹弓石子: grey pebble burst, grit cone, tiny cracks. Dry, no glow orb.
+5 电焊弧: short blue-white jagged weld arc, slag sparks, like a village welder. Not lightning magic.
+6 铁屑火星: handful of fat comic sparks and glowing rust bits falling, readable silhouettes, not dots.
+
+Sheet B — 3 columns x 2 rows
+1 外星爪: cheap cyan claw marks, three short strokes, plastic-toy shine, not blood.
+2 飞碟光: stubby teal ring flash from a saucer, one cheap LED bloom, comic outline.
+3 击倒扬尘: brown dirt cloud + rust flakes, character-less, county road dust.
+4 锅盖震波: brass lid-shaped ring expanding, rivets visible, gold clang ticks.
+5 喇叭气波: warm cream sound puffs, like someone yelling into a tin horn, not purple magic.
+6 漏怪烟: one fat grey-brown puff with a cheap cyan streak, like something zipped past the sandbags.

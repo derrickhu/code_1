@@ -1,11 +1,11 @@
 /**
- * 出手预览台。只看人 + 家伙，不进战斗。
+ * 出手预览台。只看立绘和出手动作，不进战斗。
  * 和局内共用 UnitActor，这里点到满意，局内不用另做一套。
  */
 import * as PIXI from 'pixi.js';
 import type { AttackFx } from '@/balance/fx';
 import { resolveAttackFx } from '@/balance/fx';
-import { HAND_GEAR, handIdOf, wearOf } from '@/balance/gear';
+import { handIdOf } from '@/balance/gear';
 import { VILLAGERS, getVillager } from '@/balance/villagers';
 import { animLabImages } from '@/config/assetPreload';
 import { ensureAssets } from '@/core/ensureAssets';
@@ -37,9 +37,7 @@ const HAND_CHOICES = [
 ] as const;
 
 /**
- * 穿戴不再手挑：这一版身上穿什么由「村民 + 进化阶」定死（gear.wearOf）。
- * 预览台要看的就是**这三阶到底分不分得开**（§4.1 的硬约束），
- * 所以这里挑的是阶，不是零件。
+ * 预览台挑阶看三阶立绘分不分得开。手上那一项只改出手动作，不再叠图。
  */
 const STAGE_CHOICES = [
   { id: '1', name: '一阶' },
@@ -115,19 +113,15 @@ function currentFx(): AttackFx {
 function apply(): void {
   const v = getVillager(heroId);
   actor.bindHero(v.id, v.lane, evoStage);
-  actor.equip(evoStage, handId || undefined);
+  actor.equip(evoStage);
   actor.place(FEET_X, FEET_Y, BODY);
   actor.faceToward(faceRight ? FEET_X + 200 : FEET_X - 200);
   dummy.position.set(faceRight ? 520 : 120, 250);
-  const gear = HAND_GEAR[currentHand()];
-  const wear = wearOf(v.id, v.lane, evoStage);
-  const on = [wear.head, wear.back, wear.body].filter(Boolean).join(' + ') || '空手空身';
   const now = document.getElementById('now');
   if (now) {
     now.textContent = [
       `${v.name} ${'一二三'[evoStage - 1]}阶「${v.evo[evoStage - 1]!.name}」`,
-      gear?.id ?? currentHand(),
-      on,
+      currentHand(),
       MOTION_NAME[motionFor(currentFx())] ?? currentFx(),
     ].join(' · ');
   }

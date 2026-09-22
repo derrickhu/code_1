@@ -114,6 +114,18 @@ export function stallYardLay(roomTop: number, roomBottom: number, floor: number)
 const PULL_FIRE = 18;
 const PULL_MAX = 88;
 
+/**
+ * 拉够了才打得出去。
+ *
+ * 上一版写的是 `dy >= PULL_FIRE || dy <= 10`，后半截等于「点一下也发射」——
+ * 而 dy 被 `Math.max(0, …)` 夹过，往上拖也是 0，于是连往上拨都能出弹。
+ * 摊子的玩具感全在手上拉那一下（见文件头），点一下就打等于把它退化成一个按钮，
+ * 也和提示「往下拉，松手打出去」自相矛盾。
+ */
+export function slingFires(dy: number): boolean {
+  return dy >= PULL_FIRE;
+}
+
 interface Peg {
   def: TargetDef;
   box: PIXI.Container;
@@ -146,6 +158,7 @@ export class StallYard extends PIXI.Container {
   private _canPull = true;
   private _hint: PIXI.Text;
   private _restY = 0;
+  private _nudgeAt = 0;
   private _pull: { y0: number; dy: number } | null = null;
   private _detachPull: (() => void) | null = null;
 
@@ -196,7 +209,7 @@ export class StallYard extends PIXI.Container {
     this._restY = lay.slingY;
     this._sling.position.set(375, this._restY);
     this._hint.position.set(375, floor + 18);
-    this._hint.text = this._canPull ? '往下拉，松手打出去' : '没弹子了';
+    this._hint.text = this._restHint();
     this._hung = true;
     this._openSize = openIds.size;
     this.wake();
@@ -237,7 +250,28 @@ export class StallYard extends PIXI.Container {
   setCanPull(on: boolean): void {
     this._canPull = on;
     this._sling.alpha = on && !this._busy ? 1 : 0.45;
-    this._hint.text = on ? '往下拉，松手打出去' : '没弹子了';
+    this._nudgeAt += 1;
+    this._hint.text = this._restHint();
+  }
+
+  private _restHint(): string {
+    return this._canPull ? '往下拉，松手打出去' : '没弹子了';
+  }
+
+  /** 拉不够就松手：什么都不发生会以为是卡了，得当场说一句 */
+  private _nudge(): void {
+    const token = ++this._nudgeAt;
+    this._hint.text = '再往下拉一点';
+    const hold = { t: 0 };
+    TweenManager.to({
+      target: hold,
+      props: { t: 1 },
+      duration: 0.8,
+      onComplete: () => {
+        if (this._nudgeAt !== token) return;
+        this._hint.text = this._restHint();
+      },
+    });
   }
 
   get busy(): boolean {
@@ -392,7 +426,8 @@ export class StallYard extends PIXI.Container {
       if (!this._pull) return;
       const dy = this._pull.dy;
       this._pull = null;
-      const fire = dy >= PULL_FIRE || dy <= 10;
+      const fire = slingFires(dy);
+      if (!fire) this._nudge();
       this._stretch(0);
       const snap = { s: 1.14 };
       this._sling.scale.set(1.14);

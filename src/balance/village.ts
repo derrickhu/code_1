@@ -57,8 +57,22 @@ export const VILLAGE_STEP_PCT = 3;
  * 也才跟布阵稿、塔塔主画面是同一件事。
  */
 /**
- * 前 6 档跟旧 8 人曲线对齐（3-2 那堵假墙还在），
- * Lv.11 起多给人，到 Lv.20 站满 12。
+ * 前 6 档跟旧 8 人曲线对齐（3-2 那堵假墙还在），Lv.11 起多给人，到 Lv.18 站满 12。
+ *
+ * **满编那一档就是 40 关收尾墙的长短钮。**
+ *
+ * 8-4 要 12 个人才推得动（漏怪，不是打不死），所以那堵墙从「第一次摸到 8-4」
+ * 一直卡到「满编那天」。2026-09-21 量了三档（种子 20260904）：
+ *
+ *   Lv.20（原值）  满编 D23  8-4 卡 D14~D22 九天  40 关 D28
+ *   Lv.19          满编 D20  卡七天              40 关 D21
+ *   Lv.18          满编 D17  卡四天              40 关 D18
+ *   Lv.17          满编 D15  卡一两天            40 关 D16 ← 护栏红
+ *
+ * 也就是说**「墙短一点」和「主线短一点」是同一个钮**，拆不开：
+ * 想把墙从九天压到四天，40 关就得从 D28 提到 D18。护栏下限正好是 D18，
+ * 所以 18 是能给的极限，一格都不剩 —— 下次再往这条线上加东西，
+ * 先看「40 关 ≥ D18」那条会不会当场红。要留余量就退回 19，墙七天。
  */
 export const SQUAD_CAP_AT: readonly { lv: number; cap: number }[] = [
   { lv: 1, cap: 3 },
@@ -67,7 +81,7 @@ export const SQUAD_CAP_AT: readonly { lv: number; cap: number }[] = [
   { lv: 7, cap: 6 },
   { lv: 11, cap: 8 },
   { lv: 15, cap: 10 },
-  { lv: 20, cap: 12 },
+  { lv: 18, cap: 12 },
 ];
 
 export const SQUAD_CAP_MAX = 12;
@@ -135,32 +149,57 @@ export function nextCapLv(lv: number): number | undefined {
 }
 
 /**
- * 手艺 1–10。视觉二三阶嵌在 3 / 6。
+ * 手艺 1–75。视觉二三阶嵌在 3 / 6。
  *
- * 星管上限：★0 只能到 3（二阶），★2 解开三阶，★5 才能焊满。
+ * 星管上限：★0 只能到 3（二阶），★2 解开三阶，★5 才能焊满（见 CRAFT_CAP_AT）。
  * 零件继续卡「先喂谁」。数值在 craft 3 / 6 对齐旧的二阶 / 三阶，后面只小幅加。
  */
-/** 手艺前 10 档的成本是手校的，往上按这个复利续 */
+/** 跑道段废铁每档 +8% 复利。零件另有一条更陡的，见 CRAFT_PARTS_RATE */
 const CRAFT_COST_RATE = 1.08;
 
 /**
- * 下标 0 = 手艺 1→2。合计约 1050 废铁 + 77 零件。
+ * 跑道段零件每档 +8.85% 复利，比废铁陡。
  *
- * **前五档吃废铁，后四档吃零件** —— 因为瓶颈在通关那天对调了。
- * 推图期废铁日产 214（大头是首通结算）、零件只有 13，所以前段用废铁计价，
- * 零件卡「今天先喂谁」；推完 40 关之后首通结算没了，废铁掉到重打的那点活水，
- * 而零件照旧从摊子来、越堆越多。后四档要是还按废铁计价，就会卡死在通关那天。
+ * 两条不同斜率是为了让**计价比**（废铁:零件）一路往下滑：craft 10 上是 13:1，
+ * 焊到 75 收到 7.9:1。理由见 CRAFT_COST 的注释 —— 供给比本身就是递减的，
+ * 计价比得跟着走，否则总有一种资源在溢出。
+ */
+const CRAFT_PARTS_RATE = 1.091;
+
+/** 跑道段的计价基准（craft 10→11 那一档），比 13:1 */
+const CRAFT_LATE_BASE = { scrap: 184, parts: 14 } as const;
+
+/**
+ * 下标 0 = 手艺 1→2。合计约 1050 废铁 + 59 零件。
+ *
+ * **计价比（废铁:零件）从 ~21:1 一路滑到 ~8:1，全程贴着供给比走。**
+ *
+ * 上一版是「前五档吃废铁，后四档吃零件」，计价比在 craft 6 上一步从 26:1 砸到 8.5:1
+ * 就再不动了。那是给 40 关主线写的：假设推完之后首通结算没了、废铁断流，
+ * 所以后段改用零件计价。**400 关把这个前提推翻了** —— 关永远推不到头，
+ * 首通废铁就一直在流，废铁从来不缺，缺的一直是零件。
+ *
+ * 2026-09-21 拿模拟器量了 240 天（种子 20260904，铺开喂）：
+ * 边际供给比 D40 是 19.7、D80 是 12.8、D120 是 10.5、D240 是 8.1 —— **递减**，
+ * 因为首通废铁不吃 yieldMul 而摊子零件吃。而计价比是常数 8.5，
+ * 两条线要到 D240 才相交。相交之前全程错配，症状是：
+ *
+ *   craft 1~5 计价 26~45:1 > 供给 19.7:1 → 废铁卡着、零件堆到 161 没处花（D30）
+ *   craft 6+  计价 8.5:1   < 供给 12~19:1 → 零件见底、废铁堆到 18466（D180）
+ *
+ * 所以废铁数一个没动（前 40 关是废铁卡的，动了就冲掉手校曲线），
+ * 只把零件重排成「早段多吃一点、中段少吃一点」，让计价比平滑下滑。
  */
 export const CRAFT_COST: readonly { scrap: number; parts: number }[] = [
-  { scrap: 40, parts: 1 },
-  { scrap: 80, parts: 3 },
-  { scrap: 90, parts: 2 },
-  { scrap: 120, parts: 3 },
-  { scrap: 210, parts: 8 },
-  { scrap: 90, parts: 10 },
-  { scrap: 110, parts: 13 },
-  { scrap: 140, parts: 17 },
-  { scrap: 170, parts: 20 },
+  { scrap: 40, parts: 2 },
+  { scrap: 80, parts: 4 },
+  { scrap: 90, parts: 4 },
+  { scrap: 120, parts: 6 },
+  { scrap: 210, parts: 10 },
+  { scrap: 90, parts: 5 },
+  { scrap: 110, parts: 7 },
+  { scrap: 140, parts: 9 },
+  { scrap: 170, parts: 12 },
 ];
 
 /** 旧两笔的合计，给还在读 EVO_COST 的测试当锚 */
@@ -169,11 +208,54 @@ export const EVO_COST: readonly { scrap: number; parts: number }[] = [
   { scrap: 400, parts: 18 },
 ];
 
-export function evoFromCraft(craft: number): number {
-  const c = Math.max(1, Math.floor(craft));
-  if (c >= 6) return 3;
-  if (c >= 3) return 2;
-  return 1;
+/**
+ * 换形态要几颗星。下标 = 形态 - 1，所以一阶恒为 ★0。
+ *
+ * **形态原来挂在手艺上**（craft 3 换第二张立绘、craft 6 换第三张），
+ * 于是玩家面前摆着三个数：星、手艺、阶，而阶只是手艺的一个别名。
+ * 2026-09-21 把它挪到星上：**星解锁「他变成什么」，手艺只管「他多硬」**，
+ * 一条轴一件事，「一阶二阶三阶」这个说法从界面上消失，只剩形态名
+ * （「焊了个鼓风机」）和星数。
+ *
+ * 形态不是纯换皮，每一张立绘背后都有一套打法（见 villagers.EVO_KIND：
+ * 穿两个、劈一片、反弹、同路加速……），所以挪闸门就是在动通关率。
+ *
+ * 实测（2026-09-21，5 种子 × 60 天）：
+ *
+ *   三身放 ★2 和放 ★3 跑出来**一个字都不差** —— 都是 8 章 D28、都卡 5-1 到 D25。
+ *   因为名单到 D25 才集齐，那之前喊到的多半是新人、星本来就少，
+ *   两个闸门谁都还没摸到。既然不花钱，就按可读性挑：
+ *   **第一颗星立刻换样**（当场兑现「星能换形态」这条规则），第三颗星换到最后一身。
+ *
+ * 代价是诚实记下来的：二身原来挂在手艺 3 上（120 废铁，D2 就有），
+ * 现在要等第一次喊重，于是 40 关从 D25 推到 D28。护栏窗口是 D18~D50，还剩一倍余量。
+ * 换来的是「一身」第一次成为一个真的会待一阵的状态，而不是开局两天的过场。
+ */
+export const EVO_STAR_GATE: readonly number[] = [0, 1, 3];
+
+/** 这些星够换到第几张立绘（1~3） */
+export function evoFromStars(stars: number): number {
+  const s = Math.max(0, Math.floor(stars));
+  let stage = 1;
+  for (let i = 0; i < EVO_STAR_GATE.length; i += 1) {
+    if (s >= EVO_STAR_GATE[i]!) stage = i + 1;
+  }
+  return stage;
+}
+
+/** 再几颗星换下一张立绘。已经是最后一张返回 undefined */
+export function nextEvoStars(stars: number): { need: number; stage: number } | undefined {
+  const s = Math.max(0, Math.floor(stars));
+  const now = evoFromStars(s);
+  const gate = EVO_STAR_GATE[now];
+  if (gate === undefined) return undefined;
+  return { need: gate - s, stage: now + 1 };
+}
+
+/** 刚喊到的这颗星是不是正好换了形态。揭晓牌要靠它决定报不报「他变样了」 */
+export function starOpenedEvo(starsAfter: number): boolean {
+  const s = Math.max(0, Math.floor(starsAfter));
+  return s > 0 && evoFromStars(s) !== evoFromStars(s - 1);
 }
 
 export function craftFromEvo(evo: number): number {
@@ -182,16 +264,50 @@ export function craftFromEvo(evo: number): number {
 }
 
 /**
- * 星管手艺上限。
+ * 星管手艺上限。下标 = 星数，长度必须是 STAR_MAX + 1。
  *
- * **★0~★5 这五格一个数都没动**（3 / 6 / 8 / 10），因为前 40 关是贴着它校的；
- * ★6 往上是 400 关主线新接的段。
+ * **规则一句话：一颗星解开一段手艺。没有白档。**
+ *
+ * 上一版是 10 星、表 `[3, 4, 6, 8, 8, 10, 20, 32, 45, 60, 75]`，
+ * 换算成「这颗星解开几档」是 `+1 +2 +2 0 +2 +10 +12 +13 +15 +15` ——
+ * 同一个单位从 0 档跳到 15 档，玩家说不出规律，★4 还是纯白档（8→8）。
+ * 那个白档当年是为了躲「乱排通关率 < 60%」才留的，**而那条护栏后来放宽到了 78%**
+ * （见 guardrails「乱排会把人浪费在空路上」），躲的东西早就不在了。
+ * 真正的病是刻度切太细：一档手艺的重量和一颗星的重量对不上，只能拿白档去凑。
+ *
+ * 现在 5 星、每颗星解开 +2 / +3 / +8 / +16 / +43 档。**递增就是那条规律**：
+ * 星越多，一颗星解开的手艺越多 —— 这是玩家唯一需要记住的话。
+ *
+ * 数不是挑好看的，是被护栏逼出来的。`★1 = 6` 试过一次直接红（2026-09-21）：
+ * 种子 555 在 D12 就推完 40 关（护栏要 ≥ D18）。因为**三阶那一下是这条轴上最重的一跳**
+ * （craft 6 = ×2.4，craft 4 只有 ×1.75），而喊重了前几天就在发星，
+ * ★1 开三阶等于全员提前两周涨四成面板，手校的 40 关曲线当场被冲掉。
+ * 所以 `★1 = 5`：三阶照旧押在 ★2 后面，这一格只放宽二阶那段。
+ * 往后 ★3 / ★4 的两次大放宽都落在 60 天之外，够不着手校段。
  */
-const CRAFT_CAP_AT: readonly number[] = [3, 3, 6, 8, 8, 10, 20, 32, 45, 60, 75];
+const CRAFT_CAP_AT: readonly number[] = [3, 5, 8, 16, 32, 75];
 
 export function craftCap(stars: number): number {
   const s = Math.max(0, Math.min(CRAFT_CAP_AT.length - 1, Math.floor(stars)));
   return CRAFT_CAP_AT[s]!;
+}
+
+/**
+ * 再攒几颗星才能把手艺上限往上抬一格，抬到多少。
+ *
+ * 现在表里没有白档，所以 `need` 恒为 1；返回值仍保留这个字段，
+ * 是因为详情页要说的是「上限解到多少」而不是「下一颗星」，
+ * 以后要是再往表里塞档，这个口径不用跟着改。
+ */
+export function nextCapStars(stars: number):
+{ need: number; stars: number; cap: number } | undefined {
+  const s = Math.max(0, Math.min(CRAFT_CAP_AT.length - 1, Math.floor(stars)));
+  const now = CRAFT_CAP_AT[s]!;
+  for (let t = s + 1; t < CRAFT_CAP_AT.length; t += 1) {
+    const cap = CRAFT_CAP_AT[t]!;
+    if (cap > now) return { need: t - s, stars: t, cap };
+  }
+  return undefined;
 }
 
 export function nextCraftCost(craft: number): { scrap: number; parts: number } | undefined {
@@ -199,9 +315,12 @@ export function nextCraftCost(craft: number): { scrap: number; parts: number } |
   if (c >= CRAFT_MAX) return undefined;
   const tuned = CRAFT_COST[c - 1];
   if (tuned) return tuned;
-  const last = CRAFT_COST[CRAFT_COST.length - 1]!;
-  const k = Math.pow(CRAFT_COST_RATE, c - CRAFT_COST.length);
-  return { scrap: Math.round(last.scrap * k), parts: Math.round(last.parts * k) };
+  // craft 10→11 是跑道段第一档，正好落在基准上
+  const n = c - CRAFT_COST.length - 1;
+  return {
+    scrap: Math.round(CRAFT_LATE_BASE.scrap * Math.pow(CRAFT_COST_RATE, n)),
+    parts: Math.round(CRAFT_LATE_BASE.parts * Math.pow(CRAFT_PARTS_RATE, n)),
+  };
 }
 
 /** 下一档手艺的价。星卡住或已经焊满返回 undefined */
@@ -209,11 +328,6 @@ export function nextFeed(p: Progress, id: string): { scrap: number; parts: numbe
   const craft = craftOf(p, id);
   if (craft >= craftCap(starsOf(p, id))) return undefined;
   return nextCraftCost(craft);
-}
-
-/** 从当前视觉阶走到下一视觉阶：按手艺 1 / 3 的下一档算（兼容旧调用） */
-export function nextEvoCost(stage: number): { scrap: number; parts: number } | undefined {
-  return nextCraftCost(craftFromEvo(stage));
 }
 
 export function evoTotalCost(): { scrap: number; parts: number } {
@@ -244,16 +358,18 @@ export const CALL_PITY_NEW = 4;
 /** 喊到已经入伙的人：折成废铁 + 给他加一颗星 */
 export const CALL_DUP_SCRAP = 60;
 
+
 export interface Progress {
   villageLv: number;
+  /** 本级已经攒了多少。不是从 1 级累加；升完一级会把这一格清掉 */
   villageExp: number;
   /** 已入伙的村民 id */
   roster: readonly string[];
   /** 每人当前几阶（1~3），没记录的按 1。由手艺推导，存着是为了旧档 */
   evo: Readonly<Record<string, number>>;
-  /** 每人手艺 1~10。没记录的按 evo 反推 */
+  /** 每人手艺 1~CRAFT_MAX。没记录的按 evo 反推 */
   craft: Readonly<Record<string, number>>;
-  /** 每人几颗星，没记录的按 0 */
+  /** 每人几颗星（0~STAR_MAX），没记录的按 0 */
   stars: Readonly<Record<string, number>>;
   scrap: number;
   parts: number;
@@ -276,7 +392,7 @@ export function emptyProgress(roster: readonly string[]): Progress {
 }
 
 export function evoOf(p: Progress, id: string): number {
-  return evoFromCraft(craftOf(p, id));
+  return evoFromStars(starsOf(p, id));
 }
 
 export function craftOf(p: Progress, id: string): number {
@@ -308,8 +424,6 @@ export function rollCall(
   rng: () => number,
   allIds: readonly string[],
   starMax: number,
-  /** 玩家指定的「重点培养」对象。喊重了的那颗星落到他身上 */
-  pick?: string,
 ): CallResult {
   const owned = new Set(p.roster);
   const missing = allIds.filter((id) => !owned.has(id));
@@ -317,33 +431,81 @@ export function rollCall(
   const dupChance = p.roster.length / Math.max(1, allIds.length);
 
   if (missing.length > 0 && (forceNew || rng() > dupChance)) {
-    const pick = missing[Math.floor(rng() * missing.length)]!;
-    return { id: pick, isNew: true, scrap: 0 };
+    const newcomer = missing[Math.floor(rng() * missing.length)]!;
+    return { id: newcomer, isNew: true, scrap: 0 };
   }
 
   /*
-   * 喊重了：折废铁 + 加一颗星。
+   * 喊重了：折废铁 + 加一颗星，平摊给当前星最少的人。
    *
-   * 默认平摊给当前星最少的人。试过「谁重复来谁涨」和「全压在主力身上」两版，
-   * 两版都会把推图曲线搅乱到对成本表极度敏感（同一组成本，种子间从 20 天到 60 天
-   * 都有），因为星卡着手艺上限，星一集中，主力的面板就跑在关卡难度前面。
-   * 平摊看着没性格，但它是这条曲线现在唯一稳的支点。
+   * 「谁重复来谁涨」和「全压在主力身上」都试过，两版都会把推图曲线搅乱到对成本表
+   * 极度敏感（同一组成本，种子间从 20 天到 60 天都有）—— 星卡着手艺上限，
+   * 星一集中，主力的面板就跑在关卡难度前面。
    *
-   * pick 是留给「玩家指定重点培养」的口子，默认不走 —— 真要开得连着重调成本表。
+   * 2026-09-20 又拿模拟器量了第三版：给玩家一个「先练他」的名额。
+   * 量了两种强度，前 40 关（5 种子均值，基线 D27.6）：
+   *
+   *   指定谁涨星 + 料也跟着集中 → D31.2，慢 3.6 天
+   *   只当平手时的排序权         → D30.6，慢 3.0 天
+   *
+   * 连「只排序、不改分配形状」都是负的，说明这不是强度问题，是形状问题：
+   * 3 路 × 4 格、靠换人吃克制，一个超人覆盖不了三条路，铺开永远更划算。
+   * 星的分配一旦和喂料的顺序落在同一个人身上，铺开的优势就被削掉一截。
+   *
+   * 结论：**这个游戏里任何玩家可控的星集中都是陷阱**，给了就是拿玩家的主动权
+   * 换他的进度，撞 §6「花下去不许更难」。所以星这一轴不开玩家入口 ——
+   * 玩家的主动权在喂料那一轴（手艺 ×127 比星 ×1.8 重得多），
+   * 该补的是把那一轴说清楚，不是再造一个假的。别再拿 pick 参数回来。
    */
   const low = [...p.roster]
     .filter((id) => starsOf(p, id) < starMax)
     .sort((a, b) => starsOf(p, a) - starsOf(p, b))[0];
   const who = p.roster[Math.floor(rng() * Math.max(1, p.roster.length))] ?? low ?? '';
-  const aimed = pick !== undefined && p.roster.includes(pick) && starsOf(p, pick) < starMax;
-  return { id: who, isNew: false, scrap: CALL_DUP_SCRAP, starTo: aimed ? pick : low };
+  return { id: who, isNew: false, scrap: CALL_DUP_SCRAP, starTo: low };
 }
 
 export function starsOf(p: Progress, id: string): number {
   return Math.max(0, Math.floor(p.stars[id] ?? 0));
 }
 
-/** 灌经验，够了就连升。返回升了几级 */
+/**
+ * 本级经验条。`exp` 必须是本级剩余，不要再减 villageCumExp。
+ * 门楣曾经写成累计，6 级会报「再 719 点」、金条永远是空的。
+ */
+export function villageBar(lv: number, exp: number): {
+  into: number;
+  need: number | undefined;
+  left: number;
+  ratio: number;
+  maxed: boolean;
+} {
+  const at = clampVillageLv(lv);
+  const need = nextVillageCost(at);
+  if (need === undefined) {
+    return { into: 0, need, left: 0, ratio: 1, maxed: true };
+  }
+  const into = Math.max(0, Math.min(need, Math.floor(Number(exp) || 0)));
+  return {
+    into,
+    need,
+    left: Math.max(0, need - into),
+    ratio: into / need,
+    maxed: false,
+  };
+}
+
+/** 挂在「村子 N 级」底下。经验对上摊子飘的「经验 +N」，加人说能多带谁 */
+export function villageNeedHint(lv: number, exp: number): string {
+  const bar = villageBar(lv, exp);
+  if (bar.maxed || bar.need === undefined) return '村子满级了';
+  const capLv = nextCapLv(lv);
+  if (capLv === clampVillageLv(lv) + 1) {
+    return `还差 ${bar.left} 经验，出村能多带一个人`;
+  }
+  return `还差 ${bar.left} 经验，全员再硬一截`;
+}
+
+/** 灌经验，够了就连升。返回的 exp 仍是本级剩余 */
 export function addVillageExp(p: Progress, exp: number): { lv: number; exp: number; gained: number } {
   let lv = clampVillageLv(p.villageLv);
   let acc = Math.max(0, p.villageExp) + Math.max(0, Math.floor(exp));

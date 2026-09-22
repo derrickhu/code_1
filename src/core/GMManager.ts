@@ -8,7 +8,18 @@ import { Platform } from '@/core/PlatformService';
 import { RoadLayoutStore } from '@/core/roadLayoutStore';
 import { SceneManager } from '@/core/SceneManager';
 import { CHAPTER_COUNT, findStage, getStage } from '@/balance/stages';
-import { gmGrant, gmUnlockToStage } from '@/core/RunMemory';
+import { nextVillageCost } from '@/balance/village';
+import { gmGrant, gmUnlockToStage, loadMemory } from '@/core/RunMemory';
+
+export type GmGrantKind = 'credits' | 'scrap' | 'parts' | 'pellets' | 'villageExp';
+
+const GRANT_NAME: Record<GmGrantKind, string> = {
+  credits: '工分',
+  scrap: '废铁',
+  parts: '零件',
+  pellets: '弹子',
+  villageExp: '村庄经验',
+};
 
 const GM_STORAGE_KEY = scopedStorageKey('gm');
 const GM_LEGACY_KEY = 'code1_gm';
@@ -87,13 +98,30 @@ class GMManagerClass {
   }
 
   grantPellets(n: number): string {
+    return this.grant('pellets', n);
+  }
+
+  grant(kind: GmGrantKind, n: number): string {
     if (!this.isEnabled) return 'GM 未激活';
     const add = Math.max(0, Math.floor(n));
     if (add <= 0) return '无效数量';
-    const mem = gmGrant({ pellets: add });
+    const mem = gmGrant({ [kind]: add });
     EventBus.emit('home:refresh');
-    Platform.showToast(`弹子 +${add} · 现有 ${mem.pellets}`, 'success');
-    return `弹子 +${add} · 现有 ${mem.pellets}`;
+    const have = kind === 'villageExp'
+      ? `村子 ${mem.villageLv} 级 · 经验 ${mem.villageExp}`
+      : String(mem[kind]);
+    const msg = `${GRANT_NAME[kind]} +${add} · 现有 ${have}`;
+    Platform.showToast(msg, 'success');
+    return msg;
+  }
+
+  /** 刚好够升 1 级。满级就停。 */
+  grantVillageLevel(): string {
+    if (!this.isEnabled) return 'GM 未激活';
+    const mem = loadMemory();
+    const need = nextVillageCost(mem.villageLv);
+    if (need === undefined) return '村子已经满级';
+    return this.grant('villageExp', Math.max(1, need - mem.villageExp));
   }
 
   unlockToStage(chapter: number, index: number): string {

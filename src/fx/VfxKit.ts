@@ -142,11 +142,16 @@ export class VfxKit {
     if (frames && frames.length > 1 && spec) {
       life = Math.max(life, flipLife(frames.length, spec.fps));
       const mid = (s0 + s1) / 2;
-      // 格子留了黑边，略放大；几乎不缩放，靠帧在动
-      s0 = mid * 1.55;
-      s1 = mid * 1.68;
-      sy0 = (opts.sy0 ?? mid) * 1.55;
-      sy1 = (opts.sy1 ?? mid) * 1.68;
+      // 土味章铺满格子，不再为旧黑边放大
+      s0 = mid * 0.78;
+      s1 = mid * 0.84;
+      sy0 = (opts.sy0 ?? mid) * 0.78;
+      sy1 = (opts.sy1 ?? mid) * 0.84;
+    } else {
+      s0 *= 0.66;
+      s1 *= 0.66;
+      sy0 *= 0.66;
+      sy1 *= 0.66;
     }
     spr.scale.set(s0, sy0);
     spr.alpha = opts.a0 ?? 1;
@@ -202,7 +207,7 @@ export class VfxKit {
       spr.position.set(x, y);
       spr.rotation = a;
       spr.tint = opts.tint ?? 0xfff1c2;
-      const s = (opts.scale ?? 0.35) * (0.6 + Math.random() * 0.7);
+      const s = (opts.scale ?? 0.16) * (0.55 + Math.random() * 0.5);
       const along = stretch ? s * (1.25 + Math.min(1.5, v / 240)) : s;
       const across = stretch ? s * 0.32 : s;
       spr.scale.set(along, across);

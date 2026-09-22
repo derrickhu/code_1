@@ -41,11 +41,14 @@ export interface EnemyDef {
   hp: number;
   atk: number;
   def: number;
-  /** 走路速度，格/秒 */
+  /** 走路速度，视觉格/秒 */
   spd: number;
   /** 出手间隔 ms */
   interval: number;
-  /** 射程（格）。> 1 的会站在村民射程外点人，比如飞碟 */
+  /**
+   * 射程，视觉格，和村民同一把尺。
+   * 空场被拉开，轴上 3 格能从村口打到第二排 —— 那是全屏，不算。
+   */
   range: number;
   /** 飞行单位，贴脸的拦不住（不被阻挡），而且专挑最后排 */
   flying?: boolean;
@@ -102,6 +105,7 @@ export const ENEMIES: readonly EnemyDef[] = [
     lane: 'rage', hp: 190, atk: 44, def: 4, spd: 1.05, interval: 800, range: 1,
   },
   {
+    // 3 视觉格：悬在目标面前，必须飞进场。前排够得到它，它也够得到后排。
     id: 'saucer', name: '飞碟',
     lane: 'reach', hp: 340, atk: 38, def: 10, spd: 0.36, interval: 1400, range: 3,
     flying: true,

@@ -1,0 +1,31 @@
+Enemy prototype lineup for 村口大战外星人. Review only, not final in-game assets.
+
+Use the villager reference ONLY for craft, not for subject:
+- Same chibi body: big head, short sturdy legs, fat black comic outlines
+- Same two-tone cel shade, smooth sticker shapes, no texture noise
+- Same camera: full body, 3/4 front, feet near bottom of each panel, not cropped
+- Do NOT copy the villager's clothes, hammer, or human face
+
+They are cheap-looking high-tech aliens: chrome, plastic, cold violet / cyan-teal / white-gray.
+Expensive machines that act completely brainless. Goofy, not grimdark.
+Each panel is a DISTINCT silhouette. No two share the same body.
+Pale warm-gray backdrop, thin light gutter, equal panels.
+NO TEXT, no labels, no captions, no letters, no numbers, no watermarks, no nameplates.
+
+Sheet A — 2 rows x 3 columns, six first-wave aliens
+1 小灰 GREY: classic grey, huge smooth egg head, skinny noodle limbs, oversized black oval eyes, leaning forward mid-sprint, dopey panic
+2 方块 CUBE: boxy purple-cyan trooper, cube torso with ONE glowing cyan strip, tiny stub legs, stiff parade-march, blank stare
+3 铁罐 CANISTER: fat chrome barrel-shell, only slit eyes, short thick purple legs, highest mass, slow waddle
+4 突击 RUSHER: NOT the same as grey. Magenta-violet sprinter with a tiny rear jet or swept-back head fin, body leaned hard, motion-ready, mean little eyes
+5 飞碟 SAUCER: classic flying saucer, glass dome, ONE goofy grey pilot squeezed inside waving, three thin landing legs, hovering just off the floor
+6 装甲 ARMOR: NOT the same as canister. Heavy tank-alien, thick slab plates, wide treads or stump feet, tiny head peeking from a visor slit, slowest and biggest
+
+Sheet B — 2 rows x 4 columns, eight later aliens
+1 探照灯 LAMP: tripod body with a huge round searchlight for a head, one cyan beam-lens like a dopey eye, skinny metal legs
+2 天线杆 MAST: very tall skinny chrome pole-body, dish antenna for a head, tiny arms, proud blank face
+3 水泥墩 PIER: alien stuffed inside a squat concrete bollard, only eyes and tiny arms stick out, immovable
+4 电钻 DRILL: corkscrew drill for a head/torso, dusty chrome, crouched as if it just came out of the ground
+5 高压线 WIRE: skinny cable-alien, coil torso, two live spark-nubs for hands, crackling but goofy
+6 闷罐 KEG: sealed fat keg-armor with a visible crack line across the lid, stubby legs, about to burst
+7 弹簧腿 SPRING: small grey on two huge coil-spring legs, crouched to jump, knees higher than its head
+8 孵化器 HATCH: walking incubator pod, glass belly showing two tiny grey eggs, short legs, slow and proud

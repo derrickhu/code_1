@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CDN_CONFIG } from '@/config/CdnConfig';
 import { VILLAGE_HOME_BG, uiPath } from '@/core/TextureLoader';
 import {
-  CdnAssetService, isFileQuotaError, isMissingPathError, isWxTempPath, shouldPersistCdnPath,
+  CdnAssetService, isFileQuotaError, isMissingPathError, isWxTempPath,
+  playableInnerAudioSrc, shouldPersistCdnPath, toInnerAudioSrc,
 } from '@/core/CdnAssetService';
 
 describe('CDN 路径分流', () => {
@@ -47,6 +48,19 @@ describe('CDN 路径分流', () => {
     expect(shouldPersistCdnPath('images/ui/icon_scrap.png')).toBe(true);
     expect(isWxTempPath('http://tmp/AZrWJ5wULHMN222ef8560cc65d5c51e5209dae0fea02.mp3')).toBe(true);
     expect(isWxTempPath('http://usr/cdn_cache_v3/audio/bgm_village.mp3')).toBe(false);
+  });
+
+  it('模拟器 http://usr 不能改成 wxfile 给 InnerAudio，要走 HTTPS', () => {
+    const cdn = 'https://cdn.example/cunkou/assets_cdn/audio/bgm_village.mp3';
+    expect(playableInnerAudioSrc('http://usr/cdn_cache_v3/audio/bgm_village.mp3', cdn))
+      .toBe(cdn);
+    expect(playableInnerAudioSrc('wxfile://usr/cdn_cache_v3/audio/bgm_village.mp3', cdn, () => false))
+      .toBe(cdn);
+    expect(playableInnerAudioSrc('wxfile://usr/cdn_cache_v3/audio/bgm_village.mp3', cdn, () => true))
+      .toBe('wxfile://usr/cdn_cache_v3/audio/bgm_village.mp3');
+    expect(playableInnerAudioSrc(cdn, cdn)).toBe(cdn);
+    expect(toInnerAudioSrc('http://usr/cdn_cache_v3/audio/bgm_battle.mp3'))
+      .toBe('wxfile://usr/cdn_cache_v3/audio/bgm_battle.mp3');
   });
 
   it('非小游戏环境 resolve 仍回逻辑路径', () => {

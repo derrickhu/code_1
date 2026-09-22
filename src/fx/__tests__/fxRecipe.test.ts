@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACK_FX, ENEMY_FX, FX_SKINS, attackLook, enemyLook, shouldFly, shotFlight, skinLook } from '@/fx/FxRecipe';
 import { projSprite, resolveAttackFx, resolveFxSkin } from '@/balance/fx';
+import { PROJ_FILES } from '@/core/TextureLoader';
 import { getVillager, VILLAGERS } from '@/balance/villagers';
-import { HAND_GEAR, handIdOf } from '@/balance/gear';
+import { HAND_SKINS, handIdOf } from '@/balance/gear';
 
 describe('观战配方', () => {
   it('每种村民出手都有自己的色和落点，不共用一张光', () => {
@@ -34,7 +35,7 @@ describe('观战配方', () => {
     expect(attackLook('pierce').beam).toBeFalsy();
     expect(skinLook('wire').beam).toBeFalsy();
     expect(skinLook('wire').dry).toBe(true);
-    expect(skinLook('wire').proj).toBe('wire');
+    expect(skinLook('wire').proj).toBe('needle');
     expect(enemyLook('beam').beam).toBe(true);
     expect(enemyLook('claw').quiet).toBe(true);
     expect(enemyLook('claw').instant).toBe(true);
@@ -90,8 +91,13 @@ describe('观战配方', () => {
     }
     expect(tints.size).toBe(FX_SKINS.length);
     // 皮表和家伙表必须一一对上，否则某个进化阶会退回默认那张光
-    for (const id of Object.keys(HAND_GEAR)) {
+    for (const id of HAND_SKINS) {
       expect(FX_SKINS.includes(id), `家伙 ${id} 没有皮`).toBe(true);
+    }
+    for (const id of FX_SKINS) {
+      const proj = skinLook(id).proj;
+      if (!proj) continue;
+      expect(PROJ_FILES.includes(proj as typeof PROJ_FILES[number]), `皮 ${id} 的弹 ${proj} 不在 proj 表`).toBe(true);
     }
   });
 

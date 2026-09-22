@@ -1,0 +1,36 @@
+Vertical 9:16 WeChat minigame UI mockup: villager upgrade page for 弹弓叔.
+
+STYLE LOCK from attached rust plates and in-game screenshot:
+flaky orange rust, dark umber pitted iron, rivets, chipped bevel, fat comic ink, two-tone cel shade.
+Gold / cream paint on dark rust for INFO.
+The PRIMARY button MUST copy the attached yellow fight_btn: mustard enamel, rusted rim, corner bolts.
+NOT cream locker cards. NOT white appliance UI. NOT six identical dark rust bars stacked.
+
+HIERARCHY — only FOUR zones, generous air, one action:
+
+ZONE A — TOP LINTEL (same as game, do not invent a new header)
+Gold 村子 6级, thin rust exp trough, four rust stamps: 废铁 8300  零件 35  工分 0  弹子 26
+
+ZONE B — HERO CARD (one rust_sheet, one person)
+Name painted on the plate, not a separate skinny bar: 弹弓叔 · 双股弹弓
+Small gold: 站远点打 · 打 · 二阶
+ONE large slingshot man from the character reference, full body, standing on dirt INSIDE this card.
+No second portrait. No stone well. No extra name banner above him.
+
+ZONE C — GROW CARD (one rust_sheet only, two rows, not two separate full-width bars)
+Row 1: 星级    2 / 10    ten riveted stars, ONLY first two filled gold
+Row 2: 手艺    Lv.3      fat copper trough, notch, 上限 6 / 75
+Footer of this card, one line: 下手 312→340   抗造 1283→1400
+Do NOT add a third info bar for 连珠.
+
+ZONE D — PRIMARY CTA (the visual hero of the lower half)
+ONE huge yellow fight_btn plate, twice as tall as the grow card rows, centered, rusted mustard enamel.
+Dark brown letters: 喂一手艺
+Smaller: Lv.3 → Lv.4    80 废铁 + 3 零件
+This button must be the brightest, largest object below the man.
+
+Back is NOT a button. Tiny muted cream text under the yellow plate: 回图鉴
+No second full-width rust door. No competing dark button.
+
+Character lock: thinning hair, bored eyes, white tank with rivets, blue pants, blue slippers, two-prong metal slingshot.
+Chinese only. Big readable type. Same rust family as the rest of the game.

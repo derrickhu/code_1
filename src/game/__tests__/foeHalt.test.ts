@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { BLOCK_GAP, COMBAT_POS, GOAL_POS, cellPos, inCombatZone } from '@/balance/combat';
+import { GOAL_POS, cellPos, posFromVisualGap } from '@/balance/combat';
 import { getEnemy, getStage } from '@/balance/stages';
 import { getVillager } from '@/balance/villagers';
 import {
-  createBattle, foeHaltPos, foeOf, startFight, tick,
+  createBattle, foeCanSwing, foeHaltPos, foeOf, foeTarget, startFight, tick,
   type BattleState, type Foe,
 } from '@/game/BattleEngine';
+import { canReach } from '@/game/reach';
 
 function freezeTeam(state: BattleState): void {
   for (const f of state.team) {
@@ -51,33 +52,39 @@ function laneWith(cell: number): BattleState {
   return state;
 }
 
-describe('地面怪停在人面前，空格不挡', () => {
-  it('前排有人，停在他脚前，不是空场门口', () => {
+function haltOf(e: Foe, team: BattleState['team']): number {
+  const t = foeTarget(e, team);
+  if (!t) throw new Error('no target');
+  return Math.max(0, posFromVisualGap(t.pos, e.def.range));
+}
+
+describe('地面怪走到自己射程才停，空格不挡', () => {
+  it('前排有人，停在自己射程边缘，不是半路换挡线', () => {
     const state = laneWith(0);
     const e = spawnFoe(state, 'grunt');
-    expect(foeHaltPos(e, state.team)).toBeCloseTo(cellPos(0) - BLOCK_GAP);
+    expect(foeHaltPos(e, state.team)).toBeCloseTo(haltOf(e, state.team));
     settle(state, e);
     expect(e.alive).toBe(true);
-    expect(e.pos).toBeCloseTo(cellPos(0) - BLOCK_GAP, 2);
-    expect(e.pos).toBeGreaterThan(1.2);
+    expect(e.pos).toBeCloseTo(haltOf(e, state.team), 2);
+    expect(e.pos).toBeCloseTo(cellPos(0) - e.def.range, 2);
   });
 
-  it('前排空着、人在第二格，穿过空格停在那人脚前', () => {
+  it('前排空着、人在第二格，穿过空格停在那人射程里', () => {
     const state = laneWith(1);
     const e = spawnFoe(state, 'grunt');
-    expect(foeHaltPos(e, state.team)).toBeCloseTo(cellPos(1) - BLOCK_GAP);
+    expect(foeHaltPos(e, state.team)).toBeCloseTo(haltOf(e, state.team));
     settle(state, e);
     expect(e.alive).toBe(true);
-    expect(e.pos).toBeGreaterThan(cellPos(0));
-    expect(e.pos).toBeCloseTo(cellPos(1) - BLOCK_GAP, 2);
+    expect(e.pos).toBeGreaterThanOrEqual(cellPos(0));
+    expect(e.pos).toBeCloseTo(haltOf(e, state.team), 2);
   });
 
-  it('人在更后面，照样走到他面前，不在半路空格趴下', () => {
+  it('人在更后面，照样走到他射程里，不在半路空格趴下', () => {
     const state = laneWith(2);
     const e = spawnFoe(state, 'grunt');
     settle(state, e);
-    expect(e.pos).toBeGreaterThan(cellPos(1));
-    expect(e.pos).toBeCloseTo(cellPos(2) - BLOCK_GAP, 2);
+    expect(e.pos).toBeGreaterThanOrEqual(cellPos(1));
+    expect(e.pos).toBeCloseTo(haltOf(e, state.team), 2);
   });
 
   it('这一路没人，走到头就漏', () => {
@@ -99,50 +106,62 @@ describe('地面怪停在人面前，空格不挡', () => {
     expect(state.leaked).toBe(1);
   });
 
-  it('飞碟仍按射程悬停，不被空格挡住', () => {
+  it('飞碟按视觉射程悬停，不被空格挡住', () => {
     const state = laneWith(3);
     const e = spawnFoe(state, 'saucer');
     const halt = foeHaltPos(e, state.team);
-    expect(halt).toBeCloseTo(cellPos(3) - e.def.range);
+    expect(halt).toBeCloseTo(haltOf(e, state.team));
     settle(state, e);
     expect(e.alive).toBe(true);
     expect(e.pos).toBeCloseTo(halt!, 2);
   });
 
-  /**
-   * 4-1 / 5-1 全种子卡死在这儿：我方零阵亡，场上剩 3~5 只飞碟满血钉在出场点。
-   * 射程 3 的飞碟狙最后排，这一路只有前两格有人时悬停点算出来是 0，
-   * 比开火线还靠外 —— 那儿谁都不许开火，飞碟打不到人，人也打不到飞碟。
-   * 时限从 86 秒放到 117 秒，场上剩的只数一只不差，光给时间根本不是解。
-   */
-  it('飞碟不许悬到开火线外，否则双方都打不着，一局干僵到超时', () => {
-    const state = laneWith(1);
+  it('飞碟不能在村口隔空打，必须飞进场，前排够得到', () => {
+    const state = laneWith(0);
     const e = spawnFoe(state, 'saucer');
-    expect(cellPos(1) - e.def.range).toBeLessThan(COMBAT_POS);
-    expect(foeHaltPos(e, state.team)).toBe(COMBAT_POS);
+    const tank = state.team[0]!;
+    const halt = foeHaltPos(e, state.team)!;
+    expect(halt).toBeGreaterThan(0.4);
+    expect(foeCanSwing(e, tank)).toBe(false);
+    expect(canReach(tank, { lane: e.lane, pos: 0 })).toBe(false);
     settle(state, e);
     expect(e.alive).toBe(true);
-    expect(inCombatZone(e.pos)).toBe(true);
+    expect(e.pos).toBeCloseTo(halt, 2);
+    expect(e.pos).toBeGreaterThan(0.4);
+    expect(foeCanSwing(e, tank)).toBe(true);
+    expect(canReach(tank, { lane: e.lane, pos: e.pos })).toBe(true);
+  });
+
+  it('人在第二格，飞碟照样要飞下来，不许钉在出场口', () => {
+    const state = laneWith(1);
+    const e = spawnFoe(state, 'saucer');
+    const halt = foeHaltPos(e, state.team)!;
+    expect(halt).toBeGreaterThan(0.4);
+    expect(cellPos(1) - e.def.range).toBeLessThanOrEqual(0);
+    settle(state, e);
+    expect(e.pos).toBeCloseTo(halt, 2);
+    expect(e.pos).toBeGreaterThan(0.4);
   });
 
   it('人只站最后一格，前面三格空着，必须一格一格穿过去', () => {
     const state = laneWith(3);
     const e = spawnFoe(state, 'grunt');
-    expect(foeHaltPos(e, state.team)).toBeCloseTo(cellPos(3) - BLOCK_GAP);
+    const halt = haltOf(e, state.team);
+    expect(foeHaltPos(e, state.team)).toBeCloseTo(halt);
     const passed = new Set<number>();
     for (let i = 0; i < 400; i += 1) {
       tick(state);
       for (const cell of [0, 1, 2]) {
-        if (e.pos > cellPos(cell)) passed.add(cell);
+        if (e.pos >= cellPos(cell)) passed.add(cell);
       }
-      if (e.pos >= cellPos(3) - BLOCK_GAP - 0.02) break;
+      if (e.pos >= halt - 0.02) break;
     }
     expect([...passed].sort()).toEqual([0, 1, 2]);
     expect(e.alive).toBe(true);
-    expect(e.pos).toBeCloseTo(cellPos(3) - BLOCK_GAP, 2);
+    expect(e.pos).toBeCloseTo(halt, 2);
   });
 
-  it('前排倒了就不挡，接着走到后面那个人脚前', () => {
+  it('前排倒了就不挡，接着走到后面那个人射程里', () => {
     const front = getVillager('tiezhu');
     const back = getVillager('erjiu');
     const state = createBattle(
@@ -164,22 +183,22 @@ describe('地面怪停在人面前，空格不挡', () => {
     tank.alive = false;
     tank.hp = 0;
     const e = spawnFoe(state, 'grunt');
-    expect(foeHaltPos(e, state.team)).toBeCloseTo(cellPos(2) - BLOCK_GAP);
+    expect(foeHaltPos(e, state.team)).toBeCloseTo(haltOf(e, state.team));
     settle(state, e);
     expect(e.pos).toBeGreaterThan(cellPos(0));
-    expect(e.pos).toBeCloseTo(cellPos(2) - BLOCK_GAP, 2);
+    expect(e.pos).toBeCloseTo(haltOf(e, state.team), 2);
   });
 
-  it('穿过空格时不许挥刀，贴到人才动手', () => {
+  it('射程够不着就不挥刀，进了自己射程才动手', () => {
     const state = laneWith(2);
     const e = spawnFoe(state, 'grunt');
     e.atk = 40;
     e.cd = 0;
+    const halt = haltOf(e, state.team);
     const hitsBeforeTouch: number[] = [];
     for (let i = 0; i < 400; i += 1) {
       state.events.length = 0;
       tick(state);
-      const halt = cellPos(2) - BLOCK_GAP;
       const swings = state.events.filter((ev) => ev.kind === 'foeHit').length;
       if (e.pos < halt - 0.05 && swings > 0) hitsBeforeTouch.push(e.pos);
       if (e.pos >= halt - 0.02) break;

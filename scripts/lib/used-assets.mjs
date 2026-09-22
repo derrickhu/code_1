@@ -85,7 +85,6 @@ export function collectUsedAssetPaths() {
     artMap[m[1]] = m[2];
   }
   const uiFiles = constStringArray(loader, 'UI_FILES');
-  const gripIds = constStringArray(loader, 'HERO_GRIP_IDS');
   const vfxFiles = constStringArray(loader, 'VFX_FILES');
   const projFiles = constStringArray(loader, 'PROJ_FILES');
   const homePack = read('src/config/HomePack.ts');
@@ -95,12 +94,6 @@ export function collectUsedAssetPaths() {
   const homeArtRoot = exportedString(homePack, 'HOME_ART_PACK_ROOT') || 'subpackages/pkg-home-art';
 
   const gear = read('src/balance/gear.ts');
-  const starterWeps = constStringArray(gear, 'STARTER_WEP_IDS');
-  const wearIds = [
-    ...objectStringValues(gear, 'head'),
-    ...objectStringValues(gear, 'back'),
-    ...objectStringValues(gear, 'body'),
-  ];
 
   for (const id of uniqueVillagers) {
     add(`images/hero/${id}.png`);
@@ -113,8 +106,6 @@ export function collectUsedAssetPaths() {
   for (const id of constStringArray(villagers, 'LEGACY_IDS')) {
     add(`images/hero/${id}_atk.png`);
   }
-  for (const id of gripIds) add(`images/hero/${id}_grip.png`);
-
   for (const id of enemyIds) {
     const art = artMap[id] ?? id;
     add(`images/enemy/${art}.png`);
@@ -133,8 +124,6 @@ export function collectUsedAssetPaths() {
   }
   for (const n of vfxFiles) add(`images/vfx/${n}.png`);
   for (const n of projFiles) add(`images/proj/${n}.png`);
-  for (const id of starterWeps) add(`images/wep/${id}.png`);
-  for (const id of new Set(wearIds)) add(`images/mod/${id}.png`);
 
   const sfx = read('src/core/SfxPlayer.ts');
   const bgm = read('src/core/BgmPlayer.ts');

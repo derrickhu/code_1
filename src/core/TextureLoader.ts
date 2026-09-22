@@ -33,9 +33,15 @@ function notifyReady(): void {
   for (const fn of readyWatchers) fn();
 }
 
+/** 微信 createImage 有时 onload 先响、宽高还是 0。这种图不能当立绘用。 */
+export function texReady(t: PIXI.Texture | null | undefined): boolean {
+  return !!t?.baseTexture.valid && t.width > 8 && t.height > 8;
+}
+
 export function tex(path: string): PIXI.Texture | null {
   const hit = cache.get(path);
-  if (hit?.baseTexture.valid) return hit;
+  if (texReady(hit) && hit) return hit;
+  if (hit) cache.delete(path);
   if (!missing.has(path)) kick(path);
   return null;
 }
@@ -45,18 +51,6 @@ export function heroStillPath(id: string): string {
 }
 export function heroEvoPath(id: string, stage: number): string {
   return `images/hero/${id}_evo${stage}.png`;
-}
-export function heroGripPath(id: string): string {
-  return `images/hero/${id}_grip.png`;
-}
-
-/** 铁柱从来没有 grip 层，只有这 5 张。名单外不要 kick，否则 CDN 会 404 */
-export const HERO_GRIP_IDS = [
-  'dachui', 'erjiu', 'laoli', 'laoyanqiang', 'sanshen',
-] as const;
-
-export function hasHeroGrip(id: string): boolean {
-  return (HERO_GRIP_IDS as readonly string[]).includes(id);
 }
 export function heroAtkPath(id: string): string {
   return `images/hero/${id}_atk.png`;
@@ -74,15 +68,6 @@ export function vfxPath(name: string): string {
 export function projPath(name: string): string {
   return `images/proj/${name}.png`;
 }
-export function modPath(id: string): string {
-  return `images/mod/${id}.png`;
-}
-export function wepPath(id: string): string {
-  return `images/wep/${id}.png`;
-}
-export function fxPath(name: string): string {
-  return `images/fx/${name}.png`;
-}
 
 export function heroTex(id: string, stage = 1): PIXI.Texture | null {
   const s = Math.max(1, Math.min(3, Math.floor(stage)));
@@ -93,12 +78,10 @@ export function heroTex(id: string, stage = 1): PIXI.Texture | null {
 
 /**
  * 逻辑 id → 贴图文件名。小灰在表里叫 grunt，文件一直是 grey；
- * 对不上就会一直停在 Pixi 的白方块上。
+ * 对不上就会一直停在 Pixi 的白方块上。其余怪文件名跟逻辑 id 一致。
  */
 const ENEMY_ART_ID: Readonly<Record<string, string>> = {
   grunt: 'grey',
-  rusher: 'grey',
-  armor: 'canister',
 };
 
 export function enemyArtId(id: string): string {
@@ -111,11 +94,6 @@ export function enemyArtPath(id: string): string {
 
 export function enemyTex(id: string): PIXI.Texture | null {
   return tex(enemyArtPath(id));
-}
-
-/** 家伙的贴图。手上拿什么由村民 + 进化阶决定，见 gear.handIdOf */
-export function gearTex(id: string): PIXI.Texture | null {
-  return tex(modPath(id));
 }
 
 export const VFX_FILES = [
@@ -220,7 +198,14 @@ export const UI_FILES = [
   'rust_plank',
   'rust_stamp',
   'rust_sheet',
+  'rust_panel',
   'rust_badge',
+  'star_on',
+  'star_off',
+  'star_rail',
+  'craft_rail',
+  'bar_track',
+  'bar_fill',
   'rust_tile',
   'rust_btn',
   'dirt_pad',
@@ -335,30 +320,55 @@ export const LOADING_SPLASH = 'images/boot/loading_splash.jpg';
 /** Loading / 村子主页标题字标，须在主包 */
 export const LOADING_TITLE = 'images/boot/title_logo.png';
 
-function finish(path: string, tex: PIXI.Texture | null, err?: unknown): void {
+function finish(path: string, next: PIXI.Texture | null, err?: unknown): void {
   inflight.delete(path);
-  if (tex) {
-    cache.set(path, tex);
+  if (next && !texReady(next)) {
+    err = err ?? `texture ${next.width}x${next.height}`;
+    next = null;
+  }
+  if (next) {
+    cache.set(path, next);
     missing.delete(path);
     notifyReady();
   } else {
     missing.add(path);
     console.warn(`[tex] 加载失败 ${path}`, err ?? '');
   }
-  resolveWaiters(path, tex);
+  resolveWaiters(path, next);
 }
 
 function bindSrc(path: string, src: string): void {
   const img = Platform.createImage();
   if (img) {
-    img.onload = () => {
+    let done = false;
+    const accept = (): boolean => {
+      if (done) return true;
+      const w = Number(img.width || img.naturalWidth || 0);
+      const h = Number(img.height || img.naturalHeight || 0);
+      if (w <= 8 || h <= 8) return false;
       try {
+        done = true;
         finish(path, new PIXI.Texture(PIXI.BaseTexture.from(img)));
       } catch (e) {
+        done = true;
         finish(path, null, e);
       }
+      return true;
     };
-    img.onerror = () => finish(path, null, `onerror src=${src}`);
+    img.onload = () => {
+      if (accept()) return;
+      setTimeout(() => {
+        if (accept()) return;
+        if (done) return;
+        done = true;
+        finish(path, null, `empty image ${img.width}x${img.height} src=${src}`);
+      }, 80);
+    };
+    img.onerror = () => {
+      if (done) return;
+      done = true;
+      finish(path, null, `onerror src=${src}`);
+    };
     img.src = src;
     return;
   }
@@ -380,7 +390,9 @@ function bindSrc(path: string, src: string): void {
 }
 
 function kick(path: string): void {
-  if (cache.has(path) || missing.has(path) || inflight.has(path)) return;
+  if (texReady(cache.get(path))) return;
+  if (cache.has(path)) cache.delete(path);
+  if (missing.has(path) || inflight.has(path)) return;
   inflight.add(path);
 
   const ready = CdnAssetService.resolveAsset(path);
@@ -396,7 +408,8 @@ function kick(path: string): void {
 /** 等一张图进缓存或确认缺失。Loading 进度条靠这个数。 */
 export function loadOne(path: string): Promise<PIXI.Texture | null> {
   const hit = cache.get(path);
-  if (hit?.baseTexture.valid) return Promise.resolve(hit);
+  if (texReady(hit) && hit) return Promise.resolve(hit);
+  if (hit) cache.delete(path);
   // tex() 失败会进 missing，不再每帧重试；ensureAssets / preload 再给一次机会
   if (missing.has(path) && !inflight.has(path)) missing.delete(path);
   return new Promise((resolve) => {

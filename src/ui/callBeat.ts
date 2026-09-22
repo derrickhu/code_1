@@ -24,6 +24,8 @@ export function callBeat(
   starTo: string | undefined,
   rosterN: number,
   poolN = VILLAGERS.length,
+  /** 这颗星正好换了形态时传新形态名。换形态归星管，这块牌是它唯一的报喜口 */
+  starForm?: string,
 ): CallBeat {
   const v = getVillager(got);
   if (isNew) {
@@ -43,7 +45,9 @@ export function callBeat(
       title: `又来一个${v.name}`,
       name: v.name,
       job: v.job,
-      sub: `捎了废铁 · ${to.name} 多一颗星`,
+      sub: starForm
+        ? `${to.name}多一颗星，焊成了「${starForm}」`
+        : `捎了废铁 · ${to.name} 多一颗星`,
       ok: '好',
     };
   }

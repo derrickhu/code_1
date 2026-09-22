@@ -6,13 +6,30 @@ import * as PIXI from 'pixi.js';
 import { bindPointerTap } from '@/minigame';
 import { Ease, TweenManager } from '@/core/TweenManager';
 import { heroTex, uiTex } from '@/core/TextureLoader';
-import { evoOf, type Progress } from '@/balance/village';
+import { evoOf, starOpenedEvo, starsOf, type Progress } from '@/balance/village';
+import { evoNameOf, getVillager } from '@/balance/villagers';
 import { portraitCardScale } from '@/fx/portraitFit';
 import { GOLD, fillSprite, goldBtn, ironSlab, label, standSprite } from '@/ui/paint';
 import { callBeat, type CallBeat } from '@/ui/callBeat';
 
 const CREAM = 0xfff4c4;
 const MUTED = 0x8a8a92;
+
+/**
+ * 这颗星要是正好把人焊成了下一身，报那一身的名字。
+ *
+ * 形态由星解锁（village.EVO_STAR_GATE），所以「他变样了」这句话只有在这块牌上
+ * 才有机会说 —— 喂料那边只报手艺，报重了玩家就分不清哪条轴在动。
+ */
+function starFormName(p: Progress, starTo: string | undefined): string | undefined {
+  if (!starTo) return undefined;
+  if (!starOpenedEvo(starsOf(p, starTo))) return undefined;
+  try {
+    return evoNameOf(getVillager(starTo), evoOf(p, starTo));
+  } catch {
+    return undefined;
+  }
+}
 
 export class CallReveal extends PIXI.Container {
   private _busy = false;
@@ -38,7 +55,10 @@ export class CallReveal extends PIXI.Container {
     this.interactiveChildren = true;
     this.hitArea = new PIXI.Rectangle(0, 0, 750, opts.height);
 
-    const beat = callBeat(opts.got, opts.isNew, opts.starTo, opts.rosterN);
+    const beat = callBeat(
+      opts.got, opts.isNew, opts.starTo, opts.rosterN, undefined,
+      starFormName(opts.progress, opts.starTo),
+    );
     const dim = new PIXI.Graphics();
     dim.beginFill(0x0c0a08, 0.62).drawRect(0, 0, 750, opts.height).endFill();
     dim.eventMode = 'none';

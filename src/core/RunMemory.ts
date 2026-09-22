@@ -19,12 +19,12 @@ import {
   type ShotResult,
 } from '@/balance/stall';
 import {
-  CALL_COST, addVillageExp, clampVillageLv, craftOf, evoFromCraft,
+  CALL_COST, addVillageExp, clampVillageLv, craftOf,
   nextFeed, rollCall, squadCap, starsOf, yieldMul,
   type Progress,
 } from '@/balance/village';
 import {
-  DEFAULT_SQUAD, STAR_MAX, VILLAGERS, VILLAGER_BY_ID,
+  CRAFT_MAX, DEFAULT_SQUAD, STAR_MAX, VILLAGERS, VILLAGER_BY_ID,
 } from '@/balance/villagers';
 import { STAGE_COUNT, clampStage, getStage } from '@/balance/stages';
 import { CELL_COUNT, LANE_COUNT } from '@/balance/combat';
@@ -49,9 +49,12 @@ export interface RunMemory {
   villageExp: number;
   /** 已入伙的村民 id，按入伙顺序 */
   roster: string[];
-  /** 每人几阶（1~3）。由手艺推导，存着给旧档和面板用 */
+  /**
+   * 旧档的「几阶」。形态现在由星数推（village.evoFromStars），这里不再写，
+   * 只留着给还没有 craft 字段的老档反推手艺用。
+   */
   evo: Record<string, number>;
-  /** 每人手艺 1~10。缺字段时按 evo 反推 */
+  /** 每人手艺 1~CRAFT_MAX。缺字段时按 evo 反推 */
   craft: Record<string, number>;
   /** 每人几颗星 */
   stars: Record<string, number>;
@@ -167,7 +170,9 @@ export function loadMemory(): RunMemory {
       villageExp: Math.max(0, Number(p.villageExp) || 0),
       roster,
       evo: numMap(p.evo, 1, 3),
-      craft: numMap(p.craft, 1, 10),
+      // 上限写死过 10，于是喂到 11 档以上的手艺一重载就被夹回 10、料白花了
+      craft: numMap(p.craft, 1, CRAFT_MAX),
+      // 旧档的星是 10 档制，夹到 5 只会把上限和面板往上送，不会让谁变难打
       stars: numMap(p.stars, 0, STAR_MAX),
       scrap: Math.max(0, Number(p.scrap) || 0),
       parts: Math.max(0, Number(p.parts) || 0),
@@ -346,6 +351,7 @@ export function callVillager(nowMs: number = Date.now()): {
   return { mem, got: res.id, isNew: res.isNew, starTo: res.starTo };
 }
 
+
 /* ---------------- 手艺 ---------------- */
 
 /** 喂一档手艺。料不够、星卡住或已经焊满返回 undefined */
@@ -362,7 +368,6 @@ export function buyEvo(id: string): RunMemory | undefined {
     scrap: prev.scrap - cost.scrap,
     parts: prev.parts - cost.parts,
     craft: { ...prev.craft, [id]: next },
-    evo: { ...prev.evo, [id]: evoFromCraft(next) },
   });
 }
 
@@ -500,16 +505,22 @@ export function gmUnlockToStage(id: number): RunMemory {
   });
 }
 
-/** GM：白给资源，用来试后期的养成 */
+/** GM：白给资源，用来试后期的养成。只加不减。村庄经验走升级那条，满了就停。 */
 export function gmGrant(add: Partial<Pick<RunMemory,
-  'scrap' | 'parts' | 'credits' | 'pellets'>>): RunMemory {
+  'scrap' | 'parts' | 'credits' | 'pellets' | 'villageExp'>>): RunMemory {
   const prev = loadMemory();
+  const n = (v?: number) => Math.max(0, Math.floor(v ?? 0));
+  const grown = add.villageExp
+    ? addVillageExp(progressOf(prev), n(add.villageExp))
+    : { lv: prev.villageLv, exp: prev.villageExp };
   return persist({
     ...prev,
-    scrap: prev.scrap + (add.scrap ?? 0),
-    parts: prev.parts + (add.parts ?? 0),
-    credits: prev.credits + (add.credits ?? 0),
-    pellets: prev.pellets + (add.pellets ?? 0),
+    scrap: prev.scrap + n(add.scrap),
+    parts: prev.parts + n(add.parts),
+    credits: prev.credits + n(add.credits),
+    pellets: prev.pellets + n(add.pellets),
+    villageLv: grown.lv,
+    villageExp: grown.exp,
   });
 }
 

@@ -307,12 +307,12 @@ export class SettleOverlay extends PIXI.Container {
       const mid = cast.length === 1 || i === 1;
       standSprite(this, heroTex(f.def.id, f.evoStage), x, feetY, mid ? 156 : 132, mid ? 184 : 156);
       this._chip('settle_name', x, nameCy, 168, 48, f.def.name, 17, CREAM);
-      // 名牌下面写阶数和星，不写数值：玩家认的是「他进到几阶了」
+      // 名牌下面写手艺和星。形态不写字 —— 立绘本身就是那句话（星解锁的那一身）
       const tag = stroke(15, 0xffe08a, '#1a1008', 3);
       tag.anchor.set(0.5);
       tag.position.set(x, nameCy + 34);
-      const craft = f.craft ?? (f.evoStage >= 3 ? 6 : f.evoStage >= 2 ? 3 : 1);
-      tag.text = `${'一二三'[f.evoStage - 1] ?? '一'}阶 · 手艺${craft}${f.stars > 0 ? ` ★${f.stars}` : ''}`;
+      const craft = f.craft ?? 1;
+      tag.text = `手艺 Lv.${craft}${f.stars > 0 ? ` · ★${f.stars}` : ''}`;
       this.addChild(tag);
     });
   }

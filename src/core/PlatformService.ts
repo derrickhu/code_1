@@ -21,6 +21,31 @@ export function detectMinigamePlatform(): PlatformName {
   return 'unknown';
 }
 
+/** wx.reportEvent 只能带可克隆的平值。数组/对象先折成字符串，免得 DevTools 抛 could not be cloned。 */
+export function plainTrackPayload(
+  data: Record<string, unknown>,
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      out[key] = value;
+    } else if (value != null) {
+      out[key] = JSON.stringify(value);
+    }
+  }
+  return out;
+}
+
+function formatRequestFail(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const o = err as { errMsg?: unknown; message?: unknown };
+    if (typeof o.errMsg === 'string' && o.errMsg) return o.errMsg;
+    if (typeof o.message === 'string' && o.message) return o.message;
+  }
+  return String(err);
+}
+
 /** 指定宿主的原生 API：抖音仅 tt，微信仅 wx */
 export function getNativePlatformApi(platform: PlatformName = detectMinigamePlatform()): any {
   if (platform === 'douyin') return typeof tt !== 'undefined' ? tt : null;
@@ -179,44 +204,58 @@ class PlatformServiceClass {
             },
             fail: (err: unknown) => {
               if (done) return;
-              done = true;
               clearTimeout(timer);
-              reject(err);
+              const msg = formatRequestFail(err);
+              // 开发者工具里 fetch 会走我们盖掉的 XMLHttpRequest，
+              // 挪人触发 place_change 上报时就会抛 An object could not be cloned。
+              // 小游戏只走 wx/tt.request，失败留给经分重试，不要再 fallback fetch。
+              done = true;
+              reject(new Error(`request failed: ${msg}; url=${opts.url}`));
             },
           });
         } catch (e) {
           if (!done) {
             done = true;
             clearTimeout(timer);
-            reject(e);
+            reject(e instanceof Error ? e : new Error(formatRequestFail(e)));
           }
         }
       });
     }
 
     if (typeof fetch === 'function') {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      return fetch(opts.url, {
-        method,
-        headers,
-        body: payload as BodyInit | undefined,
-        signal: controller.signal,
-      })
-        .then(async (res) => {
-          clearTimeout(timer);
-          const text = await res.text();
-          let data: unknown = text;
-          try { data = text ? JSON.parse(text) : null; } catch { /* keep text */ }
-          return { statusCode: res.status, data };
-        })
-        .catch((e) => {
-          clearTimeout(timer);
-          throw e;
-        });
+      return this._requestViaFetch(opts.url, method, payload, headers, timeoutMs);
     }
 
     return Promise.reject(new Error('no http transport available'));
+  }
+
+  private _requestViaFetch(
+    url: string,
+    method: string,
+    payload: unknown,
+    headers: Record<string, string>,
+    timeoutMs: number,
+  ): Promise<{ statusCode: number; data: unknown }> {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    return fetch(url, {
+      method,
+      headers,
+      body: method === 'GET' || payload === undefined ? undefined : payload as BodyInit,
+      signal: controller?.signal,
+    })
+      .then(async (res) => {
+        if (timer) clearTimeout(timer);
+        const text = await res.text();
+        let data: unknown = text;
+        try { data = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+        return { statusCode: res.status, data };
+      })
+      .catch((e) => {
+        if (timer) clearTimeout(timer);
+        throw e instanceof Error ? e : new Error(formatRequestFail(e));
+      });
   }
 
   /** 平台登录 code（wx.login / tt.login） */
@@ -309,7 +348,7 @@ class PlatformServiceClass {
   reportEvent(name: string, data: Record<string, unknown> = {}): void {
     try {
       if (typeof this._api?.reportEvent === 'function') {
-        this._api.reportEvent(name, data);
+        this._api.reportEvent(name, plainTrackPayload(data));
         return;
       }
     } catch {

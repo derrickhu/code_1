@@ -22,6 +22,8 @@
  *    里写的是「他变成什么样」，不是「他强了多少」。
  */
 
+import { ROLE_RANGE } from '@/game/reach';
+
 /** 门路。天生的定位，也是克制属性。循环见 COUNTERS */
 export type Lane = 'reach' | 'stand' | 'heavy' | 'rage' | 'band';
 
@@ -102,26 +104,19 @@ interface RoleBase {
 }
 
 /**
- * 射程是角色身上的固定半径，不随摆到第几格变。三婶永远 3 格。
- * 出手和地上那片只走 `@/game/reach`，这里只定数字。
+ * 射程是角色身上的固定半径，不随摆到第几格变。出手和地上那片
+ * 只走 `@/game/reach`。数字也从那边的 coverRange 来，这里不手写。
  *
- * 覆盖是正向扇形，不是整路长条。四格在 pos 2/3/4/5，
- * 敌人被最前面的人挡在 pos 1.5。每个定位的数字恰好够它
- * **该站的那一格**打到挡点（站远了半径不变，只是目标更远）：
+ * 摆放仍是 3×4。射程按连续平面量：挨 / 拦罩邻列，打罩对巷（三路），
+ * 「修」手写短半径，站最后一格够不到邻列挡点，免得变成第二个「打」。
  *
- *   挨 range 1 → 站 cell 0（pos 2），够到 1.0
- *   拦 range 2 → 站 cell 1（pos 3），够到 1.0
- *   打 range 3 → 站 cell 2（pos 4），够到 1.0
- *   修 range 3 → 站 cell 3（pos 5），够不到，活是回血
- *
- * 「站远点打」+1 射程：只有这条门路的「打」站最后一格还够得着。
- * 邻列按 REACH_LANE_WEIGHT 折算，「打」站 cell 2 够到邻列挡点。
+ * 「站远点打」+1 射程。
  */
 const ROLE_BASE: Readonly<Record<Role, RoleBase>> = {
-  tank: { hp: 1700, atk: 60, def: 50, range: 1, interval: 1000 },
-  block: { hp: 1100, atk: 110, def: 28, range: 2, interval: 1300 },
-  dps: { hp: 800, atk: 175, def: 14, range: 3, interval: 1200 },
-  heal: { hp: 900, atk: 80, def: 20, range: 3, interval: 1100 },
+  tank: { hp: 1700, atk: 60, def: 50, range: ROLE_RANGE.tank, interval: 1000 },
+  block: { hp: 1100, atk: 110, def: 28, range: ROLE_RANGE.block, interval: 1300 },
+  dps: { hp: 800, atk: 175, def: 14, range: ROLE_RANGE.dps, interval: 1200 },
+  heal: { hp: 900, atk: 80, def: 20, range: ROLE_RANGE.heal, interval: 1100 },
 };
 
 /** 门路怎么改这个人的底子。刻意都是小幅，人物差异主要来自定位与三阶形态 */
@@ -150,6 +145,12 @@ const LANE_MOD: Readonly<Record<Lane, LaneMod>> = {
 export const EVO_MUL = [1, 1.55, 2.4] as const;
 export const EVO_MAX = 3;
 
+/** 这一身叫什么。「焊了个鼓风机」这种，界面上只报它，不报「第几阶」 */
+export function evoNameOf(def: VillagerDef, stage: number): string {
+  const i = Math.max(0, Math.min(EVO_MAX - 1, Math.floor(stage) - 1));
+  return def.evo[i]!.name;
+}
+
 /**
  * 手艺前 10 档是手校出来的：3 / 6 对齐视觉二阶 / 三阶，这十个数别动。
  *
@@ -173,9 +174,19 @@ export function craftMul(craft: number): number {
   return CRAFT_MUL[hand - 1]! * Math.pow(1 + CRAFT_STEP_PCT / 100, c - hand);
 }
 
-/** 星级。喊重了的人折一颗星，每星 +8% */
-export const STAR_MAX = 10;
-export const STAR_STEP = 0.08;
+/**
+ * 星级。喊重了的人折一颗星。
+ *
+ * **一颗星只干两件事，一句话说完：面板 +16%，手艺上限再解一档。**
+ *
+ * 原来是 10 星 × 8%，2026-09-21 改成 5 星 × 16% —— 天花板仍是 ×1.8，
+ * 一个数都没变，只是把刻度合并。10 星那版的问题不在总量，在于
+ * 一颗星的价值说不清：面板那 8% 埋在手艺的 ×127 里根本看不见，
+ * 真正值钱的是它解开的手艺上限，而那张表里 ★4 一档都不解（见 village.CRAFT_CAP_AT）。
+ * 星既当乘数又当钥匙，两份工都没讲明白。合并之后星只当钥匙讲，乘数是搭头。
+ */
+export const STAR_MAX = 5;
+export const STAR_STEP = 0.16;
 
 export interface EvoStage {
   /** 这一阶叫什么。文案按 §1：形态用实物说，不用奇幻词 */

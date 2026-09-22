@@ -1,0 +1,45 @@
+Vertical 9:16 WeChat minigame UI mockup: ONE villager upgrade page for 弹弓叔.
+
+CRITICAL STYLE LOCK — copy MATERIAL from the attached in-game screenshot and rust plates:
+illustrated rusty iron, flaky orange oxidation, dark umber pitted metal, bolted rivets,
+chipped bevel edge, grimy scratches, two-tone cel shade, fat comic ink outline,
+cheap-fun Chinese county-town sticker look.
+Gold / cream painted letters on dark rust, same as 村子6级 and the four resource stamps.
+Background is the same dusk dirt alley peeking around rust plates, not a white app.
+
+FORBIDDEN: cream enamel locker cards, pale appliance UI, white rounded rectangles,
+glossy AAA, purple gacha, English, glass cards, three portraits in a row.
+
+Use the rust plates for chrome. Use the slingshot-man reference for the ONE hero:
+thinning black hair, bored eyes, white tank with riveted steel plates, dark blue pants
+with knee plates, blue slippers, TWO-prong metal slingshot. ONE full-body figure only.
+
+LAYOUT (keep rust, change hierarchy):
+
+1. TOP: same rusted lintel as the game. Gold title 村子 6级. Thin rust exp trough.
+   Four rust stamps: 废铁 8300  零件 35  工分 0  弹子 26
+
+2. Name rust plank: 弹弓叔 · 双股弹弓
+   Smaller gold line: 站远点打 · 打 · 二阶
+
+3. HERO: ONE large 弹弓叔 standing in a rust-tile well. No second or third clone.
+   No faded locked silhouettes.
+
+4. STAR rust plate — loud. Gold title 星级  and 2 / 10
+   TEN riveted brass stars in a row: first TWO filled gold, eight empty stamped outlines
+   Small cream line: 再喊 1 颗星，手艺上限到 6
+
+5. CRAFT rust plate — equally loud. Gold title 手艺  huge cream Lv.3
+   Right 上限 6 / 75
+   Fat copper trough fill, white notch at the cap
+   Cream preview: 下手 312 → 340    抗造 1283 → 1400
+
+6. Thin rust slat: 连珠 · 撂倒一个立刻再打一下
+
+7. BIG rust button, same as rust_btn: 喂一手艺
+   Sub gold: Lv.3 → Lv.4    80 废铁 + 3 零件
+
+8. Small rust footer: 回图鉴
+
+Generous air. One man. Stars and craft must read from a meter away.
+Chinese only. Same rust family as the rest of the game.

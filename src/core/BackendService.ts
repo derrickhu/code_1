@@ -57,6 +57,21 @@ export class BackendError extends Error {
   }
 }
 
+/** wx.request fail 丢过来的是 { errMsg }，String(它) 就是 [object Object] */
+export function formatUnknownError(error: unknown): string {
+  if (error instanceof BackendError) {
+    return `${error.message} code=${error.code} status=${error.status}`;
+  }
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const o = error as { errMsg?: unknown; message?: unknown; code?: unknown };
+    const bits = [o.errMsg, o.message, o.code].filter((v) => typeof v === 'string' && v);
+    if (bits.length > 0) return bits.join(' ');
+    try { return JSON.stringify(error); } catch { /* */ }
+  }
+  return String(error);
+}
+
 class BackendServiceClass {
   private stored: StoredToken | null = null;
   private loginInflight: Promise<StoredToken> | null = null;

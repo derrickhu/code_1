@@ -4,12 +4,15 @@ ONE welded rusted-iron village-gate lintel. The metal MUST touch all four edges.
 ZERO sky, ZERO clouds, ZERO margins, ZERO floating plaque, ZERO rounded card sitting on a background.
 Left edge, right edge, top edge, bottom edge are all rusted iron.
 
+Use the reference image for rust paint, bolts, comic ink outlines, two-tone cel shade, and the four lower stamp recesses.
+Do NOT copy the thin horizontal exp slot / progress rail in the middle of the reference.
+
 Layout as empty pockets (NO letters, NO numbers, NO icons):
-- Upper band: blank title plate
-- Middle: recessed empty exp slot, dark trough, rivets at the ends
-- Lower: four empty stamp recesses in a row, same rust, rivets
+- Upper band (~38%): blank recessed title plate, empty
+- Middle band (~18%): FLAT rusted iron only. NO groove, NO slot, NO bar, NO riveted rail, NO horizontal trough
+- Lower band: four empty stamp recesses in a row, same rust, rivets, same spacing as the reference
 
 Painted flaky orange rust, dark umber iron, heavy bolts, cheap-fun Chinese small-town sticker look.
-Fat comic ink outlines, two-tone cel shade. Same rust as the attached chrome mockup.
+Fat comic ink outlines, two-tone cel shade.
 
 NO TEXT, no Chinese, no English, no numbers, no icons, no logos, no watermarks.

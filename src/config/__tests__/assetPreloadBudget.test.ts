@@ -3,6 +3,7 @@ import {
   BATTLE_FX_IMAGES,
   DEFERRED_PRELOAD_IMAGES,
   MAIN_PRELOAD_IMAGES,
+  battleFaceImages,
   battlePreloadImages,
   defaultHomePeople,
   stallPreloadImages,
@@ -73,6 +74,11 @@ describe('首屏预加载预算', () => {
     const battle = battlePreloadImages(1, [
       { id: 'tiezhu', evo: 1, lane: 'stand' },
     ]);
+    const faces = battleFaceImages([{ id: 'sanshen', evo: 1 }, { id: 'dachui', evo: 1 }]);
+    expect(faces[0]).toContain('sanshen_idle_0');
+    expect(faces.indexOf(faces.find((p) => p.includes('sanshen_evo'))!))
+      .toBeGreaterThan(faces.findIndex((p) => p.includes('sanshen_idle_0')));
+    expect(battle[0]).toContain('tiezhu_idle_0');
     const battleHeroes = heroIdsIn(battle);
     expect(battleHeroes).toEqual(['tiezhu']);
     for (const v of VILLAGERS) {
@@ -89,6 +95,10 @@ describe('首屏预加载预算', () => {
 
     const fxLeak = BATTLE_FX_IMAGES.filter((p) => battle.includes(p));
     expect(fxLeak).toEqual([]);
+    const overlay = battle.filter((p) =>
+      /images\/(mod|wep|fx)\//.test(p) || p.includes('_grip.png'),
+    );
+    expect(overlay).toEqual([]);
   });
 
   it('弹弓摊货架靶图都在预载名单里，走统一 uiPath', () => {

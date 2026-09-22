@@ -7,7 +7,7 @@ import {
   CLOUD_SYNC_RETRY_INTERVAL_MS,
   CLOUD_SYNC_STARTUP_TIMEOUT_MS,
 } from '@/config/CloudConfig';
-import { BackendError, BackendService } from '@/core/BackendService';
+import { BackendError, BackendService, formatUnknownError } from '@/core/BackendService';
 import { PersistService } from '@/core/PersistService';
 import { Platform } from '@/core/PlatformService';
 
@@ -156,7 +156,7 @@ class CloudSyncManagerClass {
         }
         await this.pullFromCloudOnStartup();
       } catch (error) {
-        console.warn('[CloudSync] init failed, using local cache', error);
+        console.warn('[CloudSync] init failed, using local cache', formatUnknownError(error));
         this.enterCacheOnly('init-failed');
       } finally {
         this.initDone = true;
@@ -174,7 +174,7 @@ class CloudSyncManagerClass {
     try {
       remote = await BackendService.pullSave();
     } catch (error) {
-      console.warn('[CloudSync] startup pull failed, keeping local cache', error);
+      console.warn('[CloudSync] startup pull failed, keeping local cache', formatUnknownError(error));
       this.enterCacheOnly('startup-pull-failed');
       return;
     }
@@ -264,9 +264,9 @@ class CloudSyncManagerClass {
       }
     } catch (error: unknown) {
       this.syncFailCount += 1;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = formatUnknownError(error);
       if (this.syncFailCount <= CLOUD_SYNC_LOG_THRESHOLD) {
-        console.warn(`[CloudSync] push failed (${this.syncFailCount}/${CLOUD_SYNC_MAX_FAIL_COUNT})`, message);
+        console.warn(`[CloudSync] push failed (${this.syncFailCount}/${CLOUD_SYNC_MAX_FAIL_COUNT}) ${message}`);
       }
       if (this.syncFailCount >= CLOUD_SYNC_MAX_FAIL_COUNT) {
         this.syncDisabled = true;

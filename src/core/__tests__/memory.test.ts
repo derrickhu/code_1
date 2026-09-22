@@ -21,8 +21,8 @@ import {
   PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST, PELLET_LOSE,
   PELLET_CAP, SETTLE_SCRAP, pelletCap, pelletRegenMin,
 } from '@/balance/stall';
-import { CALL_COST, CRAFT_COST, squadCap } from '@/balance/village';
-import { DEFAULT_SQUAD, STAR_MAX, VILLAGERS } from '@/balance/villagers';
+import { CALL_COST, CRAFT_COST, nextVillageCost, squadCap } from '@/balance/village';
+import { CRAFT_MAX, DEFAULT_SQUAD, STAR_MAX, VILLAGERS } from '@/balance/villagers';
 import {
   buyEvo,
   callVillager,
@@ -240,7 +240,6 @@ describe('喊人与进化', () => {
     const mem = buyEvo('tiezhu');
     expect(mem).toBeDefined();
     expect(mem!.craft.tiezhu).toBe(2);
-    expect(mem!.evo.tiezhu).toBe(1);
     expect(mem!.scrap).toBe(0);
     expect(mem!.parts).toBe(0);
   });
@@ -257,11 +256,11 @@ describe('喊人与进化', () => {
     expect(buyEvo('tiezhu')).toBeUndefined();
   });
 
-  it('两颗星才能喂过二阶，往三阶走', () => {
+  it('一颗星就能喂过二阶，往三阶走', () => {
     const cost = CRAFT_COST[2]!;
     write({
       roster: ['tiezhu'], scrap: cost.scrap, parts: cost.parts,
-      craft: { tiezhu: 3 }, evo: { tiezhu: 2 }, stars: { tiezhu: 2 },
+      craft: { tiezhu: 3 }, evo: { tiezhu: 2 }, stars: { tiezhu: 1 },
     });
     const mem = buyEvo('tiezhu');
     expect(mem).toBeDefined();
@@ -269,12 +268,36 @@ describe('喊人与进化', () => {
     expect(mem!.evo.tiezhu).toBe(2);
   });
 
+  /**
+   * 存档上限曾经写死 10，而手艺能焊到 75 —— 喂到 11 档以上的料一重载就没了。
+   * 这条是拿这个 bug 换来的。
+   */
+  it('手艺喂过 10 档，重载之后不许被夹回去', () => {
+    write({ roster: ['tiezhu'], craft: { tiezhu: 40 }, stars: { tiezhu: STAR_MAX } });
+    expect(loadMemory().craft.tiezhu).toBe(40);
+    write({ roster: ['tiezhu'], craft: { tiezhu: CRAFT_MAX + 20 } });
+    expect(loadMemory().craft.tiezhu).toBe(CRAFT_MAX);
+  });
+
   it('GM 送资源只加不减', () => {
-    const mem = gmGrant({ scrap: 100, parts: 5, credits: 12, pellets: 3 });
+    const mem = gmGrant({ scrap: 100, parts: 5, credits: 12, pellets: 3, villageExp: 10 });
     expect(mem.scrap).toBe(100);
     expect(mem.parts).toBe(5);
     expect(mem.credits).toBe(12);
     expect(mem.pellets).toBeGreaterThanOrEqual(3);
+    expect(mem.villageExp).toBe(10);
+    const again = gmGrant({ scrap: -50, credits: -3 });
+    expect(again.scrap).toBe(mem.scrap);
+    expect(again.credits).toBe(mem.credits);
+  });
+
+  it('GM 送村庄经验会升级', () => {
+    write({ villageLv: 1, villageExp: 0 });
+    const need = nextVillageCost(1);
+    expect(need).toBeGreaterThan(0);
+    const mem = gmGrant({ villageExp: need });
+    expect(mem.villageLv).toBe(2);
+    expect(mem.villageExp).toBe(0);
   });
 });
 

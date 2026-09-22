@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { LEGACY_IDS, VILLAGERS } from '@/balance/villagers';
 import { ENEMIES } from '@/balance/stages';
-import { HAND_GEAR, handIdOf, resolveHandGear, wearOf } from '@/balance/gear';
+import { HAND_SKINS, handIdOf } from '@/balance/gear';
 import { enemyArtId } from '@/core/TextureLoader';
-import { CLIP_BODY, clipBody, fitBodyH } from '@/fx/spriteBody';
-import { contactAt, motionFor, motionForSkin, releaseAt, swingKeyframes } from '@/fx/UnitActor';
+import { CLIP_BODY, battleBodyH, clipBody, fitBodyH, heroBattleLook } from '@/fx/spriteBody';
+import { PORTRAIT_BODY } from '@/fx/portraitFit';
+import { contactAt, motionFor, motionForSkin, readyTexH, releaseAt, swingKeyframes } from '@/fx/UnitActor';
+import { texReady } from '@/core/TextureLoader';
 
 describe('clipBody', () => {
   it('有帧动画的单位都有身体高度，避免出手按整帧压小', () => {
@@ -76,49 +78,71 @@ describe('clipBody', () => {
   });
 });
 
-describe('手脚分层', () => {
-  it('手上拿什么跟着进化阶换', () => {
-    expect(resolveHandGear('dachui', 1).id).toBe('hammer');
-    expect(resolveHandGear('dachui', 2).id).toBe('weight');
-    expect(resolveHandGear('dachui', 3).id).toBe('pipe');
-    expect(resolveHandGear('dianju', 1).id).toBe('cleaver');
-    expect(resolveHandGear('dianju', 2).id).toBe('chainsaw');
-    expect(resolveHandGear('dianju', 3).id).toBe('pipe');
+describe('立绘尺寸未就绪', () => {
+  it('0 高不能拿格子高去 fit', () => {
+    expect(readyTexH(0)).toBeNull();
+    expect(readyTexH(1)).toBeNull();
+    expect(readyTexH(8)).toBeNull();
+    expect(readyTexH(78)).toBe(78);
+    expect(readyTexH(542)).toBe(542);
   });
 
-  it('每个村民三阶都在家伙表里，且贴图存在', () => {
+  it('空贴图不能当立绘', () => {
+    expect(texReady(null)).toBe(false);
+  });
+});
+
+describe('局内站姿', () => {
+  it('有立绘就用立绘，不叠道具图标', () => {
+    const look = heroBattleLook(true, 4, 4);
+    expect(look.idle).toBe('portrait');
+    expect(look.atkSheet).toBe(true);
+  });
+
+  it('没有立绘才退回切片', () => {
+    const look = heroBattleLook(false, 4, 4);
+    expect(look.idle).toBe('sheet');
+  });
+
+  it('站姿立绘按身体定高，弹弓叔和大锤不会比三婶大一倍', () => {
+    const slot = 78;
+    const shown = (['laoyanqiang', 'dachui', 'sanshen'] as const).map((id) => {
+      const box = PORTRAIT_BODY[id][0];
+      const bodyH = battleBodyH({
+        id, evo: 1, clip: 'idle', texH: box.texH, portrait: true, sheet: true,
+      });
+      return (slot / bodyH) * box.h;
+    });
+    expect(shown[0]).toBeCloseTo(slot);
+    expect(shown[1]).toBeCloseTo(slot);
+    expect(shown[2]).toBeCloseTo(slot);
+    expect(fitBodyH(CLIP_BODY.laoyanqiang.idle, PORTRAIT_BODY.laoyanqiang[0].texH, true))
+      .toBe(CLIP_BODY.laoyanqiang.idle);
+  });
+
+  it('攻击切片仍按 CLIP_BODY，不按立绘画布放大', () => {
+    expect(battleBodyH({
+      id: 'dachui', evo: 1, clip: 'atk', texH: 158, portrait: false, sheet: true,
+    })).toBe(97);
+  });
+});
+
+describe('打击皮', () => {
+  it('手上拿什么跟着进化阶换', () => {
+    expect(handIdOf('dachui', 1)).toBe('hammer');
+    expect(handIdOf('dachui', 2)).toBe('weight');
+    expect(handIdOf('dachui', 3)).toBe('pipe');
+    expect(handIdOf('dianju', 1)).toBe('cleaver');
+    expect(handIdOf('dianju', 2)).toBe('chainsaw');
+    expect(handIdOf('dianju', 3)).toBe('pipe');
+  });
+
+  it('每个村民三阶都在家伙表里', () => {
     for (const v of VILLAGERS) {
       for (const st of [1, 2, 3]) {
         const id = handIdOf(v.id, st);
-        expect(HAND_GEAR[id], `${v.name} 第 ${st} 阶的 ${id} 没有贴图`).toBeDefined();
+        expect(HAND_SKINS.includes(id), `${v.name} 第 ${st} 阶的 ${id}`).toBe(true);
       }
     }
-  });
-
-  /*
-   * §4.1 是硬约束：进化必须看得见。手上那一件 + 身上穿戴，
-   * 三阶之间至少得有一处不同，否则玩家花了 520 废铁 22 零件看不出变化。
-   */
-  it('每个村民的三阶轮廓都不一样', () => {
-    for (const v of VILLAGERS) {
-      const looks = [1, 2, 3].map((st) => {
-        const w = wearOf(v.id, v.lane, st);
-        return `${handIdOf(v.id, st)}|${w.head ?? ''}|${w.back ?? ''}|${w.body ?? ''}`;
-      });
-      expect(new Set(looks).size, `${v.name} 的三阶看起来一样`).toBe(3);
-    }
-  });
-
-  it('每件手持家伙都有贴图路径', () => {
-    for (const g of Object.values(HAND_GEAR)) {
-      expect(g.path.startsWith('images/')).toBe(true);
-      expect(g.scale).toBeGreaterThan(0.4);
-    }
-  });
-
-  it('锅握在木柄上，头朝锅口，不会拿反', () => {
-    const pot = HAND_GEAR.pot!;
-    expect(pot.gripX).toBeGreaterThan(0.75);
-    expect(Math.abs(pot.headLocal)).toBeGreaterThan(2);
   });
 });

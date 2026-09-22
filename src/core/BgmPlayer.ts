@@ -2,7 +2,7 @@
  * 局外 / 局内背景乐。一首 InnerAudioContext，切曲才重建。
  * 音量压过音效：BGM 常驻，抬太高会盖掉点击和打击。
  */
-import { CdnAssetService, isWxTempPath } from '@/core/CdnAssetService';
+import { CdnAssetService } from '@/core/CdnAssetService';
 import { Platform } from '@/core/PlatformService';
 
 export const BGM_FILE = {
@@ -27,6 +27,7 @@ class BgmPlayerClass {
   private _id: BgmId | null = null;
   private _volume = 0.32;
   private _paused = false;
+  private _cdnFallback = false;
 
   play(id: BgmId): void {
     const src = BGM_FILE[id];
@@ -44,21 +45,28 @@ class BgmPlayerClass {
     this._ctx = ctx;
     this._id = id;
     this._paused = false;
+    this._cdnFallback = false;
     ctx.loop = true;
     ctx.volume = VOLUME[id] ?? this._volume;
     ctx.onError((err) => {
       console.warn('[Bgm] 播失败', id, err);
+      // 本地路径播不了（模拟器 http://usr / 空 wxfile）时换 HTTPS 再试一次
+      if (!this._cdnFallback && this._ctx === ctx) {
+        this._cdnFallback = true;
+        ctx.src = CdnAssetService.cdnUrl(src);
+        try { ctx.play(); } catch { /* */ }
+        return;
+      }
       this.stop();
     });
-    void CdnAssetService.resolveOrDownload(src).then((resolved) => {
+    void CdnAssetService.resolveAudioSrc(src).then((resolved) => {
       if (this._ctx !== ctx) return;
-      // 微信 InnerAudio 读不了 downloadFile 的 http://tmp/，会 request:fail timeout
-      ctx.src = isWxTempPath(resolved) ? CdnAssetService.cdnUrl(src) : resolved;
+      ctx.src = resolved;
       try { ctx.play(); } catch { /* 开发者工具没手势时不炸 */ }
     }).catch((e) => {
       console.warn('[Bgm] CDN 解析失败', id, e);
       if (this._ctx !== ctx) return;
-      ctx.src = src;
+      ctx.src = CdnAssetService.cdnUrl(src);
       try { ctx.play(); } catch { /* */ }
     });
   }
