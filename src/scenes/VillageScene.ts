@@ -27,13 +27,15 @@ import { TweenManager, Ease } from '@/core/TweenManager';
 import { bindPointerTap, clientEventToDesign } from '@/minigame';
 import { getTouchCanvas } from '@/utils/touchCanvas';
 import { UnitActor } from '@/fx/UnitActor';
-import { packPortraitRow, portraitWidth } from '@/fx/portraitFit';
-import { homePreloadPeople, yardPeople } from '@/core/yardRoster';
+import { YARD_MAX_SPAN, packPortraitRow, portraitWidth } from '@/fx/portraitFit';
+import { homePreloadPeople, yardCrowd, yardPeople } from '@/core/yardRoster';
 import { LANE_TINT } from '@/ui/BenchDock';
 import { folkLivePeak, folkSheet, folkSignName, type FolkPeak } from '@/balance/folkSheet';
 import { oneFolkLay, paintGrowCard, type OneFolkLay } from '@/ui/FolkSheetView';
 import { folkBrowseIds, folkNeighborId, isFolkOneSwipeBlocked } from '@/ui/folkOneSwipe';
 import { StallYard, STALL_BG_LAY } from '@/ui/StallYard';
+import { mountVillageRise } from '@/ui/villageRiseCard';
+import { villageRise, type VillageRise } from '@/balance/villageRise';
 import {
   CALL_COST, CRAFT_MAX, craftCap, craftOf, evoOf,
   nextCapStars, nextEvoStars, nextFeed, starsOf, villageBar, villageMul, villageNeedHint,
@@ -280,6 +282,12 @@ export class VillageScene implements Scene {
   private _artTimer: ReturnType<typeof setTimeout> | 0 = 0;
   /** 刚收进口袋的那一格，刷新后面要弹一下 */
   private _prizePop: 'scrap' | 'parts' | 'credits' | null = null;
+  /** 这一发把村子升了级。摊上先出牌，回村口再让多出来的人走进来 */
+  private _rise: VillageRise | undefined;
+  /** 回村口时，下标从这里起的人是新站上来的 */
+  private _popFrom = -1;
+  /** 这一跳新挂上的院子物件，回村口时才弹出来 */
+  private _popMarks = new Set<string>();
   private _oneTrack: PIXI.Container | null = null;
   private _oneIncoming: PIXI.Container | null = null;
   private _oneIncomingId = '';
@@ -679,6 +687,7 @@ export class VillageScene implements Scene {
     this._backdrop(layer, villageHomeBgTex() ?? villageBgTex(), 0.06);
     this._bar(layer);
     const lay = homeLay(Game.safeTop, this._height(), Game.safeBottom, Game.safeCapsuleLeft);
+    this._homeMarks(layer, lay);
     this._homePeople(layer, lay);
     this._homeHorn(layer, lay);
     this._homePost(layer, lay);
@@ -723,20 +732,37 @@ export class VillageScene implements Scene {
   private _homePeople(layer: PIXI.Container, lay: HomeLay): void {
     const mem = this._mem;
     const p = progressOf(mem);
-    const front = yardPeople(mem, '');
+    const crowd = yardCrowd(mem.villageLv);
+    const front = yardPeople(mem, '', crowd);
+    const peopleH = crowd >= 6 ? 112 : crowd >= 5 ? 124 : crowd >= 4 ? 142 : lay.peopleH;
+    const midX = crowd >= 4 ? 408 : lay.peopleMid;
+    const feetY = lay.peopleY - 48;
+    const popFrom = this._popFrom;
+    this._popFrom = -1;
     const slots = yardSlots(
       front,
       front.map((id) => evoOf(p, id)),
-      lay.peopleMid,
-      lay.peopleY,
-      lay.peopleH,
+      midX,
+      feetY,
+      peopleH,
+      crowd >= 4 ? 520 : YARD_MAX_SPAN,
     );
     front.forEach((id, i) => {
       const v = getVillager(id);
-      const slot = slots[i] ?? { x: lay.peopleMid, y: lay.peopleY };
+      const slot = slots[i] ?? { x: midX, y: feetY };
       const a = new UnitActor();
       a.bindHero(v.id, v.lane, evoOf(p, id), false);
-      a.place(slot.x, slot.y, lay.peopleH);
+      a.place(slot.x, slot.y, peopleH);
+      if (popFrom >= 0 && i >= popFrom) {
+        a.view.scale.set(0.15);
+        TweenManager.to({
+          target: a.view.scale,
+          props: { x: 1, y: 1 },
+          duration: 0.42,
+          delay: (i - popFrom) * 0.08,
+          ease: Ease.easeOutBack,
+        });
+      }
       a.view.eventMode = 'static';
       a.view.interactiveChildren = false;
       a.view.hitArea = new PIXI.Rectangle(-48, -lay.peopleH - 4, 96, lay.peopleH + 10);
@@ -1077,8 +1103,49 @@ export class VillageScene implements Scene {
     return true;
   }
 
+  /**
+   * 等级在院子里的样子：蓝筐、铁盆挂在路上，跟摊上解锁的是同一件东西。
+   * 喇叭杆本来就是进大喇叭的入口，不再叠第二只。
+   */
+  private _homeMarks(layer: PIXI.Container, lay: HomeLay): void {
+    const lv = this._mem.villageLv;
+    const pop = this._popMarks;
+    this._popMarks = new Set();
+    if (lv >= 2) {
+      this._mark(layer, 'stall_crate', 196, lay.peopleY - 28, 76, 62, pop.has('crate'));
+    }
+    if (lv >= 6) {
+      this._mark(layer, 'stall_basin', 608, lay.peopleY - lay.peopleH * 0.62, 68, 54, pop.has('basin'));
+    }
+  }
+
+  private _mark(
+    layer: PIXI.Container,
+    art: UiName,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    pop: boolean,
+  ): void {
+    const box = new PIXI.Container();
+    box.position.set(x, y);
+    box.eventMode = 'none';
+    layer.addChild(box);
+    if (!fitSprite(box, uiTex(art), 0, 0, w, h)) return;
+    if (!pop) return;
+    box.scale.set(0.2);
+    TweenManager.to({
+      target: box.scale,
+      props: { x: 1, y: 1 },
+      duration: 0.4,
+      ease: Ease.easeOutBack,
+    });
+  }
+
   private _shoot(): void {
     if (this._yard.busy) return;
+    const beforeLv = this._mem.villageLv;
     const res = shootStall();
     if (!res) {
       Platform.showToast('没弹子了，等等或者看一段');
@@ -1086,6 +1153,13 @@ export class VillageScene implements Scene {
       return;
     }
     this._mem = res.mem;
+    const rise = villageRise(beforeLv, res.mem.villageLv);
+    if (rise) {
+      this._rise = rise;
+      const was = yardCrowd(beforeLv);
+      if (yardCrowd(res.mem.villageLv) > was) this._popFrom = was;
+      for (const t of rise.targets) this._popMarks.add(t.id);
+    }
     const { hit, rebounds, gain } = res.result;
     const tier = prizeTier(gain);
     this._prizePop = tier === 'jackpot' ? 'credits' : tier === 'rare' ? 'parts' : tier === 'uncommon' ? 'scrap' : null;
@@ -1098,7 +1172,18 @@ export class VillageScene implements Scene {
       scrap: { x: chrome.pocket.cxs[0]!, y: chrome.pocket.y },
       parts: { x: chrome.pocket.cxs[1]!, y: chrome.pocket.y },
       credits: { x: chrome.pocket.cxs[2]!, y: chrome.pocket.y },
-    }, () => this._render());
+    }, () => {
+      this._render();
+      this._showRise();
+    });
+  }
+
+  private _showRise(): void {
+    const rise = this._rise;
+    if (!rise || this._page !== 'stall') return;
+    this._rise = undefined;
+    playSfx('win', 28);
+    mountVillageRise(this._layers.stall, rise, this._height(), () => {});
   }
 
   private async _adPellets(): Promise<void> {
@@ -1789,9 +1874,10 @@ function yardSlots(
   midX: number,
   midY: number,
   peopleH: number,
+  maxSpan = YARD_MAX_SPAN,
 ): { x: number; y: number }[] {
   const widths = ids.map((id, i) => portraitWidth(id, evos[i] ?? 1, peopleH));
-  return packPortraitRow(widths, midX).map((x) => ({ x, y: midY }));
+  return packPortraitRow(widths, midX, maxSpan).map((x) => ({ x, y: midY }));
 }
 
 /** 图鉴墙上头四个格子：路上站着的先露脸，空着写 ??? */

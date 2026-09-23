@@ -86,6 +86,21 @@ export const TARGET_UNLOCK_LV: Readonly<Record<string, number>> = {
 };
 
 /**
+ * 锁着的靶要写出打中得到什么。名字本身看不出用途。
+ * 蓝筐给零件，铁盆白送一发，喇叭给工分。
+ */
+const TARGET_LOCK_USE: Readonly<Record<string, string>> = {
+  crate: '零件 +1',
+  basin: '再来一发',
+  horn: '工分 +1',
+};
+
+/** 锁着时挂在靶名下面的那一行。开着的靶不写 */
+export function targetLockUse(id: string): string | undefined {
+  return TARGET_LOCK_USE[id];
+}
+
+/**
  * 连带：打中一个靶会碰倒相邻的，相邻按 50% 结算，只结经验和废铁。
  *
  * 相邻平均按 0.8 个算，所以经验/废铁的期望乘 1 + 0.8 × 0.5 = 1.4。

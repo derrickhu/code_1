@@ -10,7 +10,7 @@ import { buzz, playSfx } from '@/core/SfxPlayer';
 import { TweenManager, Ease } from '@/core/TweenManager';
 import { uiTex, type UiName } from '@/core/TextureLoader';
 import {
-  PRIZE_BEAT, TARGETS, prizeAccent, prizeChips, prizeTier,
+  PRIZE_BEAT, TARGETS, prizeAccent, prizeChips, prizeTier, targetLockUse,
   type PrizeChip, type PrizeTier, type ShotResult, type TargetDef,
 } from '@/balance/stall';
 import { BgmPlayer } from '@/core/BgmPlayer';
@@ -324,7 +324,17 @@ export class StallYard extends PIXI.Container {
     name.position.set(0, artTop + h + 2);
     name.text = SLOT_NAME[def.id] ?? def.name;
     box.addChild(name);
-    if (locked) this._lockMark(box, STALL_SLOT.w * 0.36, artTop + 10);
+    if (locked) {
+      this._lockMark(box, STALL_SLOT.w * 0.36, artTop + 10);
+      const use = targetLockUse(def.id);
+      if (use) {
+        const pay = label(15, 0xffe08a, true);
+        pay.anchor.set(0.5, 0);
+        pay.position.set(0, artTop + h + 22);
+        pay.text = use;
+        box.addChild(pay);
+      }
+    }
     const peg: Peg = { def, box, art, cx, cy, locked };
     this._fillPegArt(peg);
     return peg;

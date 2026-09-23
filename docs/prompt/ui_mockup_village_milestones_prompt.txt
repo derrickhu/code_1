@@ -1,0 +1,17 @@
+Vertical 9:16 WeChat minigame HOME screen. Layout proposal only.
+
+Style lock: copy the attached rust-iron lintel. Pitted dark iron, orange rust blooms, rivets, worn mustard gold paint, cream letters. Warm dusk village lane below, not a night dungeon. Chibi villagers with fat ink outlines. NO English. NO glass cards. NO new buildings.
+
+EXACT LAYOUT, top to bottom:
+
+1. TOP full-width rust lintel like the reference: big upper plate with gold text 村子 6级. Under it a thin mustard exp trough. Tiny cream line 还差 86 经验. Bottom of the lintel: four rust stamps reading 废铁 830, 零件 12, 工分 6, 弹子 26.
+
+2. IMMEDIATELY UNDER the lintel, floating in the empty sky, ONE new thin rust rail. Same iron family, shorter than the lintel, side margins. Three equal cells in a row:
+   - left, dim: 蓝筐 / 已有
+   - middle, bright mustard rim, the only highlighted cell: 铁盆 / 再1级
+   - right, dim: 喇叭 / 再3级
+   A thin mustard bracket around ONLY this rail, with a small tag 只加这一条 on its right end.
+
+3. BELOW, unchanged yard: three chibi villagers standing on a dirt lane (blue work jacket with a hammer, red puffer with a helmet, floral shirt). Left a horn pole. Bottom-left a slingshot stall. Center a wood sign. Bottom-right a rust atlas plate. A wide iron gate along the very bottom. Do not move these. Do not add props.
+
+The new rail must not overlap the villagers or the lintel. Chinese text, large and readable.

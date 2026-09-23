@@ -1,9 +1,21 @@
-import { evoOf, starsOf } from '@/balance/village';
+import { evoOf, squadCap, starsOf } from '@/balance/village';
 import { progressOf, type RunMemory } from '@/core/RunMemory';
 
 /**
+ * 村口路上站几个人。跟着上场人数走，但路比战场窄，最多 6 个。
+ * 1 级 3 人，2 级 4 人，7 级 5 人，15 级 6 人。再往上只加战场名额，不加路人。
+ */
+export function yardCrowd(lv: number): number {
+  const cap = squadCap(lv);
+  if (cap <= 3) return 3;
+  if (cap <= 5) return 4;
+  if (cap <= 8) return 5;
+  return 6;
+}
+
+/**
  * 路上站谁。
- * 首页只是闲人，不是全村花名册，所以默认 3 个。
+ * 首页只是闲人，不是全村花名册，人数见 yardCrowd。
  * 大喇叭院子可以站更多，新人入伙走那里。
  */
 export function yardPeople(
@@ -37,7 +49,7 @@ export function homePreloadPeople(mem: RunMemory, limit = 8): string[] {
     seen.add(id);
     ids.push(id);
   };
-  for (const id of yardPeople(mem, '')) add(id);
+  for (const id of yardPeople(mem, '', yardCrowd(mem.villageLv))) add(id);
   for (const slot of mem.layout) add(slot.id);
   return ids.slice(0, Math.max(1, limit));
 }
