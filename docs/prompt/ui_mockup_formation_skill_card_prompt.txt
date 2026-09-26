@@ -1,0 +1,18 @@
+Mobile game FORMATION (pre-battle placement) screen mockup with a villager SKILL info card, vertical 9:16, "村口大战外星人".
+
+ART STYLE: same as reference — rustic Chinese village scrap-yard, sticker-chibi, fat comic ink, cream #FFF4C4, gold #C9A46A,
+ink #2A160C, rusty riveted iron panels. FORBIDDEN: neon, purple glow, English, watermark.
+
+Top: iron bar "3-4 晒场", enemy preview chip: 敌方主门路 下手重, small alien icons incl. a big boss icon labelled 大个子.
+Middle: 3x4 grid of dirt tiles, some villagers placed. The fishing-net auntie tile is selected (gold outline).
+A rusty iron popup card beside her:
+  header: 渔网婶  二阶 带铅渔网  ★★☆☆☆
+  section title with rope icon: 绝活  拦河大网
+  small illustration: a huge fishing net across a lane with aliens piled up
+  cream text lines (short):
+    整条路横一张大网，怪堆在网前 3 秒
+    劲头：挨打和出手都攒
+    三阶：网上挂铅坨，网住的还掉血   (this line greyed as locked, with small lock)
+    星级越高攒得越快
+Bottom: bench of villager portraits, a big green-yellow wooden button 开打.
+Keep text short and readable.

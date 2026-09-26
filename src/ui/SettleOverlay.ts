@@ -12,6 +12,8 @@ import {
   type UiName,
 } from '@/core/TextureLoader';
 import { GOLD, fitSprite, label } from '@/ui/paint';
+import { Ease, TweenManager } from '@/core/TweenManager';
+import { Platform } from '@/core/PlatformService';
 
 const INK = 0x2a160c;
 const CREAM = 0xfff4c4;
@@ -155,6 +157,12 @@ export class SettleOverlay extends PIXI.Container {
     height: number;
     opts: SettleOpts;
   } | null = null;
+  /** 进账牌上的两行数。翻倍后就地滚，不整页重画 */
+  private _earnTx: PIXI.Text | null = null;
+  private _nameTx: PIXI.Text | null = null;
+  private _haveTx: PIXI.Text | null = null;
+  private _adBox: PIXI.Container | null = null;
+  private _adLabel: PIXI.Text | null = null;
 
   constructor(
     onReplay: () => void,
@@ -256,15 +264,25 @@ export class SettleOverlay extends PIXI.Container {
         h: adBtn.h,
         draw: (cy) => {
           this._adBtn(375, cy, 640, 146, `看视频  废铁翻倍拿 ${carry}`, async () => {
-            if (this._busy) return;
+            if (this._busy || this._tookDouble) return;
             this._busy = true;
             const ok = await this._onDouble();
             this._busy = false;
-            if (!ok) return;
+            if (!ok || !this._held) return;
             this._tookDouble = true;
-            if (this._held) {
-              this.show(this._held.state, this._held.memory, this._held.height, this._held.opts);
-            }
+            const from = this._held.opts.earned;
+            const to = doubled(from);
+            const scrapFrom = this._held.opts.scrap;
+            const scrapTo = scrapFrom + (to - from);
+            this._held.opts = { ...this._held.opts, earned: to, scrap: scrapTo };
+            // 宿主关广告后常自带「领取成功」，先清掉再滚数字，免得盖住变化
+            Platform.hideToast();
+            this._roll(this._earnTx, from, to, (n) => `+${n}`, () => {
+              if (!this._earnTx || !this._nameTx || this._nameTx.destroyed) return;
+              this._nameTx.x = this._earnTx.x + this._earnTx.width + 12;
+            });
+            this._roll(this._haveTx, scrapFrom, scrapTo, (n) => `村里废铁 ${n}`);
+            this._lockAd();
           });
         },
       });
@@ -444,6 +462,11 @@ export class SettleOverlay extends PIXI.Container {
     this._busy = false;
     this._tookDouble = false;
     this._adPulse = [];
+    this._earnTx = null;
+    this._nameTx = null;
+    this._haveTx = null;
+    this._adBox = null;
+    this._adLabel = null;
     this._held = null;
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
   }
@@ -463,16 +486,89 @@ export class SettleOverlay extends PIXI.Container {
     plus.text = `+${opts.earned}`;
     plus.position.set(375 - size.w * 0.18, cy);
     this.addChild(plus);
+    this._earnTx = plus;
     const name = stroke(26, INK, '#fff4c4', 4);
     name.anchor.set(0, 0.5);
     name.position.set(plus.x + plus.width + 12, cy + 4);
     name.text = `废铁 · +${opts.pellets} 发弹子`;
     this.addChild(name);
+    this._nameTx = name;
     const have = stroke(15, INK, '#fff4c4', 3);
     have.anchor.set(1, 0.5);
     have.position.set(375 + size.w * 0.38, cy + size.h * 0.24);
     have.text = `村里废铁 ${opts.scrap}`;
     this.addChild(have);
+    this._haveTx = have;
+  }
+
+  /** 数额从旧值滚到新值，并弹一下，让翻倍一眼能看出来 */
+  private _roll(
+    tx: PIXI.Text | null,
+    from: number,
+    to: number,
+    format: (n: number) => string,
+    after?: () => void,
+  ): void {
+    if (!tx || tx.destroyed || to <= from) return;
+    const proxy = { v: from };
+    TweenManager.to({
+      target: proxy,
+      props: { v: to },
+      duration: 0.55,
+      ease: Ease.easeOutCubic,
+      onUpdate: () => {
+        if (tx.destroyed) return;
+        tx.text = format(Math.round(proxy.v));
+        after?.();
+      },
+      onComplete: () => {
+        if (tx.destroyed) return;
+        tx.text = format(to);
+        after?.();
+      },
+    });
+    TweenManager.cancelTarget(tx.scale);
+    tx.scale.set(1);
+    TweenManager.to({
+      target: tx.scale,
+      props: { x: 1.28, y: 1.28 },
+      duration: 0.2,
+      ease: Ease.easeOutBack,
+      onComplete: () => {
+        if (tx.destroyed) return;
+        TweenManager.to({
+          target: tx.scale,
+          props: { x: 1, y: 1 },
+          duration: 0.25,
+          ease: Ease.easeInOutQuad,
+        });
+      },
+    });
+  }
+
+  /** 广告钮停掉呼吸，改成「已翻倍」，不能再点 */
+  private _lockAd(): void {
+    this._adPulse = [];
+    const box = this._adBox;
+    if (!box || box.destroyed) return;
+    box.eventMode = 'none';
+    box.scale.set(1);
+    if (this._adLabel && !this._adLabel.destroyed) this._adLabel.text = '废铁已翻倍';
+    TweenManager.to({
+      target: box.scale,
+      props: { x: 1.06, y: 1.06 },
+      duration: 0.16,
+      ease: Ease.easeOutBack,
+      onComplete: () => {
+        if (box.destroyed) return;
+        TweenManager.to({
+          target: box.scale,
+          props: { x: 1, y: 1 },
+          duration: 0.2,
+          ease: Ease.easeInOutQuad,
+        });
+      },
+    });
   }
 
   private _coverBg(h: number, lose = false): void {
@@ -570,6 +666,8 @@ export class SettleOverlay extends PIXI.Container {
     t.text = title;
     box.addChild(t);
     this.addChild(box);
+    this._adBox = box;
+    this._adLabel = t;
     this._adPulse.push(box);
     bindPointerTap(box, onTap);
     return box;

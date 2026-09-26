@@ -516,15 +516,15 @@ export const VILLAGERS: readonly VillagerDef[] = [
 const EVO_KIND: Readonly<Record<string, readonly [EvoKind, EvoKind, EvoKind]>> = {
   guogai: ['plain', 'reflect', 'reflect'],
   yuwang: ['plain', 'slowHard', 'pierce'],
-  laoyanqiang: ['plain', 'plain', 'pierce'],
+  laoyanqiang: ['plain', 'pierce', 'pierce'],
   labaye: ['plain', 'laneHeal', 'allHeal'],
   tiezhu: ['plain', 'regen', 'standUp'],
   shimo: ['plain', 'slowHard', 'slowHard'],
   miankuzhang: ['plain', 'lifesteal', 'lifesteal'],
-  erjiu: ['plain', 'plain', 'plain'],
+  erjiu: ['plain', 'laneHeal', 'regen'],
   chengtuo: ['plain', 'reflect', 'cleave'],
-  dachui: ['plain', 'plain', 'slowHard'],
-  dianju: ['plain', 'plain', 'cleave'],
+  dachui: ['plain', 'cleave', 'slowHard'],
+  dianju: ['plain', 'cleave', 'cleave'],
   shazhu: ['plain', 'lifesteal', 'lifesteal'],
   gaoyaguo: ['plain', 'burst', 'burst'],
   gangban: ['plain', 'reflect', 'reflect'],
@@ -532,7 +532,7 @@ const EVO_KIND: Readonly<Record<string, readonly [EvoKind, EvoKind, EvoKind]>> =
   bianpao: ['plain', 'burst', 'burst'],
   qiangou: ['plain', 'regen', 'regen'],
   jishi: ['plain', 'slowHard', 'slowHard'],
-  sanshen: ['plain', 'plain', 'cleave'],
+  sanshen: ['plain', 'cleave', 'cleave'],
   baowenhu: ['plain', 'hasteAura', 'hasteAura'],
 };
 
@@ -540,6 +540,21 @@ export function evoKindOf(def: VillagerDef, stage: number): EvoKind {
   const row = EVO_KIND[def.id];
   if (!row) throw new Error(`没给 ${def.id} 配打法`);
   return row[Math.max(0, Math.min(2, Math.floor(stage) - 1))]!;
+}
+
+/**
+ * 三身打法没换的，效果加码这么多。
+ *
+ * 面板只跟手艺走，形态归星管 —— 三身要是打法也跟二身一样，
+ * ★3 换的那一身就只是换张图，违反「每阶必须改攻击方式或射程」。
+ */
+export const EVO_SAME_POW = 1.5;
+
+/** 这一身的打法效果倍率。三身和二身同打法才加码，换了打法的新打法本身就是升级 */
+export function evoPowOf(def: VillagerDef, stage: number): number {
+  const row = EVO_KIND[def.id];
+  if (!row || Math.floor(stage) < 3) return 1;
+  return row[2] === row[1] && row[2] !== 'plain' ? EVO_SAME_POW : 1;
 }
 
 export const VILLAGER_BY_ID: Readonly<Record<string, VillagerDef>> = Object.fromEntries(

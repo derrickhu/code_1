@@ -51,8 +51,9 @@ import {
 } from '@/core/RunMemory';
 import { craftOf, evoOf, starsOf, villageMul } from '@/balance/village';
 import { Platform } from '@/core/PlatformService';
+import { rewardedAdUnitId } from '@/config/rewardedAds';
 import {
-  adCanShow, adMarkRunStart, adRecord, adRemaining, type AdPlacement,
+  adCanShow, adMarkRunStart, adRecord, adRemaining,
 } from '@/core/AdDay';
 import { battleHudLay, type BattleHudLay } from '@/ui/lintel';
 import { numGlyphs, paintFrac, paintGlyphs } from '@/ui/glyphs';
@@ -1830,9 +1831,9 @@ export class BattleScene implements Scene {
     this._openSettle();
   }
 
-  private async _watchAd(placement: AdPlacement): Promise<boolean> {
+  private async _watchAd(placement: 'revive' | 'settleDouble'): Promise<boolean> {
     track('ad_show', { placement, stage_id: this._state.stage.id });
-    const ok = await Platform.showRewardedVideo();
+    const ok = await Platform.showRewardedVideo(rewardedAdUnitId(placement, Platform.name));
     track('ad_close', { placement, stage_id: this._state.stage.id, completed: ok });
     return ok;
   }

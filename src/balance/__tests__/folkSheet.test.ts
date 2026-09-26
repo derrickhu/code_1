@@ -20,7 +20,7 @@ describe('村民能力表', () => {
   });
 
   it('四条都是战斗里的数，奶显示修补', () => {
-    const uncle = folkSheet(getVillager('laoyanqiang'), { craft: 3, stars: 0, stage: 2 });
+    const uncle = folkSheet(getVillager('laoyanqiang'), { craft: 3, stars: 0, stage: 1 });
     expect(uncle.sign.name).toBe('连珠');
     expect(uncle.sign.kindName).toBe('');
     expect(uncle.stats.map((s) => s.label)).toEqual(['下手', '抗造', '够得着', '出手']);

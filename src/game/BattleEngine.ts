@@ -30,7 +30,7 @@ import {
   type EnemyDef, type StageDef, type Stars,
 } from '@/balance/stages';
 import {
-  evoKindOf, laneMul, statsOf,
+  evoKindOf, evoPowOf, laneMul, statsOf,
   type EvoKind, type Role, type VillagerDef,
 } from '@/balance/villagers';
 import { foeCanSwing, foeHaltPos, foeTarget } from '@/game/foeEngage';
@@ -111,6 +111,8 @@ export interface Fighter {
   /** 血过线炸一圈只用一次 */
   burstUsed: boolean;
   regenCd: number;
+  /** 打法效果倍率，见 evoPowOf。缺省 1 */
+  evoPow?: number;
 }
 
 /** 场上的外星人 */
@@ -317,6 +319,7 @@ function fighterOf(p: Placement, villageMul: number, i: number): Fighter {
     stoodUp: false,
     burstUsed: false,
     regenCd: REGEN_MS,
+    evoPow: evoPowOf(p.villager, p.evoStage),
   };
 }
 
@@ -325,13 +328,14 @@ export function startFight(state: BattleState): void {
   if (state.phase !== 'placing') return;
   state.team = state.placed.map((p, i) => fighterOf(p, state.villageMul, i));
   // 保温壶这类光环：只加速同一路。全场加速会把推图节奏抬得太快。
-  const hasteLanes = new Set(
-    state.team.filter((f) => evoKindOf(f.def, f.evoStage) === 'hasteAura').map((f) => f.lane),
-  );
-  if (hasteLanes.size > 0) {
-    for (const f of state.team) {
-      if (hasteLanes.has(f.lane)) f.interval = Math.round(f.interval * HASTE_MUL);
-    }
+  const hastePow = new Map<number, number>();
+  for (const f of state.team) {
+    if (evoKindOf(f.def, f.evoStage) !== 'hasteAura') continue;
+    hastePow.set(f.lane, Math.max(hastePow.get(f.lane) ?? 0, f.evoPow ?? 1));
+  }
+  for (const f of state.team) {
+    const pow = hastePow.get(f.lane);
+    if (pow) f.interval = Math.round(f.interval * (1 - (1 - HASTE_MUL) * pow));
   }
   state.phase = 'fighting';
 }
@@ -472,14 +476,15 @@ function foesInRange(f: Fighter, foes: readonly Foe[]): Foe[] {
 function pickFoes(f: Fighter, foes: readonly Foe[], kind: EvoKind): { foe: Foe; mul: number }[] {
   const list = foesInRange(f, foes);
   if (list.length === 0) return [];
+  const pow = f.evoPow ?? 1;
   if (kind === 'pierce') {
     const a = list[0]!;
     const b = list[1];
-    return b ? [{ foe: a, mul: 1 }, { foe: b, mul: PIERCE_MUL }] : [{ foe: a, mul: 1 }];
+    return b ? [{ foe: a, mul: 1 }, { foe: b, mul: PIERCE_MUL * pow }] : [{ foe: a, mul: 1 }];
   }
   if (kind === 'cleave') {
     return list.slice(0, CLEAVE_MAX).map((foe, i) => ({
-      foe, mul: i === 0 ? 1 : CLEAVE_MUL,
+      foe, mul: i === 0 ? 1 : CLEAVE_MUL * pow,
     }));
   }
   return [{ foe: list[0]!, mul: 1 }];
@@ -490,7 +495,7 @@ function tickRegen(state: BattleState, f: Fighter, kind: EvoKind): void {
   f.regenCd -= TICK_MS;
   if (f.regenCd > 0) return;
   f.regenCd = REGEN_MS;
-  const amount = Math.max(1, Math.round(f.maxHp * REGEN_PCT));
+  const amount = Math.max(1, Math.round(f.maxHp * REGEN_PCT * (f.evoPow ?? 1)));
   f.hp = Math.min(f.maxHp, f.hp + amount);
   state.events.push({ kind: 'heal', uid: f.uid, targetUid: f.uid, amount });
 }
@@ -528,11 +533,11 @@ function strike(state: BattleState, f: Fighter, foe: Foe, mul: number, kind: Evo
     state.events.push({ kind: 'foeDown', foeId: foe.id, lane: foe.lane });
   } else if (kind === 'slowHard' && !foe.def.steady) {
     // 只有「钉死」这一阶才减速。拦位普攻再叠 hitstun，看起来像挨一下停一下
-    foe.slowMs = Math.max(foe.slowMs, SLOW_MS * SLOW_HARD_MUL);
+    foe.slowMs = Math.max(foe.slowMs, SLOW_MS * SLOW_HARD_MUL * (f.evoPow ?? 1));
   }
   if (kind !== 'lifesteal') return;
   const sink = f.def.role === 'heal' ? (pickHurt(state.team) ?? f) : f;
-  const amount = Math.min(sink.maxHp - sink.hp, Math.round(damage * LIFESTEAL_MUL));
+  const amount = Math.min(sink.maxHp - sink.hp, Math.round(damage * LIFESTEAL_MUL * (f.evoPow ?? 1)));
   if (amount <= 0) return;
   sink.hp += amount;
   state.events.push({ kind: 'heal', uid: f.uid, targetUid: sink.uid, amount });
@@ -543,7 +548,7 @@ function fireBurst(state: BattleState, f: Fighter): void {
   for (const e of state.foes) {
     if (!e.alive || reachGap(f, e) === undefined) continue;
     if (Math.abs(f.pos - e.pos) > BURST_RANGE) continue;
-    const damage = foeTake(e, dmgOf(f.atk * BURST_ATK, e.armor, laneMul(f.def.lane, e.def.lane)));
+    const damage = foeTake(e, dmgOf(f.atk * BURST_ATK * (f.evoPow ?? 1), e.armor, laneMul(f.def.lane, e.def.lane)));
     e.hp -= damage;
     const killed = e.hp <= 0;
     state.events.push({ kind: 'hit', uid: f.uid, foeId: e.id, damage, killed });
@@ -559,7 +564,7 @@ function hurtVillager(state: BattleState, target: Fighter, e: Foe, damage: numbe
   state.events.push({ kind: 'foeHit', foeId: e.id, uid: target.uid, damage });
   const kind = evoKindOf(target.def, target.evoStage);
   if (kind === 'reflect' && e.alive) {
-    const back = foeTake(e, damage * REFLECT_MUL);
+    const back = foeTake(e, damage * REFLECT_MUL * (target.evoPow ?? 1));
     e.hp -= back;
     if (e.hp <= 0) {
       e.alive = false;

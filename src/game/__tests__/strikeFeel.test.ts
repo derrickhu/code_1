@@ -33,8 +33,10 @@ describe('弹弓叔打击', () => {
 
   it('三阶一发穿两个，不是只开花不结算', () => {
     const uncle = getVillager('laoyanqiang');
-    expect(evoKindOf(uncle, 2)).toBe('plain');
-    expect(resolveAttackFx(uncle, 2)).toBe('sniper');
+    expect(evoKindOf(uncle, 1)).toBe('plain');
+    expect(resolveAttackFx(uncle, 1)).toBe('sniper');
+    expect(evoKindOf(uncle, 2)).toBe('pierce');
+    expect(resolveAttackFx(uncle, 2)).toBe('pierce');
     expect(evoKindOf(uncle, 3)).toBe('pierce');
     expect(resolveAttackFx(uncle, 3)).toBe('pierce');
     const state = createBattle(

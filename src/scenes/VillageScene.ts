@@ -49,6 +49,7 @@ import {
 } from '@/balance/stall';
 import { homeRoadBrief } from '@/balance/roadMap';
 import { Platform } from '@/core/PlatformService';
+import { rewardedAdUnitId } from '@/config/rewardedAds';
 import { track } from '@/core/Analytics';
 import {
   buyEvo, callVillager, claimAdPellets, loadMemory, nextGoal, progressOf,
@@ -1191,7 +1192,7 @@ export class VillageScene implements Scene {
     this._adBusy = true;
     try {
       track('ad_show', { placement: 'stallPellets' });
-      const ok = await Platform.showRewardedVideo();
+      const ok = await Platform.showRewardedVideo(rewardedAdUnitId('stallPellets', Platform.name));
       track('ad_close', { placement: 'stallPellets', completed: ok });
       if (!ok) {
         Platform.showToast('没看完，没给弹子');

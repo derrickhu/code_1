@@ -16,7 +16,7 @@
  *
  * 章内把墙放在第 4、5 关，对应 §8「卡关点稳定落在每章的第 4–5 关」。
  */
-import { PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
+import { ARMOR_K, PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
 import type { Lane } from './villagers';
 
 /**
@@ -228,9 +228,8 @@ interface ChapterSeed {
  * 前 8 章的配方（地名、敌人组合、台词）是手写的；第 9 章往后是跑道，
  * 地名从 CH_NAME_POOL 取、敌人组合走 TAIL_MIX_POOL。
  *
- * **数值一个都没动，改的只有「来的是谁」。** 曲线那几段校准史
- * （3-2 是墙、章间下探形成锯齿、卡关落在每章后半段）全都还在，
- * 因为 hpMul / atkMul / 只数 / 路数预算都不看敌人 id。
+ * 章间斜率、章内爬坡、只数、路数预算都不看敌人 id；
+ * hpMul 额外乘一道配方折算（见 compRef），抹掉「谁领头」带来的血量落差。
  *
  * 第 5~8 章换了配方：原来那四章是同一批怪往上堆血，现在各换进两三只带规则的
  * （弹簧腿、探照灯、水泥墩、电钻、高压线、闷罐、孵化器、天线杆）。
@@ -527,6 +526,43 @@ function bodyMul(chapter: number): number {
   return 1.65;
 }
 
+/** 一只怪的有效血量（护甲折进去，下蛋的把蛋也算上） */
+function unitEhp(id: string): number {
+  const e = getEnemy(id);
+  const own = (e.hp * (e.def + ARMOR_K)) / ARMOR_K;
+  return e.spawn ? own + e.spawn.times * unitEhp(e.spawn.enemy) : own;
+}
+
+/** 这一关实际出场那批怪的平均有效血量，按只数加权 */
+function wavesEhp(waves: readonly Wave[]): number {
+  let n = 0;
+  let sum = 0;
+  for (const w of waves) {
+    for (const g of w.groups) {
+      n += g.count;
+      sum += g.count * unitEhp(g.enemy);
+    }
+  }
+  return n > 0 ? sum / n : 1;
+}
+
+/**
+ * 配方折算：hpMul 乘上「基准 ÷ 这关实际平均有效血量」，
+ * 让同一章同一关序不管来的是小灰还是装甲，要啃的总量都落在同一条线上。
+ *
+ * 不折算的时候 hpMul 同样乘在 131 血的小灰和 1229 有效血的装甲身上，
+ * 难度全看这一章 mix 里谁多：第 5 章小灰领头是低谷（×0.96），
+ * 第 6 章装甲领头一跳 ×4.72，尾段章与章之间在 ×0.53~×1.88 之间乱跳，
+ * 装甲领头的那几章永远是墙、小灰领头的永远三星 —— 墙落在哪儿看配方运气。
+ *
+ * 基准：第 1 章原样（首局手感不动），第 9 章往后取尾段几何平均，
+ * 中间几何插值接上。
+ */
+function compRef(chapter: number, first: number, tail: number): number {
+  if (chapter >= CH_TUNED + 1) return tail;
+  return first * Math.pow(tail / first, (chapter - 1) / CH_TUNED);
+}
+
 /** 这一关的敌方主门路 = 出现最多的那种敌人的门路 */
 function pickMainLane(mix: readonly string[]): Lane {
   return getEnemy(mix[0]!).lane;
@@ -588,16 +624,26 @@ function buildWaves(seed: ChapterSeed, chapter: number, index: number): Wave[] {
 }
 
 function buildStages(): StageDef[] {
+  const allWaves = CHAPTERS.map((seed, c) =>
+    [1, 2, 3, 4, 5].map((i) => buildWaves(seed, c + 1, i)));
+  const geo = (xs: readonly number[]) =>
+    Math.exp(xs.reduce((a, x) => a + Math.log(x), 0) / xs.length);
+  // 按整章折算而不是逐关：章内五关的倍率得保持单调，爬坡才是 IDX_RAMP 说了算
+  const chEhp = allWaves.map((ch) => geo(ch.map(wavesEhp)));
+  const refFirst = chEhp[0]!;
+  const refTail = geo(chEhp.slice(CH_TUNED));
+
   const out: StageDef[] = [];
   let id = 1;
   for (let c = 0; c < CHAPTERS.length; c += 1) {
     const seed = CHAPTERS[c]!;
     const chHp = CH1_HP * chMul(c + 1, CH_HP_STEP, TAIL_HP_STEP);
     const chAtk = CH1_ATK * chMul(c + 1, CH_ATK_STEP, TAIL_ATK_STEP);
+    const comp = compRef(c + 1, refFirst, refTail) / chEhp[c]!;
     const [lvFrom, lvTo] = seed.suggestLv;
     for (let i = 1; i <= 5; i += 1) {
       const ramp = IDX_RAMP[i - 1] ?? 1;
-      const waves = buildWaves(seed, c + 1, i);
+      const waves = allWaves[c]![i - 1]!;
       const suggestLv = Math.round(lvFrom + ((lvTo - lvFrom) * (i - 1)) / 4);
       out.push({
         id,
@@ -606,7 +652,7 @@ function buildStages(): StageDef[] {
         label: `${c + 1}-${i}`,
         name: seed.name,
         pitch: seed.pitches[i - 1] ?? '',
-        hpMul: round2(chHp * ramp * bodyMul(c + 1)),
+        hpMul: round2(chHp * ramp * bodyMul(c + 1) * comp),
         atkMul: round2(chAtk * atkRamp(ramp)),
         waves,
         // 3 波 86s、5 波 120s，都在 §5 的 1~2 分钟里。

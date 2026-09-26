@@ -20,7 +20,7 @@ import { ARMOR_K, CELL_COUNT, LANE_COUNT, LEAK_ALLOW, cellPos } from '@/balance/
 import { autoPlace, dumbPlace, runBattle } from '@/game/BattleEngine';
 import { simulate, clearDay, poolOf, sweepStages, sweepStats } from '../simulate';
 import {
-  STAGES, STAGE_COUNT, findStage, getStage, rateStars,
+  STAGES, STAGE_COUNT, findStage, getEnemy, getStage, rateStars,
 } from '@/balance/stages';
 import { assertWeights, expectedPerDay } from '@/balance/stall';
 import {
@@ -241,8 +241,9 @@ describe('护栏 3：曲线形状', () => {
     for (const r of runs) {
       const done = clearDay(r.smart, 40)!;
       const maxed = r.smart.villageDay[VILLAGE_LV_TUNED - 1]!;
-      // 空格不该挡路。修完贴着 D20 是机制对了，不是曲线被冲掉。
-      expect(done, `种子 ${r.seed} 在 D${done} 就推完 40 关了，太快`).toBeGreaterThanOrEqual(18);
+      // 下限原来是 D18，靠的是 D8~D17 卡在 8-4 等满编的一堵墙（整整十天零进度）。
+      // 配方折算把墙拆掉、三身同打法加码之后是 D7~D9 推完，前 20 天几乎每天都有进度，下限跟着放到 D7。
+      expect(done, `种子 ${r.seed} 在 D${done} 就推完 40 关了，太快`).toBeGreaterThanOrEqual(7);
       expect(done, `种子 ${r.seed} 到 D${done} 才推完 40 关，太慢`).toBeLessThanOrEqual(50);
       expect(maxed).toBeGreaterThan(12);
       expect(maxed).toBeLessThan(32);
@@ -287,8 +288,14 @@ describe('护栏 3：曲线形状', () => {
     for (let c = 2; c <= 8; c += 1) {
       const first = findStage(c, 1)!;
       const prevLast = findStage(c - 1, 5)!;
+      // 按真实有效血量比：hpMul 已经折过配方，光乘只数会把小灰和装甲算成一样重
+      const ehp = (id: string): number => {
+        const e = getEnemy(id);
+        const own = (e.hp * (e.def + ARMOR_K)) / ARMOR_K;
+        return e.spawn ? own + e.spawn.times * ehp(e.spawn.enemy) : own;
+      };
       const load = (s: typeof first): number =>
-        s.hpMul * s.waves.reduce((a, w) => a + w.groups.reduce((b, g) => b + g.count, 0), 0);
+        s.hpMul * s.waves.reduce((a, w) => a + w.groups.reduce((b, g) => b + g.count * ehp(g.enemy), 0), 0);
       expect(load(first), `${c}-1 比 ${c - 1}-5 还重`).toBeLessThan(load(prevLast));
     }
   });
