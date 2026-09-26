@@ -21,10 +21,16 @@
  * 随机会把信号埋进噪声里。变化量交给布阵和养成，不交给骰子。
  */
 import {
-  ARMOR_K, CELL_COUNT, GOAL_POS, HEAL_ATK_CUT, HEAL_MUL,
-  LANE_COUNT, LEAK_ALLOW, RAGE_BONUS, SLOW_MS, SLOW_MUL, TICK_MS, WAVE_GAP_MS,
+  ARMOR_K, BOSS_ATK_MUL, BOSS_HP_MUL, BOSS_LEAK, BOSS_SPD_MUL, CELL_COUNT,
+  EARLY_CALL_MS, FOE_ATK_MUL, FOE_SPD_MUL, GOAL_POS, HARD_FOE_CC, HEAL_ATK_CUT, HEAL_MUL,
+  LANE_COUNT, LEAK_ALLOW, RAGE_BONUS, SKILL_NEAR, SKILL_NEAR_SIDE, SLOW_MS, SLOW_MUL, TICK_MS,
+  WAVE_GAP_MS,
   cellPos,
 } from '@/balance/combat';
+import {
+  ENERGY_ACT_PER_S, ENERGY_HIT, ENERGY_MAX, ENERGY_PER_S, ENERGY_START, SKILL_EXECUTE, SKILL_WAIT_MS,
+  chargeMul, skillAt, skillPow, skillPower, type SkillDef,
+} from '@/balance/skills';
 import {
   getEnemy, rateStars,
   type EnemyDef, type StageDef, type Stars,
@@ -113,6 +119,16 @@ export interface Fighter {
   regenCd: number;
   /** 打法效果倍率，见 evoPowOf。缺省 1 */
   evoPow?: number;
+  /** 劲头 0..ENERGY_MAX，满了能放绝活 */
+  energy: number;
+  /** 满了之后憋了多久。憋过 SKILL_WAIT_MS 自动放就不挑了 */
+  readyMs: number;
+  /** 绝活给的「少挨几成」和剩余时间 */
+  guardPct: number;
+  guardMs: number;
+  /** 绝活给的出手间隔倍率和剩余时间 */
+  hasteMul: number;
+  hasteMs: number;
 }
 
 /** 场上的外星人 */
@@ -143,6 +159,12 @@ export interface Foe {
   /** 这一刻同路友军给的减伤 / 加攻。每 tick 重算，不累计 */
   shieldPct: number;
   atkPct: number;
+  /** 被绝活定住的剩余 ms：不走也不打 */
+  stunMs: number;
+  /** 首领「大个子」 */
+  boss: boolean;
+  /** 砍中过村民没有。手感统计用 */
+  swung: boolean;
 }
 
 /**
@@ -160,7 +182,10 @@ export type BattleEvent =
   | { kind: 'burst'; uid: string }
   | { kind: 'foeDown'; foeId: number; lane: number }
   | { kind: 'leak'; foeId: number; lane: number }
-  | { kind: 'waveStart'; wave: number };
+  | { kind: 'waveStart'; wave: number }
+  | { kind: 'skill'; uid: string; manual: boolean }
+  | { kind: 'skillHit'; uid: string; foeId: number; damage: number; killed: boolean }
+  | { kind: 'bossIn'; foeId: number; lane: number };
 
 export type BattlePhase = 'placing' | 'fighting' | 'won' | 'lost';
 export type LoseReason = 'leak' | 'timeout';
@@ -191,6 +216,20 @@ export interface BattleState {
   events: BattleEvent[];
   /** 场上外星人 id 自增 */
   nextFoeId: number;
+  /** 劲头满了自己放。关掉就只等玩家点 */
+  autoSkill: boolean;
+  /** 场上清空提前叫下一波省下的时间。星评和超时按 elapsedMs + skippedMs 算 */
+  skippedMs: number;
+  /** 手感统计：放出来几只、其中几只砍中过人、最惨的那个人掉到过几成、放了几次绝活 */
+  spawned: number;
+  touched: number;
+  lowHpFrac: number;
+  skillsCast: number;
+  /** 绝活统计：普攻和绝活各打了多少血、绝活带走几只、每个村民放了几次（按村民 id） */
+  plainDmg: number;
+  skillDmg: number;
+  skillKills: number;
+  castsBy: Record<string, number>;
 }
 
 export interface Candidate {
@@ -205,6 +244,7 @@ interface Spawn {
   lane: number;
   enemy: string;
   wave: number;
+  boss: boolean;
 }
 
 /* ---------------- 建局 ---------------- */
@@ -220,6 +260,7 @@ function buildSchedule(stage: StageDef): Spawn[] {
           lane: g.lane % LANE_COUNT,
           enemy: g.enemy,
           wave: w + 1,
+          boss: g.boss === true,
         });
       }
     }
@@ -266,6 +307,16 @@ export function createBattle(
     stars: 0,
     events: [],
     nextFoeId: 1,
+    autoSkill: true,
+    skippedMs: 0,
+    spawned: 0,
+    touched: 0,
+    lowHpFrac: 1,
+    skillsCast: 0,
+    plainDmg: 0,
+    skillDmg: 0,
+    skillKills: 0,
+    castsBy: {},
   };
 }
 
@@ -320,6 +371,12 @@ function fighterOf(p: Placement, villageMul: number, i: number): Fighter {
     burstUsed: false,
     regenCd: REGEN_MS,
     evoPow: evoPowOf(p.villager, p.evoStage),
+    energy: ENERGY_START,
+    readyMs: 0,
+    guardPct: 0,
+    guardMs: 0,
+    hasteMul: 1,
+    hasteMs: 0,
   };
 }
 
@@ -526,6 +583,7 @@ function strike(state: BattleState, f: Fighter, foe: Foe, mul: number, kind: Evo
   const raw = effAtk(f) * (f.def.role === 'heal' ? HEAL_ATK_CUT : 1) * mul;
   const damage = foeTake(foe, dmgOf(raw, foe.armor, laneMul(f.def.lane, foe.def.lane)));
   foe.hp -= damage;
+  state.plainDmg += damage;
   const killed = foe.hp <= 0;
   state.events.push({ kind: 'hit', uid: f.uid, foeId: foe.id, damage, killed });
   if (killed) {
@@ -559,8 +617,19 @@ function fireBurst(state: BattleState, f: Fighter): void {
   }
 }
 
-function hurtVillager(state: BattleState, target: Fighter, e: Foe, damage: number): void {
+function gainEnergy(f: Fighter, amount: number): void {
+  f.energy = Math.min(ENERGY_MAX, f.energy + amount * chargeMul(f.stars));
+}
+
+/** 出手一次攒多少：按出手间隔折算，出手快的不会因此刷招 */
+function actEnergy(f: Fighter): number {
+  return (ENERGY_ACT_PER_S * f.interval) / 1000;
+}
+
+function hurtVillager(state: BattleState, target: Fighter, e: Foe, raw: number): void {
+  const damage = target.guardMs > 0 ? Math.max(1, Math.round(raw * (1 - target.guardPct))) : raw;
   target.hp -= damage;
+  gainEnergy(target, ENERGY_HIT);
   state.events.push({ kind: 'foeHit', foeId: e.id, uid: target.uid, damage });
   const kind = evoKindOf(target.def, target.evoStage);
   if (kind === 'reflect' && e.alive) {
@@ -665,6 +734,9 @@ export function foeOf(def: EnemyDef, id: number, lane: number, pos = 0): Foe {
     spawnCd: def.spawn?.everyMs ?? 0,
     shieldPct: 0,
     atkPct: 0,
+    stunMs: 0,
+    boss: false,
+    swung: false,
   };
 }
 
@@ -672,14 +744,174 @@ export function foeOf(def: EnemyDef, id: number, lane: number, pos = 0): Foe {
  * 造一只进场的外星人。出怪时间轴和孵化器下的蛋走同一条，
  * 否则「蛋没吃到关卡倍率」这种 bug 要到第 30 章才看得出来。
  */
-function newFoe(state: BattleState, enemyId: string, lane: number, pos = 0): Foe {
+function newFoe(state: BattleState, enemyId: string, lane: number, pos = 0, boss = false): Foe {
   const def = getEnemy(enemyId);
   const foe = foeOf(def, state.nextFoeId, lane, pos);
-  foe.hp = Math.round(def.hp * state.stage.hpMul);
+  const hpMul = boss ? BOSS_HP_MUL : 1;
+  foe.hp = Math.round(def.hp * state.stage.hpMul * hpMul);
   foe.maxHp = foe.hp;
-  foe.atk = def.atk * state.stage.atkMul;
+  foe.atk = def.atk * state.stage.atkMul * FOE_ATK_MUL * (boss ? BOSS_ATK_MUL : 1);
+  foe.spd = def.spd * FOE_SPD_MUL * (boss ? BOSS_SPD_MUL : 1);
+  foe.boss = boss;
   state.nextFoeId += 1;
+  state.spawned += 1;
   return foe;
+}
+
+/* ---------------- 绝活 ---------------- */
+
+/** 走到这儿就算贴到前排了 */
+const CONTACT_POS = cellPos(0) - 0.8;
+
+/**
+ * 这只怪已经到人跟前了：走过贴脸线，或者已经停在挡路的人面前。
+ * 近战怪停在前排脚前约 1 格，比贴脸线还靠外 —— 只看贴脸线的话，
+ * 它们开打了定身招还在等，一整场都放不出来。
+ */
+function foeClose(state: BattleState, e: Foe): boolean {
+  if (e.pos >= CONTACT_POS) return true;
+  const halt = foeHaltPos(e, state.team);
+  return halt !== undefined && e.pos + 0.05 >= halt;
+}
+
+function hasFoeEffect(sk: SkillDef): boolean {
+  return Boolean(sk.dmg || sk.stunMs || sk.push || sk.slowMs);
+}
+
+function skillFoes(state: BattleState, f: Fighter, sk: SkillDef): Foe[] {
+  if (!hasFoeEffect(sk)) return [];
+  return state.foes.filter((e) => {
+    if (!e.alive) return false;
+    if (sk.scope === 'all') return true;
+    if (sk.scope === 'lane') return e.lane === f.lane;
+    if (sk.scope === 'reach') return canReach(f, e);
+    if (e.lane === f.lane) {
+      // 站后排也砸得到本路前排脚前的怪：从这一路最前面那个人往外量
+      const front = frontOf(state.team, f.lane)?.pos ?? f.pos;
+      return e.pos >= Math.min(f.pos, front) - SKILL_NEAR && e.pos <= f.pos + 0.6;
+    }
+    return Math.abs(e.lane - f.lane) === 1 && Math.abs(e.pos - f.pos) <= SKILL_NEAR_SIDE;
+  });
+}
+
+export function skillAllies(state: BattleState, f: Fighter, sk: SkillDef): Fighter[] {
+  if (!sk.ally) return [];
+  return state.team.filter((t) => {
+    if (!t.alive) return false;
+    if (sk.ally === 'self') return t === f;
+    if (sk.ally === 'lane') return t.lane === f.lane;
+    return true;
+  });
+}
+
+/**
+ * 自动放的规矩：**稳，但不精**。用得上就放，不会攒着等首领、不会等一路挤满。
+ * 一招有好几样效果的，哪一样用得上都算。
+ * 满了憋过 SKILL_WAIT_MS 还没等到好时机，打得着什么就放什么 —— 憋一整场比放歪了更糟。
+ * 手动的好处全在这儿 —— 挑时机，而不是数值加成。
+ */
+function skillWanted(state: BattleState, f: Fighter, sk: SkillDef): boolean {
+  const foes = skillFoes(state, f, sk);
+  // 定身、击退留到怪贴上来再用。半路上定住只会拖时间
+  if ((sk.stunMs || sk.push) && foes.some((e) => foeClose(state, e))) return true;
+  // 伤害招等怪贴上来、或者够得着的攒成一堆再砸：一招砸一片才看得出是绝活
+  if ((sk.dmg || sk.slowMs) && !(sk.stunMs || sk.push)
+    && (foes.some((e) => foeClose(state, e)) || foes.length >= 3)) return true;
+  const allies = skillAllies(state, f, sk);
+  if (sk.heal && allies.some((t) => t.hp / t.maxHp < 0.7)) return true;
+  if (sk.guard && allies.some((t) => t.hp / t.maxHp < 0.85)) return true;
+  if (sk.haste && foesAlive(state) >= 3) return true;
+  if (f.readyMs >= SKILL_WAIT_MS) return foes.length > 0 || (!hasFoeEffect(sk) && foesAlive(state) > 0);
+  return false;
+}
+
+function fireSkill(state: BattleState, f: Fighter, manual: boolean): void {
+  const sk = skillAt(f.def, f.evoStage);
+  const pow = skillPow(f.evoStage);
+  const power = skillPower(f.evoStage, f.stars);
+  f.energy = 0;
+  f.readyMs = 0;
+  state.skillsCast += 1;
+  state.castsBy[f.def.id] = (state.castsBy[f.def.id] ?? 0) + 1;
+  state.events.push({ kind: 'skill', uid: f.uid, manual });
+
+  for (const e of skillFoes(state, f, sk)) {
+    if (sk.dmg) {
+      const raw = effAtk(f) * sk.dmg * power;
+      const damage = foeTake(e, dmgOf(raw, e.armor, laneMul(f.def.lane, e.def.lane)));
+      e.hp -= damage;
+      state.skillDmg += damage;
+      if (!e.boss && e.hp > 0 && e.hp < e.maxHp * SKILL_EXECUTE) e.hp = 0;
+      const killed = e.hp <= 0;
+      state.events.push({ kind: 'skillHit', uid: f.uid, foeId: e.id, damage, killed });
+      if (killed) {
+        e.alive = false;
+        state.skillKills += 1;
+        state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
+        continue;
+      }
+    }
+    if (sk.slowMs && !e.def.steady) e.slowMs = Math.max(e.slowMs, sk.slowMs * pow);
+    // 自动放的定身、击退只落在已经到人跟前的怪身上。整路一起定，半路上的全被钉死，走不到人跟前
+    if (!manual && !foeClose(state, e)) continue;
+    const cc = e.boss || e.def.steady ? HARD_FOE_CC : 1;
+    if (sk.stunMs) e.stunMs = Math.max(e.stunMs, sk.stunMs * pow * cc);
+    if (sk.push) e.pos = Math.max(0, e.pos - sk.push * pow * cc);
+  }
+
+  for (const t of skillAllies(state, f, sk)) {
+    if (sk.heal) {
+      const amount = Math.min(t.maxHp - t.hp, Math.round(f.atk * sk.heal * power));
+      if (amount > 0) {
+        t.hp += amount;
+        state.events.push({ kind: 'heal', uid: f.uid, targetUid: t.uid, amount });
+      }
+    }
+    if (sk.guard) {
+      t.guardPct = Math.max(t.guardMs > 0 ? t.guardPct : 0, sk.guard);
+      t.guardMs = Math.max(t.guardMs, (sk.buffMs ?? 0) * pow);
+    }
+    if (sk.haste) {
+      t.hasteMul = Math.min(t.hasteMs > 0 ? t.hasteMul : 1, sk.haste);
+      t.hasteMs = Math.max(t.hasteMs, (sk.buffMs ?? 0) * pow);
+    }
+  }
+}
+
+/** 劲头满了吗 */
+export function skillReady(f: Fighter): boolean {
+  return f.alive && f.energy >= ENERGY_MAX;
+}
+
+/** 玩家点头像放绝活。劲头没满、人倒了、不在打都不放 */
+export function castSkill(state: BattleState, uid: string): boolean {
+  if (state.phase !== 'fighting') return false;
+  const f = state.team.find((t) => t.uid === uid);
+  if (!f || !skillReady(f)) return false;
+  fireSkill(state, f, true);
+  return true;
+}
+
+/** 这一刻算下来的时间轴位置。星评、超时、时间条都按它 */
+export function battleClockMs(state: Pick<BattleState, 'elapsedMs' | 'skippedMs'>): number {
+  return state.elapsedMs + state.skippedMs;
+}
+
+function tickBuffs(f: Fighter): void {
+  if (f.guardMs > 0) f.guardMs = Math.max(0, f.guardMs - TICK_MS);
+  if (f.hasteMs > 0) f.hasteMs = Math.max(0, f.hasteMs - TICK_MS);
+}
+
+/** 场上清空了，下一波别让人干等满 10 秒 */
+function callEarly(state: BattleState): void {
+  const next = state.schedule[state.spawnIdx];
+  if (!next || state.wave === 0 || next.wave <= state.wave) return;
+  if (state.foes.some((e) => e.alive)) return;
+  const wait = next.atMs - state.elapsedMs;
+  if (wait <= EARLY_CALL_MS) return;
+  const cut = wait - EARLY_CALL_MS;
+  for (let i = state.spawnIdx; i < state.schedule.length; i += 1) state.schedule[i]!.atMs -= cut;
+  state.skippedMs += cut;
 }
 
 /**
@@ -694,6 +926,8 @@ export function tick(state: BattleState): void {
 
   const { stage } = state;
 
+  callEarly(state);
+
   // 出怪
   while (state.spawnIdx < state.schedule.length
     && state.schedule[state.spawnIdx]!.atMs <= state.elapsedMs) {
@@ -702,7 +936,9 @@ export function tick(state: BattleState): void {
       state.wave = s.wave;
       state.events.push({ kind: 'waveStart', wave: s.wave });
     }
-    state.foes.push(newFoe(state, s.enemy, s.lane));
+    const foe = newFoe(state, s.enemy, s.lane, 0, s.boss);
+    state.foes.push(foe);
+    if (s.boss) state.events.push({ kind: 'bossIn', foeId: foe.id, lane: foe.lane });
     state.spawnIdx += 1;
   }
 
@@ -713,6 +949,10 @@ export function tick(state: BattleState): void {
   for (const e of state.foes) {
     if (!e.alive) continue;
     if (e.slowMs > 0) e.slowMs = Math.max(0, e.slowMs - TICK_MS);
+    if (e.stunMs > 0) {
+      e.stunMs = Math.max(0, e.stunMs - TICK_MS);
+      continue;
+    }
 
     // 破壳：血掉到一半，壳没了但跑得更快。只破一次
     if (e.def.crack && !e.cracked && e.hp <= e.maxHp * CRACK_HP) {
@@ -751,7 +991,7 @@ export function tick(state: BattleState): void {
       if (haltAt !== undefined && e.pos > haltAt) e.pos = haltAt;
       if (e.pos > GOAL_POS) {
         e.alive = false;
-        state.leaked += 1;
+        state.leaked += e.boss ? BOSS_LEAK : 1;
         state.events.push({ kind: 'leak', foeId: e.id, lane: e.lane });
         continue;
       }
@@ -763,6 +1003,10 @@ export function tick(state: BattleState): void {
         e.cd = e.def.interval;
         const atk = e.atk * (1 + e.atkPct);
         const damage = dmgOf(atk, target.armor, laneMul(e.def.lane, target.def.lane));
+        if (!e.swung) {
+          e.swung = true;
+          state.touched += 1;
+        }
         hurtVillager(state, target, e, damage);
       }
     }
@@ -778,24 +1022,39 @@ export function tick(state: BattleState): void {
   }
 
   // 村民动
+  const anyFoe = state.foes.some((e) => e.alive);
   for (const f of state.team) {
     if (!f.alive) continue;
     const kind = evoKindOf(f.def, f.evoStage);
     tickRegen(state, f, kind);
-    f.cd -= TICK_MS;
+    tickBuffs(f);
+    if (anyFoe) gainEnergy(f, (ENERGY_PER_S * TICK_MS) / 1000);
+    if (skillReady(f)) f.readyMs += TICK_MS;
+    if (state.autoSkill && skillReady(f) && skillWanted(state, f, skillAt(f.def, f.evoStage))) {
+      fireSkill(state, f, false);
+    }
+    f.cd -= f.hasteMs > 0 ? TICK_MS / f.hasteMul : TICK_MS;
     if (f.cd > 0) continue;
 
     const cdMul = dimmed.has(f.uid) ? 1 + dim[f.lane]! : 1;
 
     // 吸血奶（杀猪匠）靠砍人回血，不走独占治疗，否则局里永远看不见他动手
     if (f.def.role === 'heal' && kind !== 'lifesteal') {
-      if (tryHeal(state, f, kind, cdMul)) continue;
+      if (tryHeal(state, f, kind, cdMul)) {
+        gainEnergy(f, actEnergy(f));
+        continue;
+      }
     }
 
     const marks = pickFoes(f, state.foes, kind);
     if (marks.length === 0) continue;
     f.cd = f.interval * cdMul;
+    gainEnergy(f, actEnergy(f));
     for (const m of marks) strike(state, f, m.foe, m.mul, kind);
+  }
+
+  for (const f of state.team) {
+    state.lowHpFrac = Math.min(state.lowHpFrac, f.alive ? f.hp / f.maxHp : 0);
   }
 
   const alive = state.foes.filter((e) => e.alive).length;
@@ -811,14 +1070,14 @@ export function tick(state: BattleState): void {
       state.leaked,
       state.team.filter((f) => !f.alive).length,
       true,
-      state.elapsedMs,
+      battleClockMs(state),
       stage.parMs,
     );
     return;
   }
 
   state.elapsedMs += TICK_MS;
-  if (state.elapsedMs > stage.timeLimitMs) lose(state, 'timeout');
+  if (battleClockMs(state) > stage.timeLimitMs) lose(state, 'timeout');
 }
 
 /** 场上还剩几只没清掉 */
@@ -879,6 +1138,21 @@ export interface BattleResult {
   elapsedMs: number;
   /** 还剩几只没清掉 */
   leftAlive: number;
+  /** 放出来的外星人里砍中过人的比例 0..1 */
+  touchPct: number;
+  /** 最惨的那个人血掉到过几成 0..1，倒了算 0 */
+  lowHpFrac: number;
+  skillsCast: number;
+  bosses: number;
+  /** 大个子里冲到前排砍过人的有几只 */
+  bossSwung: number;
+  plainDmg: number;
+  skillDmg: number;
+  skillKills: number;
+  /** 每个村民放了几次，按村民 id */
+  castsBy: Record<string, number>;
+  /** 上场的村民 id */
+  squad: string[];
 }
 
 /**
@@ -891,8 +1165,10 @@ export function runBattle(
   stage: StageDef,
   place: readonly Placement[],
   villageMul = 1,
+  autoSkill = true,
 ): BattleResult {
   const state = createBattle(stage, [], place.length || 1, villageMul, place);
+  state.autoSkill = autoSkill;
   startFight(state);
 
   const guard = Math.ceil(stage.timeLimitMs / TICK_MS) + 64;
@@ -909,6 +1185,16 @@ export function runBattle(
     stars: state.stars,
     elapsedMs: state.elapsedMs,
     leftAlive: foesAlive(state),
+    touchPct: state.spawned > 0 ? state.touched / state.spawned : 0,
+    lowHpFrac: state.lowHpFrac,
+    bosses: state.foes.filter((e) => e.boss).length,
+    bossSwung: state.foes.filter((e) => e.boss && e.swung).length,
+    skillsCast: state.skillsCast,
+    plainDmg: state.plainDmg,
+    skillDmg: state.skillDmg,
+    skillKills: state.skillKills,
+    castsBy: state.castsBy,
+    squad: state.team.map((f) => f.def.id),
   };
 }
 

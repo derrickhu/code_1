@@ -24,7 +24,7 @@ import { SceneManager, type Scene } from '@/core/SceneManager';
 import { bindPointerTap } from '@/minigame';
 import { getTouchCanvas } from '@/utils/touchCanvas';
 import {
-  CELL_COUNT, FIELD_W, FIELD_X, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
+  CELL_COUNT, FIELD_W, FIELD_X, GOAL_POS, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
   battleFieldLay, cellPos, fieldEnemyH, fieldFightUnitH, hitDeployCell,
   laneScreenX, posScreenY,
 } from '@/balance/combat';
@@ -37,7 +37,7 @@ import {
 import { LeaveAskOverlay } from '@/ui/LeaveAskOverlay';
 import { ReviveOverlay } from '@/ui/ReviveOverlay';
 import { SettleOverlay } from '@/ui/SettleOverlay';
-import { CombatFx } from '@/fx/CombatFx';
+import { CombatFx, type SkillLook } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
 import { motionForSkin, UnitActor } from '@/fx/UnitActor';
 import { BATTLE_FX_IMAGES, battleFaceImages, battlePreloadImages, type HeroArtNeed } from '@/config/assetPreload';
@@ -61,13 +61,24 @@ import {
   GOLD, fillSprite, fitSprite, goldBtn, hpBar, ironSlab, label, painted, reachPoly,
 } from '@/ui/paint';
 import {
-  autoPlace, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin,
-  placeAt, placedOf, removeAt,
+  autoPlace, battleClockMs, castSkill, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin,
+  placeAt, placedOf, removeAt, skillAllies, skillReady,
   reviveAfterLeak, startFight, tick,
   type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
 import { marchLerp } from '@/game/march';
 import { canReach, reachOriginY, reachScreenPoly } from '@/game/reach';
+import { ENERGY_MAX, skillAt, skillOf, type SkillDef } from '@/balance/skills';
+import { PersistService } from '@/core/PersistService';
+import {
+  SKILL_TRAY_H, SkillCutIn, SkillTray, TRAY_AUTO_X, TRAY_BTN_R, TRAY_SPEED_X,
+  roundBtn, skillCard, trayRowY,
+} from '@/ui/battleSkillUi';
+
+const SPEED_KEY = 'battle_speed';
+const AUTO_KEY = 'battle_auto';
+/** 怪走过这条就算快漏了，那一路底线开始闪 */
+const LEAK_WARN_POS = GOAL_POS - 0.9;
 
 /**
  * 开打已经收进坞底，底线直接贴坞顶。
@@ -174,6 +185,24 @@ export class BattleScene implements Scene {
   private readonly _hurtFlash = new Map<string, number>();
   private readonly _lastFoeXY = new Map<number, { x: number; y: number; feetY: number; h: number }>();
 
+  /** 开打后底下那条：绝活头像 + 倍速 / 自动 */
+  private readonly _tray = new SkillTray();
+  private readonly _cutIn = new SkillCutIn();
+  private _speedBtn: PIXI.Container | null = null;
+  private _autoBtn: PIXI.Container | null = null;
+  private _speed = PersistService.readRaw(SPEED_KEY) === '2' ? 2 : 1;
+  private _auto = PersistService.readRaw(AUTO_KEY) !== '0';
+  private _pulseT = 0;
+  /** 本局放过绝活的人。自动放只在头一回出横切条，满屏横条会把战场盖掉 */
+  private readonly _castSeen = new Set<string>();
+  /** 绝活砸下去那一顿还剩多久，真实时间。只停战斗推进，演出照走 */
+  private _skillFreeze = 0;
+  /** 哪几路快漏了 → 还要闪多久。和提示的限频分开记 */
+  private readonly _dangerLane = new Map<number, number>();
+  private readonly _dangerSaidAt = new Map<number, number>();
+  /** 布阵时点开的那张绝活卡 */
+  private _card: PIXI.Container | null = null;
+
   /**
    * 布局按 logicHeight 算，不能用 designHeight。
    * designHeight 是写死的 1334；真机按宽度等比缩放，长屏可用高会到 1600+。
@@ -202,10 +231,13 @@ export class BattleScene implements Scene {
     this.container.addChild(this._arena);
     this.container.addChild(this._hud);
     this._computeLayout();
+    this._tray.visible = false;
+    this.container.addChild(this._tray);
     this.container.addChild(this._bench);
     this._ghost.eventMode = 'none';
     this._ghost.visible = false;
     this.container.addChild(this._ghost);
+    this.container.addChild(this._cutIn);
     this.container.addChild(this._revive);
     this.container.addChild(this._settle);
     this.container.addChild(this._leaveAsk);
@@ -281,6 +313,13 @@ export class BattleScene implements Scene {
     this._vitals.reset();
     this._clearHand();
     this._inspectUid = null;
+    this._closeCard();
+    this._dangerLane.clear();
+    this._dangerSaidAt.clear();
+    this._cutIn.reset();
+    this._castSeen.clear();
+    this._skillFreeze = 0;
+    this._state.autoSkill = this._auto;
 
     this._renderBench();
     this._syncPhaseUi();
@@ -299,6 +338,7 @@ export class BattleScene implements Scene {
     this._stripDetach?.();
     this._stripDetach = null;
     this._leaveAsk.hide();
+    this._closeCard();
     this._bench.destroyDock();
     BgmPlayer.stop();
   }
@@ -693,7 +733,7 @@ export class BattleScene implements Scene {
     this._syncPhaseUi();
     this._fx.markLand(laneScreenX(1), this._lay.goalY);
     playSfx('hero_land', 0);
-    this._say('开打');
+    this._say(this._auto ? '开打 · 绝活自动放，也能点底下头像' : '开打 · 头像亮了就点，放绝活');
   }
 
   /** 布阵和开打两套 UI 的开关集中在这儿，别散到各处去 */
@@ -705,6 +745,11 @@ export class BattleScene implements Scene {
       this._inspectUid = null;
     }
     this._bench.visible = placing;
+    if (!placing) this._closeCard();
+    const fighting = this._state.phase === 'fighting';
+    this._tray.visible = fighting;
+    if (this._speedBtn) this._speedBtn.visible = fighting;
+    if (this._autoBtn) this._autoBtn.visible = fighting;
     if (this._startBtn) {
       this._startBtn.visible = placing;
       if (placing) this.container.addChild(this._startBtn);
@@ -721,11 +766,15 @@ export class BattleScene implements Scene {
 
   /* ---------------- 主循环 ---------------- */
 
-  update(dt: number): void {
+  update(realDt: number): void {
+    this._cutIn.update(realDt);
     if (this._chromeBusy()) {
-      this._fx.update(dt);
+      this._fx.update(realDt);
       return;
     }
+    // 倍速只快战斗本身。横切条、提示按真实时间走，快进时照样念得完
+    const dt = this._state.phase === 'fighting' ? realDt * this._speed : realDt;
+    this._pulseT += realDt;
 
     // 顿帧只给受击那一下留残影，不许冻整条行军。
     // 分路塔防里每秒十几下，冻世界就是「走下来一会停顿一下」。
@@ -733,9 +782,11 @@ export class BattleScene implements Scene {
       this._fx.hitStop = Math.max(0, this._fx.hitStop - dt);
     }
 
-    if (this._state.phase === 'fighting') {
+    const frozen = this._skillFreeze > 0;
+    this._skillFreeze = Math.max(0, this._skillFreeze - realDt);
+    if (this._state.phase === 'fighting' && !frozen) {
       this._accMs += dt * 1000;
-      while (this._accMs >= TICK_MS && this._state.phase === 'fighting') {
+      while (this._accMs >= TICK_MS && this._state.phase === 'fighting' && this._skillFreeze <= 0) {
         this._accMs -= TICK_MS;
         for (const e of this._state.foes) {
           if (e.alive) this._prevPos.set(e.id, e.pos);
@@ -747,8 +798,12 @@ export class BattleScene implements Scene {
     }
 
     this._fx.update(dt);
+    const sh = this._fx.shakePx;
+    this._arena.position.set(sh > 0 ? (Math.random() - 0.5) * 2 * sh : 0, sh > 0 ? (Math.random() - 0.5) * 2 * sh : 0);
     this._tickFlash(dt);
-    this._tickGuide(dt);
+    this._tickGuide(realDt);
+    this._tickDanger(realDt);
+    if (this._tray.visible) this._tray.sync(this._state.team, 0.5 + 0.5 * Math.sin(this._pulseT * 7));
     this._drawField();
     this._drawUnits(this._accMs / TICK_MS);
     this._updateHud();
@@ -758,6 +813,24 @@ export class BattleScene implements Scene {
 
     if ((this._state.phase === 'won' || this._state.phase === 'lost') && !this._fx.busy()) {
       this._endRun();
+    }
+  }
+
+  /** 没人拦、又快走到底线的怪：那一路底线闪红，隔几秒念一句 */
+  private _tickDanger(dt: number): void {
+    for (const [lane, v] of this._dangerLane) {
+      if (v - dt <= 0) this._dangerLane.delete(lane);
+      else this._dangerLane.set(lane, v - dt);
+    }
+    if (this._state.phase !== 'fighting') return;
+    const now = this._pulseT;
+    for (const e of this._state.foes) {
+      if (!e.alive || e.pos < LEAK_WARN_POS) continue;
+      if (foeHaltPos(e, this._state.team) !== undefined) continue;
+      this._dangerLane.set(e.lane, 0.6);
+      if (now - (this._dangerSaidAt.get(e.lane) ?? -99) < 4) continue;
+      this._dangerSaidAt.set(e.lane, now);
+      this._say(`${'左中右'[e.lane] ?? '中'}路要漏了！`);
     }
   }
 
@@ -772,6 +845,40 @@ export class BattleScene implements Scene {
   /* ---------------- 事件 → 特效 ---------------- */
 
   private _consumeEvents(): void {
+    const tally = new Map<string, { hits: number; kills: number; total: number; x: number; y: number; stun: boolean }>();
+    this._consumeEventList(tally);
+    for (const t of tally.values()) {
+      this._fx.skillTally(t.x, t.y, t.hits, t.kills, t.total);
+      if (t.hits > 0) this._skillFreeze = Math.max(this._skillFreeze, t.kills >= 3 ? 0.14 : 0.08);
+    }
+  }
+
+  /** 招式本体画在哪：整路打的铺满这一路，身边的落在脚下，全场的落在战场正中，只管自己人的落在每个人身上 */
+  private _skillArea(f: Fighter, sk: SkillDef, p: { x: number; y: number; h: number }): void {
+    const onFoes = !!(sk.dmg || sk.stunMs || sk.push || sk.slowMs);
+    if (onFoes) {
+      const look: SkillLook = sk.scope === 'lane' ? 'lane' : sk.scope === 'all' ? 'burst' : 'shock';
+      const midY = (this._lay.spawnY + this._lay.goalY) / 2;
+      this._fx.skillArea(
+        look,
+        look === 'burst' ? 375 : p.x,
+        look === 'burst' ? midY : p.y - p.h * 0.3,
+        { top: this._lay.spawnY, bottom: p.y },
+      );
+    }
+    const allies = skillAllies(this._state, f, sk);
+    if (allies.length === 0) return;
+    if (!onFoes) this._fx.skillArea('heal', p.x, p.y - p.h * 0.4);
+    const tint = sk.heal ? 0x86efac : sk.guard ? 0xffd66b : 0x7dd3fc;
+    for (const t of allies) {
+      const tp = this._villagerXY(t);
+      this._fx.skillBuff(tp.x, tp.y - tp.h * 0.4, tint);
+    }
+  }
+
+  private _consumeEventList(
+    tally: Map<string, { hits: number; kills: number; total: number; x: number; y: number; stun: boolean }>,
+  ): void {
     for (const ev of this._state.events) {
       if (ev.kind === 'waveStart') {
         if (ev.wave > this._waveTold) {
@@ -882,6 +989,48 @@ export class BattleScene implements Scene {
         continue;
       }
 
+      if (ev.kind === 'skill') {
+        const f = this._state.team.find((x) => x.uid === ev.uid);
+        if (!f) continue;
+        const p = this._villagerXY(f);
+        const sk = skillAt(f.def, f.evoStage);
+        this._fx.skillCast(p.x, p.y - p.h * 0.5, sk.name, LANE_TINT[f.def.lane] ?? GOLD);
+        this._actorFor(f).flash(260);
+        this._skillArea(f, sk, p);
+        tally.set(f.uid, { hits: 0, kills: 0, total: 0, x: p.x, y: p.y - p.h - 40, stun: !!sk.stunMs });
+        if (ev.manual || !this._castSeen.has(f.uid)) {
+          this._cutIn.show(f, this._lay.height, this._speed > 1);
+          this.container.addChild(this._cutIn);
+          this.container.addChild(this._leaveAsk);
+        }
+        this._castSeen.add(f.uid);
+        continue;
+      }
+
+      if (ev.kind === 'skillHit') {
+        const e = this._state.foes.find((x) => x.id === ev.foeId);
+        const ep = e ? this._foeXY(e) : this._lastFoeXY.get(ev.foeId);
+        if (!ep) continue;
+        const t = tally.get(ev.uid);
+        if (t) {
+          t.hits += 1;
+          t.total += ev.damage;
+          if (ev.killed) t.kills += 1;
+        }
+        this._vitals.seed(`e${ev.foeId}`, e?.maxHp ?? ev.damage, 0);
+        this._vitals.landEnemy(`e${ev.foeId}`, ev.damage);
+        this._foeActors.get(ev.foeId)?.flash(220);
+        this._fx.skillHit(ep.x, ep.y - ep.h * 0.5, ev.damage, ev.killed, !!t?.stun && !!e && e.stunMs > 0);
+        continue;
+      }
+
+      if (ev.kind === 'bossIn') {
+        this._say(`大个子来了！${'左中右'[ev.lane] ?? '中'}路顶住`);
+        this._fx.floatText('大个子来了！', laneScreenX(ev.lane), this._lay.spawnY + 40, 0xff7a5a, 30);
+        playSfx('enemy_beam', 0);
+        continue;
+      }
+
       if (ev.kind === 'leak') {
         // 漏怪的反馈钉在那条路的底线上，玩家才知道是哪一路漏的
         this._fx.consume(ev, { hx: laneScreenX(ev.lane), hy: this._lay.goalY });
@@ -895,7 +1044,7 @@ export class BattleScene implements Scene {
 
   private _computeLayout(): void {
     const height = Game.logicHeight;
-    const chrome = battleHudLay(Game.safeTop, height);
+    const chrome = battleHudLay(Game.safeTop, height, Game.safeHeaderCenterY);
     const { spawnY, goalY } = battleFieldLay({
       chromeBottom: chrome.barBottom,
       height,
@@ -934,7 +1083,8 @@ export class BattleScene implements Scene {
     const y = posScreenY(pos, this._lay.spawnY, this._lay.goalY);
     // 同一路上的怪按 id 微微错开，不然一队铁罐会叠成一个
     const x = laneScreenX(e.lane) + (((e.id * 37) % 5) - 2) * 8;
-    const p = { x, y, feetY: y, h: fieldEnemyH(e.def.id, this._unitH) };
+    const h = fieldEnemyH(e.def.id, this._unitH) * (e.boss ? 1.6 : 1);
+    const p = { x: e.boss ? laneScreenX(e.lane) : x, y, feetY: y, h };
     this._lastFoeXY.set(e.id, p);
     return p;
   }
@@ -991,6 +1141,12 @@ export class BattleScene implements Scene {
     // 开打后坞收掉，底线要看得见。布阵时沙袋就是门槛，别再横一条红杠
     if (!placing) {
       g.beginFill(0x8b2e1f, 0.92).drawRect(FIELD_X, goalY - 3, FIELD_W, 6).endFill();
+      const blink = 0.45 + 0.45 * Math.sin(this._pulseT * 14);
+      for (const lane of this._dangerLane.keys()) {
+        const x0 = FIELD_X + lane * LANE_W;
+        g.beginFill(0xff3a2a, blink).drawRect(x0 + 6, goalY - 5, LANE_W - 12, 10).endFill();
+        g.beginFill(0xff3a2a, blink * 0.25).drawRect(x0 + 6, goalY - 60, LANE_W - 12, 55).endFill();
+      }
     }
     this._drawInspect(g);
     this._drawThreshold(g, goalY, this._lay.height, placing);
@@ -1005,6 +1161,22 @@ export class BattleScene implements Scene {
     if (!p) return;
     if (this._inRect(p, this._leaveRect())) {
       this._askLeave();
+      return;
+    }
+    if (this._tray.visible && p.y >= this._tray.top - 10) {
+      const btn = this._hitTrayBtn(p);
+      if (btn === 'speed') this._toggleSpeed();
+      else if (btn === 'auto') this._toggleAuto();
+      else {
+        const uid = this._tray.hit(p.x, p.y);
+        if (uid) {
+          // 上一步 tick 的事件已经演过了，清掉再放，不然会重演一遍
+          this._state.events.length = 0;
+          if (castSkill(this._state, uid)) this._consumeEvents();
+          else this._say(`${skillOf(this._state.team.find((f) => f.uid === uid)!.def).name}还没攒满`);
+          this._state.events.length = 0;
+        }
+      }
       return;
     }
     const hit = this._hitFighter(p.x, p.y);
@@ -1260,6 +1432,7 @@ export class BattleScene implements Scene {
 
     // 布阵阶段画的是 placed（还没变成 Fighter），开打后画 team
     if (this._placing()) {
+      this._syncCard();
       for (const p of this._state.placed) {
         const h = this._unitH;
         const x = laneScreenX(p.lane);
@@ -1319,7 +1492,7 @@ export class BattleScene implements Scene {
       if (e.alive) {
         const p = this._foeXY(e, frac);
         const haltAt = foeHaltPos(e, this._state.team);
-        a.walkBob = haltAt === undefined || e.pos < haltAt - 0.02;
+        a.walkBob = e.stunMs <= 0 && (haltAt === undefined || e.pos < haltAt - 0.02);
         a.place(p.x, p.feetY, p.h);
         this._foeHp(e, p.x, p.feetY, p.h);
       } else {
@@ -1348,6 +1521,34 @@ export class BattleScene implements Scene {
     this._unitLayer.children.sort((a, b) => a.y - b.y);
   }
 
+  /**
+   * 布阵时点开谁，就在他对面那半边弹绝活卡。
+   * 卡摆在另一侧，不挡他自己那一路的射程格。
+   */
+  private _syncCard(): void {
+    const uid = this._draggingId() ? null : this._inspectUid;
+    const p = uid ? this._state.placed.find((x) => x.villager.id === uid) : undefined;
+    if (!p) {
+      this._closeCard();
+      return;
+    }
+    if (this._card?.name === p.villager.id) return;
+    this._closeCard();
+    const card = skillCard(p.villager, p.evoStage, p.stars);
+    card.name = p.villager.id;
+    const x = p.lane === 0 ? 750 - 16 - card.width : 16;
+    const benchTop = this._lay.height - Game.safeBottom - BENCH_H;
+    const y = Math.max(this._lay.top + 70, Math.min(benchTop - card.height - 12, this._standY(p.cell) - card.height - 40));
+    card.position.set(x, y);
+    this.container.addChildAt(card, this.container.getChildIndex(this._bench));
+    this._card = card;
+  }
+
+  private _closeCard(): void {
+    this._card?.destroy({ children: true });
+    this._card = null;
+  }
+
   private _reapActors(live: ReadonlySet<string>): void {
     for (const [uid, a] of [...this._villagerActors]) {
       if (live.has(uid)) continue;
@@ -1374,7 +1575,27 @@ export class BattleScene implements Scene {
     const g = new PIXI.Graphics();
     // 条走观战层的血，不走引擎的血：弹体还在飞的时候不许先掉
     const shown = this._vitals.shown(f.uid, { hp: f.hp, extra: 0 });
-    hpBar(g, x, feetY - h - 10, Math.max(40, Math.round(h * 0.56)), shown.hp / f.maxHp, 0x86efac, 4);
+    const barW = Math.max(40, Math.round(h * 0.56));
+    hpBar(g, x, feetY - h - 10, barW, shown.hp / f.maxHp, 0x86efac, 4);
+    // 劲头条贴在血条下面。满了变金、跳一跳，手动模式下就是「该点我了」
+    const full = skillReady(f);
+    const ey = feetY - h - 4;
+    g.beginFill(0x000000, 0.55).drawRect(x - barW / 2, ey, barW, 3).endFill();
+    const glow = full ? 0.7 + 0.3 * Math.sin(this._pulseT * 9) : 0.9;
+    g.beginFill(full ? 0xffe08a : 0xd9a441, glow)
+      .drawRect(x - barW / 2, ey, barW * Math.min(1, f.energy / ENERGY_MAX), 3).endFill();
+    if (full && !this._auto) {
+      g.lineStyle(2, GOLD, glow).drawCircle(x, feetY - h - 26, 9).lineStyle(0);
+      g.beginFill(GOLD, glow).drawCircle(x, feetY - h - 26, 4).endFill();
+    }
+    if (f.guardMs > 0) {
+      g.lineStyle(2, 0x9ecbff, 0.55).drawEllipse(x, feetY - h * 0.45, h * 0.36, h * 0.56).lineStyle(0);
+    }
+    if (f.hasteMs > 0) {
+      g.beginFill(0xffd66b, 0.85).drawPolygon([
+        x - barW / 2 - 10, feetY - h - 12, x - barW / 2 - 4, feetY - h - 8, x - barW / 2 - 10, feetY - h - 4,
+      ]).endFill();
+    }
     this._nameLayer.addChild(g);
     const t = label(13, f.alive ? 0xfff4c4 : 0x8a8a92, true);
     t.anchor.set(0.5);
@@ -1388,11 +1609,28 @@ export class BattleScene implements Scene {
   private _foeHp(e: Foe, x: number, feetY: number, h: number): void {
     const g = new PIXI.Graphics();
     const shown = this._vitals.shown(`e${e.id}`, { hp: e.alive ? e.maxHp : 0, extra: 0 });
-    hpBar(g, x, feetY - h - 8, Math.max(32, Math.round(h * 0.5)), shown.hp / e.maxHp, 0xff8a6a, 4);
+    const w = e.boss ? Math.max(96, Math.round(h * 0.8)) : Math.max(32, Math.round(h * 0.5));
+    hpBar(g, x, feetY - h - 8, w, shown.hp / e.maxHp, e.boss ? 0xff5a3a : 0xff8a6a, e.boss ? 8 : 4);
     if (e.slowMs > 0) {
-      g.beginFill(0x86efac, 0.8).drawCircle(x + Math.round(h * 0.28), feetY - h - 6, 3).endFill();
+      g.beginFill(0x86efac, 0.8).drawCircle(x + Math.round(w * 0.56), feetY - h - 6, 3).endFill();
+    }
+    if (e.alive && e.stunMs > 0) {
+      // 定住：头顶转三颗星
+      const t = this._pulseT * 5;
+      for (let i = 0; i < 3; i += 1) {
+        const a = t + (i * Math.PI * 2) / 3;
+        g.beginFill(0xffe08a, 0.95)
+          .drawCircle(x + Math.cos(a) * h * 0.22, feetY - h - 18 + Math.sin(a) * 4, 3).endFill();
+      }
     }
     this._nameLayer.addChild(g);
+    if (e.boss && e.alive) {
+      const t = painted(16, 0xffb09a, '#1a1008', 3);
+      t.anchor.set(0.5, 1);
+      t.position.set(x, feetY - h - 14);
+      t.text = '大个子';
+      this._nameLayer.addChild(t);
+    }
   }
 
   private _clearActors(): void {
@@ -1634,8 +1872,56 @@ export class BattleScene implements Scene {
       this._leaveBtn.position.set(lay.cx, lay.cy);
       this.container.addChild(this._leaveBtn);
     }
+    this._tray.place(this._trayTop());
+    this._rebuildTrayBtns();
     this._syncLeaveBtn();
     this._updateHud();
+  }
+
+  /** 绝活栏顶。按开打后的底线算，布阵时这条不显示 */
+  private _trayTop(): number {
+    return this._lay.height - Game.safeBottom - SKILL_TRAY_H;
+  }
+
+  private _rebuildTrayBtns(): void {
+    this._speedBtn?.destroy({ children: true });
+    this._autoBtn?.destroy({ children: true });
+    const cy = trayRowY(this._trayTop());
+    this._speedBtn = roundBtn(`×${this._speed}`, this._speed > 1);
+    this._speedBtn.position.set(TRAY_SPEED_X, cy);
+    this._autoBtn = roundBtn('自动', this._auto, this._auto ? 0x86efac : 0x5a4030);
+    this._autoBtn.position.set(TRAY_AUTO_X, cy);
+    const fighting = this._state.phase === 'fighting';
+    this._speedBtn.visible = fighting;
+    this._autoBtn.visible = fighting;
+    this.container.addChildAt(this._speedBtn, this.container.getChildIndex(this._tray) + 1);
+    this.container.addChildAt(this._autoBtn, this.container.getChildIndex(this._tray) + 1);
+  }
+
+  private _hitTrayBtn(p: { x: number; y: number }): 'speed' | 'auto' | null {
+    const cy = trayRowY(this._trayTop());
+    const r = TRAY_BTN_R + 16;
+    const near = (cx: number): boolean => (p.x - cx) ** 2 + (p.y - cy) ** 2 <= r * r;
+    if (near(TRAY_SPEED_X)) return 'speed';
+    if (near(TRAY_AUTO_X)) return 'auto';
+    return null;
+  }
+
+  private _toggleSpeed(): void {
+    this._speed = this._speed > 1 ? 1 : 2;
+    PersistService.writeRaw(SPEED_KEY, String(this._speed));
+    playSfx('ui_tap', 0);
+    this._rebuildTrayBtns();
+  }
+
+  /** 自动关掉以后劲头照攒，满了在栏里亮着等玩家点 */
+  private _toggleAuto(): void {
+    this._auto = !this._auto;
+    this._state.autoSkill = this._auto;
+    PersistService.writeRaw(AUTO_KEY, this._auto ? '1' : '0');
+    playSfx('ui_tap', 0);
+    this._say(this._auto ? '绝活自动放' : '绝活手动放：头像亮了就点');
+    this._rebuildTrayBtns();
   }
 
   private _clearHudBits(): void {
@@ -1786,7 +2072,7 @@ export class BattleScene implements Scene {
 
     this._hintText.visible = false;
     // 超时只是兜底，细线贴在顶板下沿，不占一块经验槽
-    const frac = Math.min(1, s.elapsedMs / s.stage.timeLimitMs);
+    const frac = Math.min(1, battleClockMs(s) / s.stage.timeLimitMs);
     this._timeBar.clear();
     const y = chrome.barBottom - 8;
     this._timeBar.beginFill(0x000000, 0.35)

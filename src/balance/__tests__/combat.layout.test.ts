@@ -47,7 +47,8 @@ describe('局内棋盘几何（3 路 × 4 格，人站满）', () => {
     const fightH = fieldFightUnitH(args);
     const place = battleFieldLay({ ...args, placing: true });
     expect(fightH).toBeGreaterThan(fieldVillagerH(place.spawnY, place.goalY));
-    expect(fightH).toBeGreaterThan(70);
+    // 底下让给了绝活栏，1334 这种短屏上压到 67 左右，再矮就认不出脸
+    expect(fightH).toBeGreaterThan(66);
   });
 
   it('空场映射到上 6 行，人站底下 4 格', () => {

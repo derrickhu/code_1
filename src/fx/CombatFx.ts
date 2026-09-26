@@ -52,7 +52,11 @@ interface ShotBit {
 interface FlashBit {
   text: PIXI.Text;
   life: number;
+  max: number;
 }
+
+/** 招式本体长什么样：整路光带 / 身边冲击环 / 全场闪白 / 给自己人的光柱 */
+export type SkillLook = 'lane' | 'shock' | 'burst' | 'heal';
 
 interface FlyBit {
   g: PIXI.Graphics;
@@ -76,6 +80,8 @@ export class CombatFx {
   downPulse = 0;
   landPulse = 0;
   hitStop = 0;
+  /** 当前震屏幅度，像素。场景拿去抖战场，这里只负责衰减 */
+  shakePx = 0;
   private _meleeRadius = 72;
   private readonly _waits: { t: number; fn: () => void }[] = [];
   private readonly _gate = new ImpactGate();
@@ -89,6 +95,7 @@ export class CombatFx {
     this.downPulse = 0;
     this.landPulse = 0;
     this.hitStop = 0;
+    this.shakePx = 0;
     this._kit.reset();
     for (const f of this._floats) f.text.destroy();
     for (const s of this._shots) {
@@ -246,6 +253,101 @@ export class CombatFx {
     }
   }
 
+  /** 绝活起手：脚下两圈金光往外炸，头顶飘招名 */
+  skillCast(x: number, y: number, name: string, tint: number): void {
+    this._kit.ring(x, y, 0xffd66b, 0.5);
+    this._kit.plate('ring', x, y + 20, { tint: 0xffe08a, s0: 0.2, s1: 0.9, sy0: 0.08, sy1: 0.36, life: 0.45, a0: 0.95 });
+    this._kit.plate('flash', x, y, { tint: 0xffffff, s0: 0.4, s1: 0.9, life: 0.3, add: false });
+    this._kit.spray(x, y, { n: 16, tint, kind: 'glow', speed: 170, gy: -40 });
+    this._spawnInstallFloat(`${name}！`, x, y - 70);
+    playSfx('sk_cast', 60);
+    buzz('light');
+  }
+
+  /**
+   * 招式本体，按打到哪儿分四种：整路一道光带、身边一圈冲击、全场闪白、给自己人的光柱。
+   * 画在命中之前，玩家先看见「这一招罩住了哪块地」，再看见数字。
+   */
+  skillArea(look: SkillLook, x: number, y: number, span?: { top: number; bottom: number }): void {
+    if (look === 'lane' && span) {
+      const tex = vfxTex('sk_lane');
+      const h = span.bottom - span.top;
+      const sx = 120 / Math.max(1, tex?.width ?? 227) / 0.66;
+      const sy = h / Math.max(1, tex?.height ?? 388) / 0.66;
+      const mid = (span.top + span.bottom) / 2;
+      this._kit.plate('sk_lane', x, mid, { s0: sx * 0.6, s1: sx * 1.1, sy0: sy, sy1: sy, life: 0.5, add: false });
+      this._kit.plate('streak', x, mid, { tint: 0xffe08a, rot: Math.PI / 2, s0: h / 180, s1: h / 160, sy0: 0.6, sy1: 0.2, life: 0.35 });
+      for (let i = 0; i < 5; i += 1) {
+        this._kit.spray(x, span.top + (h * (i + 0.5)) / 5, { n: 5, tint: 0xffb040, kind: 'spark', speed: 160 });
+      }
+      this.shake(6);
+      playSfx('sk_lane', 60);
+      return;
+    }
+    if (look === 'shock') {
+      this._kit.plate('sk_shock', x, y, { s0: 0.45, s1: 0.9, life: 0.5, add: false });
+      this._kit.plate('ring', x, y + 16, { tint: 0xffd66b, s0: 0.4, s1: 1.8, sy0: 0.16, sy1: 0.7, life: 0.4 });
+      this.shake(9);
+      playSfx('sk_shock', 60);
+      return;
+    }
+    if (look === 'burst') {
+      this._kit.plate('sk_burst', x, y, { s0: 0.8, s1: 2.4, life: 0.55, add: false, a0: 1 });
+      this._kit.plate('flash', x, y, { tint: 0xffffff, s0: 3, s1: 6, life: 0.24, a0: 0.9 });
+      this.shake(14);
+      playSfx('sk_burst', 60);
+      buzz('heavy');
+      return;
+    }
+    if (look === 'heal') {
+      this._kit.plate('sk_heal', x, y - 20, { s0: 0.4, s1: 0.62, sy0: 0.5, sy1: 0.8, life: 0.6, add: false });
+      playSfx('sk_heal', 120);
+    }
+  }
+
+  /** 给自己人上的是护住、加速：同一根光柱换个颜色 */
+  skillBuff(x: number, y: number, tint: number): void {
+    this._kit.plate('sk_heal', x, y - 20, { tint, s0: 0.36, s1: 0.56, sy0: 0.45, sy1: 0.72, life: 0.55, add: false });
+    this._kit.spray(x, y, { n: 6, tint, kind: 'glow', speed: 70, gy: -60 });
+  }
+
+  /** 绝活砸在一只怪身上。比普攻大两号、金色、带一顿 */
+  skillHit(x: number, y: number, damage: number, killed: boolean, stun = false): void {
+    this._kit.plate('blast', x, y, { tint: 0xffe08a, s0: 0.3, s1: killed ? 0.7 : 0.5, life: 0.32 });
+    this._kit.spray(x, y, { n: killed ? 14 : 8, tint: 0xffb040, kind: 'spark', speed: killed ? 240 : 160, gy: 30 });
+    if (stun) {
+      this._kit.plate('sk_stun', x, y - 6, { s0: 0.22, s1: 0.3, life: 0.7, add: false, a0: 1 });
+      playSfx('sk_stun', 90);
+    }
+    if (damage > 0) {
+      this._spawnPlainFloat(`-${Math.round(damage)}`, x, y - 10, 0xffe066, killed ? 32 : 28, 0.7, 1.3);
+    }
+    this.hitStop = Math.max(this.hitStop, killed ? 0.09 : 0.06);
+    playSfx('hit_blast', 70);
+  }
+
+  /** 一招收尾：打中几只合计多少，带走三只以上单独喊一声 */
+  skillTally(x: number, y: number, hits: number, kills: number, total: number): void {
+    if (kills >= 3) {
+      this._spawnFlash(`一招带走 ${kills} 只！`, x, y, 34, 0.9);
+      this.shake(10);
+      playSfx('sk_multi', 200);
+      buzz('heavy');
+      return;
+    }
+    if (hits >= 2) this._spawnPlainFloat(`共 ${Math.round(total)}`, x, y, 0xffe08a, 26, 0.8, 1.2);
+  }
+
+  /** 震一下屏。叠加取大，不累加，免得连招把画面震散 */
+  shake(px: number): void {
+    this.shakePx = Math.max(this.shakePx, px);
+  }
+
+  /** 飘一行字，定住、护住、快漏了这种 */
+  floatText(msg: string, x: number, y: number, color: number, size = 18): void {
+    this._spawnPlainFloat(msg, x, y, color, size, 0.5);
+  }
+
   markLand(x?: number, y?: number): void {
     this.landPulse = 0.28;
     if (x !== undefined && y !== undefined) {
@@ -258,6 +360,7 @@ export class CombatFx {
   update(dt: number): void {
     this.downPulse = Math.max(0, this.downPulse - dt);
     this.landPulse = Math.max(0, this.landPulse - dt);
+    this.shakePx = this.shakePx < 0.5 ? 0 : this.shakePx * Math.exp(-dt * 14);
     for (let i = this._waits.length - 1; i >= 0; i -= 1) {
       const w = this._waits[i];
       if (!w) continue;
@@ -318,7 +421,9 @@ export class CombatFx {
       if (!s) continue;
       s.life -= dt;
       s.text.y -= 18 * dt;
-      s.text.alpha = Math.max(0, s.life / 0.4);
+      s.text.alpha = Math.min(1, Math.max(0, s.life / Math.min(0.4, s.max)));
+      const t = 1 - s.life / s.max;
+      s.text.scale.set(t < 0.12 ? 1.5 - (t / 0.12) * 0.5 : 1);
       if (s.life <= 0) {
         s.text.destroy();
         this._flashes.splice(i, 1);
@@ -752,19 +857,19 @@ export class CombatFx {
     this._floats.push({ text, life: 0.7, max: 0.7, vy: -90, pop: 1.12 });
   }
 
-  private _spawnFlash(name: string, x: number, y: number): void {
+  private _spawnFlash(name: string, x: number, y: number, size = 22, life = 0.4): void {
     const text = new PIXI.Text(name, {
       fontFamily: 'sans-serif',
-      fontSize: 22,
+      fontSize: size,
       fontWeight: 'bold',
       fill: 0xffd66b,
       stroke: 0x0b0f18,
-      strokeThickness: 4,
+      strokeThickness: Math.max(4, Math.round(size * 0.2)),
     });
     text.anchor.set(0.5);
     text.position.set(x, y);
     this.layer.addChild(text);
-    this._flashes.push({ text, life: 0.4 });
+    this._flashes.push({ text, life, max: life });
   }
 }
 

@@ -1,0 +1,9 @@
+Game VFX sprite sheet, 3 columns x 2 rows, 6 equal panels, each panel one isolated effect centered on a flat solid pure magenta (#FF00FF) background, generous empty margin around each effect, no panel borders.
+Art style: hand-painted cartoon mobile game VFX, bold dark-brown outlines, warm saturated colors, chunky shapes, junkyard / scrap-metal village theme, matches the reference images (starburst with scrap chips, rusty debris, beige dust puffs).
+Panel 1 (top-left): a tall vertical column of golden-orange energy light, like a lightning-lit shockwave streak shooting straight up, with flying rusty nuts, bolts and scrap chips along its sides. Very tall and narrow.
+Panel 2 (top-middle): a flat ground shockwave ring seen from a 3/4 top-down angle, a wide ellipse of cracking golden impact light with beige dust clouds and scrap chunks bursting outward.
+Panel 3 (top-right): a huge round radial starburst flash, bright cream-white core, golden and orange spiky rays in all directions, small sparkles, the biggest brightest effect.
+Panel 4 (bottom-left): a stun effect: a tangled rope fishing net with three small yellow cartoon stars and swirl lines circling above it.
+Panel 5 (bottom-middle): a healing effect: a vertical soft green light pillar with rising green sparkles, small leaves and plus-shaped glints.
+Panel 6 (bottom-right): a protective dome: a translucent golden hemisphere shield made of riveted scrap-metal pot-lid plates with a bright rim glow.
+NO TEXT, no labels, no captions, no writing, no numbers anywhere in the image. No characters, no people.

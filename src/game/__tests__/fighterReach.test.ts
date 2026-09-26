@@ -33,6 +33,12 @@ function fighter(id: string, lane: number, cell: number, evo = 1): Fighter {
     stoodUp: false,
     burstUsed: false,
     regenCd: 0,
+    energy: 0,
+    readyMs: 0,
+    guardPct: 0,
+    guardMs: 0,
+    hasteMul: 1,
+    hasteMs: 0,
   };
 }
 

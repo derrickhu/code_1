@@ -42,6 +42,13 @@ export const SFX_FILE: Readonly<Record<string, string>> = {
   atk_orb: 'audio/atk_orb.mp3',
   hit_orb: 'audio/hit_orb.mp3',
   enemy_claw: 'audio/enemy_claw.mp3',
+  sk_cast: 'audio/sk_cast.mp3',
+  sk_lane: 'audio/sk_lane.mp3',
+  sk_shock: 'audio/sk_shock.mp3',
+  sk_burst: 'audio/sk_burst.mp3',
+  sk_stun: 'audio/sk_stun.mp3',
+  sk_heal: 'audio/sk_heal.mp3',
+  sk_multi: 'audio/sk_multi.mp3',
 };
 
 /** 没单独出文件的签名，直接用已有音，不发空路径 */

@@ -40,6 +40,7 @@ import {
 import {
   CRAFT_MAX, DEFAULT_SQUAD, STAR_MAX, VILLAGERS, getVillager, type Role,
 } from '@/balance/villagers';
+import { SKILLS } from '@/balance/skills';
 
 /** 可写的 Progress，跑模拟时用 */
 interface Live {
@@ -460,6 +461,25 @@ export interface SweepStats {
   byChapter: number[];
   /** smart 打不过的关 */
   walls: string[];
+  /** 手感：smart 胜局里外星人出手率、最惨一人的血、倒过人的比例、漏了还赢的比例，都是百分数 */
+  winTouchPct: number;
+  winLowHpPct: number;
+  winFallPct: number;
+  winLeakPct: number;
+  /** 大个子冲到前排的比例 */
+  bossContactPct: number;
+  /** 绝活打的血占总伤害的百分比：全部 / 前一半关 / 后一半关 */
+  skillSharePct: number;
+  skillShareEarlyPct: number;
+  skillShareLatePct: number;
+  /** 每人每场放几次 */
+  castsPerFighter: number;
+  /** 全队平均几秒放一招 */
+  secsPerCast: number;
+  /** 平均每招带走几只（只算带伤害的招） */
+  killsPerCast: number;
+  /** 每招每上场一次放几次，按村民 id */
+  perSkill: Record<string, number>;
 }
 
 export function sweepStats(probes: readonly StageProbe[]): SweepStats {
@@ -473,6 +493,29 @@ export function sweepStats(probes: readonly StageProbe[]): SweepStats {
     if (p.smart.stars >= 1) stars[p.smart.stars - 1] += 1;
   }
   const wn = Math.max(1, smartWins.length);
+
+  const share = (ps: readonly StageProbe[]): number => {
+    const skill = ps.reduce((a, p) => a + p.smart.skillDmg, 0);
+    const plain = ps.reduce((a, p) => a + p.smart.plainDmg, 0);
+    return Math.round((skill / Math.max(1, skill + plain)) * 1000) / 10;
+  };
+  const half = Math.floor(n / 2);
+  const casts = probes.reduce((a, p) => a + p.smart.skillsCast, 0);
+  const seats = probes.reduce((a, p) => a + p.smart.squad.length, 0);
+  const secs = probes.reduce((a, p) => a + p.smart.elapsedMs / 1000, 0);
+  const seatBy: Record<string, number> = {};
+  const castBy: Record<string, number> = {};
+  for (const p of probes) {
+    for (const id of p.smart.squad) seatBy[id] = (seatBy[id] ?? 0) + 1;
+    for (const [id, k] of Object.entries(p.smart.castsBy)) castBy[id] = (castBy[id] ?? 0) + k;
+  }
+  const perSkill: Record<string, number> = {};
+  for (const [id, k] of Object.entries(seatBy)) {
+    perSkill[id] = Math.round(((castBy[id] ?? 0) / k) * 100) / 100;
+  }
+  const dmgCasts = probes.reduce((a, p) => a + Object.entries(p.smart.castsBy)
+    .filter(([id]) => (SKILLS[id]?.dmg ?? 0) > 0)
+    .reduce((b, [, k]) => b + k, 0), 0);
 
   const byChapter: number[] = [];
   for (let c = 1; c <= CHAPTER_COUNT; c += 1) {
@@ -495,7 +538,29 @@ export function sweepStats(probes: readonly StageProbe[]): SweepStats {
     ],
     byChapter,
     walls: probes.filter((p) => !p.smart.won).map((p) => `${p.stage.label}(${p.smart.reason})`),
+    winTouchPct: avgPct(smartWins.map((p) => p.smart.touchPct)),
+    winLowHpPct: avgPct(smartWins.map((p) => p.smart.lowHpFrac)),
+    winFallPct: avgPct(smartWins.map((p) => (p.smart.fallen > 0 ? 1 : 0))),
+    winLeakPct: avgPct(smartWins.map((p) => (p.smart.leaked > 0 ? 1 : 0))),
+    bossContactPct: Math.round(
+      (probes.reduce((a, p) => a + p.smart.bossSwung, 0)
+        / Math.max(1, probes.reduce((a, p) => a + p.smart.bosses, 0))) * 1000,
+    ) / 10,
+    skillSharePct: share(probes),
+    skillShareEarlyPct: share(probes.slice(0, half)),
+    skillShareLatePct: share(probes.slice(half)),
+    castsPerFighter: Math.round((casts / Math.max(1, seats)) * 100) / 100,
+    secsPerCast: Math.round((secs / Math.max(1, casts)) * 10) / 10,
+    killsPerCast: Math.round(
+      (probes.reduce((a, p) => a + p.smart.skillKills, 0) / Math.max(1, dmgCasts)) * 100,
+    ) / 100,
+    perSkill,
   };
+}
+
+function avgPct(xs: readonly number[]): number {
+  if (xs.length === 0) return 0;
+  return Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 1000) / 10;
 }
 
 /**

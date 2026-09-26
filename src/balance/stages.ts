@@ -16,7 +16,7 @@
  *
  * 章内把墙放在第 4、5 关，对应 §8「卡关点稳定落在每章的第 4–5 关」。
  */
-import { ARMOR_K, PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
+import { ARMOR_K, BOSS_HP_MUL, BOSS_UNITS, PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
 import type { Lane } from './villagers';
 
 /**
@@ -188,6 +188,8 @@ export interface SpawnGroup {
   gapMs: number;
   /** 这一波开始后多久放出来 ms */
   atMs: number;
+  /** 首领「大个子」，见 combat.BOSS_* */
+  boss?: boolean;
 }
 
 export interface Wave {
@@ -539,8 +541,9 @@ function wavesEhp(waves: readonly Wave[]): number {
   let sum = 0;
   for (const w of waves) {
     for (const g of w.groups) {
-      n += g.count;
-      sum += g.count * unitEhp(g.enemy);
+      const k = g.boss ? BOSS_HP_MUL : 1;
+      n += g.count * k;
+      sum += g.count * k * unitEhp(g.enemy);
     }
   }
   return n > 0 ? sum / n : 1;
@@ -574,9 +577,48 @@ function stageCount(chapter: number, index: number): number {
   return Math.max(3, Math.round(ch * (COUNT_IDX[index - 1] ?? 1)));
 }
 
+/**
+ * 只数打八折、每只的血补回来。总量不变，但一只能多活一会儿，走得到人跟前。
+ * 原来一串薄皮怪排队进射程，七成以上还没挥刀就没了。
+ */
+const RUSH_COUNT_MUL = 0.8;
+
+/** 每章从第几关起最后一波出「大个子」。前两关先让人认路 */
+const BOSS_FROM_IDX = 3;
+
+/** 一路里先来的零散几只间隔、后面那一窝的间隔、两段之间喘口气 */
+const LEAD_GAP_MS = 1000;
+const PACK_GAP_MS = 280;
+const PACK_PAUSE_MS = 1500;
+
+/**
+ * 一路的怪拆成「先来几只探路 + 后面一窝冲上来」，后面那窝换成配方里下一种。
+ * 均匀一串是传送带，一窝压上来才有「要崩了」的时候。
+ */
+function laneGroups(
+  seed: ChapterSeed, lane: number, count: number, w: number, l: number,
+): SpawnGroup[] {
+  const at = l * 900;
+  const lead = seed.mix[(w + l) % seed.mix.length]!;
+  if (count < 3) return [{ lane, enemy: lead, count, gapMs: 700 + l * 120, atMs: at }];
+  const head = Math.max(1, Math.round(count * 0.4));
+  return [
+    { lane, enemy: lead, count: head, gapMs: LEAD_GAP_MS, atMs: at },
+    {
+      lane,
+      enemy: seed.mix[(w + l + 1) % seed.mix.length]!,
+      count: count - head,
+      gapMs: PACK_GAP_MS,
+      atMs: at + head * LEAD_GAP_MS + PACK_PAUSE_MS,
+    },
+  ];
+}
+
 function buildWaves(seed: ChapterSeed, chapter: number, index: number): Wave[] {
   const waveCount = IDX_WAVES[index - 1] ?? 3;
-  const total = stageCount(chapter, index);
+  const boss = index >= BOSS_FROM_IDX;
+  const total = Math.max(3, Math.round(stageCount(chapter, index) * RUSH_COUNT_MUL)
+    - (boss ? BOSS_UNITS : 0));
 
   // 后面的波比前面的密一点，压力是递增的而不是平的
   const weights = Array.from({ length: waveCount }, (_, w) => 1 + w * 0.15);
@@ -609,18 +651,40 @@ function buildWaves(seed: ChapterSeed, chapter: number, index: number): Wave[] {
     for (let l = 0; l < laneCount; l += 1) {
       const count = per + (l < extra ? 1 : 0);
       if (count <= 0) continue;
+      // 只在这一章的路数预算里轮转，不许把没预算的第三路也用上
+      groups.push(...laneGroups(seed, set[(w + l) % set.length]!, count, w, l));
+    }
+    if (last && boss) {
+      // 大个子是这一章领头那只放大，走中路（两路的章走当波轮到的那一路）
       groups.push({
-        // 只在这一章的路数预算里轮转，不许把没预算的第三路也用上
-        lane: set[(w + l) % set.length]!,
-        enemy: seed.mix[(w + l) % seed.mix.length]!,
-        count,
-        gapMs: 700 + l * 120,
-        atMs: l * 900,
+        lane: budget === 2 ? set[w % 2]! : set[Math.floor(set.length / 2)]!,
+        enemy: seed.mix[0]!,
+        count: 1,
+        gapMs: 0,
+        atMs: 3500,
+        boss: true,
       });
     }
     waves.push({ groups });
   }
   return waves;
+}
+
+/** 绝活上线后全队多出来的输出，敌人血量跟着补这么多 */
+const SKILL_HP_COMP = 1.75;
+/**
+ * 跑道段再补在攻击上，不补在血上。
+ * 补血那版后段超时压过了漏怪 —— 怪太厚、清不完，是玩家读不懂的输法。
+ * 补攻击是「前排扛不住、一路崩了」，输在哪一路看得见。
+ */
+const SKILL_ATK_TAIL = 1.5;
+
+function skillComp(_chapter: number): number {
+  return SKILL_HP_COMP;
+}
+
+function skillAtk(chapter: number): number {
+  return chapter <= CH_TUNED ? 1 : SKILL_ATK_TAIL;
 }
 
 function buildStages(): StageDef[] {
@@ -652,8 +716,8 @@ function buildStages(): StageDef[] {
         label: `${c + 1}-${i}`,
         name: seed.name,
         pitch: seed.pitches[i - 1] ?? '',
-        hpMul: round2(chHp * ramp * bodyMul(c + 1) * comp),
-        atkMul: round2(chAtk * atkRamp(ramp)),
+        hpMul: round2(chHp * ramp * bodyMul(c + 1) * comp * skillComp(c + 1) / RUSH_COUNT_MUL),
+        atkMul: round2(chAtk * atkRamp(ramp) * skillAtk(c + 1)),
         waves,
         // 3 波 86s、5 波 120s，都在 §5 的 1~2 分钟里。
         // 超时只兜「打不动的死局」，正常打不过应该是**漏怪**判负 —— 那个看得懂

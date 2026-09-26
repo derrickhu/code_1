@@ -100,6 +100,7 @@ export const VFX_FILES = [
   'glow', 'streak', 'spark', 'ring', 'bolt', 'orb', 'fire',
   'slash', 'saw', 'smash', 'poke', 'blast', 'wind', 'pierce', 'flash',
   'claw', 'beam', 'shield', 'heal',
+  'sk_lane', 'sk_shock', 'sk_burst', 'sk_stun', 'sk_heal',
 ] as const;
 
 export const PROJ_FILES = ['pebble', 'needle', 'disc', 'pipe', 'cracker', 'leaf', 'cleaver'] as const;

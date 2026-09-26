@@ -101,7 +101,9 @@ export function lintelLay(safeTop: number, height: number): LintelLay {
  * 编队 / 战斗顶板。底只铺切下来的上半块锈铁，
  * 上场 / 来 / 波 等字和锈章是另出的图，叠在板上，不烤进底板。
  *
- * 切图是 1280×398，750 宽时约 233 高；为了塞下三枚章会略往下拉。
+ * 切图是 1280×398，750 宽时约 233 高。高度按内容往下排：
+ * 关卡名抬到胶囊那一行（左是「撤」，右是系统胶囊），章贴在名字下面。
+ * 不再按屏幕 24% 把整块板拉高 —— 那样章钉在底上，顶上会空出一大截锈。
  */
 export interface BattleHudLay {
   titleH: number;
@@ -112,19 +114,23 @@ export interface BattleHudLay {
   barBottom: number;
 }
 
-export function battleHudLay(safeTop: number, height: number): BattleHudLay {
+export function battleHudLay(safeTop: number, height: number, headerCenter = 0): BattleHudLay {
   const safe = Math.max(safeTop, 16);
-  let titleH = Math.round(750 * 398 / 1280);
-  if (titleH < safe + 200) titleH = Math.min(Math.round(height * 0.24), safe + 220);
-  if (titleH > height * 0.24) titleH = Math.round(height * 0.24);
-  const titleGlyphH = Math.max(32, Math.round(titleH * 0.16));
-  let titleCy = titleH * 0.24;
-  if (titleCy - titleGlyphH / 2 < safe + 4) {
-    titleCy = safe + 4 + titleGlyphH / 2;
-  }
-  const hintY = titleH - 16;
-  const stampH = Math.round(titleH * 0.30);
-  const stampY = hintY - 12 - stampH / 2;
+  const titleGlyphH = 40;
+  // 有胶囊中线时，名字坐进那一行的下半截，吃掉顶上的空锈。
+  // 没有时贴着安全区，避免字钻进刘海。
+  const lifted = headerCenter > 0 ? headerCenter + 6 : safe + 2;
+  const titleTop = Math.min(lifted, safe + 2);
+  const titleCy = titleTop + titleGlyphH / 2;
+  const stampH = 72;
+  const stampY = titleCy + titleGlyphH / 2 + 6 + stampH / 2;
+  const hintY = stampY + stampH / 2 + 11;
+  let titleH = Math.round(hintY + 16);
+  const artH = Math.round(750 * 398 / 1280);
+  // 比切图再矮，铆钉会被压扁。多出来的高度留在板底，字和章不再往下掉。
+  if (titleH < artH) titleH = artH;
+  const cap = Math.round(height * 0.2);
+  if (titleH > cap && cap > hintY) titleH = cap;
   return {
     titleH,
     title: { cx: 375, cy: titleCy },

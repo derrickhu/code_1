@@ -23,6 +23,16 @@ describe('门楣槽位', () => {
     expect(battle.hintY).toBeGreaterThan(battle.stamp.y);
   });
 
+  it('刘海机上战斗顶板按内容收，关卡名抬进胶囊那一行', () => {
+    const lay = battleHudLay(190, 1624, 140);
+    expect(lay.title.cy).toBeLessThan(190);
+    expect(lay.titleH).toBeLessThan(Math.round(1624 * 0.2));
+    expect(lay.stamp.y).toBeGreaterThan(lay.title.cy + lay.titleGlyphH / 2);
+    expect(lay.hintY).toBeGreaterThan(lay.stamp.y);
+    expect(lay.barBottom - lay.hintY).toBeLessThan(24);
+    expect(lay.stamp.h).toBeLessThan(90);
+  });
+
   it('摊顶跟战斗同一张底板，但更矮，腾给货架', () => {
     const stall = stallHudLay(47, 1334);
     const battle = battleHudLay(47, 1334);

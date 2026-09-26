@@ -59,8 +59,44 @@ export const LEAK_ALLOW = 3;
 /** 一波隔多久放下一波。12s 时波间有明显空场，压到 10s */
 export const WAVE_GAP_MS = 10_000;
 
+/**
+ * 场上清空之后，下一波最多再等这么久。
+ * 省下的时间记进 skippedMs，星评和超时仍按原时间轴算，清得快不白送 ★3。
+ */
+export const EARLY_CALL_MS = 2_500;
+
+/**
+ * 外星人走路整体提速。走得太慢，还在半路就被射程罩死，
+ * 前排一刀都没挨过 —— 玩家管这个叫「送死队」。
+ */
+export const FOE_SPD_MUL = 2;
+
+/**
+ * 外星人出手整体加重。贴上来只挠一下的话，全队血条从头到尾不动，
+ * 赢了也不知道自己差点输。
+ */
+export const FOE_ATK_MUL = 4;
+
+/** 首领「大个子」：一只顶这么多只的血 */
+export const BOSS_HP_MUL = 7;
+export const BOSS_ATK_MUL = 1.6;
+/** 首领走得慢一点，给玩家留出手的时间 */
+export const BOSS_SPD_MUL = 0.8;
+/** 首领漏过去算几个 */
+export const BOSS_LEAK = 2;
+/** 首领在只数预算里占几只 */
+export const BOSS_UNITS = 5;
+/** 定身和击退打在首领、水泥墩身上只剩这么多 */
+export const HARD_FOE_CC = 0.5;
+/**
+ * 「面前一圈」多大，轴格。本路从最前排那个人往外够 SKILL_NEAR（站后排也砸得到前排脚前的怪），
+ * 往后只够半格多；邻路只算同一排上下 SKILL_NEAR_SIDE。
+ */
+export const SKILL_NEAR = 1.2;
+export const SKILL_NEAR_SIDE = 1.2;
+
 /** 最后一只出场后再给多久算「清得利索」。★3 的 par 时间 = 最后出场 + 这个 */
-export const PAR_GRACE_MS = 17_000;
+export const PAR_GRACE_MS = 19_000;
 
 /**
  * 护甲的软化常数。减伤 = def / (def + ARMOR_K)。
@@ -226,8 +262,8 @@ export function gateThroat(_chromeBottom: number, _goalY: number): number {
   return GATE_LIP;
 }
 
-/** 开打后坞收掉，底线落到沙袋那么高，人跟着下去，土路变长 */
-export const FIGHT_BAG_H = 48;
+/** 开打后坞收掉，底下换成绝活栏（92）再垫一道沙袋，人跟着下去，土路变长 */
+export const FIGHT_BAG_H = 100;
 
 /** 出场线贴铁皮板下沿。布阵要给坞留位，开打后把那段空地还给路 */
 export function battleFieldLay(args: {

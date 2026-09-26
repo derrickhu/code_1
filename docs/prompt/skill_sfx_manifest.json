@@ -1,0 +1,54 @@
+{
+  "defaults": { "bitrate": "96k", "prompt_influence": 0.45 },
+  "sfx": [
+    {
+      "name": "sk_cast",
+      "text": "fast cloth whoosh swipe followed by one hard taiko drum hit and a short metallic scrap clang, punchy sharp attack, dry, no music, no voice",
+      "duration": 0.8,
+      "output": "../../assets/audio/sk_cast.mp3",
+      "notes": "放招横切条 / 起手"
+    },
+    {
+      "name": "sk_lane",
+      "text": "rapid rattling burst of metal ball bearings shot down a long pipe, fast whoosh sweeping away, ending in scattered metallic impacts, dry, no music, no voice",
+      "duration": 1.0,
+      "output": "../../assets/audio/sk_lane.mp3",
+      "notes": "整路打：光带扫过一整路"
+    },
+    {
+      "name": "sk_shock",
+      "text": "heavy iron hammer slam into dirt ground, deep low thump with crunchy debris and scrap metal clatter, quick decay, dry, no music, no voice",
+      "duration": 0.9,
+      "output": "../../assets/audio/sk_shock.mp3",
+      "notes": "身边一圈：落地冲击环"
+    },
+    {
+      "name": "sk_burst",
+      "text": "big firecracker explosion boom with deep bass and crackling sparks, short room reverb tail, no music, no voice",
+      "duration": 1.3,
+      "output": "../../assets/audio/sk_burst.mp3",
+      "notes": "全场：闪白 + 震屏"
+    },
+    {
+      "name": "sk_stun",
+      "text": "rope net thrown through air whoosh, then a springy twang and a cartoon dizzy chime of small bells circling, dry, no music, no voice",
+      "duration": 0.9,
+      "output": "../../assets/audio/sk_stun.mp3",
+      "notes": "定身 / 击退"
+    },
+    {
+      "name": "sk_heal",
+      "text": "soft warm rising shimmer of glassy chimes with a gentle airy swell, bright and clean, quick fade, no music, no voice",
+      "duration": 0.9,
+      "output": "../../assets/audio/sk_heal.mp3",
+      "notes": "治疗 / 护住 / 加速"
+    },
+    {
+      "name": "sk_multi",
+      "text": "three quick ascending metallic pan clangs ding ding ding followed by a bright coin jingle sparkle, punchy, dry, no music, no voice",
+      "duration": 0.8,
+      "output": "../../assets/audio/sk_multi.mp3",
+      "notes": "一招带走 3 只以上"
+    }
+  ]
+}

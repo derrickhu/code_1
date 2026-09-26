@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ARMOR_K, CELL_COUNT, LANE_COUNT, LEAK_ALLOW, cellPos } from '@/balance/combat';
+import { ARMOR_K, BOSS_HP_MUL, CELL_COUNT, LANE_COUNT, LEAK_ALLOW, cellPos } from '@/balance/combat';
 import { autoPlace, dumbPlace, runBattle } from '@/game/BattleEngine';
 import { simulate, clearDay, poolOf, sweepStages, sweepStats } from '../simulate';
 import {
@@ -294,8 +294,10 @@ describe('护栏 3：曲线形状', () => {
         const own = (e.hp * (e.def + ARMOR_K)) / ARMOR_K;
         return e.spawn ? own + e.spawn.times * ehp(e.spawn.enemy) : own;
       };
+      // 大个子一只顶 BOSS_HP_MUL 只的血，按一只算会把带首领的第 5 关算轻
       const load = (s: typeof first): number =>
-        s.hpMul * s.waves.reduce((a, w) => a + w.groups.reduce((b, g) => b + g.count * ehp(g.enemy), 0), 0);
+        s.hpMul * s.waves.reduce((a, w) => a + w.groups.reduce(
+          (b, g) => b + g.count * ehp(g.enemy) * (g.boss ? BOSS_HP_MUL : 1), 0), 0);
       expect(load(first), `${c}-1 比 ${c - 1}-5 还重`).toBeLessThan(load(prevLast));
     }
   });
@@ -366,6 +368,97 @@ describe('护栏 3：曲线形状', () => {
     expect(yieldMul(1)).toBe(1);
     expect(yieldMul(VILLAGE_LV_TUNED)).toBe(1);
     expect(yieldMul(VILLAGE_LV_MAX)).toBeGreaterThan(50);
+  });
+});
+
+/**
+ * 局内要有压力，不能是「外星人送死队」。
+ *
+ * 改之前实测：前 7 章首打的胜局里，外星人砍中过人的比例大多是 0%，
+ * 全队血条从头到尾不动，赢了也不知道自己差点输 —— 玩家原话就是送死队。
+ * 这几条盯的是**赢的那些局**：通关率照旧，但赢得要有惊险。
+ */
+describe('护栏 4：局内有压力', () => {
+  it('外星人走得到人跟前，不是半路排队送死', () => {
+    for (const s of sweeps) {
+      expect(s.stats.winTouchPct, `种子 ${s.seed} 胜局里只有 ${s.stats.winTouchPct}% 的怪出过手`)
+        .toBeGreaterThanOrEqual(18);
+    }
+  });
+
+  it('赢的局里也有人被打到半血以下', () => {
+    for (const s of sweeps) {
+      expect(s.stats.winLowHpPct, `种子 ${s.seed} 胜局最惨的人平均还剩 ${s.stats.winLowHpPct}%`)
+        .toBeLessThanOrEqual(60);
+      // 反过来也别每局都打成残局，那是难度出了问题
+      expect(s.stats.winLowHpPct).toBeGreaterThanOrEqual(15);
+      expect(s.stats.winFallPct, `种子 ${s.seed} 胜局倒过人 ${s.stats.winFallPct}%`)
+        .toBeGreaterThanOrEqual(15);
+      expect(s.stats.winFallPct).toBeLessThanOrEqual(65);
+    }
+  });
+
+  it('大个子基本都能冲到前排', () => {
+    for (const s of sweeps) {
+      expect(s.stats.bossContactPct, `种子 ${s.seed} 大个子只有 ${s.stats.bossContactPct}% 贴到脸`)
+        .toBeGreaterThanOrEqual(60);
+    }
+  });
+
+  /**
+   * 绝活要值钱：同一套阵容，不放绝活明显更难。
+   * 否则手动模式下「点不点都一样」，局内又退回看戏。
+   */
+  it('绝活值钱：不放绝活的通关率明显更低', () => {
+    const probes = sweepStages(runs[0]!.smart);
+    const on = probes.filter((p) => p.smart.won).length;
+    const off = probes.filter((p) => {
+      const snap = runs[0]!.smart.attemptSnap.get(p.stage.id)!;
+      const place = autoPlace(poolOf(snap), p.stage, squadCap(snap.villageLv));
+      return runBattle(p.stage, place, villageMul(snap.villageLv), false).won;
+    }).length;
+    expect(on - off, `放绝活 ${on} 关、不放 ${off} 关`).toBeGreaterThanOrEqual(probes.length * 0.2);
+  });
+});
+
+/**
+ * 绝活是「稀而重」：每人一场放两三次，放一次要看得出结果，
+ * 而且打的血不能盖过平砍 —— 盖过了布阵就不重要了，局内变成比谁劲头满得快。
+ */
+describe('护栏 5：绝活稀而重', () => {
+  it('绝活打的血占两到四成，后期不会越滚越大', () => {
+    for (const s of sweeps) {
+      const st = s.stats;
+      const msg = `种子 ${s.seed} 绝活占比 ${st.skillSharePct}%（前 ${st.skillShareEarlyPct} → 后 ${st.skillShareLatePct}）`;
+      expect(st.skillSharePct, msg).toBeGreaterThanOrEqual(22);
+      expect(st.skillSharePct, msg).toBeLessThanOrEqual(38);
+      expect(st.skillShareLatePct - st.skillShareEarlyPct, msg).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it('每人每场放一到四次', () => {
+    for (const s of sweeps) {
+      expect(s.stats.castsPerFighter, `种子 ${s.seed}`).toBeGreaterThanOrEqual(1);
+      expect(s.stats.castsPerFighter, `种子 ${s.seed}`).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('没有哑招，也没有一招独大', () => {
+    for (const s of sweeps) {
+      const xs = Object.entries(s.stats.perSkill);
+      const mean = xs.reduce((a, [, k]) => a + k, 0) / Math.max(1, xs.length);
+      for (const [id, k] of xs) {
+        expect(k, `种子 ${s.seed} ${id} 每上场放 ${k} 次`).toBeGreaterThanOrEqual(1);
+        expect(k, `种子 ${s.seed} ${id} 每上场放 ${k} 次，平均 ${mean.toFixed(2)}`)
+          .toBeLessThanOrEqual(mean * 2);
+      }
+    }
+  });
+
+  it('伤害招放一次平均带走半只以上', () => {
+    for (const s of sweeps) {
+      expect(s.stats.killsPerCast, `种子 ${s.seed}`).toBeGreaterThanOrEqual(0.45);
+    }
   });
 });
 
