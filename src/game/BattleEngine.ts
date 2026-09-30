@@ -184,7 +184,7 @@ export type BattleEvent =
   | { kind: 'leak'; foeId: number; lane: number }
   | { kind: 'waveStart'; wave: number }
   | { kind: 'skill'; uid: string; manual: boolean }
-  | { kind: 'skillHit'; uid: string; foeId: number; damage: number; killed: boolean }
+  | { kind: 'skillHit'; uid: string; foeId: number; damage: number; killed: boolean; stun: boolean; push: boolean; slow: boolean }
   | { kind: 'bossIn'; foeId: number; lane: number };
 
 export type BattlePhase = 'placing' | 'fighting' | 'won' | 'lost';
@@ -836,27 +836,51 @@ function fireSkill(state: BattleState, f: Fighter, manual: boolean): void {
   state.events.push({ kind: 'skill', uid: f.uid, manual });
 
   for (const e of skillFoes(state, f, sk)) {
+    let damage = 0;
+    let killed = false;
+    let hit = false;
     if (sk.dmg) {
       const raw = effAtk(f) * sk.dmg * power;
-      const damage = foeTake(e, dmgOf(raw, e.armor, laneMul(f.def.lane, e.def.lane)));
+      damage = foeTake(e, dmgOf(raw, e.armor, laneMul(f.def.lane, e.def.lane)));
       e.hp -= damage;
       state.skillDmg += damage;
+      hit = true;
       if (!e.boss && e.hp > 0 && e.hp < e.maxHp * SKILL_EXECUTE) e.hp = 0;
-      const killed = e.hp <= 0;
-      state.events.push({ kind: 'skillHit', uid: f.uid, foeId: e.id, damage, killed });
+      killed = e.hp <= 0;
       if (killed) {
         e.alive = false;
         state.skillKills += 1;
+        state.events.push({
+          kind: 'skillHit', uid: f.uid, foeId: e.id, damage, killed, stun: false, push: false, slow: false,
+        });
         state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
         continue;
       }
     }
-    if (sk.slowMs && !e.def.steady) e.slowMs = Math.max(e.slowMs, sk.slowMs * pow);
+    let slow = false;
+    if (sk.slowMs && !e.def.steady) {
+      e.slowMs = Math.max(e.slowMs, sk.slowMs * pow);
+      slow = true;
+    }
     // 自动放的定身、击退只落在已经到人跟前的怪身上。整路一起定，半路上的全被钉死，走不到人跟前
-    if (!manual && !foeClose(state, e)) continue;
-    const cc = e.boss || e.def.steady ? HARD_FOE_CC : 1;
-    if (sk.stunMs) e.stunMs = Math.max(e.stunMs, sk.stunMs * pow * cc);
-    if (sk.push) e.pos = Math.max(0, e.pos - sk.push * pow * cc);
+    let stun = false;
+    let push = false;
+    if (manual || foeClose(state, e) || !(sk.stunMs || sk.push)) {
+      const cc = e.boss || e.def.steady ? HARD_FOE_CC : 1;
+      if (sk.stunMs) {
+        e.stunMs = Math.max(e.stunMs, sk.stunMs * pow * cc);
+        stun = true;
+      }
+      if (sk.push) {
+        e.pos = Math.max(0, e.pos - sk.push * pow * cc);
+        push = true;
+      }
+    }
+    if (hit || stun || push || slow) {
+      state.events.push({
+        kind: 'skillHit', uid: f.uid, foeId: e.id, damage, killed, stun, push, slow,
+      });
+    }
   }
 
   for (const t of skillAllies(state, f, sk)) {

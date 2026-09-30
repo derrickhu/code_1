@@ -21,11 +21,15 @@ import {
   PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST, PELLET_LOSE,
   PELLET_CAP, SETTLE_SCRAP, pelletCap, pelletRegenMin,
 } from '@/balance/stall';
-import { CALL_COST, CRAFT_COST, nextVillageCost, squadCap } from '@/balance/village';
+import {
+  CALL_COST, CRAFT_COST, STAR_GRANT_COST, emptyProgress, nextVillageCost, rollCall, squadCap, starWeekKey,
+} from '@/balance/village';
 import { CRAFT_MAX, DEFAULT_SQUAD, STAR_MAX, VILLAGERS } from '@/balance/villagers';
 import {
   buyEvo,
   callVillager,
+  grantStar,
+  setWait,
   capOf,
   claimAdPellets,
   gmGrant,
@@ -336,6 +340,7 @@ describe('下一个目标', () => {
     const cost = CRAFT_COST[0]!;
     write({ roster: ['tiezhu'], scrap: cost.scrap, parts: cost.parts, credits: 0 });
     expect(nextGoal(loadMemory()).kind).toBe('craft');
+    expect(nextGoal(loadMemory()).text).toBe('1 人可以再练一级');
   });
 
   it('推完 40 关之后，回头刷星就是主线', () => {
@@ -350,4 +355,54 @@ describe('下一个目标', () => {
     expect(goal.text).toContain('没打利索');
   });
 
+});
+
+describe('等他来，和指定加星', () => {
+  beforeEach(() => store.clear());
+
+  const thisWeek = Date.parse('2026-09-21T04:00:00Z');
+  const nextWeek = Date.parse('2026-09-28T04:00:00Z');
+
+  it('没来的人可以标上，再点一次取消', () => {
+    expect(setWait('sanshen').waitId).toBe('sanshen');
+    expect(setWait('sanshen').waitId).toBe('');
+    expect(setWait('tiezhu').waitId).toBe('');
+  });
+
+  it('出新人时，标着的人两回里有一回是他', () => {
+    const p = emptyProgress(['tiezhu', 'dachui']);
+    const ids = ['tiezhu', 'dachui', 'sanshen', 'erjiu'];
+    const hit = rollCall(p, 1, () => 0.1, ids, STAR_MAX, 'sanshen');
+    expect(hit).toEqual({ id: 'sanshen', isNew: true, scrap: 0 });
+    const seq = [0.9, 0.6];
+    let i = 0;
+    const miss = rollCall(p, 1, () => seq[i++] ?? 0, ids, STAR_MAX, 'sanshen');
+    expect(miss.id).toBe('erjiu');
+    expect(miss.isNew).toBe(true);
+  });
+
+  it('手艺满了才能花 12 工分给这个人加星，一周一次', () => {
+    write({
+      roster: ['tiezhu', 'dachui'],
+      craft: { tiezhu: 3, dachui: 3 },
+      stars: { tiezhu: 0, dachui: 0 },
+      credits: STAR_GRANT_COST,
+    });
+    expect(grantStar('tiezhu', thisWeek)?.stars.tiezhu).toBe(1);
+    expect(loadMemory().credits).toBe(0);
+    expect(loadMemory().stars.dachui ?? 0).toBe(0);
+    write({ credits: STAR_GRANT_COST });
+    expect(grantStar('dachui', thisWeek)).toBeUndefined();
+    expect(grantStar('dachui', nextWeek)?.stars.dachui).toBe(1);
+  });
+
+  it('手艺还没练满，不能买星', () => {
+    write({ roster: ['tiezhu'], craft: { tiezhu: 1 }, credits: 99 });
+    expect(grantStar('tiezhu', thisWeek)).toBeUndefined();
+  });
+
+  it('北京时间同一周的标记不跟机器时区走', () => {
+    expect(starWeekKey(thisWeek)).toBe(starWeekKey(Date.parse('2026-09-26T10:00:00Z')));
+    expect(starWeekKey(nextWeek)).not.toBe(starWeekKey(thisWeek));
+  });
 });

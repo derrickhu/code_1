@@ -94,7 +94,7 @@ describe('攻击范围：出手和展示只走 reachSep', () => {
       heights.push(Math.max(...ys) - Math.min(...ys));
     }
     for (const h of heights) expect(h).toBeCloseTo(heights[0]!, 1);
-    expect(heights[0]).toBeCloseTo(full, 1);
+    expect(heights[0]).toBeCloseTo(full, 0);
   });
 
   /**

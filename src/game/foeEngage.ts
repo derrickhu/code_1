@@ -6,7 +6,6 @@
  * 表里的 range 是视觉格，不是轴距 —— 空场被拉开，轴上 3 格等于从村口打到第二排。
  */
 import { posFromVisualGap, visualReachGap } from '@/balance/combat';
-import { REACH_BACK } from '@/game/reach';
 import type { EnemyDef } from '@/balance/stages';
 
 export interface EngageFighter {
@@ -56,10 +55,16 @@ export function foeTarget<T extends EngageFighter>(foe: EngageFoe, team: readonl
   return unblocked(foe.def) ? sniperTarget(foe, team) : blockerFor(foe, team);
 }
 
-/** 这个人在不在自己的攻击范围里。视觉格差，和村民 canReach 同一把尺。 */
+/**
+ * 怪挥刀往后只补半格。人的扇形往后更长（见 REACH_BACK）：
+ * 人要补刚挤过去的，怪穿过去不回头多打一截。
+ */
+const FOE_REACH_BACK = 0.5;
+
+/** 这个人在不在自己的攻击范围里。视觉格差，向前和村民同一把尺。 */
 export function foeInRange(e: EngageFoe, target: EngageFighter): boolean {
   const gap = visualReachGap(target.pos, e.pos);
-  return gap <= e.def.range && gap >= -REACH_BACK;
+  return gap <= e.def.range && gap >= -FOE_REACH_BACK;
 }
 
 /**

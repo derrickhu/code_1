@@ -19,8 +19,8 @@ import {
   type ShotResult,
 } from '@/balance/stall';
 import {
-  CALL_COST, addVillageExp, clampVillageLv, craftOf,
-  nextFeed, rollCall, squadCap, starsOf, yieldMul,
+  CALL_COST, STAR_GRANT_COST, addVillageExp, clampVillageLv, craftOf,
+  nextFeed, rollCall, squadCap, starWeekKey, starsOf, yieldMul,
   type Progress,
 } from '@/balance/village';
 import {
@@ -86,8 +86,12 @@ export interface RunMemory {
   /* ---- 其他 ---- */
   /** 一共喊过几次人。前 4 次必出新人的保底靠它 */
   callCount: number;
-  /** 见过的人，点亮图鉴用（含已经不在名单里的，虽然目前不会掉人） */
+  /** 见过的人，点亮乡亲用（含已经不在名单里的，虽然目前不会掉人） */
   seenIds: string[];
+  /** 乡亲里标着等的人。空就是没标 */
+  waitId: string;
+  /** 本周已经花工分加过星。值是 starWeekKey，空就是这周还没加 */
+  starWeek: string;
 }
 
 function empty(): RunMemory {
@@ -113,6 +117,8 @@ function empty(): RunMemory {
     layout: [],
     callCount: 0,
     seenIds: [...DEFAULT_SQUAD],
+    waitId: '',
+    starWeek: '',
   };
 }
 
@@ -200,6 +206,10 @@ export function loadMemory(): RunMemory {
       layout: validLayout(p.layout, roster),
       callCount: Math.max(0, Number(p.callCount) || 0),
       seenIds: validIds(p.seenIds, roster),
+      waitId: typeof p.waitId === 'string' && VILLAGER_BY_ID[p.waitId] && !roster.includes(p.waitId)
+        ? p.waitId
+        : '',
+      starWeek: typeof p.starWeek === 'string' ? p.starWeek : '',
     };
     return mem;
   } catch {
@@ -329,7 +339,9 @@ export function callVillager(nowMs: number = Date.now()): {
 
   const count = prev.callCount + 1;
   const rng = mulberry32((nowMs ^ (count * 40503)) >>> 0);
-  const res = rollCall(progressOf(prev), count, rng, VILLAGERS.map((v) => v.id), STAR_MAX);
+  const res = rollCall(
+    progressOf(prev), count, rng, VILLAGERS.map((v) => v.id), STAR_MAX, prev.waitId || undefined,
+  );
 
   const roster = res.isNew ? [...prev.roster, res.id] : prev.roster;
   const seen = new Set(prev.seenIds);
@@ -347,6 +359,7 @@ export function callVillager(nowMs: number = Date.now()): {
     stars,
     scrap: prev.scrap + res.scrap,
     seenIds: [...seen],
+    waitId: res.isNew && res.id === prev.waitId ? '' : prev.waitId,
   });
   return { mem, got: res.id, isNew: res.isNew, starTo: res.starTo };
 }
@@ -354,7 +367,36 @@ export function callVillager(nowMs: number = Date.now()): {
 
 /* ---------------- 手艺 ---------------- */
 
-/** 喂一档手艺。料不够、星卡住或已经焊满返回 undefined */
+/** 乡亲里标一个还没来的人。再标同一个人就取消。已经在村里的标不上 */
+export function setWait(id: string): RunMemory {
+  const prev = loadMemory();
+  if (!VILLAGER_BY_ID[id] || prev.roster.includes(id)) return prev;
+  return persist({ ...prev, waitId: prev.waitId === id ? '' : id });
+}
+
+/**
+ * 花工分给这个人加一颗星。手艺还没练满、星满了、工分不够、这周加过，都返回 undefined。
+ * 随机喊人的那颗星不走这里。
+ */
+export function grantStar(id: string, nowMs: number = Date.now()): RunMemory | undefined {
+  const prev = loadMemory();
+  if (!prev.roster.includes(id)) return undefined;
+  const p = progressOf(prev);
+  if (craftOf(p, id) >= CRAFT_MAX) return undefined;
+  if (nextFeed(p, id)) return undefined;
+  if (starsOf(p, id) >= STAR_MAX) return undefined;
+  if (prev.credits < STAR_GRANT_COST) return undefined;
+  const week = starWeekKey(nowMs);
+  if (prev.starWeek === week) return undefined;
+  return persist({
+    ...prev,
+    credits: prev.credits - STAR_GRANT_COST,
+    stars: { ...prev.stars, [id]: starsOf(p, id) + 1 },
+    starWeek: week,
+  });
+}
+
+/** 练一档手艺。料不够、星卡住或已经练满返回 undefined */
 export function buyEvo(id: string): RunMemory | undefined {
   const prev = loadMemory();
   if (!prev.roster.includes(id)) return undefined;
@@ -468,7 +510,7 @@ export interface Goal {
  * 都不该是「齐了」）。以前这条验收没有实现，也就无从测起 ——
  * 现在只要它返回 `done`，护栏就红，说明长线到头了。
  *
- * 排序按「现在最该干哪件」，不按重要性：能喂就先喂（立刻变强、而且看得见），
+ * 排序按「现在最该干哪件」，不按重要性：能练就先练（立刻变强、而且看得见），
  * 其次喊人（补人），再次推图，最后才是回头刷星。
  * 刷星排最后不是因为它次要，而是因为它是**通关之后**的主线。
  */
@@ -479,7 +521,7 @@ export function nextGoal(mem: RunMemory): Goal {
     return !!cost && mem.scrap >= cost.scrap && mem.parts >= cost.parts;
   });
   if (feed.length > 0) {
-    return { kind: 'craft', short: '能喂', text: `${feed.length} 个人能喂了` };
+    return { kind: 'craft', short: '能练', text: `${feed.length} 人可以再练一级` };
   }
   if (mem.credits >= CALL_COST) {
     return { kind: 'call', short: '能喊', text: '工分够喊一嗓子' };

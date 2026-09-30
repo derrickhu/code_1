@@ -173,8 +173,8 @@ export function roundBtn(text: string, lit: boolean, dot?: number): PIXI.Contain
 }
 
 /**
- * 放招的横切条。自动、手动都出：压暗半屏、斜着一条破布幅、人从条里探出来喊一句。
- * 战斗不停：引擎照走，这条只是盖在上面的演出，按真实时间跑。
+ * 放招的名字条。贴在顶上那块锈铁上，不压暗战场、不挡住这一招打在哪。
+ * 战斗不停：引擎照走，这条只报是谁放的，按真实时间跑。
  * 上一条还没念完又有人放，先排队，不把正在看的那条盖掉。
  */
 export class SkillCutIn extends PIXI.Container {
@@ -206,40 +206,36 @@ export class SkillCutIn extends PIXI.Container {
     this._play(f, viewH, fast);
   }
 
-  private _play(f: Fighter, viewH: number, fast: boolean): void {
+  private _play(f: Fighter, _viewH: number, fast: boolean): void {
     this._body.removeChildren().forEach((c) => c.destroy({ children: true }));
     const sk = skillOf(f.def);
-    const y = Math.round(viewH * 0.3);
-    const shade = new PIXI.Graphics();
-    shade.beginFill(0x000000, 0.34).drawRect(0, 0, 750, viewH).endFill();
-    this._body.addChild(shade);
-
+    const y = 78;
     const band = new PIXI.Graphics();
-    band.beginFill(0x3a2414, 0.95)
-      .drawPolygon([0, y + 40, 750, y - 20, 750, y + 130, 0, y + 190]).endFill();
-    band.beginFill(0xd9b77a, 0.95).drawPolygon([0, y + 30, 750, y - 30, 750, y - 20, 0, y + 40]).endFill();
-    band.beginFill(0xd9b77a, 0.95).drawPolygon([0, y + 190, 750, y + 130, 750, y + 140, 0, y + 200]).endFill();
+    band.beginFill(0x3a2414, 0.94)
+      .drawPolygon([0, y + 18, 750, y - 8, 750, y + 78, 0, y + 104]).endFill();
+    band.beginFill(0xd9b77a, 0.95).drawPolygon([0, y + 10, 750, y - 16, 750, y - 8, 0, y + 18]).endFill();
+    band.beginFill(0xd9b77a, 0.95).drawPolygon([0, y + 104, 750, y + 78, 750, y + 86, 0, y + 112]).endFill();
     this._body.addChild(band);
 
     const tex = heroTex(f.def.id, f.evoStage);
     if (tex?.baseTexture.valid && tex.width > 1) {
       const spr = new PIXI.Sprite(tex);
       spr.anchor.set(0.5, 1);
-      const h = 300;
+      const h = 156;
       spr.scale.set(h / tex.height);
-      spr.position.set(180, y + 196);
+      spr.position.set(118, y + 108);
       this._body.addChild(spr);
     }
 
-    const name = painted(54, 0xffe08a, '#1a1008', 7);
+    const name = painted(42, 0xffe08a, '#1a1008', 6);
     name.anchor.set(0.5);
-    name.position.set(490, y + 58);
+    name.position.set(460, y + 28);
     name.text = sk.name;
     this._body.addChild(name);
 
-    const cry = painted(26, CREAM, '#1a1008', 4);
+    const cry = painted(22, CREAM, '#1a1008', 4);
     cry.anchor.set(0.5);
-    cry.position.set(490, y + 118);
+    cry.position.set(460, y + 68);
     cry.text = `「${sk.cry}」`;
     this._body.addChild(cry);
 

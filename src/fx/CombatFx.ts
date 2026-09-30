@@ -55,9 +55,6 @@ interface FlashBit {
   max: number;
 }
 
-/** 招式本体长什么样：整路光带 / 身边冲击环 / 全场闪白 / 给自己人的光柱 */
-export type SkillLook = 'lane' | 'shock' | 'burst' | 'heal';
-
 interface FlyBit {
   g: PIXI.Graphics;
   life: number;
@@ -69,6 +66,33 @@ interface FlyBit {
   tex: PIXI.Texture | null;
 }
 
+/** 一发飞向某只怪的弹。连射、钩子、碾子都走这个，落地才出伤害 */
+interface PelletBit {
+  g: PIXI.Graphics;
+  life: number;
+  max: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  color: number;
+  r: number;
+  done: boolean;
+  land: () => void;
+}
+
+/** 绝活打在一只怪身上的结果。数字和标记都画在这只怪上 */
+export interface SkillMark {
+  x: number;
+  y: number;
+  damage: number;
+  killed: boolean;
+  stun: boolean;
+  push: boolean;
+  slow: boolean;
+  land?: () => void;
+}
+
 export class CombatFx {
   readonly layer = new PIXI.Container();
   private readonly _kit = new VfxKit();
@@ -76,6 +100,7 @@ export class CombatFx {
   private readonly _shots: ShotBit[] = [];
   private readonly _flashes: FlashBit[] = [];
   private readonly _flies: FlyBit[] = [];
+  private readonly _pellets: PelletBit[] = [];
   private _firstHit = true;
   downPulse = 0;
   landPulse = 0;
@@ -104,10 +129,15 @@ export class CombatFx {
     }
     for (const s of this._flashes) s.text.destroy();
     for (const f of this._flies) f.g.destroy();
+    for (const p of this._pellets) {
+      if (!p.done) p.land();
+      p.g.destroy();
+    }
     this._floats.length = 0;
     this._shots.length = 0;
     this._flashes.length = 0;
     this._flies.length = 0;
+    this._pellets.length = 0;
     this._waits.length = 0;
     this._gate.reset();
     this.layer.removeChildren();
@@ -121,6 +151,7 @@ export class CombatFx {
   /** 还有弹没落地 / 出手没松手。结算板得等这一下完，不能盖住最后一发 */
   busy(): boolean {
     return this._shots.some((s) => !s.done)
+      || this._pellets.some((p) => !p.done)
       || this._waits.length > 0
       || this._gate.busy();
   }
@@ -253,94 +284,171 @@ export class CombatFx {
     }
   }
 
-  /** 绝活起手：脚下两圈金光往外炸，头顶飘招名 */
-  skillCast(x: number, y: number, name: string, tint: number): void {
-    this._kit.ring(x, y, 0xffd66b, 0.5);
-    this._kit.plate('ring', x, y + 20, { tint: 0xffe08a, s0: 0.2, s1: 0.9, sy0: 0.08, sy1: 0.36, life: 0.45, a0: 0.95 });
-    this._kit.plate('flash', x, y, { tint: 0xffffff, s0: 0.4, s1: 0.9, life: 0.3, add: false });
-    this._kit.spray(x, y, { n: 16, tint, kind: 'glow', speed: 170, gy: -40 });
-    this._spawnInstallFloat(`${name}！`, x, y - 70);
-    playSfx('sk_cast', 60);
-    buzz('light');
-  }
-
   /**
-   * 招式本体，按打到哪儿分四种：整路一道光带、身边一圈冲击、全场闪白、给自己人的光柱。
-   * 画在命中之前，玩家先看见「这一招罩住了哪块地」，再看见数字。
+   * 放一招。起手只在人身上闪一下，结果画在挨到的那几只身上。
+   * 连射是一串弹挨个打过去；锤、网、钩、碾子各走各的落点。
    */
-  skillArea(look: SkillLook, x: number, y: number, span?: { top: number; bottom: number }): void {
-    if (look === 'lane' && span) {
-      const tex = vfxTex('sk_lane');
-      const h = span.bottom - span.top;
-      const sx = 120 / Math.max(1, tex?.width ?? 227) / 0.66;
-      const sy = h / Math.max(1, tex?.height ?? 388) / 0.66;
-      const mid = (span.top + span.bottom) / 2;
-      this._kit.plate('sk_lane', x, mid, { s0: sx * 0.6, s1: sx * 1.1, sy0: sy, sy1: sy, life: 0.5, add: false });
-      this._kit.plate('streak', x, mid, { tint: 0xffe08a, rot: Math.PI / 2, s0: h / 180, s1: h / 160, sy0: 0.6, sy1: 0.2, life: 0.35 });
-      for (let i = 0; i < 5; i += 1) {
-        this._kit.spray(x, span.top + (h * (i + 0.5)) / 5, { n: 5, tint: 0xffb040, kind: 'spark', speed: 160 });
+  playSkill(
+    id: string,
+    fromX: number,
+    fromY: number,
+    hits: readonly SkillMark[],
+    aids: readonly { x: number; y: number; guard: boolean; haste: boolean }[],
+  ): void {
+    this._kit.plate('flash', fromX, fromY, { tint: 0xffffff, s0: 0.45, s1: 0.9, life: 0.22, add: false });
+    playSfx('sk_cast', 80);
+    const ordered = [...hits].sort((a, b) => b.y - a.y);
+    const kind = skillVerb(id);
+    if (ordered.length > 0) {
+      if (kind === 'volley') this._volley(fromX, fromY, ordered);
+      else if (kind === 'roll') this._along(fromX, fromY, ordered, 0xffd28a, 16, 0.16, 'sk_shock');
+      else if (kind === 'net') this._shotsAt(fromX, fromY, ordered, 0xfde68a, 7, 0.07, 'sk_stun');
+      else if (kind === 'hook') this._shotsAt(fromX, fromY, ordered, 0xe8e0d4, 5, 0.05, 'atk_pierce');
+      else if (kind === 'blast') this._pops(id, ordered);
+      else if (kind === 'reach') this._shotsAt(fromX, fromY, ordered, 0xffb020, 6, 0.045, id === 'dianju' ? 'atk_saw' : 'atk_slash');
+      else if (ordered.every((h) => h.damage <= 0 && h.stun)) {
+        this._shotsAt(fromX, fromY, ordered, 0xfde68a, 7, 0.06, 'sk_stun');
+      } else if (ordered.every((h) => h.damage <= 0 && h.push)) {
+        this._shotsAt(fromX, fromY, ordered, 0xffd66b, 6, 0.05, 'sk_shock');
+      } else this._pops('smash', ordered);
+    }
+    for (const a of aids) {
+      if (a.guard) {
+        this._kit.plate('shield', a.x, a.y - 36, { tint: 0xffd66b, s0: 0.35, s1: 0.5, life: 0.9, add: false });
+        this._spawnPlainFloat('护住', a.x, a.y - 52, 0xffd66b, 22, 0.8, 1.1);
       }
-      this.shake(6);
-      playSfx('sk_lane', 60);
-      return;
+      if (a.haste) {
+        this._kit.spray(a.x, a.y, { n: 8, tint: 0x7dd3fc, kind: 'spark', speed: 140, gy: -20 });
+        this._spawnPlainFloat('手快', a.x, a.y - 28, 0x7dd3fc, 22, 0.8, 1.1);
+      }
     }
-    if (look === 'shock') {
-      this._kit.plate('sk_shock', x, y, { s0: 0.45, s1: 0.9, life: 0.5, add: false });
-      this._kit.plate('ring', x, y + 16, { tint: 0xffd66b, s0: 0.4, s1: 1.8, sy0: 0.16, sy1: 0.7, life: 0.4 });
-      this.shake(9);
-      playSfx('sk_shock', 60);
-      return;
-    }
-    if (look === 'burst') {
-      this._kit.plate('sk_burst', x, y, { s0: 0.8, s1: 2.4, life: 0.55, add: false, a0: 1 });
-      this._kit.plate('flash', x, y, { tint: 0xffffff, s0: 3, s1: 6, life: 0.24, a0: 0.9 });
-      this.shake(14);
-      playSfx('sk_burst', 60);
-      buzz('heavy');
-      return;
-    }
-    if (look === 'heal') {
-      this._kit.plate('sk_heal', x, y - 20, { s0: 0.4, s1: 0.62, sy0: 0.5, sy1: 0.8, life: 0.6, add: false });
-      playSfx('sk_heal', 120);
-    }
-  }
-
-  /** 给自己人上的是护住、加速：同一根光柱换个颜色 */
-  skillBuff(x: number, y: number, tint: number): void {
-    this._kit.plate('sk_heal', x, y - 20, { tint, s0: 0.36, s1: 0.56, sy0: 0.45, sy1: 0.72, life: 0.55, add: false });
-    this._kit.spray(x, y, { n: 6, tint, kind: 'glow', speed: 70, gy: -60 });
-  }
-
-  /** 绝活砸在一只怪身上。比普攻大两号、金色、带一顿 */
-  skillHit(x: number, y: number, damage: number, killed: boolean, stun = false): void {
-    this._kit.plate('blast', x, y, { tint: 0xffe08a, s0: 0.3, s1: killed ? 0.7 : 0.5, life: 0.32 });
-    this._kit.spray(x, y, { n: killed ? 14 : 8, tint: 0xffb040, kind: 'spark', speed: killed ? 240 : 160, gy: 30 });
-    if (stun) {
-      this._kit.plate('sk_stun', x, y - 6, { s0: 0.22, s1: 0.3, life: 0.7, add: false, a0: 1 });
-      playSfx('sk_stun', 90);
-    }
-    if (damage > 0) {
-      this._spawnPlainFloat(`-${Math.round(damage)}`, x, y - 10, 0xffe066, killed ? 32 : 28, 0.7, 1.3);
-    }
-    this.hitStop = Math.max(this.hitStop, killed ? 0.09 : 0.06);
-    playSfx('hit_blast', 70);
-  }
-
-  /** 一招收尾：打中几只合计多少，带走三只以上单独喊一声 */
-  skillTally(x: number, y: number, hits: number, kills: number, total: number): void {
+    if (aids.length > 0 && ordered.length === 0) playSfx('sk_heal', 80);
+    const kills = ordered.filter((h) => h.killed).length;
     if (kills >= 3) {
-      this._spawnFlash(`一招带走 ${kills} 只！`, x, y, 34, 0.9);
-      this.shake(10);
-      playSfx('sk_multi', 200);
-      buzz('heavy');
-      return;
+      const last = ordered[ordered.length - 1]!;
+      this._after(0.35 + ordered.length * 0.06, () => {
+        this._spawnFlash(`一招带走 ${kills} 只！`, last.x, last.y - 36, 34, 0.9);
+        playSfx('sk_multi', 200);
+      });
     }
-    if (hits >= 2) this._spawnPlainFloat(`共 ${Math.round(total)}`, x, y, 0xffe08a, 26, 0.8, 1.2);
   }
 
   /** 震一下屏。叠加取大，不累加，免得连招把画面震散 */
   shake(px: number): void {
     this.shakePx = Math.max(this.shakePx, px);
+  }
+
+  /** 滑轮连射：每只怪连吃三发，数字跟第一发一起出来 */
+  private _volley(x0: number, y0: number, hits: readonly SkillMark[]): void {
+    playSfx('sk_lane', 60);
+    let delay = 0.04;
+    for (const h of hits) {
+      for (let s = 0; s < 3; s += 1) {
+        const show = s === 0 ? h : undefined;
+        this._after(delay, () => this._pellet(x0, y0, h.x, h.y, 0xffe08a, 5, 0.12, () => {
+          if (show) this._impact(show, 'bolt');
+          else this._kit.spray(h.x, h.y, { n: 4, tint: 0xffe08a, kind: 'spark', speed: 120 });
+        }));
+        delay += 0.05;
+      }
+    }
+  }
+
+  /** 一发接一发沿路滚过去，碾子用。每到一只怪才炸 */
+  private _along(
+    x0: number, y0: number, hits: readonly SkillMark[],
+    color: number, r: number, step: number, sfx: string,
+  ): void {
+    playSfx(sfx, 60);
+    let delay = 0.05;
+    let px = x0;
+    let py = y0;
+    for (const h of hits) {
+      const fromX = px;
+      const fromY = py;
+      const mark = h;
+      this._after(delay, () => this._pellet(fromX, fromY, mark.x, mark.y, color, r, step * 0.85, () => {
+        this._impact(mark, 'smash');
+      }));
+      delay += step;
+      px = h.x;
+      py = h.y;
+    }
+  }
+
+  /** 每人一发，几乎同时出手，落地各算各的。网、钩、电锯走这里 */
+  private _shotsAt(
+    x0: number, y0: number, hits: readonly SkillMark[],
+    color: number, r: number, step: number, sfx: string,
+  ): void {
+    playSfx(sfx, 60);
+    hits.forEach((h, i) => {
+      this._after(0.04 + i * step, () => this._pellet(x0, y0, h.x, h.y, color, r, 0.16, () => {
+        this._impact(h, sfx === 'sk_stun' ? 'net' : 'bolt');
+      }));
+    });
+  }
+
+  /** 炸在每只怪身上。全场一起响；烟花、高压锅顺着路一颗颗炸 */
+  private _pops(id: string, hits: readonly SkillMark[]): void {
+    const together = id === 'sanshen';
+    playSfx(id === 'smash' ? 'sk_shock' : 'sk_burst', 60);
+    if (id === 'smash') this.shake(8);
+    hits.forEach((h, i) => {
+      const wait = together ? 0.08 : 0.05 + i * 0.07;
+      this._after(wait, () => this._impact(h, id === 'smash' ? 'smash' : 'blast'));
+    });
+  }
+
+  private _pellet(
+    x0: number, y0: number, x1: number, y1: number,
+    color: number, r: number, fly: number, land: () => void,
+  ): void {
+    if (this._pellets.length >= 36) {
+      const old = this._pellets.shift();
+      if (old && !old.done) old.land();
+      old?.g.destroy();
+    }
+    const g = new PIXI.Graphics();
+    this.layer.addChild(g);
+    this._pellets.push({
+      g, life: fly, max: fly, x0, y0, x1, y1, color, r, done: false, land,
+    });
+  }
+
+  private _drawPellet(p: PelletBit): void {
+    const g = p.g;
+    g.clear();
+    const u = Math.min(1, 1 - Math.max(0, p.life) / p.max);
+    const x = p.x0 + (p.x1 - p.x0) * u;
+    const y = p.y0 + (p.y1 - p.y0) * u;
+    g.beginFill(p.color, 0.95).drawCircle(x, y, p.r).endFill();
+    g.beginFill(0xfff6d0, 0.9).drawCircle(x, y, Math.max(2, p.r * 0.45)).endFill();
+  }
+
+  /** 落在怪身上：伤害数字、定身的网、击退和减速的字 */
+  private _impact(h: SkillMark, look: 'bolt' | 'smash' | 'blast' | 'net'): void {
+    h.land?.();
+    if (look === 'smash') {
+      this._kit.plate('sk_shock', h.x, h.y, { s0: 0.35, s1: 0.62, life: 0.35, add: false });
+    } else if (look === 'blast') {
+      this._kit.plate('sk_burst', h.x, h.y, { s0: 0.28, s1: 0.5, life: 0.32, add: false });
+    } else if (look === 'net') {
+      this._kit.plate('sk_stun', h.x, h.y - 8, { s0: 0.42, s1: 0.55, life: 1.1, add: false });
+    } else {
+      this._kit.plate('blast', h.x, h.y, { tint: 0xffe08a, s0: 0.28, s1: h.killed ? 0.6 : 0.42, life: 0.28 });
+    }
+    if (h.stun && look !== 'net') {
+      this._kit.plate('sk_stun', h.x, h.y - 16, { s0: 0.4, s1: 0.55, life: 1.1, add: false });
+    }
+    this._kit.spray(h.x, h.y, { n: h.killed ? 12 : 7, tint: 0xffb040, kind: 'spark', speed: h.killed ? 220 : 150 });
+    if (h.damage > 0) {
+      this._spawnPlainFloat(`-${Math.round(h.damage)}`, h.x, h.y - 18, 0xffe066, h.killed ? 34 : 30, 0.85, 1.3);
+    }
+    if (h.push) this._spawnPlainFloat('击退', h.x + 28, h.y - 8, 0xffd66b, 20, 0.7, 1);
+    if (h.slow) this._spawnPlainFloat('减速', h.x - 26, h.y + 8, 0x86efac, 20, 0.7, 1);
+    if (h.stun) playSfx('sk_stun', 90);
+    else if (h.damage > 0) playSfx(h.killed ? 'hit_counter' : 'hit_blast', 45);
   }
 
   /** 飘一行字，定住、护住、快漏了这种 */
@@ -371,6 +479,21 @@ export class CombatFx {
       }
     }
     this._kit.update(dt);
+
+    for (let i = this._pellets.length - 1; i >= 0; i -= 1) {
+      const p = this._pellets[i];
+      if (!p) continue;
+      p.life -= dt;
+      this._drawPellet(p);
+      if (p.life <= 0 && !p.done) {
+        p.done = true;
+        p.land();
+      }
+      if (p.life <= -0.02) {
+        p.g.destroy();
+        this._pellets.splice(i, 1);
+      }
+    }
 
     for (let i = this._floats.length - 1; i >= 0; i -= 1) {
       const f = this._floats[i];
@@ -870,6 +993,28 @@ export class CombatFx {
     text.position.set(x, y);
     this.layer.addChild(text);
     this._flashes.push({ text, life, max: life });
+  }
+}
+
+/** 这招画面走哪一种。按招本身干什么分，不按攻击范围分 */
+function skillVerb(id: string): 'volley' | 'roll' | 'net' | 'hook' | 'blast' | 'smash' | 'reach' | 'aid' {
+  switch (id) {
+    case 'laoyanqiang': return 'volley';
+    case 'shimo': return 'roll';
+    case 'yuwang':
+    case 'jishi': return 'net';
+    case 'laoli':
+    case 'qiangou': return 'hook';
+    case 'bianpao':
+    case 'gaoyaguo':
+    case 'sanshen':
+    case 'baowenhu': return 'blast';
+    case 'dianju':
+    case 'shazhu': return 'reach';
+    case 'dachui':
+    case 'miankuzhang':
+    case 'chengtuo': return 'smash';
+    default: return 'aid';
   }
 }
 

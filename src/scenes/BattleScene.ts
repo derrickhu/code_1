@@ -37,7 +37,7 @@ import {
 import { LeaveAskOverlay } from '@/ui/LeaveAskOverlay';
 import { ReviveOverlay } from '@/ui/ReviveOverlay';
 import { SettleOverlay } from '@/ui/SettleOverlay';
-import { CombatFx, type SkillLook } from '@/fx/CombatFx';
+import { CombatFx, type SkillMark } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
 import { motionForSkin, UnitActor } from '@/fx/UnitActor';
 import { BATTLE_FX_IMAGES, battleFaceImages, battlePreloadImages, type HeroArtNeed } from '@/config/assetPreload';
@@ -845,39 +845,28 @@ export class BattleScene implements Scene {
   /* ---------------- 事件 → 特效 ---------------- */
 
   private _consumeEvents(): void {
-    const tally = new Map<string, { hits: number; kills: number; total: number; x: number; y: number; stun: boolean }>();
-    this._consumeEventList(tally);
-    for (const t of tally.values()) {
-      this._fx.skillTally(t.x, t.y, t.hits, t.kills, t.total);
-      if (t.hits > 0) this._skillFreeze = Math.max(this._skillFreeze, t.kills >= 3 ? 0.14 : 0.08);
-    }
-  }
-
-  /** 招式本体画在哪：整路打的铺满这一路，身边的落在脚下，全场的落在战场正中，只管自己人的落在每个人身上 */
-  private _skillArea(f: Fighter, sk: SkillDef, p: { x: number; y: number; h: number }): void {
-    const onFoes = !!(sk.dmg || sk.stunMs || sk.push || sk.slowMs);
-    if (onFoes) {
-      const look: SkillLook = sk.scope === 'lane' ? 'lane' : sk.scope === 'all' ? 'burst' : 'shock';
-      const midY = (this._lay.spawnY + this._lay.goalY) / 2;
-      this._fx.skillArea(
-        look,
-        look === 'burst' ? 375 : p.x,
-        look === 'burst' ? midY : p.y - p.h * 0.3,
-        { top: this._lay.spawnY, bottom: p.y },
-      );
-    }
-    const allies = skillAllies(this._state, f, sk);
-    if (allies.length === 0) return;
-    if (!onFoes) this._fx.skillArea('heal', p.x, p.y - p.h * 0.4);
-    const tint = sk.heal ? 0x86efac : sk.guard ? 0xffd66b : 0x7dd3fc;
-    for (const t of allies) {
-      const tp = this._villagerXY(t);
-      this._fx.skillBuff(tp.x, tp.y - tp.h * 0.4, tint);
+    const cast = new Map<string, {
+      id: string;
+      x: number;
+      y: number;
+      hits: SkillMark[];
+      aids: { x: number; y: number; guard: boolean; haste: boolean }[];
+    }>();
+    this._consumeEventList(cast);
+    for (const c of cast.values()) {
+      this._fx.playSkill(c.id, c.x, c.y, c.hits, c.aids);
+      if (c.hits.length > 0) this._skillFreeze = Math.max(this._skillFreeze, 0.06);
     }
   }
 
   private _consumeEventList(
-    tally: Map<string, { hits: number; kills: number; total: number; x: number; y: number; stun: boolean }>,
+    cast: Map<string, {
+      id: string;
+      x: number;
+      y: number;
+      hits: SkillMark[];
+      aids: { x: number; y: number; guard: boolean; haste: boolean }[];
+    }>,
   ): void {
     for (const ev of this._state.events) {
       if (ev.kind === 'waveStart') {
@@ -994,10 +983,14 @@ export class BattleScene implements Scene {
         if (!f) continue;
         const p = this._villagerXY(f);
         const sk = skillAt(f.def, f.evoStage);
-        this._fx.skillCast(p.x, p.y - p.h * 0.5, sk.name, LANE_TINT[f.def.lane] ?? GOLD);
-        this._actorFor(f).flash(260);
-        this._skillArea(f, sk, p);
-        tally.set(f.uid, { hits: 0, kills: 0, total: 0, x: p.x, y: p.y - p.h - 40, stun: !!sk.stunMs });
+        this._actorFor(f).flash(180);
+        const aids = (sk.guard || sk.haste)
+          ? skillAllies(this._state, f, sk).map((t) => {
+            const tp = this._villagerXY(t);
+            return { x: tp.x, y: tp.y - tp.h * 0.35, guard: !!sk.guard, haste: !!sk.haste };
+          })
+          : [];
+        cast.set(f.uid, { id: f.def.id, x: p.x, y: p.y - p.h * 0.45, hits: [], aids });
         if (ev.manual || !this._castSeen.has(f.uid)) {
           this._cutIn.show(f, this._lay.height, this._speed > 1);
           this.container.addChild(this._cutIn);
@@ -1010,17 +1003,20 @@ export class BattleScene implements Scene {
       if (ev.kind === 'skillHit') {
         const e = this._state.foes.find((x) => x.id === ev.foeId);
         const ep = e ? this._foeXY(e) : this._lastFoeXY.get(ev.foeId);
-        if (!ep) continue;
-        const t = tally.get(ev.uid);
-        if (t) {
-          t.hits += 1;
-          t.total += ev.damage;
-          if (ev.killed) t.kills += 1;
-        }
+        const bag = cast.get(ev.uid);
+        if (!ep || !bag) continue;
         this._vitals.seed(`e${ev.foeId}`, e?.maxHp ?? ev.damage, 0);
         this._vitals.landEnemy(`e${ev.foeId}`, ev.damage);
-        this._foeActors.get(ev.foeId)?.flash(220);
-        this._fx.skillHit(ep.x, ep.y - ep.h * 0.5, ev.damage, ev.killed, !!t?.stun && !!e && e.stunMs > 0);
+        bag.hits.push({
+          x: ep.x,
+          y: ep.y - ep.h * 0.45,
+          damage: ev.damage,
+          killed: ev.killed,
+          stun: ev.stun,
+          push: ev.push,
+          slow: ev.slow,
+          land: () => this._foeActors.get(ev.foeId)?.flash(180),
+        });
         continue;
       }
 

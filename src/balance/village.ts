@@ -348,6 +348,22 @@ export function evoTotalCost(): { scrap: number; parts: number } {
 export const CALL_COST = 6;
 
 /**
+ * 给指定的人加一颗星。比喊一嗓子贵一倍，全村一周只能加一次。
+ * 随机喊来的星仍铺给星最少的人，这一笔是另外的，只落在点名的这个人身上。
+ */
+export const STAR_GRANT_COST = 12;
+
+/** 这周的标记。按北京时间周一零点换周，测试机在别的时区也不会漂 */
+export function starWeekKey(nowMs: number): string {
+  const cn = new Date(nowMs + 8 * 3600_000);
+  const day = cn.getUTCDay();
+  const monday = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate())
+    - ((day + 6) % 7) * 86_400_000;
+  const m = new Date(monday);
+  return `${m.getUTCFullYear()}-${m.getUTCMonth() + 1}-${m.getUTCDate()}`;
+}
+
+/**
  * 前几次喊人必出没有的新人。
  *
  * §4.3 明确喊人不做概率池、不做稀有度弹窗。保底在这里的意思是
@@ -424,6 +440,8 @@ export function rollCall(
   rng: () => number,
   allIds: readonly string[],
   starMax: number,
+  /** 乡亲里标着等的人。出新人时，两回里有一回是他。不传就跟原来一样均匀 */
+  waitId?: string,
 ): CallResult {
   const owned = new Set(p.roster);
   const missing = allIds.filter((id) => !owned.has(id));
@@ -431,6 +449,8 @@ export function rollCall(
   const dupChance = p.roster.length / Math.max(1, allIds.length);
 
   if (missing.length > 0 && (forceNew || rng() > dupChance)) {
+    const pinned = waitId && missing.includes(waitId) ? waitId : undefined;
+    if (pinned && rng() < 0.5) return { id: pinned, isNew: true, scrap: 0 };
     const newcomer = missing[Math.floor(rng() * missing.length)]!;
     return { id: newcomer, isNew: true, scrap: 0 };
   }

@@ -11,7 +11,7 @@
  * 世界坐标：x = 路 × 路宽折算，y = 视觉格（和怪脚底同一套 posScreenY）。
  *
  *   距离 = hypot(Δx, Δy)
- *   在射程里 ⇔ 距离 ≤ N 且不在身后 REACH_BACK 以外
+ *   在射程里 ⇔ 距离 ≤ N，且不在身后 1.5 格以外
  *
  * 换格子只平移，半径不变。邻列、对巷都是同一张圆上的点，
  * 不是「本路一条、邻列再写一套」。
@@ -58,8 +58,12 @@ export const REACH_LANE_WEIGHT = LANE_W / (REACH_REF_FIELD_H * combatVisualPerPo
 /** 量射程、描弧的最小刻度。摆放仍是 3×4，出手按连续坐标。 */
 export const REACH_TICK = 0.25;
 
-/** 身后还能补的那一截。扇形往后只留这么多，不是整圆 */
-export const REACH_BACK = 0.5;
+/**
+ * 身后还能打到的那一截，视觉格。
+ * 怪刚挤过脚底、人还在旁边时要补得着；再往底线走才出扇形。
+ * 不是整圆：前排近战不该转过身把已经漏到村口的怪清掉。
+ */
+export const REACH_BACK = 1.5;
 
 /**
  * 连续平面上的点。x、y 都是视觉格。

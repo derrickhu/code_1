@@ -5,7 +5,7 @@ export type CallKind = 'join' | 'star' | 'scrap';
 
 export interface CallBeat {
   kind: CallKind;
-  /** 牌顶：王大锤入伙了 / 又来一个王大锤 */
+  /** 牌顶：王大锤来了 / 王大锤添了一颗星 */
   title: string;
   name: string;
   /** 别人替不了的活 */
@@ -31,7 +31,7 @@ export function callBeat(
   if (isNew) {
     return {
       kind: 'join',
-      title: `${v.name}入伙了`,
+      title: `${v.name}来了`,
       name: v.name,
       job: v.job,
       sub: `${rosterN}/${poolN} 人 · 从村道那边过来`,
@@ -40,23 +40,26 @@ export function callBeat(
   }
   if (starTo) {
     const to = getVillager(starTo);
+    const gained = starForm
+      ? `${to.name}添了一颗星，换成了「${starForm}」`
+      : `${to.name}添了一颗星，还捎来废铁`;
     return {
       kind: 'star',
-      title: `又来一个${v.name}`,
+      title: to.id === v.id ? `${to.name}添了一颗星` : `又来一个${v.name}`,
       name: v.name,
       job: v.job,
-      sub: starForm
-        ? `${to.name}多一颗星，焊成了「${starForm}」`
-        : `捎了废铁 · ${to.name} 多一颗星`,
+      sub: to.id === v.id
+        ? (starForm ? `换成了「${starForm}」` : '还捎来废铁')
+        : gained,
       ok: '好',
     };
   }
   return {
     kind: 'scrap',
-    title: `又来一个${v.name}`,
+    title: `${v.name}又来了`,
     name: v.name,
     job: v.job,
-    sub: `人满星了 · 折了 ${CALL_DUP_SCRAP} 废铁`,
+    sub: `捎来 ${CALL_DUP_SCRAP} 废铁`,
     ok: '好',
   };
 }
