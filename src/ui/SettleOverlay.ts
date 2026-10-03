@@ -207,21 +207,21 @@ export class SettleOverlay extends PIXI.Container {
     fitSprite(this, uiTex('title_plaque'), 375, plaqueY, 700, 380);
     const titleTx = stroke(56, GOLD, '#2a160c', 7);
     titleTx.anchor.set(0.5);
-    titleTx.position.set(375, plaqueY + plaque.h * 0.15);
+    titleTx.position.set(375, plaqueY + plaque.h * 0.05);
     titleTx.text = title;
     this.addChild(titleTx);
 
     // 星评是主信息之一：三档要分得开，玩家才有理由回头重打
     const starTx = stroke(38, GOLD, '#2a160c', 6);
     starTx.anchor.set(0.5);
-    starTx.position.set(375, plaqueY + plaque.h * 0.3);
+    starTx.position.set(375, plaqueY + plaque.h * 0.20);
     starTx.text = starMarks(state.stars);
     this.addChild(starTx);
 
     if (opts.identity) {
       const idTx = stroke(20, GOLD, '#2a160c', 4);
       idTx.anchor.set(0.5);
-      idTx.position.set(375, plaqueY + plaque.h * 0.42);
+      idTx.position.set(375, plaqueY + plaque.h * 0.32);
       idTx.text = opts.identity;
       this.addChild(idTx);
     }

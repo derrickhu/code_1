@@ -154,25 +154,22 @@ export function nextCapLv(lv: number): number | undefined {
  * 星管上限：★0 只能到 3（二阶），★2 解开三阶，★5 才能焊满（见 CRAFT_CAP_AT）。
  * 零件继续卡「先喂谁」。数值在 craft 3 / 6 对齐旧的二阶 / 三阶，后面只小幅加。
  */
-/** 跑道段废铁每档 +8% 复利。零件另有一条更陡的，见 CRAFT_PARTS_RATE */
-const CRAFT_COST_RATE = 1.08;
-
 /**
- * 跑道段零件每档 +8.85% 复利，比废铁陡。
+ * 跑道段废铁、零件同一条涨幅，每档 +8.85%。
  *
- * 两条不同斜率是为了让**计价比**（废铁:零件）一路往下滑：craft 10 上是 13:1，
- * 焊到 75 收到 7.9:1。理由见 CRAFT_COST 的注释 —— 供给比本身就是递减的，
- * 计价比得跟着走，否则总有一种资源在溢出。
+ * 供给比在村庄 10 级以后是平的，大约 16 废铁 : 1 零件（摊子和首通都吃 yieldMul）。
+ * 以前废铁只涨 8%、零件涨 8.85%，比价从 13:1 滑到 7.9:1，零件花完废铁还剩一半，
+ * 而且这个缺口跟着等级放大。两条斜率对齐之后，比价钉死，不再越往后越剩。
  */
-const CRAFT_PARTS_RATE = 1.091;
+const CRAFT_LATE_RATE = 1.091;
 
-/** 跑道段的计价基准（craft 10→11 那一档），比 13:1 */
-const CRAFT_LATE_BASE = { scrap: 184, parts: 14 } as const;
+/** 跑道段的计价基准（craft 10→11）。196:14 = 14:1，比供给 16:1 松一档，给广告翻倍和喊重留余量 */
+const CRAFT_LATE_BASE = { scrap: 196, parts: 14 } as const;
 
 /**
  * 下标 0 = 手艺 1→2。合计约 1050 废铁 + 59 零件。
  *
- * **计价比（废铁:零件）从 ~21:1 一路滑到 ~8:1，全程贴着供给比走。**
+ * **前 9 档计价比从 ~20:1 滑到 ~14:1。第 10 档起钉在 14:1，见 CRAFT_LATE_BASE。**
  *
  * 上一版是「前五档吃废铁，后四档吃零件」，计价比在 craft 6 上一步从 26:1 砸到 8.5:1
  * 就再不动了。那是给 40 关主线写的：假设推完之后首通结算没了、废铁断流，
@@ -318,8 +315,8 @@ export function nextCraftCost(craft: number): { scrap: number; parts: number } |
   // craft 10→11 是跑道段第一档，正好落在基准上
   const n = c - CRAFT_COST.length - 1;
   return {
-    scrap: Math.round(CRAFT_LATE_BASE.scrap * Math.pow(CRAFT_COST_RATE, n)),
-    parts: Math.round(CRAFT_LATE_BASE.parts * Math.pow(CRAFT_PARTS_RATE, n)),
+    scrap: Math.round(CRAFT_LATE_BASE.scrap * Math.pow(CRAFT_LATE_RATE, n)),
+    parts: Math.round(CRAFT_LATE_BASE.parts * Math.pow(CRAFT_LATE_RATE, n)),
   };
 }
 
