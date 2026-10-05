@@ -25,6 +25,7 @@ import { BattleScene } from '@/scenes/BattleScene';
 import { RoadScene } from '@/scenes/RoadScene';
 import { VillageScene } from '@/scenes/VillageScene';
 import { LoadingScreenOverlay } from '@/ui/LoadingScreenOverlay';
+import { configureShareMenu } from '@/core/ShareService';
 import { GMEntryButton } from '@/ui/GMEntryButton';
 import { GMPanel } from '@/ui/GMPanel';
 
@@ -37,6 +38,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 initAnalytics();
+configureShareMenu();
 CloudSyncManager.prewarm();
 
 PersistService.subscribeCloudImport((info) => {

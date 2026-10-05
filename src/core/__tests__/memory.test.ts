@@ -164,6 +164,21 @@ describe('弹弓摊', () => {
     expect(cap).toBeLessThanOrEqual(PELLET_CAP);
   });
 
+  it('过关和广告顶过上限的，回弹不加也不收回', () => {
+    const cap = pelletCap(5);
+    const per = pelletRegenMin(5) * 60_000;
+    const now = 10_000_000_000;
+    const stock = cap + PELLET_CLEAR * 2;
+    write({ villageLv: 5, pellets: stock, pelletAtMs: now - per * 10 });
+    const mem = settlePellets(now);
+    expect(mem.pellets).toBe(stock);
+    expect(mem.pelletAtMs).toBe(now);
+
+    write({ pellets: cap - 1, pelletAtMs: mem.pelletAtMs });
+    const next = settlePellets(now + per);
+    expect(next.pellets).toBe(cap);
+  });
+
   it('回弹留零头，频繁进出不会把时间抹掉', () => {
     const per = pelletRegenMin(1) * 60_000;
     const now = 10_000_000_000;

@@ -40,6 +40,12 @@ try {
 _diag('platform=' + _runtime.detectMinigamePlatform());
 
 try {
+  require('./share-bootstrap.js');
+} catch (e) {
+  console.warn('[game.js] share-bootstrap 失败:', e);
+}
+
+try {
   require('./pixi-adapter/index');
 } catch (e) {
   _diag('pixi-adapter 失败:' + e);

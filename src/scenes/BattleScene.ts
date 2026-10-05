@@ -55,6 +55,7 @@ import { rewardedAdUnitId } from '@/config/rewardedAds';
 import {
   adCanShow, adMarkRunStart, adRecord, adRemaining,
 } from '@/core/AdDay';
+import { formationGrid, hitFormationCell } from '@/ui/fieldName';
 import { battleHudLay, type BattleHudLay } from '@/ui/lintel';
 import { numGlyphs, paintFrac, paintGlyphs } from '@/ui/glyphs';
 import {
@@ -63,7 +64,7 @@ import {
 import {
   autoPlace, battleClockMs, castSkill, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin,
   placeAt, placedOf, removeAt, skillAllies, skillReady,
-  reviveAfterLeak, startFight, tick,
+  countedLeaks, reviveAfterLeak, reviveCanContinue, startFight, tick,
   type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
 import { marchLerp } from '@/game/march';
@@ -655,8 +656,8 @@ export class BattleScene implements Scene {
       return;
     }
 
-    const cell = hitDeployCell(p.x, p.y, this._lay.spawnY, this._lay.goalY)
-      ?? hitDeployCell(hand.x, hand.y, this._lay.spawnY, this._lay.goalY);
+    const cell = this._hitPlaceCell(p.x, p.y)
+      ?? this._hitPlaceCell(hand.x, hand.y);
     if (cell) {
       this._tryPlace(hand.id, cell.lane, cell.cell);
       this._bench.select(null);
@@ -1070,7 +1071,28 @@ export class BattleScene implements Scene {
   }
 
   private _standY(cell: number): number {
+    if (this._placing()) return this._formationFeet(cell);
     return reachOriginY(cellPos(cell), this._lay.spawnY, this._lay.goalY);
+  }
+
+  /** 编队四格。排距够放下居中的名字，开打后改回战斗投影 */
+  private _formationFeet(cell: number): number {
+    const grid = formationGrid({
+      unitH: this._unitH,
+      top: this._lay.spawnY + 12,
+      bottom: this._lay.goalY - 8,
+    });
+    return grid.feetY[cell] ?? reachOriginY(cellPos(cell), this._lay.spawnY, this._lay.goalY);
+  }
+
+  private _hitPlaceCell(x: number, y: number): { lane: number; cell: number } | null {
+    if (!this._placing()) return hitDeployCell(x, y, this._lay.spawnY, this._lay.goalY);
+    const grid = formationGrid({
+      unitH: this._unitH,
+      top: this._lay.spawnY + 12,
+      bottom: this._lay.goalY - 8,
+    });
+    return hitFormationCell(x, y, grid.feetY, this._unitH);
   }
 
   private _foeXY(e: Foe, frac = 0): { x: number; y: number; feetY: number; h: number } {
@@ -1109,7 +1131,7 @@ export class BattleScene implements Scene {
     const placing = this._placing();
     const picked = this._draggingId();
     const hover = this._hand?.mode === 'drag'
-      ? hitDeployCell(this._hand.x, this._hand.y, spawnY, goalY)
+      ? this._hitPlaceCell(this._hand.x, this._hand.y)
       : null;
     if (placing) {
       for (let lane = 0; lane < LANE_COUNT; lane += 1) {
@@ -1292,7 +1314,9 @@ export class BattleScene implements Scene {
     const { spawnY, goalY } = this._lay;
     const pulse = 0.82 + 0.18 * Math.sin(Date.now() / 210);
     const color = LANE_TINT[sub.def.lane];
-    reachPoly(g, reachScreenPoly(sub, spawnY, goalY), color, pulse);
+    const poly = reachScreenPoly(sub, spawnY, goalY);
+    const dy = sub.feet.y - reachOriginY(sub.pos, spawnY, goalY);
+    reachPoly(g, dy === 0 ? poly : poly.map((p) => ({ x: p.x, y: p.y + dy })), color, pulse);
     this._stampFeet(g, sub.feet.x, sub.feet.y, true);
     const f = sub.fighter;
     if (!f) return;
@@ -1821,7 +1845,7 @@ export class BattleScene implements Scene {
     track('run_leave', {
       stage_id: this._state.stage.id,
       fighting: !placing,
-      leaked: this._state.leaked,
+      leaked: countedLeaks(this._state),
       wave: this._state.wave,
       play_ms: this._startedAt > 0 ? Date.now() - this._startedAt : 0,
     });
@@ -2103,7 +2127,7 @@ export class BattleScene implements Scene {
      * §4.4 也据此要求漏怪必须是失败局的多数 —— 模拟器实测超时占 0~10%，
      * 要是哪天涨到三成以上，先回去看曲线，不是在这儿放宽条件。
      */
-    if (s.phase === 'lost' && s.loseReason === 'leak' && adCanShow('revive')) {
+    if (s.phase === 'lost' && reviveCanContinue(s) && adCanShow('revive')) {
       this._leaveAsk.hide();
       this._syncLeaveBtn();
       this._revive.show(s.team, s.leaked, adRemaining('revive'), this._lay.height);
@@ -2129,9 +2153,17 @@ export class BattleScene implements Scene {
       return;
     }
     adRecord('revive');
-    reviveAfterLeak(this._state);
+    if (!reviveAfterLeak(this._state)) {
+      this._revive.hide();
+      this._openSettle();
+      return;
+    }
     this._vitals.reset();
-    for (const f of this._state.team) this._vitals.seed(f.uid, f.hp, 0, true);
+    for (const f of this._state.team) {
+      this._vitals.seed(f.uid, f.hp, 0, true);
+      // 倒下时立绘被藏起来。续命不发 villagerUp，不在这里扶，人就只剩名字
+      if (f.alive) this._actorFor(f).setDead(false);
+    }
     for (const e of this._state.foes) {
       if (e.alive) this._vitals.seed(`e${e.id}`, e.hp, 0, true);
     }
@@ -2165,7 +2197,7 @@ export class BattleScene implements Scene {
       stage_id: s.stage.id,
       won,
       stars: s.stars,
-      leaked: s.leaked,
+      leaked: countedLeaks(s),
       lose_reason: s.loseReason ?? '',
       elapsed_ms: s.elapsedMs,
       play_ms: this._startedAt > 0 ? Date.now() - this._startedAt : 0,
@@ -2188,8 +2220,9 @@ export class BattleScene implements Scene {
   /** 赢了那一句。说的是「这一关是怎么过的」，不是伤害统计 */
   private _winLine(): string {
     const s = this._state;
+    const leaked = countedLeaks(s);
     if (s.stars === 3) return '一个没漏，清得也快';
-    if (s.leaked > 0) return `漏了 ${s.leaked} 个，还是顶住了`;
+    if (leaked > 0) return `漏了 ${leaked} 个，还是顶住了`;
     const fallen = s.team.filter((f) => !f.alive).length;
     return fallen > 0 ? `倒了 ${fallen} 个，线没断` : '清干净了，就是慢了点';
   }

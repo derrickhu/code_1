@@ -253,8 +253,9 @@ export function capOf(mem: RunMemory): number {
 /**
  * 把离线攒的弹子结算到现在。
  *
- * 只回到 pelletCap，不许越过 —— 弹子是次数，攒着不玩没有额外好处，
- * 这是「每天回来打一会儿」和「攒一周一次性刷完」之间的那道闸。
+ * 回弹只补到 pelletCap，不许靠躺着越过 —— 弹子是次数，攒着不玩没有额外好处。
+ * 过关和广告已经顶到上限之上的，留着。计时照样往前走，
+ * 免得以后掉到上限以下时，把这段时间一次补回来。
  */
 export function settlePellets(nowMs: number = Date.now()): RunMemory {
   const prev = loadMemory();
@@ -263,7 +264,9 @@ export function settlePellets(nowMs: number = Date.now()): RunMemory {
   const perMs = pelletRegenMin(prev.villageLv) * 60_000;
   const gained = Math.floor((nowMs - prev.pelletAtMs) / perMs);
   if (gained <= 0) return prev;
-  const pellets = Math.min(cap, prev.pellets + gained);
+  const pellets = prev.pellets >= cap
+    ? prev.pellets
+    : Math.min(cap, prev.pellets + gained);
   return persist({
     ...prev,
     pellets,

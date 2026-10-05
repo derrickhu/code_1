@@ -3,7 +3,7 @@ import { bindPointerTap } from '@/minigame';
 import { Game } from '@/core/Game';
 import type { RunMemory } from '@/core/RunMemory';
 import { totalStars } from '@/core/RunMemory';
-import type { BattleState, Fighter, LoseReason } from '@/game/BattleEngine';
+import { countedLeaks, type BattleState, type Fighter, type LoseReason } from '@/game/BattleEngine';
 import {
   heroTex,
   uiTex,
@@ -137,7 +137,7 @@ function footLine(state: BattleState, memory: RunMemory, opts: SettleOpts): stri
   return [
     `上场 ${state.team.length} 人`,
     fallen > 0 ? `倒了 ${fallen} 个` : '一个没倒',
-    opts.loseReason === undefined && state.leaked > 0 ? `漏 ${state.leaked}` : '',
+    opts.loseReason === undefined && countedLeaks(state) > 0 ? `漏 ${countedLeaks(state)}` : '',
     `累计 ${totalStars(memory)} 星`,
   ].filter(Boolean).join(' · ');
 }

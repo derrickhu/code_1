@@ -209,7 +209,13 @@ export interface BattleState {
   spawnIdx: number;
   /** 已经放出来的最高波号，从 1 开始 */
   wave: number;
+  /** 这一局还没被判负的漏怪。满 3 个就停 */
   leaked: number;
+  /**
+   * 看广告续命时从 leaked 里拿下来的。
+   * 当场计数归零才能接着打，这些仍算进星级，不能当成一个没漏。
+   */
+  keptLeaks: number;
   elapsedMs: number;
   stars: Stars;
   loseReason?: LoseReason;
@@ -303,6 +309,7 @@ export function createBattle(
     spawnIdx: 0,
     wave: 0,
     leaked: 0,
+    keptLeaks: 0,
     elapsedMs: 0,
     stars: 0,
     events: [],
@@ -1091,7 +1098,7 @@ export function tick(state: BattleState): void {
   if (state.spawnIdx >= state.schedule.length && alive === 0) {
     state.phase = 'won';
     state.stars = rateStars(
-      state.leaked,
+      countedLeaks(state),
       state.team.filter((f) => !f.alive).length,
       true,
       battleClockMs(state),
@@ -1119,19 +1126,40 @@ export function reapFoes(state: BattleState): void {
   state.foes = state.foes.filter((e) => e.alive);
 }
 
+/** 算星、结算文案用的漏怪数。续命清掉的当场计数仍算在里面 */
+export function countedLeaks(state: Pick<BattleState, 'leaked' | 'keptLeaks'>): number {
+  return state.leaked + state.keptLeaks;
+}
+
 /**
- * 看广告续一条命：把漏怪数清回 0，场上外星人清掉一半。
+ * 漏怪判负之后，这场广告还救得回来吗。
+ *
+ * 漏走的已经出画面了，路上没走到底的还在。清掉一半之后一个人不剩，
+ * 后面也不再出怪，续命的下一帧就会被算成打光 —— 这种不给广告。
+ */
+export function reviveCanContinue(state: BattleState): boolean {
+  if (state.phase !== 'lost' || state.loseReason !== 'leak') return false;
+  const alive = foesAlive(state);
+  const remain = alive - Math.floor(alive / 2);
+  return remain > 0 || state.spawnIdx < state.schedule.length;
+}
+
+/**
+ * 看广告续一条命：漏怪计数清回 0（之前漏的记进 keptLeaks），场上外星人清掉一半。
  *
  * 只清一半而不是全清：全清等于把这一波白送，玩家下次会故意漏到 2 个再看广告。
+ * 向下取整，只剩 1 只就留着，不能被广告清掉。
+ * 救不回来时原样不动，调用方直接进失败结算。
  */
-export function reviveAfterLeak(state: BattleState): void {
-  if (state.phase !== 'lost') return;
+export function reviveAfterLeak(state: BattleState): boolean {
+  if (!reviveCanContinue(state)) return false;
+  state.keptLeaks += state.leaked;
   state.leaked = 0;
   state.loseReason = undefined;
-  const half = Math.ceil(foesAlive(state) / 2);
+  const cutN = Math.floor(foesAlive(state) / 2);
   let cut = 0;
   for (const e of state.foes) {
-    if (!e.alive || cut >= half) continue;
+    if (!e.alive || cut >= cutN) continue;
     e.alive = false;
     cut += 1;
   }
@@ -1142,6 +1170,7 @@ export function reviveAfterLeak(state: BattleState): void {
     }
   }
   state.phase = 'fighting';
+  return true;
 }
 
 /** GM：直接判赢，用来跳关 */

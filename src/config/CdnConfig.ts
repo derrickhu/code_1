@@ -70,6 +70,7 @@ export const CDN_CONFIG: CdnConfig = {
   bundledFiles: [
     'images/boot/loading_splash.jpg',
     'images/boot/title_logo.png',
+    'images/share/share_default.jpg',
   ],
   ignoreFiles: ['game.js', '.DS_Store', 'Thumbs.db', 'sfx_manifest.json'],
 };

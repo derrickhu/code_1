@@ -15,6 +15,8 @@ describe('CDN 路径分流', () => {
   it('首屏插画和标题留包内', () => {
     expect(CdnAssetService.isBundledPath('images/boot/loading_splash.jpg')).toBe(true);
     expect(CdnAssetService.isBundledPath('images/boot/title_logo.png')).toBe(true);
+    expect(CdnAssetService.isBundledPath('images/share/share_default.jpg')).toBe(true);
+    expect(CdnAssetService.isCdnPath('images/share/share_default.jpg')).toBe(false);
     expect(CdnAssetService.isCdnPath('images/boot/loading_splash.jpg')).toBe(false);
     expect(CdnAssetService.isCdnPath('images/boot/title_logo.png')).toBe(false);
   });
