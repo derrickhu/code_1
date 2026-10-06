@@ -9,7 +9,7 @@ export const WX_REWARDED_AD = {
   stallPellets: 'adunit-39a3bb98a95fc55c',
   /** 战斗漏怪后原地复活 */
   revive: 'adunit-fe7a8a11e1ea7ee9',
-  /** 结算「看视频，废铁翻倍」 */
+  /** 结算「看视频，再给 3 发弹子」 */
   settleDouble: 'adunit-6233ca9f96b05e36',
 } as const;
 

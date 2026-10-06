@@ -1,5 +1,5 @@
 /**
- * 广告位日限。核心流程只有复活和结算双倍；
+ * 广告位日限。核心流程只有复活和过关再给弹子；
  * 首局多带一件、翻废品站是局外，不挡十秒开场。
  * 插屏不做。日限见 docs/01-核心玩法循环.md §9。
  */
@@ -14,7 +14,7 @@ export type AdPlacement =
 
 const LIMIT: Readonly<Record<AdPlacement, number>> = {
   revive: 2,
-  settleDouble: 5,
+  settleDouble: 3,
   dailyGift: 1,
   junkyard: 1,
   // 村里那堆废品一键涨满。纯局外，不挡开场，一天一次 ——

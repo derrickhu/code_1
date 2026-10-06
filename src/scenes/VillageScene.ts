@@ -11,7 +11,7 @@
  *           路上只站几个闲人，不是花名册。
  * - `horn`  村委会大喇叭。喊人、揭晓、新人走路，都在这一页。
  * - `stall` 弹弓摊。弹子的唯一去处，也是村庄经验/零件/工分的唯一来源。
- * - `folks` 乡亲。已来的能再练。没来的认得出是谁：点开先看人，再决定等不等。喊人仍去喇叭。
+ * - `folks` 乡亲。已来的能再练。没来的在格子上是黑影，名字先藏着；点开才看人，再决定等不等。喊人仍去喇叭。
  * - `one`   单个村民。只画当前这一阶，升阶换形象；星和手艺是这页的主信息。
  *
  * 资源条常驻在村子、图鉴、详情顶上。弹弓摊改用战斗那种矮锈铁板，
@@ -58,9 +58,10 @@ import {
   settlePellets, shootStall, stallAdLeft, stallPityLeft,
   type RunMemory,
 } from '@/core/RunMemory';
-import { playSfx } from '@/core/SfxPlayer';
+import { buzz, playSfx, warmSfx } from '@/core/SfxPlayer';
 import {
   folksPreloadImages,
+  heroStillArt,
   hornPreloadImages,
   stallPreloadImages,
   villageHomeImages,
@@ -284,6 +285,8 @@ export class VillageScene implements Scene {
   /** 揭晓还没关：路上先不站这个人 */
   private _pendingArrive = '';
   private readonly _reveal = new CallReveal();
+  /** 喊声把 BGM 压下去的那一下，播完抬回来 */
+  private _shoutHold: { t: number } | null = null;
   private readonly _yard = new StallYard(() => this._shoot());
   private _artTimer: ReturnType<typeof setTimeout> | 0 = 0;
   /** 刚收进口袋的那一格，刷新后面要弹一下 */
@@ -355,6 +358,8 @@ export class VillageScene implements Scene {
     this._oneLock = false;
     this._clearActors();
     this._reveal.close();
+    if (this._shoutHold) TweenManager.cancelTarget(this._shoutHold);
+    this._shoutHold = null;
     this._yard.sleep();
     if (this._yard.parent) this._yard.parent.removeChild(this._yard);
     BgmPlayer.stop();
@@ -644,7 +649,7 @@ export class VillageScene implements Scene {
     h: number,
     text: string,
     onTap: () => void,
-    opts: { sub?: string; note?: string; enabled?: boolean; art?: UiName } = {},
+    opts: { sub?: string; note?: string; enabled?: boolean; art?: UiName; silent?: boolean } = {},
   ): PIXI.Container {
     const on = opts.enabled !== false;
     const box = new PIXI.Container();
@@ -682,7 +687,7 @@ export class VillageScene implements Scene {
       box.addChild(n);
     }
     box.alpha = on ? 1 : 0.55;
-    if (on) bindPointerTap(box, onTap);
+    if (on) bindPointerTap(box, onTap, opts.silent ? { silent: true } : undefined);
     layer.addChild(box);
     return box;
   }
@@ -1227,6 +1232,7 @@ export class VillageScene implements Scene {
     this._backdrop(layer, villageHomeBgTex() ?? villageBgTex(), 0.08);
     const top = this._bar(layer);
     const height = this._height();
+    warmSfx(['shout']);
     const dock = hornDockLay(height, Game.safeBottom);
     const enough = this._mem.credits >= CALL_COST;
     const waitId = this._waitId();
@@ -1265,6 +1271,7 @@ export class VillageScene implements Scene {
     this._btn(layer, dock.back.cx, dock.back.cy, dock.back.w, dock.back.h, '回村口', () => this._open('home'));
     this._btn(layer, dock.shout.cx, dock.shout.cy, dock.shout.w, dock.shout.h, '喊一嗓子', () => this._shout(), {
       art: 'fight_btn',
+      silent: true,
       sub: enough
         ? `${CALL_COST} 工分 · 手上 ${this._mem.credits}`
         : `还差 ${CALL_COST - this._mem.credits} 工分`,
@@ -1400,6 +1407,7 @@ export class VillageScene implements Scene {
     const p = progressOf(mem);
     const vm = villageMul(mem.villageLv);
     const owned = new Set(mem.roster);
+    const seen = new Set(mem.seenIds);
     const backH = 80;
     const backY = this._height() - Game.safeBottom - 52;
     const waitId = this._waitId();
@@ -1457,6 +1465,7 @@ export class VillageScene implements Scene {
       const x = side + col * (cardW + gap);
       const y = gridTop + row * (cardH + gap);
       const has = owned.has(v.id);
+      const known = has || seen.has(v.id);
       const pin = !has && mem.waitId === v.id;
 
       const box = new PIXI.Container();
@@ -1486,14 +1495,14 @@ export class VillageScene implements Scene {
         cardW / 2, 12 + faceH / 2, cardW - 18, faceH,
       );
       if (face && !has) {
-        face.tint = 0xa89880;
-        face.alpha = 1;
+        face.tint = 0x16120e;
+        face.alpha = 0.88;
       }
 
-      const nm = label(17, CREAM, true);
+      const nm = label(17, has ? CREAM : MUTED, true);
       nm.anchor.set(0.5, 0);
       nm.position.set(cardW / 2, cardH - footH);
-      nm.text = v.name;
+      nm.text = known ? v.name : '???';
       box.addChild(nm);
 
       const tag = label(13, has ? GOLD : MUTED, true);
@@ -1501,7 +1510,7 @@ export class VillageScene implements Scene {
       tag.position.set(cardW / 2, cardH - footH + 20);
       tag.text = has
         ? `${folkSignName(v.id)} Lv.${craftOf(p, v.id)} ${stars(starsOf(p, v.id))}`.trim()
-        : '还没来';
+        : known ? `${LANE_NAME[v.lane]}·${JOB_NAME[jobOf(v.role)]}` : '还没见过';
       box.addChild(tag);
 
       if (wide) {
@@ -1630,11 +1639,13 @@ export class VillageScene implements Scene {
   private _shout(): void {
     if (this._reveal.busy) return;
     if (this._mem.credits < CALL_COST) {
+      playSfx('ui_tap', 0);
       Platform.showToast(`还差 ${CALL_COST - this._mem.credits} 工分`);
       return;
     }
     const res = callVillager();
     if (!res) {
+      playSfx('ui_tap', 0);
       Platform.showToast(`还差 ${CALL_COST - this._mem.credits} 工分`);
       return;
     }
@@ -1642,10 +1653,15 @@ export class VillageScene implements Scene {
     track('call_villager', {
       got: res.got, is_new: res.isNew, roster: this._mem.roster.length,
     });
-    playSfx(res.isNew ? 'win' : 'install_on', 0);
+    this._playShout();
     this._page = 'horn';
     this._arrive = '';
     this._pendingArrive = res.isNew ? res.got : '';
+    // 立绘排在院子那一串走帧前面，牌子打开时人已经在路上
+    void ensureAssets(heroStillArt({
+      id: res.got,
+      evo: evoOf(progressOf(this._mem), res.got),
+    }));
     this._kickPageArt('horn');
     this._render();
     this._reveal.open({
@@ -1659,6 +1675,26 @@ export class VillageScene implements Scene {
         this._arrive = this._pendingArrive;
         this._pendingArrive = '';
         this._render();
+      },
+    });
+  }
+
+  /** 大喇叭喊出去。压一下曲子，让这一嗓子盖过村口的背景。 */
+  private _playShout(): void {
+    if (this._shoutHold) TweenManager.cancelTarget(this._shoutHold);
+    const hold = { t: 0 };
+    this._shoutHold = hold;
+    BgmPlayer.duck(true);
+    playSfx('shout', 0);
+    buzz('medium');
+    TweenManager.to({
+      target: hold,
+      props: { t: 1 },
+      duration: 1.15,
+      onComplete: () => {
+        if (this._shoutHold !== hold) return;
+        this._shoutHold = null;
+        BgmPlayer.duck(false);
       },
     });
   }

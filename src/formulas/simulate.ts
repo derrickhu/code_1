@@ -28,9 +28,9 @@ import {
   CHAPTER_COUNT, STAGES, STAGE_COUNT, getStage, type StageDef,
 } from '@/balance/stages';
 import {
-  DAILY_PELLETS, PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST,
-  PELLET_LOSE, PELLET_OFFLINE_CAP, SETTLE_SCRAP, SETTLE_SCRAP_REPLAY,
-  expectedPerPellet, mulberry32, type Rng,
+  DAILY_PELLETS, PELLET_AD, PELLET_AD_DAILY, PELLET_LOSE, PELLET_OFFLINE_CAP,
+  SETTLE_SCRAP, SETTLE_SCRAP_REPLAY, expectedPerPellet, mulberry32, pelletsForStage,
+  type Rng,
 } from '@/balance/stall';
 import {
   CALL_COST, addVillageExp, craftOf, evoOf, nextFeed,
@@ -286,7 +286,7 @@ export function simulate(opts: SimOptions = {}): SimResult {
     let wins = 0;
     let losses = 0;
     let stuckAt: string | undefined;
-    let firsts = 0;
+    let stagePellets = 0;
 
     // ---- 推图 ----
     for (let a = 0; a < attempts; a += 1) {
@@ -303,6 +303,7 @@ export function simulate(opts: SimOptions = {}): SimResult {
         const res = runBattle(last, placeFor(l, last, mode, day + a), villageMul(l.villageLv));
         if (!res.won) break;
         l.scrap += SETTLE_SCRAP_REPLAY * yieldMul(l.villageLv);
+        stagePellets += pelletsForStage(STAGE_COUNT, false);
         wins += 1;
         continue;
       }
@@ -312,11 +313,12 @@ export function simulate(opts: SimOptions = {}): SimResult {
       if (res.won) {
         l.cleared.add(nextId);
         l.scrap += SETTLE_SCRAP * yieldMul(l.villageLv);
+        stagePellets += pelletsForStage(nextId, true);
         wins += 1;
-        firsts += 1;
         if (l.cleared.size >= STAGE_COUNT && clearAllDay === undefined) clearAllDay = day;
       } else {
         losses += 1;
+        stagePellets += PELLET_LOSE;
         stuckAt = stage.label;
         /*
          * 打不过就不硬撞，当天到此为止 —— 这是刻意的保守假设，别顺手「修」。
@@ -336,9 +338,7 @@ export function simulate(opts: SimOptions = {}): SimResult {
     // ---- 弹子 ----
     const pellets = PELLET_OFFLINE_CAP
       + (watchAds ? PELLET_AD * PELLET_AD_DAILY : 0)
-      + wins * PELLET_CLEAR
-      + firsts * PELLET_FIRST
-      + losses * PELLET_LOSE;
+      + stagePellets;
 
     // ---- 打摊子（期望值） ----
     const per = expectedPerPellet(l.villageLv);

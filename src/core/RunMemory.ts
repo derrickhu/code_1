@@ -13,8 +13,9 @@
 import { SAVE_KEY } from '@/config/CloudConfig';
 import { PersistService } from '@/core/PersistService';
 import {
-  PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST, PELLET_LOSE,
+  PELLET_AD, PELLET_AD_DAILY, PELLET_LOSE,
   SETTLE_SCRAP, SETTLE_SCRAP_REPLAY, creditPity, mulberry32, pelletCap,
+  pelletsForStage,
   pelletRegenMin, shoot,
   type ShotResult,
 } from '@/balance/stall';
@@ -445,9 +446,7 @@ export function settleStage(
   const id = clampStage(stageId);
   const first = won && !prev.stageStars[id];
 
-  const pellets = won
-    ? PELLET_CLEAR + (first ? PELLET_FIRST : 0)
-    : PELLET_LOSE;
+  const pellets = won ? pelletsForStage(id, first) : PELLET_LOSE;
   // 重打给得少：通关后还有活水，但蹲在 1-1 刷不出手艺后段
   const base = first ? SETTLE_SCRAP : SETTLE_SCRAP_REPLAY;
   const scrap = won ? Math.round(base * yieldMul(prev.villageLv)) : 0;
@@ -574,8 +573,9 @@ export function stallPityLeft(mem: RunMemory): number {
   return Math.max(0, creditPity(mem.villageLv) - mem.stallPity);
 }
 
-/** 结算广告翻倍补的那一笔。只加废铁，不碰其他资源 */
-export function addScrap(amount: number): RunMemory {
+/** 结算广告给的弹子。固定加几发，允许顶到上限之上，废铁和其他资源不动 */
+export function grantSettlePellets(amount: number): RunMemory {
   const prev = loadMemory();
-  return persist({ ...prev, scrap: prev.scrap + Math.max(0, Math.floor(amount)) });
+  const add = Math.max(0, Math.floor(amount));
+  return persist({ ...prev, pellets: prev.pellets + add });
 }

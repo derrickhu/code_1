@@ -11,6 +11,7 @@ import {
   watchArt,
   type UiName,
 } from '@/core/TextureLoader';
+import { SETTLE_AD_PELLETS } from '@/balance/stall';
 import { GOLD, fitSprite, label } from '@/ui/paint';
 import { Ease, TweenManager } from '@/core/TweenManager';
 import { Platform } from '@/core/PlatformService';
@@ -38,11 +39,6 @@ type Slot = {
   h: number;
   draw: (cy: number) => void;
 };
-
-/** 看广告翻倍之后这一关一共给多少废铁 */
-function doubled(earned: number): number {
-  return Math.max(16, earned * 2);
-}
 
 /** ★★☆ 这种写法。结算页的主信息之一，不许只写「通关」 */
 function starMarks(stars: number): string {
@@ -234,7 +230,6 @@ export class SettleOverlay extends PIXI.Container {
     const nextBtn = fitted('settle_btn', 400, 86);
     const footBtn = fitted('settle_btn', 300, 92);
     const namePlate = fitted('settle_name', 168, 48);
-    const carry = doubled(opts.earned);
     this._adPulse = [];
 
     const footerY = height - Game.safeBottom - 20 - footBtn.h / 2;
@@ -259,29 +254,23 @@ export class SettleOverlay extends PIXI.Container {
       },
     });
 
-    if (!this._tookDouble) {
+    if (opts.canDouble && !this._tookDouble) {
       slots.push({
         h: adBtn.h,
         draw: (cy) => {
-          this._adBtn(375, cy, 640, 146, `看视频  废铁翻倍拿 ${carry}`, async () => {
+          this._adBtn(375, cy, 640, 146, `看视频，再给 ${SETTLE_AD_PELLETS} 发弹子`, async () => {
             if (this._busy || this._tookDouble) return;
             this._busy = true;
             const ok = await this._onDouble();
             this._busy = false;
             if (!ok || !this._held) return;
             this._tookDouble = true;
-            const from = this._held.opts.earned;
-            const to = doubled(from);
-            const scrapFrom = this._held.opts.scrap;
-            const scrapTo = scrapFrom + (to - from);
-            this._held.opts = { ...this._held.opts, earned: to, scrap: scrapTo };
+            const from = this._held.opts.pellets;
+            const to = from + SETTLE_AD_PELLETS;
+            this._held.opts = { ...this._held.opts, pellets: to };
             // 宿主关广告后常自带「领取成功」，先清掉再滚数字，免得盖住变化
             Platform.hideToast();
-            this._roll(this._earnTx, from, to, (n) => `+${n}`, () => {
-              if (!this._earnTx || !this._nameTx || this._nameTx.destroyed) return;
-              this._nameTx.x = this._earnTx.x + this._earnTx.width + 12;
-            });
-            this._roll(this._haveTx, scrapFrom, scrapTo, (n) => `村里废铁 ${n}`);
+            this._roll(this._nameTx, from, to, (n) => `废铁 · +${n} 发弹子`);
             this._lockAd();
           });
         },
@@ -501,7 +490,7 @@ export class SettleOverlay extends PIXI.Container {
     this._haveTx = have;
   }
 
-  /** 数额从旧值滚到新值，并弹一下，让翻倍一眼能看出来 */
+  /** 数额从旧值滚到新值，并弹一下，让多出来的弹子一眼能看出来 */
   private _roll(
     tx: PIXI.Text | null,
     from: number,
@@ -546,14 +535,16 @@ export class SettleOverlay extends PIXI.Container {
     });
   }
 
-  /** 广告钮停掉呼吸，改成「已翻倍」，不能再点 */
+  /** 广告钮停掉呼吸，改成已领，不能再点 */
   private _lockAd(): void {
     this._adPulse = [];
     const box = this._adBox;
     if (!box || box.destroyed) return;
     box.eventMode = 'none';
     box.scale.set(1);
-    if (this._adLabel && !this._adLabel.destroyed) this._adLabel.text = '废铁已翻倍';
+    if (this._adLabel && !this._adLabel.destroyed) {
+      this._adLabel.text = `已再给 ${SETTLE_AD_PELLETS} 发`;
+    }
     TweenManager.to({
       target: box.scale,
       props: { x: 1.06, y: 1.06 },

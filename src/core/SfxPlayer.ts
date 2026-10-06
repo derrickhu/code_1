@@ -49,6 +49,8 @@ export const SFX_FILE: Readonly<Record<string, string>> = {
   sk_stun: 'audio/sk_stun.mp3',
   sk_heal: 'audio/sk_heal.mp3',
   sk_multi: 'audio/sk_multi.mp3',
+  /** 村口大喇叭喊一嗓子 */
+  shout: 'audio/shout.mp3',
 };
 
 /** 没单独出文件的签名，直接用已有音，不发空路径 */
@@ -66,6 +68,7 @@ const poolAt = new Map<string, number>();
 
 const POOL_SIZE: Readonly<Record<string, number>> = {
   ui_tap: 2,
+  shout: 1,
 };
 
 function resolveKey(name: string): string | undefined {

@@ -29,6 +29,7 @@ import {
   laneScreenX, posScreenY,
 } from '@/balance/combat';
 import { getStage, stageEnemyCount } from '@/balance/stages';
+import { SETTLE_AD_PELLETS } from '@/balance/stall';
 import { resolveAttackFx, resolveEnemyFx, resolveFxSkin } from '@/balance/fx';
 import { LANE_NAME, evoKindOf, getVillager, jobOf, statsOf } from '@/balance/villagers';
 import {
@@ -46,7 +47,7 @@ import { bgTex, fillCover, heroTex, uiTex, watchArt, type UiName } from '@/core/
 import { playSfx } from '@/core/SfxPlayer';
 import { track } from '@/core/Analytics';
 import {
-  addScrap, capOf, loadMemory, progressOf, saveLayout, settleStage,
+  grantSettlePellets, capOf, loadMemory, progressOf, saveLayout, settleStage,
   type RunMemory, type Slot,
 } from '@/core/RunMemory';
 import { craftOf, evoOf, starsOf, villageMul } from '@/balance/village';
@@ -2264,9 +2265,8 @@ export class BattleScene implements Scene {
     const ok = await this._watchAd('settleDouble');
     if (!ok) return false;
     adRecord('settleDouble');
-    // 翻倍补的是差额：settleStage 已经把基础那一份记进去了
-    const total = Math.max(16, this._settleGot.scrap * 2);
-    this._mem = addScrap(total - this._settleGot.scrap);
+    this._mem = grantSettlePellets(SETTLE_AD_PELLETS);
+    this._settleGot.pellets += SETTLE_AD_PELLETS;
     return true;
   }
 

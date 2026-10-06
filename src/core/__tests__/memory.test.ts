@@ -19,7 +19,7 @@ const KEY = 'cunkou_run_memory';
 import { LAST_STAGE_ID } from '@/balance/stages';
 import {
   PELLET_AD, PELLET_AD_DAILY, PELLET_CLEAR, PELLET_FIRST, PELLET_LOSE,
-  PELLET_CAP, SETTLE_SCRAP, pelletCap, pelletRegenMin,
+  PELLET_CAP, SETTLE_AD_PELLETS, SETTLE_SCRAP, pelletCap, pelletRegenMin,
 } from '@/balance/stall';
 import {
   CALL_COST, CRAFT_COST, STAR_GRANT_COST, emptyProgress, nextVillageCost, rollCall, squadCap, starWeekKey,
@@ -32,6 +32,7 @@ import {
   setWait,
   capOf,
   claimAdPellets,
+  grantSettlePellets,
   gmGrant,
   gmUnlockToStage,
   loadMemory,
@@ -115,6 +116,29 @@ describe('推图进度', () => {
     // 输了也给一发：空手回村会让人干脆不打第二次
     expect(lose.pellets).toBe(PELLET_LOSE);
     expect(lose.scrap).toBe(0);
+  });
+
+  it('前 40 关弹子不变，第 9 章起才随章变多', () => {
+    // 5-1 还在手校的 8 章里，和 1-1 一样
+    const early = settleStage(21, true, 3);
+    expect(early.pellets).toBe(PELLET_CLEAR + PELLET_FIRST);
+    expect(early.scrap).toBe(SETTLE_SCRAP);
+    store.clear();
+    // 9-1 多 1 发。13-1 再多一档。末关封顶，不再往上加
+    const ch9 = settleStage(41, true, 3);
+    expect(ch9.pellets).toBe(PELLET_CLEAR + 1 + PELLET_FIRST);
+    expect(settleStage(41, true, 1).pellets).toBe(PELLET_CLEAR + 1);
+    store.clear();
+    // 13-1 仍是刚出 8 章的那一档（多 1 发）。第 17 章再多一档。末关封顶多 4 发
+    const ch13 = settleStage(61, true, 3);
+    expect(ch13.pellets).toBe(PELLET_CLEAR + 1 + PELLET_FIRST);
+    expect(ch13.scrap).toBe(SETTLE_SCRAP);
+    store.clear();
+    const ch17 = settleStage(81, true, 3);
+    expect(ch17.pellets).toBe(PELLET_CLEAR + 2 + PELLET_FIRST);
+    store.clear();
+    const end = settleStage(LAST_STAGE_ID, true, 3);
+    expect(end.pellets).toBe(PELLET_CLEAR + 4 + PELLET_FIRST);
   });
 
   it('星评只记最高的那次，重打差了不会掉', () => {
@@ -201,6 +225,14 @@ describe('弹弓摊', () => {
   it('没弹子就打不了', () => {
     write({ pellets: 0, pelletAtMs: Date.now() });
     expect(shootStall()).toBeUndefined();
+  });
+
+  it('结算广告只加 3 发弹子，废铁不动，满仓也能加上', () => {
+    write({ pellets: pelletCap(1), scrap: 40 });
+    const mem = grantSettlePellets(SETTLE_AD_PELLETS);
+    expect(mem.pellets).toBe(pelletCap(1) + SETTLE_AD_PELLETS);
+    expect(SETTLE_AD_PELLETS).toBe(PELLET_CLEAR);
+    expect(mem.scrap).toBe(40);
   });
 
   it('广告弹子有日限，且允许顶到上限之上', () => {

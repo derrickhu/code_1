@@ -9,6 +9,7 @@
  * 不进货币条、不能买、不能换、没有第二个去处。玩家一旦问出
  * 「弹子能买什么」，说明它变成了第五种货币，届时砍掉存量改成纯次数。
  */
+import { getStage } from '@/balance/stages';
 import { yieldMul } from '@/balance/village';
 
 export type Drop = 'exp' | 'scrap' | 'parts' | 'credits';
@@ -119,10 +120,38 @@ export function creditPity(villageLv: number): number {
 
 /* ---------------- 弹子（次数，不是货币） ---------------- */
 
-/** 通关一关给几发 */
+/**
+ * 第 1 章过关给几发。后面的章在这之上加，不加在首通那一笔上。
+ * 一天的弹子账（DAILY_PELLETS）仍按这个开局数校。
+ */
 export const PELLET_CLEAR = 3;
-/** 首次通关额外给几发 */
+/** 首次通关额外给几发。每一章都是这一笔，不随难度涨 */
 export const PELLET_FIRST = 4;
+/**
+ * 第 9 章起过关才多给弹子。前 8 章（40 关）一个不加。
+ *
+ * 那 40 关的天数和村庄升级是贴着「过关 3 发」校的。往前加一两发，
+ * 村庄 20 级会提前到来，人变强，后面的关就打得太顺。
+ * 第 9 章多 1 发，之后每 8 章再多 1 发，最多多 4 发（过关 7 发）。
+ * 到顶就停。弹子仍是摊上的次数，不按关卡号无限加。
+ */
+export const PELLET_CHAPTER_START = 9;
+export const PELLET_CHAPTER_EVERY = 8;
+export const PELLET_CHAPTER_CAP = 4;
+
+/** 这一章过关比第 1 章多几发。前 8 章是 0 */
+export function pelletChapterBonus(chapter: number): number {
+  const ch = Math.max(1, Math.floor(chapter) || 1);
+  if (ch < PELLET_CHAPTER_START) return 0;
+  const steps = Math.floor((ch - PELLET_CHAPTER_START) / PELLET_CHAPTER_EVERY);
+  return Math.min(PELLET_CHAPTER_CAP, 1 + steps);
+}
+
+/** 打赢这一关给几发。首通另加 PELLET_FIRST，输了不走这里 */
+export function pelletsForStage(stageId: number, first: boolean): number {
+  const bonus = pelletChapterBonus(getStage(stageId).chapter);
+  return PELLET_CLEAR + bonus + (first ? PELLET_FIRST : 0);
+}
 /** 打输了也给一发，不能空手回村 */
 export const PELLET_LOSE = 1;
 /** 离线多久回一发（分钟）。村庄 Lv.5 之后降到 30 */
@@ -133,6 +162,12 @@ export const PELLET_OFFLINE_CAP = 12;
 /** 摊子看一条广告给几发，日限几次 */
 export const PELLET_AD = 5;
 export const PELLET_AD_DAILY = 3;
+/**
+ * 过关结算看广告再给的弹子。固定 3 发，不跟这一关本来的过关弹子翻倍，
+ * 也不再翻废铁。日限在 AdDay.settleDouble，跟摊子广告对齐成一天 3 次。
+ * 不进 DAILY_PELLETS：这是玩家自己点的，模拟器不算进每天的自动进账。
+ */
+export const SETTLE_AD_PELLETS = 3;
 /** 存量上限。村庄 Lv.5 之后涨到 26 */
 export const PELLET_CAP = 20;
 export const PELLET_CAP_LATE = 26;

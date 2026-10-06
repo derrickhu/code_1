@@ -5,7 +5,7 @@
 import * as PIXI from 'pixi.js';
 import { bindPointerTap } from '@/minigame';
 import { Ease, TweenManager } from '@/core/TweenManager';
-import { heroTex, uiTex } from '@/core/TextureLoader';
+import { heroEvoPath, heroStillPath, tex, uiTex, watchArt } from '@/core/TextureLoader';
 import { evoOf, starOpenedEvo, starsOf, type Progress } from '@/balance/village';
 import { evoNameOf, getVillager } from '@/balance/villagers';
 import { portraitCardScale } from '@/fx/portraitFit';
@@ -31,9 +31,26 @@ function starFormName(p: Progress, starTo: string | undefined): string | undefin
   }
 }
 
+const FACE_W = 280;
+const FACE_H = 340;
+
+type FaceTier = 'none' | 'still' | 'evo';
+
 export class CallReveal extends PIXI.Container {
   private _busy = false;
   private _hold: { a: number; s: number } | null = null;
+  /** 立绘常在 CDN 上，开牌时往往还没到。这个槽等图到了再填，不把整张牌重开一遍 */
+  private _face: PIXI.Container | null = null;
+  private _got = '';
+  private _evo = 1;
+  private _faceTier: FaceTier = 'none';
+  /** 牌子砸稳之后才算晚到，晚到的人淡入，免得跟开场缩放抢 */
+  private _shown = false;
+
+  constructor() {
+    super();
+    watchArt(() => this._paintFace());
+  }
 
   get busy(): boolean {
     return this._busy;
@@ -64,7 +81,9 @@ export class CallReveal extends PIXI.Container {
     dim.eventMode = 'none';
     this.addChild(dim);
 
-    const board = this._board(beat, opts.got, opts.progress, opts.height);
+    this._got = opts.got;
+    this._evo = Math.max(1, Math.min(3, evoOf(opts.progress, opts.got)));
+    const board = this._board(beat, opts.height);
     this.addChild(board);
 
     const hold = { a: 0, s: 0.84 };
@@ -82,6 +101,7 @@ export class CallReveal extends PIXI.Container {
         board.alpha = hold.a;
         board.scale.set(hold.s);
       },
+      onComplete: () => { this._shown = true; },
     });
 
     let opened = false;
@@ -104,13 +124,46 @@ export class CallReveal extends PIXI.Container {
   close(): void {
     if (this._hold) TweenManager.cancelTarget(this._hold);
     this._hold = null;
+    if (this._face) {
+      for (const c of this._face.children) TweenManager.cancelTarget(c);
+    }
+    this._face = null;
+    this._got = '';
+    this._faceTier = 'none';
+    this._shown = false;
     this._busy = false;
     this.visible = false;
     this.eventMode = 'none';
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
   }
 
-  private _board(beat: CallBeat, got: string, progress: Progress, height: number): PIXI.Container {
+  /** 高清立绘优先。没到就先用站姿，到了再换上，不让牌心空着 */
+  private _paintFace(): void {
+    const host = this._face;
+    if (!this._busy || !this._got || !host || host.destroyed) return;
+    const evoTex = tex(heroEvoPath(this._got, this._evo));
+    const use = evoTex ?? tex(heroStillPath(this._got));
+    if (!use) return;
+    const tier: FaceTier = evoTex ? 'evo' : 'still';
+    if (this._faceTier === 'evo' || this._faceTier === tier) return;
+    for (const c of host.removeChildren()) {
+      TweenManager.cancelTarget(c);
+      c.destroy();
+    }
+    const fit = portraitCardScale(this._got, this._evo, use.width, use.height, FACE_W, FACE_H);
+    const spr = standSprite(host, use, 0, fit.plantY, FACE_W, FACE_H, fit.scale);
+    if (!spr) return;
+    this._faceTier = tier;
+    if (!this._shown) return;
+    spr.alpha = 0;
+    TweenManager.to({
+      target: spr,
+      props: { alpha: 1 },
+      duration: 0.18,
+    });
+  }
+
+  private _board(beat: CallBeat, height: number): PIXI.Container {
     const board = new PIXI.Container();
     board.position.set(375, Math.round(height * 0.46));
     board.eventMode = 'none';
@@ -123,6 +176,14 @@ export class CallReveal extends PIXI.Container {
       board.addChild(g);
     }
 
+    const feetY = 78;
+    const host = new PIXI.Container();
+    host.position.set(0, feetY);
+    host.eventMode = 'none';
+    board.addChild(host);
+    this._face = host;
+    this._paintFace();
+
     const title = label(40, GOLD, true);
     title.anchor.set(0.5);
     title.position.set(0, -h / 2 + 58);
@@ -130,16 +191,6 @@ export class CallReveal extends PIXI.Container {
     title.style.strokeThickness = 6;
     title.text = beat.title;
     board.addChild(title);
-
-    const evo = Math.max(1, evoOf(progress, got));
-    const tex = heroTex(got, evo);
-    const faceW = 280;
-    const faceH = 340;
-    const feetY = 78;
-    if (tex) {
-      const fit = portraitCardScale(got, evo, tex.width, tex.height, faceW, faceH);
-      standSprite(board, tex, 0, feetY + fit.plantY, faceW, faceH, fit.scale);
-    }
 
     const job = label(22, CREAM, true);
     job.anchor.set(0.5);
