@@ -15,10 +15,37 @@ import { SETTLE_AD_PELLETS } from '@/balance/stall';
 import { GOLD, fitSprite, label } from '@/ui/paint';
 import { Ease, TweenManager } from '@/core/TweenManager';
 import { Platform } from '@/core/PlatformService';
+import { playSfx } from '@/core/SfxPlayer';
 
 const INK = 0x2a160c;
 const CREAM = 0xfff4c4;
 const GAP = 12;
+
+/** 赢的开场。拍子错开，大约 2.7 秒；点空白仍能跳到终态 */
+const WIN = {
+  drop: 0.5,
+  starOff: 0.58,
+  starOffGap: 0.08,
+  starOffDur: 0.3,
+  starOn: 0.82,
+  starOnGap: 0.32,
+  slam: 0.32,
+  flourish: 1.82,
+  people: 2.0,
+  peopleGap: 0.08,
+  peopleMid: 2.18,
+  loot: 2.2,
+  rollAt: 2.24,
+  rollDur: 0.7,
+  foot: 2.32,
+  yard: 2.4,
+  replay: 2.48,
+  next: 2.52,
+  ad: 2.6,
+  pop: 0.36,
+  /** 最后一颗按钮落定之后，下一关才开始呼吸 */
+  done: 3.02,
+} as const;
 
 type SettleOpts = {
   /** 这一关结算给的废铁 */
@@ -39,11 +66,6 @@ type Slot = {
   h: number;
   draw: (cy: number) => void;
 };
-
-/** ★★☆ 这种写法。结算页的主信息之一，不许只写「通关」 */
-function starMarks(stars: number): string {
-  return '★'.repeat(Math.max(0, stars)) + '☆'.repeat(Math.max(0, 3 - stars));
-}
 
 function stroke(size: number, fill: number, rim = '#1a1008', thick = 4): PIXI.Text {
   const t = label(size, fill, true);
@@ -159,6 +181,12 @@ export class SettleOverlay extends PIXI.Container {
   private _haveTx: PIXI.Text | null = null;
   private _adBox: PIXI.Container | null = null;
   private _adLabel: PIXI.Text | null = null;
+  /** 开场演出还没放完。点空白跳到终态，按钮呼吸等这段结束 */
+  private _intro = false;
+  private _nextPulse: PIXI.Container[] = [];
+  private _tracked: object[] = [];
+  private _poses: { node: PIXI.Container; x: number; y: number; sx: number; sy: number; a: number }[] = [];
+  private _fxLayer: PIXI.Container | null = null;
 
   constructor(
     onReplay: () => void,
@@ -181,6 +209,10 @@ export class SettleOverlay extends PIXI.Container {
   }
 
   show(state: BattleState, memory: RunMemory, height: number, opts: SettleOpts): void {
+    this._intro = false;
+    this._haltIntro();
+    this._poses = [];
+    this._nextPulse = [];
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.visible = true;
     this.eventMode = 'static';
@@ -189,10 +221,12 @@ export class SettleOverlay extends PIXI.Container {
 
     const won = state.phase === 'won';
     this._coverBg(height, !won);
+    this._armSkip(height);
     if (!won) {
       this._showLose(state, memory, height, opts);
       return;
     }
+    this._intro = true;
 
     const top = Math.max(Game.safeTop, 28);
     const title = '守住了';
@@ -200,29 +234,37 @@ export class SettleOverlay extends PIXI.Container {
     const cast = castOf(state.team, true);
     const plaque = fitted('title_plaque', 700, 380);
     const plaqueY = top + plaque.h * 0.48;
-    fitSprite(this, uiTex('title_plaque'), 375, plaqueY, 700, 380);
+    const drop = new PIXI.Container();
+    drop.eventMode = 'none';
+    this.addChild(drop);
+    const plaqueSpr = fitSprite(drop, uiTex('title_plaque'), 375, plaqueY, 700, 380);
     const titleTx = stroke(56, GOLD, '#2a160c', 7);
     titleTx.anchor.set(0.5);
     titleTx.position.set(375, plaqueY + plaque.h * 0.05);
     titleTx.text = title;
-    this.addChild(titleTx);
+    drop.addChild(titleTx);
 
-    // 星评是主信息之一：三档要分得开，玩家才有理由回头重打
-    const starTx = stroke(38, GOLD, '#2a160c', 6);
-    starTx.anchor.set(0.5);
-    starTx.position.set(375, plaqueY + plaque.h * 0.20);
-    starTx.text = starMarks(state.stars);
-    this.addChild(starTx);
+    // 星是三颗牌，不是一行 ★。空位先就位，得到的再一颗颗砸进去
+    const starRow = new PIXI.Container();
+    starRow.position.set(375, plaqueY + plaque.h * 0.2);
+    drop.addChild(starRow);
+    this._mountStars(starRow, state.stars);
 
     if (opts.identity) {
       const idTx = stroke(20, GOLD, '#2a160c', 4);
       idTx.anchor.set(0.5);
       idTx.position.set(375, plaqueY + plaque.h * 0.32);
       idTx.text = opts.identity;
-      this.addChild(idTx);
+      drop.addChild(idTx);
     }
-
-    const infoBottom = plaqueY + plaque.h * 0.52;
+    this._drop(drop, 0, 240, plaqueSpr ?? undefined, WIN.drop);
+    if (state.stars >= 3) {
+      this._shake(drop, WIN.flourish);
+      this._later(WIN.flourish, () => {
+        if (!this._intro) return;
+        this._paper(375, plaqueY + plaque.h * 0.2);
+      });
+    }
 
     const showNext = !!opts.nextStageLabel;
     const loot = { w: 710, h: 210 };
@@ -233,14 +275,23 @@ export class SettleOverlay extends PIXI.Container {
     this._adPulse = [];
 
     const footerY = height - Game.safeBottom - 20 - footBtn.h / 2;
-    this._imgBtn('settle_btn', 200, footerY, 300, 96, '回村子', 22, () => this._onYard());
-    this._imgBtn('settle_btn', 550, footerY, 300, 96, '再来一局', 22, () => this._onReplay());
+    const yardBtn = this._imgBtn('settle_btn', 200, footerY, 300, 96, '回村子', 22, () => this._onYard());
+    const replayBtn = this._imgBtn('settle_btn', 550, footerY, 300, 96, '再来一局', 22, () => this._onReplay());
+    this._pop(yardBtn, WIN.yard, WIN.pop);
+    this._pop(replayBtn, WIN.replay, WIN.pop);
 
     const slots: Slot[] = [];
 
     slots.push({
       h: loot.h,
-      draw: (cy) => this._lootCard(cy, loot, opts),
+      draw: (cy) => {
+        const host = new PIXI.Container();
+        host.eventMode = 'none';
+        host.position.set(375, cy);
+        this._lootCard(host, loot, opts, true);
+        this.addChild(host);
+        this._pop(host, WIN.loot, WIN.pop);
+      },
     });
 
     slots.push({
@@ -251,6 +302,7 @@ export class SettleOverlay extends PIXI.Container {
         foot.position.set(375, cy);
         foot.text = footLine(state, memory, opts);
         this.addChild(foot);
+        this._fade(foot, WIN.foot, 0.28);
       },
     });
 
@@ -258,7 +310,7 @@ export class SettleOverlay extends PIXI.Container {
       slots.push({
         h: adBtn.h,
         draw: (cy) => {
-          this._adBtn(375, cy, 640, 146, `看视频，再给 ${SETTLE_AD_PELLETS} 发弹子`, async () => {
+          const ad = this._adBtn(375, cy, 640, 146, `看视频，再给 ${SETTLE_AD_PELLETS} 发弹子`, async () => {
             if (this._busy || this._tookDouble) return;
             this._busy = true;
             const ok = await this._onDouble();
@@ -273,6 +325,7 @@ export class SettleOverlay extends PIXI.Container {
             this._roll(this._nameTx, from, to, (n) => `废铁 · +${n} 发弹子`);
             this._lockAd();
           });
+          this._pop(ad, WIN.ad, WIN.pop);
         },
       });
     }
@@ -281,7 +334,7 @@ export class SettleOverlay extends PIXI.Container {
       slots.push({
         h: nextBtn.h,
         draw: (cy) => {
-          this._imgBtn(
+          const next = this._imgBtn(
             'settle_btn',
             375,
             cy,
@@ -291,6 +344,8 @@ export class SettleOverlay extends PIXI.Container {
             20,
             () => this._onNext(),
           );
+          this._pop(next, WIN.next, WIN.pop);
+          this._nextPulse.push(next);
         },
       });
     }
@@ -304,7 +359,9 @@ export class SettleOverlay extends PIXI.Container {
     }
 
     const lootTop = cursor + GAP;
-    const nameBottom = Math.min(lootTop - 8, Math.max(infoBottom + 196, Math.round(height * 0.46)));
+    // 手艺那行离废铁牌顶大约 48px，人跟着废铁牌走
+    const craftPast = 34 + 14 - namePlate.h / 2;
+    const nameBottom = lootTop - 48 - Math.max(8, craftPast);
     const feetY = nameBottom - namePlate.h;
     const nameCy = nameBottom - namePlate.h / 2;
 
@@ -312,16 +369,23 @@ export class SettleOverlay extends PIXI.Container {
     cast.forEach((f, i) => {
       const x = xs[i] ?? 375;
       const mid = cast.length === 1 || i === 1;
-      standSprite(this, heroTex(f.def.id, f.evoStage), x, feetY, mid ? 156 : 132, mid ? 184 : 156);
-      this._chip('settle_name', x, nameCy, 168, 48, f.def.name, 17, CREAM);
+      const body = new PIXI.Container();
+      body.eventMode = 'none';
+      body.position.set(x, feetY);
+      standSprite(body, heroTex(f.def.id, f.evoStage), 0, 0, mid ? 156 : 132, mid ? 184 : 156);
+      this._chip('settle_name', 0, nameCy - feetY, 168, 48, f.def.name, 17, CREAM, body);
       // 名牌下面写手艺和星。形态不写字 —— 立绘本身就是那句话（星解锁的那一身）
       const tag = stroke(15, 0xffe08a, '#1a1008', 3);
       tag.anchor.set(0.5);
-      tag.position.set(x, nameCy + 34);
+      tag.position.set(0, nameCy - feetY + 34);
       const craft = f.craft ?? 1;
       tag.text = `手艺 Lv.${craft}${f.stars > 0 ? ` · ★${f.stars}` : ''}`;
-      this.addChild(tag);
+      body.addChild(tag);
+      this.addChild(body);
+      const late = cast.length === 3 && i === 1;
+      this._pop(body, late ? WIN.peopleMid : WIN.people + i * WIN.peopleGap, WIN.pop);
     });
+    this._later(WIN.done, () => this._openPlay());
   }
 
   /** 底下那一行小字。写这一关的成绩和总进度，不写伤害统计 */
@@ -331,6 +395,7 @@ export class SettleOverlay extends PIXI.Container {
    * 废品缩小、再来一局为主，没有广告。
    */
   private _showLose(state: BattleState, memory: RunMemory, height: number, opts: SettleOpts): void {
+    this._intro = true;
     const cast = castOf(state.team, false);
     const top = Math.max(Game.safeTop, 20);
     // 两种败因要说得不一样：漏怪是「哪一路没挡住」，超时是「清不完」
@@ -347,7 +412,10 @@ export class SettleOverlay extends PIXI.Container {
     const plaqueH = 280;
     const plaqueCy = top + plaqueH * 0.46;
     const tilt = -0.06;
-    const plaqueSpr = fitSprite(this, uiTex('title_plaque'), 360, plaqueCy, plaqueW, plaqueH);
+    const drop = new PIXI.Container();
+    drop.eventMode = 'none';
+    this.addChild(drop);
+    const plaqueSpr = fitSprite(drop, uiTex('title_plaque'), 360, plaqueCy, plaqueW, plaqueH);
     if (plaqueSpr) plaqueSpr.rotation = tilt;
     const faceY = plaqueCy + plaqueH * 0.1;
     const titleTx = stroke(40, 0x8b2e1f, '#1a1008', 6);
@@ -355,18 +423,25 @@ export class SettleOverlay extends PIXI.Container {
     titleTx.position.set(356, faceY);
     titleTx.rotation = tilt;
     titleTx.text = title;
-    this.addChild(titleTx);
+    drop.addChild(titleTx);
+    this._drop(drop, 0, 180, plaqueSpr ?? undefined);
 
     const stampX = 568;
     const stampY = faceY + 58;
-    fillSprite(this, uiTex('settle_stamp'), stampX, stampY, 196, 80);
+    const stamp = new PIXI.Container();
+    stamp.eventMode = 'none';
+    stamp.position.set(stampX, stampY);
+    fillSprite(stamp, uiTex('settle_stamp'), 0, 0, 196, 80);
     const waveTx = stroke(22, CREAM, '#1a1008', 4);
     waveTx.anchor.set(0.5);
-    waveTx.position.set(stampX, stampY + 1);
+    waveTx.position.set(0, 1);
     waveTx.text = opts.loseReason === 'timeout'
       ? `剩 ${state.foes.filter((e) => e.alive).length} 只`
       : `漏了 ${state.leaked} 个`;
-    this.addChild(waveTx);
+    stamp.addChild(waveTx);
+    this.addChild(stamp);
+    this._slap(stamp, 0.46);
+    this._later(1.05, () => this._openPlay());
 
     const hintH = 96;
     const hintCy = plaqueCy + plaqueH * 0.5 + 8 + hintH / 2;
@@ -446,6 +521,10 @@ export class SettleOverlay extends PIXI.Container {
   }
 
   hide(): void {
+    this._intro = false;
+    this._haltIntro();
+    this._poses = [];
+    this._nextPulse = [];
     this.visible = false;
     this.eventMode = 'none';
     this._busy = false;
@@ -460,50 +539,407 @@ export class SettleOverlay extends PIXI.Container {
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
   }
 
-  private _tickPulse(): void {
-    if (!this.visible || this._adPulse.length === 0) return;
-    this._pulseT += Game.ticker.deltaMS / 1000;
-    const s = 1 + Math.sin(this._pulseT * 3.2) * 0.04;
-    for (const b of this._adPulse) b.scale.set(s);
+  /** 点空白把还在飞的东西直接放到终态。按钮在这层上面，点得到 */
+  private _armSkip(height: number): void {
+    const hit = new PIXI.Container();
+    hit.eventMode = 'static';
+    hit.hitArea = new PIXI.Rectangle(0, 0, 750, Math.max(height, 1334));
+    this.addChild(hit);
+    bindPointerTap(hit, () => this._endIntro(), { silent: true });
   }
 
-  private _lootCard(cy: number, size: { w: number; h: number }, opts: SettleOpts): void {
-    fillSprite(this, uiTex('play_plate'), 375, cy, size.w, size.h);
-    fitSprite(this, uiTex('scrap_pile'), 375 - size.w * 0.34, cy + 4, 96, 88);
+  private _track(target: object): void {
+    this._tracked.push(target);
+  }
+
+  private _pose(node: PIXI.Container): void {
+    this._poses.push({
+      node,
+      x: node.x,
+      y: node.y,
+      sx: node.scale.x,
+      sy: node.scale.y,
+      a: node.alpha,
+    });
+  }
+
+  private _haltIntro(): void {
+    for (const t of this._tracked) TweenManager.cancelTarget(t);
+    this._tracked = [];
+    this._fxLayer?.destroy({ children: true });
+    this._fxLayer = null;
+  }
+
+  private _fx(): PIXI.Container {
+    if (this._fxLayer && !this._fxLayer.destroyed) return this._fxLayer;
+    const layer = new PIXI.Container();
+    layer.eventMode = 'none';
+    layer.interactiveChildren = false;
+    this.addChild(layer);
+    this._fxLayer = layer;
+    return layer;
+  }
+
+  /** 跳过，或重画前收掉。数字和透明度回到终态，位置不再停在半空 */
+  private _endIntro(): void {
+    if (!this._intro) return;
+    this._intro = false;
+    this._haltIntro();
+    for (const p of this._poses) {
+      if (p.node.destroyed) continue;
+      p.node.position.set(p.x, p.y);
+      p.node.scale.set(p.sx, p.sy);
+      p.node.alpha = p.a;
+    }
+    const earned = this._held?.opts.earned;
+    const pellets = this._held?.opts.pellets;
+    if (this._earnTx && !this._earnTx.destroyed && earned !== undefined) {
+      this._earnTx.text = `+${earned}`;
+    }
+    if (this._nameTx && !this._nameTx.destroyed && this._earnTx && !this._earnTx.destroyed) {
+      this._nameTx.alpha = 1;
+      if (pellets !== undefined) this._nameTx.text = `废铁 · +${pellets} 发弹子`;
+      this._nameTx.x = this._earnTx.x + this._earnTx.width + 12;
+    }
+  }
+
+  /** 开场演完，下一关才开始呼吸。按钮本身一直能点 */
+  private _openPlay(): void {
+    this._intro = false;
+  }
+
+  private _later(delay: number, fn: () => void): void {
+    const proxy = { t: 0 };
+    this._track(proxy);
+    TweenManager.to({
+      target: proxy,
+      props: { t: 1 },
+      delay,
+      duration: 0.01,
+      onComplete: fn,
+    });
+  }
+
+  private _drop(node: PIXI.Container, delay: number, dy: number, punch?: PIXI.Sprite, dur = 0.42): void {
+    this._pose(node);
+    const rest = node.y;
+    node.y = rest - dy;
+    this._track(node);
+    TweenManager.to({
+      target: node,
+      props: { y: rest },
+      delay,
+      duration: dur,
+      ease: Ease.easeOutBack,
+      onComplete: () => {
+        if (punch && !punch.destroyed) this._punch(punch);
+      },
+    });
+  }
+
+  private _pop(node: PIXI.Container, delay: number, dur = 0.32): void {
+    this._pose(node);
+    const sx = node.scale.x;
+    const sy = node.scale.y;
+    node.scale.set(0);
+    this._track(node.scale);
+    TweenManager.to({
+      target: node.scale,
+      props: { x: sx, y: sy },
+      delay,
+      duration: dur,
+      ease: Ease.easeOutBack,
+    });
+  }
+
+  private _fade(node: PIXI.Container, delay: number, dur: number): void {
+    this._pose(node);
+    node.alpha = 0;
+    this._track(node);
+    TweenManager.to({
+      target: node,
+      props: { alpha: 1 },
+      delay,
+      duration: dur,
+      ease: Ease.easeOutCubic,
+    });
+  }
+
+  private _punch(node: PIXI.Container | PIXI.Sprite): void {
+    if (node.destroyed) return;
+    const sx = node.scale.x;
+    const sy = node.scale.y;
+    if (!this._poses.some((p) => p.node === node)) {
+      this._poses.push({
+        node: node as PIXI.Container,
+        x: node.x,
+        y: node.y,
+        sx,
+        sy,
+        a: node.alpha,
+      });
+    }
+    this._track(node.scale);
+    TweenManager.to({
+      target: node.scale,
+      props: { x: sx * 1.08, y: sy * 0.9 },
+      duration: 0.07,
+      ease: Ease.easeOutQuad,
+      onComplete: () => {
+        if (node.destroyed || !this._intro) return;
+        this._track(node.scale);
+        TweenManager.to({
+          target: node.scale,
+          props: { x: sx, y: sy },
+          duration: 0.16,
+          ease: Ease.easeOutBack,
+        });
+      },
+    });
+  }
+
+  private _shake(node: PIXI.Container, delay: number): void {
+    const home = node.x;
+    const proxy = { t: 0 };
+    this._track(proxy);
+    TweenManager.to({
+      target: proxy,
+      props: { t: 1 },
+      delay,
+      duration: 0.28,
+      onUpdate: () => {
+        if (node.destroyed) return;
+        const k = proxy.t;
+        node.x = home + Math.sin(k * 48) * (1 - k) * 12;
+      },
+      onComplete: () => {
+        if (!node.destroyed) node.x = home;
+      },
+    });
+  }
+
+  private _slap(node: PIXI.Container, delay: number): void {
+    this._pose(node);
+    node.scale.set(1.85);
+    node.alpha = 0;
+    this._track(node);
+    this._track(node.scale);
+    TweenManager.to({
+      target: node,
+      props: { alpha: 1 },
+      delay,
+      duration: 0.08,
+    });
+    TweenManager.to({
+      target: node.scale,
+      props: { x: 1, y: 1 },
+      delay,
+      duration: 0.26,
+      ease: Ease.easeOutBack,
+      onComplete: () => {
+        if (!this._intro || node.destroyed) return;
+        playSfx('hit_smash', 0);
+        this._punch(node);
+      },
+    });
+  }
+
+  private _mountStars(row: PIXI.Container, stars: number): void {
+    const xs = [-86, 0, 86];
+    const sizes = [50, 62, 50];
+    const tilts = [0.22, 0, -0.22];
+    for (let i = 0; i < 3; i += 1) {
+      const y = i === 1 ? -8 : 0;
+      const off = new PIXI.Container();
+      off.position.set(xs[i] ?? 0, y);
+      off.rotation = tilts[i] ?? 0;
+      fitSprite(off, uiTex('star_off'), 0, 0, sizes[i] ?? 50, sizes[i] ?? 50);
+      row.addChild(off);
+      this._pop(off, WIN.starOff + i * WIN.starOffGap, WIN.starOffDur);
+      if (i >= stars) continue;
+      const on = new PIXI.Container();
+      on.position.set(xs[i] ?? 0, y);
+      on.rotation = tilts[i] ?? 0;
+      fitSprite(on, uiTex('star_on'), 0, 0, sizes[i] ?? 50, sizes[i] ?? 50);
+      row.addChild(on);
+      this._slamStar(on, WIN.starOn + i * WIN.starOnGap);
+    }
+  }
+
+  private _slamStar(node: PIXI.Container, delay: number): void {
+    this._poses.push({
+      node, x: node.x, y: node.y, sx: 1, sy: 1, a: 1,
+    });
+    node.scale.set(2.5);
+    node.alpha = 0;
+    this._track(node);
+    this._track(node.scale);
+    TweenManager.to({
+      target: node,
+      props: { alpha: 1 },
+      delay,
+      duration: 0.1,
+    });
+    TweenManager.to({
+      target: node.scale,
+      props: { x: 1, y: 1 },
+      delay,
+      duration: WIN.slam,
+      ease: Ease.easeOutBack,
+      onComplete: () => {
+        if (!this._intro || node.destroyed) return;
+        playSfx('hero_land', 0);
+        this._punch(node);
+        this._sparkAt(node);
+      },
+    });
+  }
+
+  private _sparkAt(node: PIXI.Container): void {
+    const local = this.toLocal(node.getGlobalPosition());
+    this._sparks(local.x, local.y);
+  }
+
+  private _sparks(x: number, y: number): void {
+    const layer = new PIXI.Container();
+    layer.eventMode = 'none';
+    layer.position.set(x, y);
+    this._fx().addChild(layer);
+    for (let i = 0; i < 8; i += 1) {
+      const g = new PIXI.Graphics();
+      g.beginFill(i % 2 === 0 ? 0xffe08a : 0xfff4c4);
+      g.drawCircle(0, 0, 4);
+      g.endFill();
+      layer.addChild(g);
+      const a = (i / 8) * Math.PI * 2;
+      const proxy = { t: 0 };
+      this._track(proxy);
+      const dist = 36 + (i % 3) * 10;
+      TweenManager.to({
+        target: proxy,
+        props: { t: 1 },
+        duration: 0.32,
+        ease: Ease.easeOutQuad,
+        onUpdate: () => {
+          if (g.destroyed) return;
+          g.x = Math.cos(a) * dist * proxy.t;
+          g.y = Math.sin(a) * dist * proxy.t;
+          g.alpha = 1 - proxy.t;
+        },
+        onComplete: () => {
+          if (!g.destroyed) g.destroy();
+        },
+      });
+    }
+    this._later(0.36, () => {
+      if (!layer.destroyed) layer.destroy({ children: true });
+    });
+  }
+
+  /** 三星才撒。红纸和鞭炮纸，不铺彩虹 */
+  private _paper(x: number, y: number): void {
+    const layer = this._fx();
+    const colors = [0xc43a28, 0xe8c56b, 0xf2d48a, 0x8b2e1f];
+    for (let i = 0; i < 16; i += 1) {
+      const g = new PIXI.Graphics();
+      g.beginFill(colors[i % colors.length] ?? 0xc43a28);
+      g.drawRect(-6, -11, 12, 22);
+      g.endFill();
+      const side = i % 2 === 0 ? -1 : 1;
+      const x0 = x + side * (40 + (i % 4) * 28);
+      const y0 = y + 20;
+      g.position.set(x0, y0);
+      layer.addChild(g);
+      const proxy = { t: 0 };
+      this._track(proxy);
+      const vx = side * (40 + (i % 5) * 26);
+      const vy = -(160 + (i % 4) * 36);
+      TweenManager.to({
+        target: proxy,
+        props: { t: 1 },
+        duration: 0.85,
+        ease: Ease.linear,
+        onUpdate: () => {
+          if (g.destroyed) return;
+          const t = proxy.t;
+          g.x = x0 + vx * t;
+          g.y = y0 + vy * t + 280 * t * t;
+          g.rotation = side * t * 5;
+          g.alpha = t < 0.72 ? 1 : 1 - (t - 0.72) / 0.28;
+        },
+        onComplete: () => {
+          if (!g.destroyed) g.destroy();
+        },
+      });
+    }
+  }
+
+  private _tickPulse(): void {
+    if (!this.visible || this._intro) return;
+    if (this._adPulse.length === 0 && this._nextPulse.length === 0) return;
+    this._pulseT += Game.ticker.deltaMS / 1000;
+    const s = 1 + Math.sin(this._pulseT * 3.2) * 0.035;
+    for (const b of this._adPulse) if (!b.destroyed) b.scale.set(s);
+    const n = 1 + Math.sin(this._pulseT * 2.6) * 0.04;
+    for (const b of this._nextPulse) if (!b.destroyed) b.scale.set(n);
+  }
+
+  /** 进账牌画在 host 的本地坐标里，host 自己摆到屏幕上，方便整块弹出 */
+  private _lootCard(
+    host: PIXI.Container,
+    size: { w: number; h: number },
+    opts: SettleOpts,
+    roll: boolean,
+  ): void {
+    fillSprite(host, uiTex('play_plate'), 0, 0, size.w, size.h);
+    fitSprite(host, uiTex('scrap_pile'), -size.w * 0.34, 4, 96, 88);
     const plus = stroke(58, GOLD, '#1a1008', 7);
     plus.anchor.set(0, 0.5);
-    plus.text = `+${opts.earned}`;
-    plus.position.set(375 - size.w * 0.18, cy);
-    this.addChild(plus);
+    plus.text = roll ? '+0' : `+${opts.earned}`;
+    plus.position.set(-size.w * 0.18, 0);
+    host.addChild(plus);
     this._earnTx = plus;
     const name = stroke(26, INK, '#fff4c4', 4);
     name.anchor.set(0, 0.5);
-    name.position.set(plus.x + plus.width + 12, cy + 4);
+    name.position.set(plus.x + plus.width + 12, 4);
     name.text = `废铁 · +${opts.pellets} 发弹子`;
-    this.addChild(name);
+    host.addChild(name);
     this._nameTx = name;
     const have = stroke(15, INK, '#fff4c4', 3);
     have.anchor.set(1, 0.5);
-    have.position.set(375 + size.w * 0.38, cy + size.h * 0.24);
+    have.position.set(size.w * 0.38, size.h * 0.24);
     have.text = `村里废铁 ${opts.scrap}`;
-    this.addChild(have);
+    host.addChild(have);
     this._haveTx = have;
+    if (!roll) return;
+    this._fade(name, WIN.foot, 0.24);
+    if (opts.earned > 0) {
+      this._roll(plus, 0, opts.earned, (n) => `+${n}`, () => {
+        if (name.destroyed || plus.destroyed) return;
+        name.x = plus.x + plus.width + 12;
+      }, false, WIN.rollAt, WIN.rollDur);
+    }
   }
 
-  /** 数额从旧值滚到新值，并弹一下，让多出来的弹子一眼能看出来 */
+  /** 数额从旧值滚到新值。广告那一下再弹一下字，开场滚废铁不弹，免得和整块牌抢 */
   private _roll(
     tx: PIXI.Text | null,
     from: number,
     to: number,
     format: (n: number) => string,
     after?: () => void,
+    punch = true,
+    delay = 0,
+    duration = 0.55,
   ): void {
     if (!tx || tx.destroyed || to <= from) return;
     const proxy = { v: from };
+    this._track(proxy);
     TweenManager.to({
       target: proxy,
       props: { v: to },
-      duration: 0.55,
+      delay,
+      duration,
       ease: Ease.easeOutCubic,
       onUpdate: () => {
         if (tx.destroyed) return;
@@ -516,8 +952,10 @@ export class SettleOverlay extends PIXI.Container {
         after?.();
       },
     });
+    if (!punch) return;
     TweenManager.cancelTarget(tx.scale);
     tx.scale.set(1);
+    this._track(tx.scale);
     TweenManager.to({
       target: tx.scale,
       props: { x: 1.28, y: 1.28 },
@@ -617,9 +1055,10 @@ export class SettleOverlay extends PIXI.Container {
     title: string,
     size: number,
     fill: number,
+    parent: PIXI.Container = this,
   ): PIXI.Text {
     const box = fitted(name, w, h);
-    fitSprite(this, uiTex(name), cx, cy, w, h);
+    fitSprite(parent, uiTex(name), cx, cy, w, h);
     const t = stroke(size, fill);
     t.anchor.set(0.5);
     t.position.set(cx, cy + 1);
@@ -627,7 +1066,7 @@ export class SettleOverlay extends PIXI.Container {
     t.style.wordWrapWidth = Math.max(80, box.w - 36);
     t.style.align = 'center';
     t.text = title;
-    this.addChild(t);
+    parent.addChild(t);
     return t;
   }
 
