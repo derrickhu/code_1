@@ -12,6 +12,7 @@ import {
   type PlatformName,
 } from '@gp/analytics-sdk';
 
+import { runEndDurationMs, runEndForward } from '@/analytics/runEnd';
 import { ANALYTICS_ENDPOINT } from '@/config/CloudConfig';
 import { BASE_GAME_KEY } from '@/config/gameKeyScope';
 import { Platform } from '@/core/PlatformService';
@@ -97,12 +98,13 @@ export function forwardBusinessTrack(name: string, payload: Record<string, unkno
     return;
   }
   if (name === 'run_end') {
-    const event = payload.cleared ? EVENT_NAMES.LEVEL_CLEAR : EVENT_NAMES.LEVEL_FAIL;
+    const end = runEndForward(payload);
+    const event = end.won ? EVENT_NAMES.LEVEL_CLEAR : EVENT_NAMES.LEVEL_FAIL;
     sdkTrack(event, {
       level_id: Number(payload.stage_id) || 0,
-      duration_ms: Math.max(0, Math.floor(Number(payload.duration_ms) || 0)),
+      duration_ms: runEndDurationMs(payload),
       reached_wave: Number(payload.reached_wave) || 0,
-      reason: payload.cleared ? 'clear' : 'defeat',
+      reason: end.reason,
       ...params,
     });
     return;

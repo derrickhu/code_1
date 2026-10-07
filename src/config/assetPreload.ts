@@ -82,6 +82,7 @@ const FOLKS_CHROME = [
   'top_lintel', 'rust_stamp', 'rust_exp', 'rust_tile', 'rust_plank', 'rust_btn',
   'rust_sheet', 'rust_panel', 'rust_badge', 'fight_btn',
   'star_on', 'star_off', 'star_rail', 'craft_rail', 'bar_track', 'bar_fill',
+  'settle_stamp',
   'icon_scrap', 'icon_parts', 'icon_credits', 'icon_pellets',
   'paint_scrap', 'paint_parts', 'paint_credits', 'paint_pellets',
   ...PAINT_DIGITS,

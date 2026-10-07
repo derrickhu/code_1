@@ -84,8 +84,10 @@ export const BOSS_ATK_MUL = 1.6;
 export const BOSS_SPD_MUL = 0.8;
 /** 首领漏过去算几个 */
 export const BOSS_LEAK = 2;
-/** 首领在只数预算里占几只 */
-export const BOSS_UNITS = 5;
+/**
+ * 首领不占杂兵名额。血量另乘 BOSS_HP_MUL。
+ * 以前按 5 只从只数里扣，每章第 3 关杂兵比前两关少，再摊进多出来的那一波，路上看着空。
+ */
 /** 定身和击退打在首领、水泥墩身上只剩这么多 */
 export const HARD_FOE_CC = 0.5;
 /**

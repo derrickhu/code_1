@@ -11,6 +11,7 @@ import {
   watchArt,
   type UiName,
 } from '@/core/TextureLoader';
+import { type WinFooter } from '@/balance/opening';
 import { SETTLE_AD_PELLETS } from '@/balance/stall';
 import { GOLD, fitSprite, label } from '@/ui/paint';
 import { Ease, TweenManager } from '@/core/TweenManager';
@@ -60,6 +61,13 @@ type SettleOpts = {
   nextMove?: string;
   nextStageLabel?: string;
   canDouble: boolean;
+  /**
+   * 赢了底下那颗大按钮。push 只留下一关，home 只留回村子，next 是下一关为主。
+   * 失败结算不看这个。
+   */
+  footer?: WinFooter;
+  /** 1-5 还没过、手艺还是 1。大按钮改成回村，再来一局收小 */
+  guideHome?: boolean;
 };
 
 type Slot = {
@@ -266,19 +274,15 @@ export class SettleOverlay extends PIXI.Container {
       });
     }
 
-    const showNext = !!opts.nextStageLabel;
+    const footer = opts.footer ?? 'next';
     const loot = { w: 710, h: 210 };
     const adBtn = fitted('ad_btn', 640, 146);
-    const nextBtn = fitted('settle_btn', 400, 86);
-    const footBtn = fitted('settle_btn', 300, 92);
     const namePlate = fitted('settle_name', 168, 48);
     this._adPulse = [];
 
-    const footerY = height - Game.safeBottom - 20 - footBtn.h / 2;
-    const yardBtn = this._imgBtn('settle_btn', 200, footerY, 300, 96, '回村子', 22, () => this._onYard());
-    const replayBtn = this._imgBtn('settle_btn', 550, footerY, 300, 96, '再来一局', 22, () => this._onReplay());
-    this._pop(yardBtn, WIN.yard, WIN.pop);
-    this._pop(replayBtn, WIN.replay, WIN.pop);
+    const footerH = 96;
+    const footerY = height - Game.safeBottom - 20 - footerH / 2;
+    this._winFooter(footer, footerY, opts.nextStageLabel);
 
     const slots: Slot[] = [];
 
@@ -330,27 +334,9 @@ export class SettleOverlay extends PIXI.Container {
       });
     }
 
-    if (showNext) {
-      slots.push({
-        h: nextBtn.h,
-        draw: (cy) => {
-          const next = this._imgBtn(
-            'settle_btn',
-            375,
-            cy,
-            400,
-            86,
-            `下一关 ${opts.nextStageLabel}`,
-            20,
-            () => this._onNext(),
-          );
-          this._pop(next, WIN.next, WIN.pop);
-          this._nextPulse.push(next);
-        },
-      });
-    }
-
-    let cursor = footerY - footBtn.h / 2 - 16;
+    // 回村是一颗小按钮，压在下一关上面，给它让出高度
+    const footerLift = footer === 'push' ? 80 : 0;
+    let cursor = footerY - footerH / 2 - 16 - footerLift;
     for (let i = slots.length - 1; i >= 0; i -= 1) {
       const slot = slots[i]!;
       cursor -= slot.h / 2;
@@ -398,8 +384,12 @@ export class SettleOverlay extends PIXI.Container {
     this._intro = true;
     const cast = castOf(state.team, false);
     const top = Math.max(Game.safeTop, 20);
-    // 两种败因要说得不一样：漏怪是「哪一路没挡住」，超时是「清不完」
-    const title = opts.loseReason === 'timeout' ? '清不完' : '让它们过去了';
+    // 三种败因分开说：漏怪是没挡住，超时是清不完，倒光是人没了
+    const title = opts.loseReason === 'timeout'
+      ? '清不完'
+      : opts.loseReason === 'wipe'
+        ? '人倒光了'
+        : '让它们过去了';
     const hint = opts.nextMove || '下次换个排法试试';
 
     const vignette = new PIXI.Graphics();
@@ -435,9 +425,12 @@ export class SettleOverlay extends PIXI.Container {
     const waveTx = stroke(22, CREAM, '#1a1008', 4);
     waveTx.anchor.set(0.5);
     waveTx.position.set(0, 1);
+    const fallen = state.team.filter((f) => !f.alive).length;
     waveTx.text = opts.loseReason === 'timeout'
       ? `剩 ${state.foes.filter((e) => e.alive).length} 只`
-      : `漏了 ${state.leaked} 个`;
+      : opts.loseReason === 'wipe'
+        ? `倒了 ${fallen} 个`
+        : `漏了 ${state.leaked} 个`;
     stamp.addChild(waveTx);
     this.addChild(stamp);
     this._slap(stamp, 0.46);
@@ -492,8 +485,13 @@ export class SettleOverlay extends PIXI.Container {
     cap.text = footLine(state, memory, opts);
     this.addChild(cap);
 
-    this._fillBtn(375, replayCy, 560, replayH, '再来一局', 28, () => this._onReplay());
-    this._fillBtn(375, yardCy, 360, yardH, '回村子', 20, () => this._onYard());
+    if (opts.guideHome) {
+      this._fillBtn(375, replayCy, 560, replayH, '回村子', 28, () => this._onYard());
+      this._fillBtn(375, yardCy, 360, yardH, '再来一局', 20, () => this._onReplay());
+    } else {
+      this._fillBtn(375, replayCy, 560, replayH, '再来一局', 28, () => this._onReplay());
+      this._fillBtn(375, yardCy, 360, yardH, '回村子', 20, () => this._onYard());
+    }
   }
 
   private _drawCurb(x: number, y: number, w: number, h: number): void {
@@ -1101,6 +1099,37 @@ export class SettleOverlay extends PIXI.Container {
     this._adPulse.push(box);
     bindPointerTap(box, onTap);
     return box;
+  }
+
+  /** 赢了的底栏。大按钮会呼吸，旁边的两颗不会 */
+  private _winFooter(footer: WinFooter, footerY: number, nextLabel?: string): void {
+    const goHome = (): void => {
+      const home = this._imgBtn('settle_btn', 375, footerY, 420, 96, '回村子', 26, () => this._onYard());
+      this._pop(home, WIN.next, WIN.pop);
+      this._nextPulse.push(home);
+    };
+    if (footer === 'home' || !nextLabel) {
+      goHome();
+      return;
+    }
+    const title = `下一关 ${nextLabel}`;
+    if (footer === 'push') {
+      const next = this._imgBtn('settle_btn', 375, footerY, 420, 96, title, 24, () => this._onNext());
+      this._pop(next, WIN.next, WIN.pop);
+      this._nextPulse.push(next);
+      const backH = 68;
+      const backY = footerY - 48 - 12 - backH / 2;
+      const back = this._imgBtn('settle_btn', 375, backY, 248, backH, '回村子', 20, () => this._onYard());
+      this._pop(back, WIN.yard, WIN.pop);
+      return;
+    }
+    const yard = this._imgBtn('settle_btn', 118, footerY, 160, 72, '回村子', 16, () => this._onYard());
+    const next = this._imgBtn('settle_btn', 375, footerY, 300, 96, title, 20, () => this._onNext());
+    const replay = this._imgBtn('settle_btn', 632, footerY, 160, 72, '再来一局', 16, () => this._onReplay());
+    this._pop(yard, WIN.yard, WIN.pop);
+    this._pop(replay, WIN.replay, WIN.pop);
+    this._pop(next, WIN.next, WIN.pop);
+    this._nextPulse.push(next);
   }
 
   private _imgBtn(

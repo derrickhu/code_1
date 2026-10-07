@@ -6,7 +6,8 @@
  * 村民「打不打得到」只走 `@/game/reach`。
  * 怪物怎么走只走 `@/game/march`，停哪 / 挥不挥刀只走 `@/game/foeEngage`。
  *
- * 失败条件是**漏怪到底线或超时**（§4.4），不再是队灭。三件事必须让
+ * 失败是漏怪到底线、超时，或人倒光了还算清完。怪清完必须还有人站着，
+ * 倒光了不算守住。人先倒、怪还在路上的，仍走到漏怪再判。三件事必须让
  * 「谁放哪一格」真的有后果，否则布阵就是假决策：
  *
  * 1. **阻挡几何**：地面怪被这一路上最靠前的活人挡住，走到自己射程里才停、才开打。
@@ -188,7 +189,7 @@ export type BattleEvent =
   | { kind: 'bossIn'; foeId: number; lane: number };
 
 export type BattlePhase = 'placing' | 'fighting' | 'won' | 'lost';
-export type LoseReason = 'leak' | 'timeout';
+export type LoseReason = 'leak' | 'timeout' | 'wipe';
 
 export interface BattleState {
   stage: StageDef;
@@ -1096,6 +1097,11 @@ export function tick(state: BattleState): void {
   }
 
   if (state.spawnIdx >= state.schedule.length && alive === 0) {
+    // 怪清完了人却倒光，不算守住。续命广告只卖漏怪，这种不卖成过关
+    if (state.team.length > 0 && state.team.every((f) => !f.alive)) {
+      lose(state, 'wipe');
+      return;
+    }
     state.phase = 'won';
     state.stars = rateStars(
       countedLeaks(state),
@@ -1183,8 +1189,8 @@ export function gmWin(state: BattleState): void {
 
 export interface BattleResult {
   won: boolean;
-  /** 'clear' 打完了 | 'leak' 漏够了 | 'timeout' 超时 */
-  reason: 'clear' | 'leak' | 'timeout';
+  /** 'clear' 打完了 | 'leak' 漏够了 | 'timeout' 超时 | 'wipe' 人倒光了 */
+  reason: 'clear' | 'leak' | 'timeout' | 'wipe';
   leaked: number;
   fallen: number;
   stars: Stars;

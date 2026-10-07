@@ -29,6 +29,7 @@ import {
   laneScreenX, posScreenY,
 } from '@/balance/combat';
 import { getStage, stageEnemyCount } from '@/balance/stages';
+import { chapter1CraftStep, villageGateOpen, winFooter, type CraftStep } from '@/balance/opening';
 import { SETTLE_AD_PELLETS } from '@/balance/stall';
 import { resolveAttackFx, resolveEnemyFx, resolveFxSkin } from '@/balance/fx';
 import { LANE_NAME, evoKindOf, getVillager, jobOf, statsOf } from '@/balance/villagers';
@@ -78,6 +79,13 @@ import {
 } from '@/ui/battleSkillUi';
 
 const SPEED_KEY = 'battle_speed';
+
+let battleHide: (() => void) | null = null;
+
+/** 切到后台时如果还在打，记一笔。点「撤」才会自己打 run_leave */
+export function notifyBattleHide(): void {
+  battleHide?.();
+}
 const AUTO_KEY = 'battle_auto';
 /** 怪走过这条就算快漏了，那一路底线开始闪 */
 const LEAK_WARN_POS = GOAL_POS - 0.9;
@@ -173,6 +181,14 @@ export class BattleScene implements Scene {
   private _stripDetach: (() => void) | null = null;
 
   private _guideLife = 0;
+  /** 1-1 那句留到第一波走完，不被 2.4 秒掐掉 */
+  private _guideHold = false;
+  /** 1-1 落地后自动开打的倒计时，0 表示不在等 */
+  private _autoStartLeft = 0;
+  /** 1-1 开打时底线亮一下 */
+  private _lineFlash = 0;
+  private _pulsed = false;
+  private _hideNoted = false;
   /**
    * 点人看射程。Clash / 王国保卫战都是点选不暂停。
    * 布阵阶段是村民 id，开打后是 Fighter.uid —— 两套人表不是同一份。
@@ -308,6 +324,11 @@ export class BattleScene implements Scene {
     this._waveTold = 0;
     this._startedAt = 0;
     this._guideLife = 0;
+    this._guideHold = false;
+    this._autoStartLeft = stage.id === 1 ? 0.45 : 0;
+    this._lineFlash = 0;
+    this._pulsed = false;
+    this._hideNoted = false;
     this._guide.visible = false;
     this._prevPos.clear();
     this._hurtFlash.clear();
@@ -329,11 +350,12 @@ export class BattleScene implements Scene {
     this._mountGmSkip();
     GMManager.registerInstantClear(() => this._gmWin());
     BgmPlayer.play('battle');
-    // 开战前那一屏要说清「这一关敌人是什么门路」。§4.4：给提示，不给答案
-    this._say(`${stage.label} ${stage.name} · 来的是「${LANE_NAME[stage.mainLane]}」 · 把人拖上路`);
+    battleHide = () => this._noteHide();
+    this._sayOpening(stage.chapter, stage.index, stage.pitch, stage.label, stage.name, stage.mainLane);
   }
 
   onExit(): void {
+    battleHide = null;
     GMManager.unregisterInstantClear();
     this._gmSkip?.destroy({ children: true });
     this._gmSkip = null;
@@ -631,7 +653,7 @@ export class BattleScene implements Scene {
       if (!this._placing() || this._chromeBusy()) return;
       if (this._hitStrip(p.x, p.y) !== hand.which) return;
       if (hand.which === 'start') this._beginFight();
-      else this._askLeave();
+      else if (this._state.stage.id !== 1) this._askLeave();
       return;
     }
     if (hand.mode === 'scroll') {
@@ -734,7 +756,15 @@ export class BattleScene implements Scene {
     });
     this._syncPhaseUi();
     this._fx.markLand(laneScreenX(1), this._lay.goalY);
-    this._say(this._auto ? '开打 · 绝活自动放，也能点底下头像' : '开打 · 头像亮了就点，放绝活');
+    const stage = this._state.stage;
+    if (stage.id === 1) {
+      this._sayHeld('别让它们从这条路走到底');
+      this._lineFlash = 1.6;
+    } else if (stage.chapter === 1) {
+      this._say(stage.pitch, 4);
+    } else {
+      this._say(this._auto ? '开打 · 绝活自动放，也能点底下头像' : '开打 · 头像亮了就点，放绝活');
+    }
   }
 
   /** 布阵和开打两套 UI 的开关集中在这儿，别散到各处去 */
@@ -745,19 +775,20 @@ export class BattleScene implements Scene {
     if (this._state.phase !== 'placing' && this._state.phase !== 'fighting') {
       this._inspectUid = null;
     }
-    this._bench.visible = placing;
+    const opening = this._state.stage.id === 1 && placing;
+    this._bench.visible = placing && !opening;
     if (!placing) this._closeCard();
     const fighting = this._state.phase === 'fighting';
     this._tray.visible = fighting;
     if (this._speedBtn) this._speedBtn.visible = fighting;
     if (this._autoBtn) this._autoBtn.visible = fighting;
     if (this._startBtn) {
-      this._startBtn.visible = placing;
-      if (placing) this.container.addChild(this._startBtn);
+      this._startBtn.visible = placing && !opening;
+      if (placing && !opening) this.container.addChild(this._startBtn);
     }
     if (this._backBtn) {
-      this._backBtn.visible = placing;
-      if (placing) this.container.addChild(this._backBtn);
+      this._backBtn.visible = placing && !opening;
+      if (placing && !opening) this.container.addChild(this._backBtn);
     }
     this._syncLeaveBtn();
     this._drawField();
@@ -768,6 +799,25 @@ export class BattleScene implements Scene {
   /* ---------------- 主循环 ---------------- */
 
   update(realDt: number): void {
+    if (this._lineFlash > 0) this._lineFlash = Math.max(0, this._lineFlash - realDt);
+    if (this._autoStartLeft > 0) {
+      this._autoStartLeft = Math.max(0, this._autoStartLeft - realDt);
+      if (this._autoStartLeft === 0 && this._placing() && this._state.stage.id === 1) {
+        this._beginFight();
+      }
+    }
+    if (
+      this._state.phase === 'fighting'
+      && !this._pulsed
+      && this._startedAt > 0
+      && Date.now() - this._startedAt >= 5000
+    ) {
+      this._pulsed = true;
+      track('run_pulse', {
+        stage_id: this._state.stage.id,
+        play_ms: Date.now() - this._startedAt,
+      });
+    }
     this._cutIn.update(realDt);
     if (this._chromeBusy()) {
       this._fx.update(realDt);
@@ -851,7 +901,7 @@ export class BattleScene implements Scene {
       x: number;
       y: number;
       hits: SkillMark[];
-      aids: { x: number; y: number; guard: boolean; haste: boolean }[];
+      aids: { x: number; y: number; guard: boolean; haste: boolean; heal: boolean }[];
     }>();
     this._consumeEventList(cast);
     for (const c of cast.values()) {
@@ -866,13 +916,17 @@ export class BattleScene implements Scene {
       x: number;
       y: number;
       hits: SkillMark[];
-      aids: { x: number; y: number; guard: boolean; haste: boolean }[];
+      aids: { x: number; y: number; guard: boolean; haste: boolean; heal: boolean }[];
     }>,
   ): void {
     for (const ev of this._state.events) {
       if (ev.kind === 'waveStart') {
         if (ev.wave > this._waveTold) {
           this._waveTold = ev.wave;
+          if (this._guideHold && ev.wave >= 2) {
+            this._guideHold = false;
+            this._guideLife = 0.6;
+          }
           playSfx('wave_in', 0);
           if (ev.wave >= this._state.stage.waves.length) {
             BgmPlayer.play('battle_hot');
@@ -985,10 +1039,13 @@ export class BattleScene implements Scene {
         const p = this._villagerXY(f);
         const sk = skillAt(f.def, f.evoStage);
         this._actorFor(f).flash(180);
-        const aids = (sk.guard || sk.haste)
+        const aids = (sk.guard || sk.haste || sk.heal)
           ? skillAllies(this._state, f, sk).map((t) => {
             const tp = this._villagerXY(t);
-            return { x: tp.x, y: tp.y - tp.h * 0.35, guard: !!sk.guard, haste: !!sk.haste };
+            return {
+              x: tp.x, y: tp.y - tp.h * 0.35,
+              guard: !!sk.guard, haste: !!sk.haste, heal: !!sk.heal,
+            };
           })
           : [];
         cast.set(f.uid, { id: f.def.id, x: p.x, y: p.y - p.h * 0.45, hits: [], aids });
@@ -1159,6 +1216,10 @@ export class BattleScene implements Scene {
     // 开打后坞收掉，底线要看得见。布阵时沙袋就是门槛，别再横一条红杠
     if (!placing) {
       g.beginFill(0x8b2e1f, 0.92).drawRect(FIELD_X, goalY - 3, FIELD_W, 6).endFill();
+      if (this._lineFlash > 0) {
+        const a = 0.35 + 0.5 * (this._lineFlash / 1.6);
+        g.beginFill(0xffe08a, a).drawRect(FIELD_X, goalY - 8, FIELD_W, 16).endFill();
+      }
       const blink = 0.45 + 0.45 * Math.sin(this._pulseT * 14);
       for (const lane of this._dangerLane.keys()) {
         const x0 = FIELD_X + lane * LANE_W;
@@ -1609,14 +1670,24 @@ export class BattleScene implements Scene {
       g.beginFill(GOLD, glow).drawCircle(x, feetY - h - 26, 4).endFill();
     }
     if (f.guardMs > 0) {
-      g.lineStyle(2, 0x9ecbff, 0.55).drawEllipse(x, feetY - h * 0.45, h * 0.36, h * 0.56).lineStyle(0);
+      g.lineStyle(5, 0x9ecbff, 0.95).drawEllipse(x, feetY - h * 0.48, h * 0.42, h * 0.62).lineStyle(0);
     }
     if (f.hasteMs > 0) {
-      g.beginFill(0xffd66b, 0.85).drawPolygon([
-        x - barW / 2 - 10, feetY - h - 12, x - barW / 2 - 4, feetY - h - 8, x - barW / 2 - 10, feetY - h - 4,
+      const bx = x + barW / 2 + 8;
+      g.beginFill(0xffe08a, 0.95).drawPolygon([
+        bx, feetY - h * 0.62,
+        bx + 14, feetY - h * 0.48,
+        bx, feetY - h * 0.34,
+      ]).endFill();
+      g.beginFill(0xffd66b, 0.95).drawPolygon([
+        bx + 12, feetY - h * 0.62,
+        bx + 26, feetY - h * 0.48,
+        bx + 12, feetY - h * 0.34,
       ]).endFill();
     }
     this._nameLayer.addChild(g);
+    if (f.guardMs > 0) this._pin('护住', x, feetY - h - 28, 0x9ecbff);
+    if (f.hasteMs > 0) this._pin('手快', x + (f.guardMs > 0 ? 36 : 0), feetY - h - (f.guardMs > 0 ? 46 : 28), 0xffe08a);
     const t = label(13, f.alive ? 0xfff4c4 : 0x8a8a92, true);
     t.anchor.set(0.5);
     t.position.set(x, feetY + 6);
@@ -1626,24 +1697,29 @@ export class BattleScene implements Scene {
     this._nameLayer.addChild(t);
   }
 
+  /** 绝活留下的字。钉住、护住这些要停在人身上，不能闪一下就没了 */
+  private _pin(text: string, x: number, y: number, fill: number): void {
+    const t = painted(20, fill, '#1a1008', 4);
+    t.anchor.set(0.5, 1);
+    t.position.set(x, y);
+    t.text = text;
+    this._nameLayer.addChild(t);
+  }
+
   private _foeHp(e: Foe, x: number, feetY: number, h: number): void {
     const g = new PIXI.Graphics();
     const shown = this._vitals.shown(`e${e.id}`, { hp: e.alive ? e.maxHp : 0, extra: 0 });
     const w = e.boss ? Math.max(96, Math.round(h * 0.8)) : Math.max(32, Math.round(h * 0.5));
     hpBar(g, x, feetY - h - 8, w, shown.hp / e.maxHp, e.boss ? 0xff5a3a : 0xff8a6a, e.boss ? 8 : 4);
-    if (e.slowMs > 0) {
-      g.beginFill(0x86efac, 0.8).drawCircle(x + Math.round(w * 0.56), feetY - h - 6, 3).endFill();
-    }
     if (e.alive && e.stunMs > 0) {
-      // 定住：头顶转三颗星
-      const t = this._pulseT * 5;
-      for (let i = 0; i < 3; i += 1) {
-        const a = t + (i * Math.PI * 2) / 3;
-        g.beginFill(0xffe08a, 0.95)
-          .drawCircle(x + Math.cos(a) * h * 0.22, feetY - h - 18 + Math.sin(a) * 4, 3).endFill();
-      }
+      g.lineStyle(4, 0xffe08a, 0.95).drawEllipse(x, feetY + 2, h * 0.46, 8).lineStyle(0);
+      g.lineStyle(2, 0xfff6d0, 0.7).drawEllipse(x, feetY + 2, h * 0.28, 4).lineStyle(0);
+    } else if (e.alive && e.slowMs > 0) {
+      g.lineStyle(3, 0x86efac, 0.9).drawEllipse(x, feetY + 2, h * 0.4, 6).lineStyle(0);
     }
     this._nameLayer.addChild(g);
+    if (e.alive && e.stunMs > 0) this._pin('钉住', x, feetY - h - (e.boss ? 40 : 28), 0xffe08a);
+    else if (e.alive && e.slowMs > 0) this._pin('减速', x, feetY - h - (e.boss ? 40 : 28), 0x86efac);
     if (e.boss && e.alive) {
       const t = painted(16, 0xffb09a, '#1a1008', 3);
       t.anchor.set(0.5, 1);
@@ -1842,6 +1918,7 @@ export class BattleScene implements Scene {
         id: p.villager.id, lane: p.lane, cell: p.cell,
       })));
     }
+    this._hideNoted = true;
     track('run_leave', {
       stage_id: this._state.stage.id,
       fighting: !placing,
@@ -2101,14 +2178,77 @@ export class BattleScene implements Scene {
       .drawRoundedRect(90, y, 570 * (1 - frac), 4, 2).endFill();
   }
 
-  private _say(msg: string): void {
+  private _say(msg: string, life = 2.4): void {
+    this._guideHold = false;
     this._guide.text = msg;
     this._guide.visible = true;
-    this._guideLife = 2.4;
+    this._guide.alpha = 1;
+    this._guideLife = life;
+  }
+
+  /** 留到第一波走完。中途有更急的话（要漏了）会用 _say 把它换掉 */
+  private _sayHeld(msg: string): void {
+    this._guideHold = true;
+    this._guide.text = msg;
+    this._guide.visible = true;
+    this._guide.alpha = 1;
+    this._guideLife = 1;
+  }
+
+  private _sayOpening(
+    chapter: number,
+    index: number,
+    pitch: string,
+    label: string,
+    name: string,
+    mainLane: keyof typeof LANE_NAME,
+  ): void {
+    if (chapter === 1 && index === 1) {
+      this._sayHeld('别让它们从这条路走到底');
+      return;
+    }
+    if (chapter === 1 && index === 2) {
+      this._say('想换位就拖一拖', 4);
+      return;
+    }
+    if (chapter === 1 && index === 5 && this._craftStep() === 'stall') {
+      this._sayHeld('这关要先升手艺。回村打摊，破电视出零件');
+      return;
+    }
+    if (chapter === 1 && index === 5 && this._craftStep() === 'craft') {
+      this._sayHeld('这关要先升手艺。回村点人，升一级');
+      return;
+    }
+    if (chapter === 1 && index >= 4 && this._craftStillGreen() && villageGateOpen(this._mem.stageTop)) {
+      this._say('打不过就回村，弹子和手艺都能变强', 4);
+      return;
+    }
+    if (chapter === 1) {
+      this._say(pitch, 4);
+      return;
+    }
+    this._say(`${label} ${name} · 来的是「${LANE_NAME[mainLane]}」 · 把人拖上路`);
+  }
+
+  private _noteHide(): void {
+    if (this._hideNoted || this._settled || this._state.phase !== 'fighting') return;
+    this._hideNoted = true;
+    track('run_leave', {
+      stage_id: this._state.stage.id,
+      fighting: true,
+      leaked: countedLeaks(this._state),
+      wave: this._state.wave,
+      play_ms: this._startedAt > 0 ? Date.now() - this._startedAt : 0,
+      reason: 'hide',
+    });
   }
 
   private _tickGuide(dt: number): void {
     if (!this._guide.visible) return;
+    if (this._guideHold) {
+      this._guide.alpha = 1;
+      return;
+    }
     this._guideLife -= dt;
     if (this._guideLife <= 0) this._guide.visible = false;
     else this._guide.alpha = Math.min(1, this._guideLife / 0.5);
@@ -2213,7 +2353,9 @@ export class BattleScene implements Scene {
       identity: won ? this._winLine() : undefined,
       nextMove: won ? undefined : this._loseHint(),
       nextStageLabel: next && next.id !== s.stage.id ? next.label : undefined,
-      canDouble: adCanShow('settleDouble'),
+      canDouble: won && adCanShow('settleDouble'),
+      footer: won ? winFooter(s.stage.chapter, s.stage.index) : undefined,
+      guideHome: !won && s.stage.chapter === 1 && s.stage.index === 5 && this._craftStep() !== 'done',
     });
   }
 
@@ -2221,10 +2363,28 @@ export class BattleScene implements Scene {
   private _winLine(): string {
     const s = this._state;
     const leaked = countedLeaks(s);
+    const fallen = s.team.filter((f) => !f.alive).length;
+    const wiped = s.team.length > 0 && fallen === s.team.length;
+    if (wiped) return leaked > 0 ? `人倒光了，漏了 ${leaked} 个` : '人倒光了，线倒是没断';
     if (s.stars === 3) return '一个没漏，清得也快';
     if (leaked > 0) return `漏了 ${leaked} 个，还是顶住了`;
-    const fallen = s.team.filter((f) => !f.alive).length;
     return fallen > 0 ? `倒了 ${fallen} 个，线没断` : '清干净了，就是慢了点';
+  }
+
+  /** 三个人都还是手艺 1，回村那句才有用 */
+  private _craftStillGreen(): boolean {
+    return this._mem.roster.every((id) => (this._mem.craft[id] ?? 1) <= 1);
+  }
+
+  /** 1-5 没过时，下一手是打摊还是点人 */
+  private _craftStep(): CraftStep {
+    const maxCraft = this._mem.roster.reduce((m, id) => Math.max(m, this._mem.craft[id] ?? 1), 1);
+    return chapter1CraftStep(
+      this._mem.stageTop,
+      (this._mem.stageStars[5] ?? 0) > 0,
+      maxCraft,
+      this._mem.parts,
+    );
   }
 
   /**
@@ -2235,6 +2395,16 @@ export class BattleScene implements Scene {
    */
   private _loseHint(): string {
     const s = this._state;
+    if (s.stage.chapter === 1 && s.stage.index === 5 && this._craftStep() !== 'done') {
+      return this._craftStep() === 'craft'
+        ? '这关手艺 1 打不过\n回村点人，升一级再来'
+        : '这关手艺 1 打不过\n回村打摊，破电视拿零件';
+    }
+    if (s.loseReason === 'wipe') {
+      return villageGateOpen(this._mem.stageTop)
+        ? '人倒光了。回村打弹子、升手艺再来'
+        : '人倒光了，换个站法再挡一次';
+    }
     if (s.loseReason === 'timeout') {
       return '挡住了但清不完，换两个「打」上来';
     }

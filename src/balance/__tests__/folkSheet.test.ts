@@ -122,5 +122,16 @@ describe('村民能力表', () => {
     expect(folkSheetContentH() + 20).toBeLessThanOrEqual(lay.growH);
     expect(lay.growH).toBeGreaterThan(lay.heroH * 0.7);
     expect(folkSheetContentH()).toBe(44 + 42 + 26 * 4);
+    expect(lay.costH).toBe(0);
+  });
+
+  it('有下一档时，材料条夹在养成卡和黄按钮中间', () => {
+    const lay = oneFolkLay(422, 1334, 34, 188);
+    expect(lay.costH).toBe(188);
+    expect(lay.growTop + lay.growH).toBeLessThanOrEqual(lay.costTop);
+    expect(lay.costTop + lay.costH).toBeLessThan(lay.btnY - lay.btnH / 2);
+    expect(lay.btnH).toBeGreaterThanOrEqual(96);
+    expect(lay.growH).toBeGreaterThanOrEqual(folkSheetContentH());
+    expect(lay.costW).toBe(lay.plateW);
   });
 });

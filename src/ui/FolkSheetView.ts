@@ -48,6 +48,11 @@ export interface OneFolkLay {
   btnCx: number;
   backCx: number;
   backW: number;
+  /** 养成卡和按钮之间的材料条。没有下一档时高度为 0 */
+  costTop: number;
+  costH: number;
+  costX: number;
+  costW: number;
 }
 
 /**
@@ -55,10 +60,10 @@ export interface OneFolkLay {
  * 底栏跟喇叭页同一套：左边窄返回，右边宽黄按钮，同一排。
  * 人卡封顶后多出来的空档全给养成卡。
  */
-export function oneFolkLay(top: number, viewH: number, safeBottom: number): OneFolkLay {
+export function oneFolkLay(top: number, viewH: number, safeBottom: number, costH = 0): OneFolkLay {
   const plateW = 690;
   const plateCx = 375;
-  const btnH = 112;
+  const btnH = costH > 0 ? 96 : 112;
   const gap = 12;
   const dockGap = 12;
   const backW = 176;
@@ -69,7 +74,8 @@ export function oneFolkLay(top: number, viewH: number, safeBottom: number): OneF
   const btnCx = side + backW + dockGap + btnW / 2;
   const heroTop = top + 10;
   const minGrow = folkSheetContentH() + INNER_Y * 2;
-  const floor = btnY - btnH / 2 - gap;
+  const costGap = costH > 0 ? 8 : 0;
+  const floor = btnY - btnH / 2 - gap - costGap - costH;
   const avail = Math.max(minGrow + 176, floor - heroTop - gap);
   let heroH = Math.min(360, Math.max(176, avail - minGrow));
   let growH = avail - heroH;
@@ -83,7 +89,80 @@ export function oneFolkLay(top: number, viewH: number, safeBottom: number): OneF
     heroTop, heroH, heroCx: plateCx, heroW: plateW,
     growTop, growH,
     btnY, btnH, btnW, btnCx, backCx, backW,
+    costTop: costH > 0 ? floor + gap : 0,
+    costH,
+    costX: side,
+    costW: plateW,
   };
+}
+
+/**
+ * 升级材料。两块方铁牌并排，不是横条。
+ * 够了底下写手上有多少；不够就盖一枚章，写还差多少。
+ */
+export function paintCraftBill(
+  parent: PIXI.Container,
+  plates: readonly {
+    name: string;
+    icon: UiName;
+    need: string;
+    have: string;
+    short: string;
+  }[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  if (plates.length === 0 || h <= 0 || w <= 0) return;
+  const gap = 16;
+  const plateW = (w - gap * (plates.length - 1)) / plates.length;
+  plates.forEach((plate, i) => {
+    const cx = x + plateW / 2 + i * (plateW + gap);
+    const cy = y + h / 2;
+    fillSprite(parent, uiTex('rust_badge'), cx, cy, plateW, h);
+
+    const icon = plate.icon === 'icon_scrap' ? (uiTex('icon_scrap') ?? uiTex('scrap_pile')) : uiTex(plate.icon);
+    fitSprite(parent, icon, cx, cy - h * 0.32, 48, 48);
+
+    const name = painted(22, GOLD, '#1a1008', 3);
+    name.anchor.set(0.5);
+    name.position.set(cx, cy - h * 0.14);
+    name.text = plate.name;
+    parent.addChild(name);
+
+    const word = painted(20, CREAM, '#1a1008', 3);
+    word.anchor.set(0, 0.5);
+    word.text = '要';
+    const num = painted(36, CREAM, '#1a1008', 4);
+    num.anchor.set(0, 0.5);
+    num.text = plate.need;
+    const pair = word.width + 8 + num.width;
+    const left = cx - pair / 2;
+    word.position.set(left, cy + h * 0.02);
+    num.position.set(left + word.width + 8, cy + h * 0.02);
+    parent.addChild(word);
+    parent.addChild(num);
+
+    if (plate.short) {
+      const stamp = new PIXI.Container();
+      stamp.eventMode = 'none';
+      stamp.position.set(cx, cy + h * 0.34);
+      stamp.rotation = -0.06;
+      parent.addChild(stamp);
+      fillSprite(stamp, uiTex('settle_stamp'), 0, 0, Math.min(plateW * 0.72, 210), 58);
+      const lack = painted(22, 0x6e2218, '#f3e2c2', 3);
+      lack.anchor.set(0.5);
+      lack.text = `还差 ${plate.short}`;
+      stamp.addChild(lack);
+      return;
+    }
+    const have = painted(20, UP, '#1a1008', 3);
+    have.anchor.set(0.5);
+    have.position.set(cx, cy + h * 0.32);
+    have.text = `手上 ${plate.have}`;
+    parent.addChild(have);
+  });
 }
 
 export function paintGrowCard(

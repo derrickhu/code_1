@@ -66,9 +66,15 @@ interface FlyBit {
   tex: PIXI.Texture | null;
 }
 
-/** 一发飞向某只怪的弹。连射、钩子、碾子都走这个，落地才出伤害 */
-interface PelletBit {
+/** 绝活出手：锤子、碾子、网、钩，各画各的，不共用一团火花 */
+type StampKind =
+  | 'hammer' | 'roller' | 'net' | 'hook' | 'saw' | 'arc' | 'slash' | 'pot'
+  | 'lid' | 'horn' | 'cart' | 'steam' | 'dog' | 'chick' | 'boom' | 'bass'
+  | 'scrap' | 'shell' | 'bloom' | 'ring';
+
+interface StampBit {
   g: PIXI.Graphics;
+  kind: StampKind;
   life: number;
   max: number;
   x0: number;
@@ -76,7 +82,7 @@ interface PelletBit {
   x1: number;
   y1: number;
   color: number;
-  r: number;
+  wide: number;
   done: boolean;
   land: () => void;
 }
@@ -100,7 +106,7 @@ export class CombatFx {
   private readonly _shots: ShotBit[] = [];
   private readonly _flashes: FlashBit[] = [];
   private readonly _flies: FlyBit[] = [];
-  private readonly _pellets: PelletBit[] = [];
+  private readonly _stamps: StampBit[] = [];
   private _firstHit = true;
   downPulse = 0;
   landPulse = 0;
@@ -129,15 +135,15 @@ export class CombatFx {
     }
     for (const s of this._flashes) s.text.destroy();
     for (const f of this._flies) f.g.destroy();
-    for (const p of this._pellets) {
-      if (!p.done) p.land();
-      p.g.destroy();
+    for (const s of this._stamps) {
+      if (!s.done) s.land();
+      s.g.destroy();
     }
     this._floats.length = 0;
     this._shots.length = 0;
     this._flashes.length = 0;
     this._flies.length = 0;
-    this._pellets.length = 0;
+    this._stamps.length = 0;
     this._waits.length = 0;
     this._gate.reset();
     this.layer.removeChildren();
@@ -151,7 +157,7 @@ export class CombatFx {
   /** 还有弹没落地 / 出手没松手。结算板得等这一下完，不能盖住最后一发 */
   busy(): boolean {
     return this._shots.some((s) => !s.done)
-      || this._pellets.some((p) => !p.done)
+      || this._stamps.some((s) => !s.done)
       || this._waits.length > 0
       || this._gate.busy();
   }
@@ -293,36 +299,14 @@ export class CombatFx {
     fromX: number,
     fromY: number,
     hits: readonly SkillMark[],
-    aids: readonly { x: number; y: number; guard: boolean; haste: boolean }[],
+    aids: readonly { x: number; y: number; guard: boolean; haste: boolean; heal: boolean }[],
   ): void {
-    this._kit.plate('flash', fromX, fromY, { tint: 0xffffff, s0: 0.45, s1: 0.9, life: 0.22, add: false });
-    playSfx('sk_cast', 80);
+    const cast = skillCast(id);
+    playSfx(cast.sfx, 60);
+    this._kit.plate('flash', fromX, fromY, { tint: cast.color, s0: 0.55, s1: 1.15, life: 0.26, add: false });
     const ordered = [...hits].sort((a, b) => b.y - a.y);
-    const kind = skillVerb(id);
-    if (ordered.length > 0) {
-      if (kind === 'volley') this._volley(fromX, fromY, ordered);
-      else if (kind === 'roll') this._along(fromX, fromY, ordered, 0xffd28a, 16, 0.16, 'sk_shock');
-      else if (kind === 'net') this._shotsAt(fromX, fromY, ordered, 0xfde68a, 7, 0.07, 'sk_stun');
-      else if (kind === 'hook') this._shotsAt(fromX, fromY, ordered, 0xe8e0d4, 5, 0.05, 'atk_pierce');
-      else if (kind === 'blast') this._pops(id, ordered);
-      else if (kind === 'reach') this._shotsAt(fromX, fromY, ordered, 0xffb020, 6, 0.045, id === 'dianju' ? 'atk_saw' : 'atk_slash');
-      else if (ordered.every((h) => h.damage <= 0 && h.stun)) {
-        this._shotsAt(fromX, fromY, ordered, 0xfde68a, 7, 0.06, 'sk_stun');
-      } else if (ordered.every((h) => h.damage <= 0 && h.push)) {
-        this._shotsAt(fromX, fromY, ordered, 0xffd66b, 6, 0.05, 'sk_shock');
-      } else this._pops('smash', ordered);
-    }
-    for (const a of aids) {
-      if (a.guard) {
-        this._kit.plate('shield', a.x, a.y - 36, { tint: 0xffd66b, s0: 0.35, s1: 0.5, life: 0.9, add: false });
-        this._spawnPlainFloat('护住', a.x, a.y - 52, 0xffd66b, 22, 0.8, 1.1);
-      }
-      if (a.haste) {
-        this._kit.spray(a.x, a.y, { n: 8, tint: 0x7dd3fc, kind: 'spark', speed: 140, gy: -20 });
-        this._spawnPlainFloat('手快', a.x, a.y - 28, 0x7dd3fc, 22, 0.8, 1.1);
-      }
-    }
-    if (aids.length > 0 && ordered.length === 0) playSfx('sk_heal', 80);
+    this._travel(cast, fromX, fromY, ordered);
+    this._aidShow(cast, fromX, fromY, aids, ordered.length === 0);
     const kills = ordered.filter((h) => h.killed).length;
     if (kills >= 3) {
       const last = ordered[ordered.length - 1]!;
@@ -338,117 +322,526 @@ export class CombatFx {
     this.shakePx = Math.max(this.shakePx, px);
   }
 
-  /** 滑轮连射：每只怪连吃三发，数字跟第一发一起出来 */
-  private _volley(x0: number, y0: number, hits: readonly SkillMark[]): void {
-    playSfx('sk_lane', 60);
-    let delay = 0.04;
-    for (const h of hits) {
-      for (let s = 0; s < 3; s += 1) {
-        const show = s === 0 ? h : undefined;
-        this._after(delay, () => this._pellet(x0, y0, h.x, h.y, 0xffe08a, 5, 0.12, () => {
-          if (show) this._impact(show, 'bolt');
-          else this._kit.spray(h.x, h.y, { n: 4, tint: 0xffe08a, kind: 'spark', speed: 120 });
-        }));
-        delay += 0.05;
+  /** 按这招干什么画出出手。数字和状态字在落地时才出来 */
+  private _travel(cast: SkillCast, x0: number, y0: number, hits: readonly SkillMark[]): void {
+    if (hits.length === 0) return;
+    if (cast.shake > 0) this.shake(cast.shake);
+    const feet = (h: SkillMark): number => h.y + 34;
+    if (cast.travel === 'volley') {
+      this._volley(x0, y0, hits);
+      return;
+    }
+    if (cast.travel === 'roller') {
+      let delay = 0.06;
+      let px = x0;
+      let py = y0 + 28;
+      for (const h of hits) {
+        const fromX = px;
+        const fromY = py;
+        const mark = h;
+        this._stamp('roller', fromX, fromY, mark.x, feet(mark), cast.color, 46, 0.36, delay, () => {
+          this._impact(mark, 'smash');
+        });
+        delay += 0.24;
+        px = mark.x;
+        py = feet(mark);
       }
+      return;
     }
-  }
-
-  /** 一发接一发沿路滚过去，碾子用。每到一只怪才炸 */
-  private _along(
-    x0: number, y0: number, hits: readonly SkillMark[],
-    color: number, r: number, step: number, sfx: string,
-  ): void {
-    playSfx(sfx, 60);
-    let delay = 0.05;
-    let px = x0;
-    let py = y0;
-    for (const h of hits) {
-      const fromX = px;
-      const fromY = py;
-      const mark = h;
-      this._after(delay, () => this._pellet(fromX, fromY, mark.x, mark.y, color, r, step * 0.85, () => {
-        this._impact(mark, 'smash');
-      }));
-      delay += step;
-      px = h.x;
-      py = h.y;
+    if (cast.travel === 'net') {
+      const midX = hits.reduce((m, h) => m + h.x, 0) / hits.length;
+      const y = hits.reduce((m, h) => m + feet(h), 0) / hits.length;
+      const half = Math.max(86, hits.reduce((m, h) => Math.max(m, Math.abs(h.x - midX)), 0) + 40);
+      this._stamp('net', midX - half, y, midX + half, y, cast.color, 40, 0.5, 0.05, () => {
+        for (const h of hits) this._impact(h, 'net');
+      });
+      return;
     }
-  }
-
-  /** 每人一发，几乎同时出手，落地各算各的。网、钩、电锯走这里 */
-  private _shotsAt(
-    x0: number, y0: number, hits: readonly SkillMark[],
-    color: number, r: number, step: number, sfx: string,
-  ): void {
-    playSfx(sfx, 60);
+    if (cast.travel === 'arc' || cast.travel === 'scrap' || cast.travel === 'bass') {
+      const kind: StampKind = cast.travel === 'arc' ? 'arc' : cast.travel === 'scrap' ? 'scrap' : 'bass';
+      const wide = cast.travel === 'bass' ? 210 : cast.travel === 'scrap' ? 140 : 118;
+      this._stamp(kind, x0, y0, x0, y0, cast.color, wide, 0.5, 0.02, () => {
+        for (const h of hits) this._impact(h, cast.travel === 'bass' ? 'blast' : 'smash');
+      });
+      return;
+    }
+    const per = foeStamp(cast.travel);
+    const look = cast.travel === 'hammer' || cast.travel === 'hook' || cast.travel === 'dog' ? 'smash' as const
+      : cast.travel === 'boom' || cast.travel === 'pot' ? 'blast' as const
+        : cast.travel === 'chick' ? 'net' as const
+          : 'bolt' as const;
     hits.forEach((h, i) => {
-      this._after(0.04 + i * step, () => this._pellet(x0, y0, h.x, h.y, color, r, 0.16, () => {
-        this._impact(h, sfx === 'sk_stun' ? 'net' : 'bolt');
-      }));
+      const fromX = cast.travel === 'boom' ? h.x : x0;
+      const fromY = cast.travel === 'hammer' ? y0 - 100 : cast.travel === 'boom' ? h.y + 8 : y0;
+      const toY = cast.travel === 'hammer' || cast.travel === 'hook' || cast.travel === 'dog' ? feet(h)
+        : cast.travel === 'boom' ? h.y - 92
+          : h.y;
+      const fly = cast.travel === 'hammer' ? 0.42
+        : cast.travel === 'dog' || cast.travel === 'chick' ? 0.38
+          : cast.travel === 'saw' || cast.travel === 'slash' ? 0.3
+            : 0.28;
+      const wide = cast.travel === 'pot' ? 28 : cast.travel === 'dog' ? 20 : cast.travel === 'chick' ? 14 : 16;
+      this._stamp(per, fromX, fromY, h.x, toY, cast.color, wide, fly, 0.05 + i * 0.08, () => {
+        this._impact(h, look);
+      });
     });
   }
 
-  /** 炸在每只怪身上。全场一起响；烟花、高压锅顺着路一颗颗炸 */
-  private _pops(id: string, hits: readonly SkillMark[]): void {
-    const together = id === 'sanshen';
-    playSfx(id === 'smash' ? 'sk_shock' : 'sk_burst', 60);
-    if (id === 'smash') this.shake(8);
-    hits.forEach((h, i) => {
-      const wait = together ? 0.08 : 0.05 + i * 0.07;
-      this._after(wait, () => this._impact(h, id === 'smash' ? 'smash' : 'blast'));
-    });
-  }
-
-  private _pellet(
-    x0: number, y0: number, x1: number, y1: number,
-    color: number, r: number, fly: number, land: () => void,
+  /** 帮队友的那一下。锅盖、喇叭、推车、热水各走各的，回血也要看见罩上来 */
+  private _aidShow(
+    cast: SkillCast,
+    x0: number,
+    y0: number,
+    aids: readonly { x: number; y: number; guard: boolean; haste: boolean; heal: boolean }[],
+    onlyAid: boolean,
   ): void {
-    if (this._pellets.length >= 36) {
-      const old = this._pellets.shift();
-      if (old && !old.done) old.land();
-      old?.g.destroy();
+    if (aids.length === 0) return;
+    if (cast.travel === 'horn') {
+      this._stamp('horn', x0, y0, x0, y0, cast.color, 168, 0.52, 0, () => {
+        for (const a of aids) this._aidLand(a);
+      });
+      return;
     }
-    const g = new PIXI.Graphics();
-    this.layer.addChild(g);
-    this._pellets.push({
-      g, life: fly, max: fly, x0, y0, x1, y1, color, r, done: false, land,
+    if (cast.travel === 'lid') {
+      const midX = aids.reduce((m, a) => m + a.x, 0) / aids.length;
+      const midY = aids.reduce((m, a) => m + a.y, 0) / aids.length;
+      const half = Math.max(70, aids.reduce((m, a) => Math.max(m, Math.abs(a.x - midX)), 0) + 48);
+      this._stamp('lid', midX, y0 - 50, midX, midY - 24, cast.color, half * 2, 0.46, 0.04, () => {
+        for (const a of aids) this._aidLand(a);
+      });
+      return;
+    }
+    if (cast.travel === 'cart') {
+      let delay = 0.04;
+      let px = x0;
+      let py = y0;
+      for (const a of aids) {
+        const fromX = px;
+        const fromY = py;
+        this._stamp('cart', fromX, fromY, a.x, a.y, cast.color, 26, 0.3, delay, () => this._aidLand(a));
+        delay += 0.14;
+        px = a.x;
+        py = a.y;
+      }
+      return;
+    }
+    const kind = aidStamp(cast.travel);
+    const gap = onlyAid ? 0.08 : 0.05;
+    aids.forEach((a, i) => {
+      const wide = cast.travel === 'pot' || cast.travel === 'shell' ? 18 : 16;
+      this._stamp(kind, x0, y0, a.x, a.y, cast.color, wide, 0.34, i * gap, () => this._aidLand(a));
     });
   }
 
-  private _drawPellet(p: PelletBit): void {
-    const g = p.g;
-    g.clear();
-    const u = Math.min(1, 1 - Math.max(0, p.life) / p.max);
-    const x = p.x0 + (p.x1 - p.x0) * u;
-    const y = p.y0 + (p.y1 - p.y0) * u;
-    g.beginFill(p.color, 0.95).drawCircle(x, y, p.r).endFill();
-    g.beginFill(0xfff6d0, 0.9).drawCircle(x, y, Math.max(2, p.r * 0.45)).endFill();
+  private _aidLand(a: { x: number; y: number; guard: boolean; haste: boolean; heal: boolean }): void {
+    if (a.guard) {
+      this._kit.plate('shield', a.x, a.y - 40, { tint: 0x9ecbff, s0: 0.95, s1: 1.4, life: 0.7, add: false });
+      this._spawnPlainFloat('护住', a.x, a.y - 68, 0x9ecbff, 28, 0.9, 1.15);
+    }
+    if (a.haste) {
+      this._kit.spray(a.x, a.y - 16, { n: 10, tint: 0xffe08a, kind: 'spark', speed: 180, gy: -50 });
+      this._spawnPlainFloat('手快', a.x + (a.guard ? 42 : 0), a.y - 30, 0xffe08a, 28, 0.9, 1.15);
+    }
+    if (a.heal) {
+      this._kit.plate('heal', a.x, a.y, { tint: 0x86efac, s0: 0.5, s1: 1.05, life: 0.48, add: false });
+    }
   }
 
-  /** 落在怪身上：伤害数字、定身的网、击退和减速的字 */
+  /**
+   * 滑轮连射：跟他平时那颗钢珠一样，只是一颗接一颗。
+   * 间隔拉得开，天上同时挂着两三颗，才数得出是连射。
+   */
+  private _volley(x0: number, y0: number, hits: readonly SkillMark[]): void {
+    const lane = [...hits].sort((a, b) => b.y - a.y);
+    const n = Math.min(12, Math.max(6, lane.length * 3));
+    const look: FxLook = { ...skinLook('sling'), projPx: 30, loft: 34, spin: 12 };
+    const handY = y0 - 18;
+    const shown = new Set<SkillMark>();
+    for (let i = 0; i < n; i += 1) {
+      const h = lane[i % lane.length]!;
+      const show = !shown.has(h);
+      shown.add(h);
+      const spread = ((i % 3) - 1) * 16;
+      this._after(0.08 + i * 0.13, () => {
+        playSfx('atk_sniper', 0);
+        const x1 = h.x + spread;
+        const y1 = h.y;
+        const ang = Math.atan2(y1 - handY, x1 - x0);
+        playMuzzle(this._kit, look, x0, handY, ang);
+        const dist = Math.hypot(x1 - x0, y1 - handY);
+        this._pushShot({
+          x0,
+          y0: handY,
+          x1,
+          y1,
+          color: look.tint,
+          kind: 'sniper',
+          fly: Math.max(0.3, Math.min(0.46, dist / 980)),
+          look,
+          land: () => this._pebbleHit(h, x1, y1, show),
+        });
+      });
+    }
+  }
+
+  /** 钢珠落地。第一颗才报伤害，后面的只砸一下，连射才数得清 */
+  private _pebbleHit(h: SkillMark, x: number, y: number, show: boolean): void {
+    this._kit.plate('flash', x, y, { tint: 0xe8d4b0, s0: 0.22, s1: 0.42, life: 0.1, add: false });
+    this._kit.spray(x, y, { n: show ? 6 : 3, tint: 0xc4b59a, kind: 'glow', speed: 80, gy: 90 });
+    if (!show) return;
+    h.land?.();
+    playSfx('hit_sniper', 40);
+    if (h.damage > 0) {
+      this._spawnPlainFloat(`-${Math.round(h.damage)}`, x, y - 18, 0xffe066, h.killed ? 34 : 30, 0.85, 1.3);
+    }
+    if (h.slow) this._spawnPlainFloat('减速', x - 34, y - 8, 0x86efac, 26, 0.8, 1.1);
+    if (h.killed) playSfx('hit_counter', 40);
+  }
+
+  /** 落在怪身上：伤害数字，再加上这一下干了什么 */
   private _impact(h: SkillMark, look: 'bolt' | 'smash' | 'blast' | 'net'): void {
     h.land?.();
+    const feet = h.y + 34;
     if (look === 'smash') {
-      this._kit.plate('sk_shock', h.x, h.y, { s0: 0.35, s1: 0.62, life: 0.35, add: false });
+      this._kit.ring(h.x, feet, 0xffe08a, 0.42);
+      this._kit.plate('sk_shock', h.x, feet, { s0: 0.7, s1: 1.2, life: 0.4, add: false });
     } else if (look === 'blast') {
-      this._kit.plate('sk_burst', h.x, h.y, { s0: 0.28, s1: 0.5, life: 0.32, add: false });
+      this._kit.ring(h.x, h.y, 0xff8a3a, 0.36);
+      this._kit.plate('sk_burst', h.x, h.y, { s0: 0.55, s1: 1.05, life: 0.38, add: false });
     } else if (look === 'net') {
-      this._kit.plate('sk_stun', h.x, h.y - 8, { s0: 0.42, s1: 0.55, life: 1.1, add: false });
+      this._kit.plate('sk_stun', h.x, feet - 10, { s0: 0.85, s1: 1.15, life: 0.45, add: false });
     } else {
-      this._kit.plate('blast', h.x, h.y, { tint: 0xffe08a, s0: 0.28, s1: h.killed ? 0.6 : 0.42, life: 0.28 });
+      this._kit.plate('blast', h.x, h.y, { tint: 0xffe08a, s0: 0.45, s1: h.killed ? 0.9 : 0.65, life: 0.3 });
     }
-    if (h.stun && look !== 'net') {
-      this._kit.plate('sk_stun', h.x, h.y - 16, { s0: 0.4, s1: 0.55, life: 1.1, add: false });
-    }
-    this._kit.spray(h.x, h.y, { n: h.killed ? 12 : 7, tint: 0xffb040, kind: 'spark', speed: h.killed ? 220 : 150 });
+    this._kit.spray(h.x, h.y, { n: h.killed ? 12 : 8, tint: 0xffb040, kind: 'spark', speed: h.killed ? 240 : 160 });
     if (h.damage > 0) {
       this._spawnPlainFloat(`-${Math.round(h.damage)}`, h.x, h.y - 18, 0xffe066, h.killed ? 34 : 30, 0.85, 1.3);
     }
-    if (h.push) this._spawnPlainFloat('击退', h.x + 28, h.y - 8, 0xffd66b, 20, 0.7, 1);
-    if (h.slow) this._spawnPlainFloat('减速', h.x - 26, h.y + 8, 0x86efac, 20, 0.7, 1);
-    if (h.stun) playSfx('sk_stun', 90);
-    else if (h.damage > 0) playSfx(h.killed ? 'hit_counter' : 'hit_blast', 45);
+    if (h.stun) this._spawnPlainFloat('钉住', h.x, h.y - 52, 0xffe08a, 28, 0.9, 1.2);
+    if (h.push) {
+      this._kit.beam(h.x, feet, h.x, feet - 56, 0xffd66b, 0.22);
+      this._spawnPlainFloat('击退', h.x + 34, h.y - 16, 0xffd66b, 26, 0.8, 1.1);
+    }
+    if (h.slow) this._spawnPlainFloat('减速', h.x - 34, h.y - 8, 0x86efac, 26, 0.8, 1.1);
+    if (h.killed) playSfx('hit_counter', 45);
+    else if (h.stun && look === 'smash') playSfx('sk_stun', 80);
+  }
+
+  private _stamp(
+    kind: StampKind,
+    x0: number, y0: number, x1: number, y1: number,
+    color: number, wide: number, fly: number, delay: number, land: () => void,
+  ): void {
+    this._after(delay, () => {
+      if (this._stamps.length >= 40) {
+        const old = this._stamps.shift();
+        if (old && !old.done) old.land();
+        old?.g.destroy();
+      }
+      const g = new PIXI.Graphics();
+      this.layer.addChild(g);
+      this._stamps.push({
+        g, kind, life: fly, max: fly, x0, y0, x1, y1, color, wide, done: false, land,
+      });
+    });
+  }
+
+  private _drawStamp(s: StampBit): void {
+    const g = s.g;
+    g.clear();
+    const u = Math.min(1, 1 - Math.max(0, s.life) / s.max);
+    const fade = s.life < 0 ? Math.max(0, 1 + s.life / 0.1) : 1;
+    if (fade <= 0) return;
+    const e = u * u;
+    const drop = s.kind === 'hammer' || s.kind === 'lid';
+    const x = s.x0 + (s.x1 - s.x0) * (drop ? e : u);
+    const y = s.y0 + (s.y1 - s.y0) * (drop ? e : u);
+    if (s.kind === 'hammer') this._drawHammer(g, x, y, s.x1, s.y1, u, fade);
+    else if (s.kind === 'roller') this._drawRoller(g, x, y, s.wide, u, fade, s.color);
+    else if (s.kind === 'net') this._drawNet(g, s, u, fade);
+    else if (s.kind === 'hook') this._drawHook(g, s, x, y, fade);
+    else if (s.kind === 'saw') this._drawSaw(g, x, y, u, fade);
+    else if (s.kind === 'slash') this._drawSlash(g, x, y, fade);
+    else if (s.kind === 'arc') this._drawArc(g, s, u, fade);
+    else if (s.kind === 'pot') this._drawPot(g, x, y, u, fade, s.color, s.wide);
+    else if (s.kind === 'lid') this._drawLid(g, x, y, s.wide, fade);
+    else if (s.kind === 'horn') this._drawHorn(g, s.x0, s.y0, u, fade, s.color);
+    else if (s.kind === 'cart') this._drawCart(g, x, y, fade, s.color);
+    else if (s.kind === 'steam') this._drawSteam(g, s, u, fade);
+    else if (s.kind === 'dog') this._drawDog(g, s, u, fade);
+    else if (s.kind === 'chick') this._drawChick(g, s, u, fade);
+    else if (s.kind === 'boom') this._drawBoom(g, x, y, u, fade);
+    else if (s.kind === 'bass') this._drawBass(g, s, u, fade);
+    else if (s.kind === 'scrap') this._drawScrap(g, s, u, fade);
+    else if (s.kind === 'shell') this._drawShell(g, x, y, fade);
+    else if (s.kind === 'bloom') this._drawBloom(g, x, y, u, fade, s.color);
+    else this._drawRing(g, s, x, y, u, fade);
+  }
+
+  private _drawHammer(g: PIXI.Graphics, x: number, y: number, fx: number, fy: number, u: number, fade: number): void {
+    g.beginFill(0x1a0c08, 0.35 * u * fade).drawEllipse(fx, fy + 4, 28 + 18 * u, 10).endFill();
+    g.lineStyle(8, 0x6b3a1f, fade);
+    g.moveTo(x, y - 64);
+    g.lineTo(x, y - 16);
+    g.lineStyle(0);
+    g.beginFill(0x4a5158, fade).drawRoundedRect(x - 32, y - 26, 64, 20, 4).endFill();
+    g.beginFill(0xe8e0d4, fade).drawRoundedRect(x - 32, y - 26, 64, 6, 2).endFill();
+    if (u > 0.72) {
+      g.lineStyle(6, 0xffe08a, ((u - 0.72) / 0.28) * fade);
+      g.drawEllipse(fx, fy + 4, 46, 14);
+      g.lineStyle(3, 0xfff6d0, 0.8 * fade);
+      g.moveTo(fx - 30, fy + 4);
+      g.lineTo(fx - 48, fy + 16);
+      g.moveTo(fx + 30, fy + 4);
+      g.lineTo(fx + 48, fy + 16);
+      g.lineStyle(0);
+    }
+  }
+
+  private _drawRoller(g: PIXI.Graphics, x: number, y: number, r: number, u: number, fade: number, color: number): void {
+    g.beginFill(0x1a0c08, 0.35 * fade).drawEllipse(x, y + 10, r, 8).endFill();
+    g.beginFill(color, fade).drawCircle(x, y - 6, r).endFill();
+    g.beginFill(0x6b5a48, fade).drawCircle(x, y - 6, r * 0.62).endFill();
+    g.beginFill(0x1a0c08, fade).drawCircle(x, y - 6, r * 0.16).endFill();
+    g.lineStyle(4, 0xfff4c4, 0.85 * fade);
+    const ang = u * 8;
+    g.moveTo(x + Math.cos(ang) * r * 0.28, y - 6 + Math.sin(ang) * r * 0.28);
+    g.lineTo(x + Math.cos(ang) * r * 0.9, y - 6 + Math.sin(ang) * r * 0.9);
+    g.lineStyle(0);
+  }
+
+  private _drawNet(g: PIXI.Graphics, s: StampBit, u: number, fade: number): void {
+    const x1 = s.x0 + (s.x1 - s.x0) * u;
+    const half = s.wide;
+    g.lineStyle(8, s.color, 0.95 * fade);
+    g.moveTo(s.x0, s.y0);
+    g.lineTo(x1, s.y0);
+    const span = Math.max(12, x1 - s.x0);
+    const n = Math.max(3, Math.round(span / 28));
+    for (let i = 0; i <= n; i += 1) {
+      const x = s.x0 + (span * i) / n;
+      g.moveTo(x, s.y0 - half);
+      g.lineTo(x, s.y0 + half);
+    }
+    g.moveTo(s.x0, s.y0 - half);
+    g.lineTo(x1, s.y0 - half);
+    g.moveTo(s.x0, s.y0 + half);
+    g.lineTo(x1, s.y0 + half);
+    g.lineStyle(0);
+  }
+
+  private _drawHook(g: PIXI.Graphics, s: StampBit, x: number, y: number, fade: number): void {
+    for (let i = 0; i < 3; i += 1) {
+      const ox = (i - 1) * 18;
+      const oy = (i - 1) * 8;
+      g.lineStyle(4, s.color, 0.9 * fade);
+      g.moveTo(s.x0, s.y0);
+      g.lineTo(x + ox, y + oy);
+      g.lineStyle(6, 0xfff4c4, fade);
+      g.moveTo(x + ox, y + oy);
+      g.lineTo(x + ox + 16, y + oy - 22);
+      g.lineTo(x + ox + 4, y + oy - 8);
+      g.lineStyle(0);
+      g.beginFill(0xe8e0d4, fade).drawPolygon([
+        x + ox + 10, y + oy - 6,
+        x + ox + 26, y + oy + 2,
+        x + ox + 8, y + oy + 8,
+      ]).endFill();
+    }
+  }
+
+  private _drawSaw(g: PIXI.Graphics, x: number, y: number, u: number, fade: number): void {
+    g.beginFill(0x9aa0a8, 0.95 * fade).drawCircle(x, y, 28).endFill();
+    g.beginFill(0x5c636c, fade).drawCircle(x, y, 10).endFill();
+    g.lineStyle(4, 0xfff6d0, fade);
+    const spin = u * 18;
+    for (let i = 0; i < 8; i += 1) {
+      const a = spin + (i * Math.PI) / 4;
+      g.moveTo(x + Math.cos(a) * 12, y + Math.sin(a) * 12);
+      g.lineTo(x + Math.cos(a) * 30, y + Math.sin(a) * 30);
+    }
+    g.lineStyle(0);
+    g.beginFill(0xffe08a, fade).drawCircle(x, y, 5).endFill();
+  }
+
+  private _drawSlash(g: PIXI.Graphics, x: number, y: number, fade: number): void {
+    g.beginFill(0x6b3a1f, fade).drawRoundedRect(x - 8, y - 36, 10, 28, 2).endFill();
+    g.beginFill(0xe8e0d4, fade).drawPolygon([
+      x - 28, y - 8,
+      x + 30, y + 18,
+      x + 18, y + 30,
+      x - 36, y + 2,
+    ]).endFill();
+    g.beginFill(0xfff6d0, 0.9 * fade).drawPolygon([
+      x - 22, y - 4,
+      x + 22, y + 16,
+      x + 16, y + 22,
+      x - 26, y + 2,
+    ]).endFill();
+  }
+
+  private _drawArc(g: PIXI.Graphics, s: StampBit, u: number, fade: number): void {
+    const a = -2.6 + u * 3.6;
+    const x = s.x0 + Math.cos(a) * s.wide;
+    const y = s.y0 + Math.sin(a) * s.wide * 0.72;
+    g.lineStyle(10, 0x6b3a1f, fade);
+    g.moveTo(s.x0, s.y0);
+    g.lineTo(x, y);
+    g.lineStyle(0);
+    g.beginFill(0x3a3a3a, fade).drawCircle(x, y, 18).endFill();
+    g.beginFill(0x8a8f98, fade).drawCircle(x, y, 12).endFill();
+  }
+
+  private _drawPot(g: PIXI.Graphics, x: number, y: number, u: number, fade: number, color: number, wide: number): void {
+    const n = wide >= 24 ? 3 : 1;
+    for (let i = 0; i < n; i += 1) {
+      const ox = (i - (n - 1) / 2) * 28;
+      const px = x + ox;
+      g.beginFill(0x1a0c08, 0.3 * fade).drawEllipse(px, y + 18, 14, 5).endFill();
+      g.beginFill(color, fade).drawRoundedRect(px - 14, y - 10, 28, 24, 5).endFill();
+      g.beginFill(0x3a2a22, fade).drawEllipse(px, y - 10, 11, 4).endFill();
+      g.beginFill(0xfff6d0, 0.75 * fade).drawCircle(px, y - 22 - u * 14, 4 + u * 5).endFill();
+    }
+  }
+
+  private _drawLid(g: PIXI.Graphics, x: number, y: number, wide: number, fade: number): void {
+    const rx = Math.max(56, wide / 2);
+    g.beginFill(0x8a3030, 0.95 * fade).drawEllipse(x, y + 6, rx, 26).endFill();
+    g.beginFill(0xd4554a, fade).drawEllipse(x, y, rx - 8, 16).endFill();
+    g.beginFill(0xfff6d0, fade).drawCircle(x, y - 14, 8).endFill();
+    g.beginFill(0x6b3a1f, fade).drawCircle(x, y - 14, 4).endFill();
+  }
+
+  private _drawHorn(g: PIXI.Graphics, x: number, y: number, u: number, fade: number, color: number): void {
+    g.beginFill(color, fade).drawPolygon([
+      x - 10, y + 16, x + 10, y + 16, x + 28, y - 36, x - 28, y - 36,
+    ]).endFill();
+    g.beginFill(0xfff6d0, fade).drawCircle(x, y + 8, 6).endFill();
+    for (let i = 1; i <= 3; i += 1) {
+      g.lineStyle(7, color, fade * (1 - i * 0.18));
+      g.arc(x, y - 10, 24 + i * 36 * Math.max(0.15, u), -2.7, -0.45);
+    }
+    g.lineStyle(0);
+  }
+
+  private _drawCart(g: PIXI.Graphics, x: number, y: number, fade: number, color: number): void {
+    g.beginFill(0x1a0c08, 0.3 * fade).drawEllipse(x, y + 16, 26, 6).endFill();
+    g.beginFill(0x5c3a24, fade).drawRoundedRect(x - 26, y - 8, 52, 22, 3).endFill();
+    g.beginFill(color, fade).drawRoundedRect(x - 16, y - 28, 22, 20, 3).endFill();
+    g.beginFill(0xc45a3a, fade).drawRoundedRect(x + 8, y - 22, 12, 14, 2).endFill();
+    g.beginFill(0x1a1a1a, fade).drawCircle(x - 14, y + 16, 7).endFill();
+    g.beginFill(0x1a1a1a, fade).drawCircle(x + 14, y + 16, 7).endFill();
+    g.beginFill(0xd0d4dc, fade).drawCircle(x - 14, y + 16, 3).endFill();
+    g.beginFill(0xd0d4dc, fade).drawCircle(x + 14, y + 16, 3).endFill();
+  }
+
+  private _drawSteam(g: PIXI.Graphics, s: StampBit, u: number, fade: number): void {
+    for (let i = 0; i < 5; i += 1) {
+      const ox = (i - 2) * 14;
+      const drop = ((u + i * 0.16) % 1);
+      const x = s.x0 + (s.x1 - s.x0) * drop + ox * 0.4;
+      const y = s.y0 + (s.y1 - s.y0) * drop;
+      g.beginFill(0x7dd3fc, 0.95 * fade).drawEllipse(x, y, 5, 8).endFill();
+      g.beginFill(0xfff6d0, 0.55 * fade).drawCircle(x, y - 16, 6 + drop * 4).endFill();
+    }
+  }
+
+  private _drawDog(g: PIXI.Graphics, s: StampBit, u: number, fade: number): void {
+    for (let i = 0; i < 4; i += 1) {
+      const ox = (i - 1.5) * 26;
+      const oy = Math.sin(u * 14 + i) * 4;
+      const x = s.x0 + (s.x1 - s.x0) * u + ox;
+      const y = s.y0 + (s.y1 - s.y0) * u + oy;
+      g.beginFill(s.color, fade).drawEllipse(x, y, 18, 9).endFill();
+      g.beginFill(s.color, fade).drawCircle(x + 16, y - 7, 8).endFill();
+      g.beginFill(0x6b3a1f, fade).drawEllipse(x + 14, y - 14, 3, 6).endFill();
+      g.beginFill(0x1a0c08, fade).drawCircle(x + 19, y - 8, 1.6).endFill();
+      g.lineStyle(3, s.color, fade);
+      g.moveTo(x - 16, y - 2);
+      g.lineTo(x - 24, y - 12);
+      g.lineStyle(0);
+    }
+  }
+
+  private _drawChick(g: PIXI.Graphics, s: StampBit, u: number, fade: number): void {
+    for (let i = 0; i < 6; i += 1) {
+      const ox = (i - 2.5) * 18;
+      const oy = Math.sin(u * 18 + i) * 12 - 6;
+      const x = s.x0 + (s.x1 - s.x0) * u + ox;
+      const y = s.y0 + (s.y1 - s.y0) * u + oy;
+      g.beginFill(0xfff4c4, fade).drawCircle(x, y, 7).endFill();
+      g.beginFill(0xfff4c4, fade).drawCircle(x + 5, y - 5, 4).endFill();
+      g.beginFill(0xc43a28, fade).drawCircle(x + 4, y - 9, 2).endFill();
+      g.beginFill(0xe8a317, fade).drawPolygon([
+        x + 8, y - 5, x + 14, y - 3, x + 8, y - 1,
+      ]).endFill();
+    }
+  }
+
+  private _drawBoom(g: PIXI.Graphics, x: number, y: number, u: number, fade: number): void {
+    g.beginFill(0xff5a6a, fade).drawRoundedRect(x - 5, y - 6, 10, 18, 3).endFill();
+    g.beginFill(0xffe08a, fade).drawPolygon([x, y + 16, x - 6, y + 6, x + 6, y + 6]).endFill();
+    if (u > 0.45) {
+      const r = 10 + (u - 0.45) * 70;
+      g.lineStyle(5, 0xffe08a, fade);
+      for (let i = 0; i < 8; i += 1) {
+        const a = (i / 8) * Math.PI * 2;
+        g.moveTo(x + Math.cos(a) * r * 0.35, y + Math.sin(a) * r * 0.35);
+        g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      }
+      g.lineStyle(0);
+      g.beginFill(0xff5a6a, 0.9 * fade).drawCircle(x, y, 8).endFill();
+    }
+  }
+
+  private _drawBass(g: PIXI.Graphics, s: StampBit, u: number, fade: number): void {
+    const x = s.x0;
+    const y = s.y0;
+    g.beginFill(0x2a241c, fade).drawRoundedRect(x - 34, y - 26, 68, 52, 6).endFill();
+    g.beginFill(0x111111, fade).drawCircle(x, y, 16).endFill();
+    g.beginFill(s.color, fade).drawCircle(x, y, 7).endFill();
+    for (let i = 1; i <= 3; i += 1) {
+      g.lineStyle(9, s.color, fade * (1 - i * 0.2));
+      g.drawCircle(x, y, 22 + i * s.wide * Math.max(0.2, u) / 3);
+    }
+    g.lineStyle(0);
+  }
+
+  private _drawScrap(g: PIXI.Graphics, s: StampBit, u: number, fade: number): void {
+    const colors = [0xc47a4a, 0x8a8f98, 0x6b3a1f, 0xe8d4b0, 0xc45a3a, 0x5c636c];
+    for (let i = 0; i < 6; i += 1) {
+      const a = (i / 6) * Math.PI * 2 + u;
+      const r = 16 + s.wide * u;
+      const x = s.x0 + Math.cos(a) * r;
+      const y = s.y0 + Math.sin(a) * r * 0.72;
+      g.beginFill(colors[i] ?? 0xc47a4a, fade).drawRoundedRect(x - 10, y - 6, 20, 12, 2).endFill();
+    }
+  }
+
+  private _drawShell(g: PIXI.Graphics, x: number, y: number, fade: number): void {
+    g.lineStyle(10, 0xd0d4dc, 0.95 * fade);
+    g.drawRoundedRect(x - 30, y - 42, 60, 76, 12);
+    g.lineStyle(4, 0xfff6d0, 0.85 * fade);
+    g.drawRoundedRect(x - 18, y - 28, 36, 50, 8);
+    g.lineStyle(0);
+    g.beginFill(0x8a8f98, fade).drawRect(x - 22, y - 6, 44, 6).endFill();
+  }
+
+  private _drawBloom(g: PIXI.Graphics, x: number, y: number, u: number, fade: number, color: number): void {
+    const r = 16 + 28 * u;
+    g.beginFill(color, 0.35 * fade).drawCircle(x, y, r).endFill();
+    g.lineStyle(5, color, 0.9 * fade);
+    g.drawCircle(x, y, r);
+    g.lineStyle(0);
+  }
+
+  private _drawRing(g: PIXI.Graphics, s: StampBit, x: number, y: number, u: number, fade: number): void {
+    const local = Math.hypot(s.x1 - s.x0, s.y1 - s.y0) < 6;
+    const r = local ? 16 + s.wide * u : 18 + 16 * u;
+    g.lineStyle(local ? 8 : 5, s.color, fade * (local ? 0.95 - u * 0.25 : 0.9));
+    g.drawCircle(x, y, r);
+    if (local) g.drawCircle(x, y, r * 0.55);
+    g.lineStyle(0);
   }
 
   /** 飘一行字，定住、护住、快漏了这种 */
@@ -480,18 +873,18 @@ export class CombatFx {
     }
     this._kit.update(dt);
 
-    for (let i = this._pellets.length - 1; i >= 0; i -= 1) {
-      const p = this._pellets[i];
-      if (!p) continue;
-      p.life -= dt;
-      this._drawPellet(p);
-      if (p.life <= 0 && !p.done) {
-        p.done = true;
-        p.land();
+    for (let i = this._stamps.length - 1; i >= 0; i -= 1) {
+      const s = this._stamps[i];
+      if (!s) continue;
+      s.life -= dt;
+      this._drawStamp(s);
+      if (s.life <= 0 && !s.done) {
+        s.done = true;
+        s.land();
       }
-      if (p.life <= -0.02) {
-        p.g.destroy();
-        this._pellets.splice(i, 1);
+      if (s.life <= -0.1) {
+        s.g.destroy();
+        this._stamps.splice(i, 1);
       }
     }
 
@@ -996,25 +1389,69 @@ export class CombatFx {
   }
 }
 
-/** 这招画面走哪一种。按招本身干什么分，不按攻击范围分 */
-function skillVerb(id: string): 'volley' | 'roll' | 'net' | 'hook' | 'blast' | 'smash' | 'reach' | 'aid' {
+type SkillTravel =
+  | 'hammer' | 'arc' | 'scrap' | 'roller' | 'net' | 'chick' | 'dog'
+  | 'volley' | 'hook' | 'saw' | 'slash' | 'pot' | 'boom' | 'bass'
+  | 'lid' | 'shell' | 'horn' | 'cart' | 'steam';
+
+interface SkillCast {
+  travel: SkillTravel;
+  color: number;
+  sfx: string;
+  shake: number;
+}
+
+/** 每招一张画面。锤子砸地、碾子滚过去、网横上、钩子甩出去，不共用一团火花 */
+function skillCast(id: string): SkillCast {
   switch (id) {
-    case 'laoyanqiang': return 'volley';
-    case 'shimo': return 'roll';
-    case 'yuwang':
-    case 'jishi': return 'net';
-    case 'laoli':
-    case 'qiangou': return 'hook';
-    case 'bianpao':
-    case 'gaoyaguo':
-    case 'sanshen':
-    case 'baowenhu': return 'blast';
-    case 'dianju':
-    case 'shazhu': return 'reach';
-    case 'dachui':
-    case 'miankuzhang':
-    case 'chengtuo': return 'smash';
-    default: return 'aid';
+    case 'dachui': return { travel: 'hammer', color: 0xc4a574, sfx: 'sk_shock', shake: 16 };
+    case 'chengtuo': return { travel: 'arc', color: 0x8a8f98, sfx: 'sk_shock', shake: 10 };
+    case 'miankuzhang': return { travel: 'scrap', color: 0xc47a4a, sfx: 'sk_shock', shake: 8 };
+    case 'shimo': return { travel: 'roller', color: 0xb8a48a, sfx: 'sk_shock', shake: 8 };
+    case 'yuwang': return { travel: 'net', color: 0xfde68a, sfx: 'sk_stun', shake: 5 };
+    case 'jishi': return { travel: 'chick', color: 0xfff4c4, sfx: 'sk_stun', shake: 4 };
+    case 'laoyanqiang': return { travel: 'volley', color: 0xc4b59a, sfx: 'atk_sniper', shake: 2 };
+    case 'laoli': return { travel: 'hook', color: 0xe8e0d4, sfx: 'atk_pierce', shake: 5 };
+    case 'qiangou': return { travel: 'dog', color: 0xd4a574, sfx: 'sk_shock', shake: 6 };
+    case 'dianju': return { travel: 'saw', color: 0xd0d4dc, sfx: 'atk_saw', shake: 4 };
+    case 'shazhu': return { travel: 'slash', color: 0xf2d2c4, sfx: 'atk_slash', shake: 4 };
+    case 'gaoyaguo': return { travel: 'pot', color: 0xff8a3a, sfx: 'sk_burst', shake: 12 };
+    case 'bianpao': return { travel: 'boom', color: 0xff5a6a, sfx: 'sk_burst', shake: 8 };
+    case 'sanshen': return { travel: 'bass', color: 0xc4b5fd, sfx: 'sk_burst', shake: 14 };
+    case 'guogai': return { travel: 'lid', color: 0xd4554a, sfx: 'sk_heal', shake: 3 };
+    case 'tiezhu': return { travel: 'pot', color: 0xff8a3a, sfx: 'sk_heal', shake: 4 };
+    case 'gangban': return { travel: 'shell', color: 0xd0d4dc, sfx: 'sk_heal', shake: 3 };
+    case 'labaye': return { travel: 'horn', color: 0xffd66b, sfx: 'sk_heal', shake: 3 };
+    case 'erjiu': return { travel: 'cart', color: 0xc4a574, sfx: 'sk_heal', shake: 2 };
+    case 'baowenhu': return { travel: 'steam', color: 0x7dd3fc, sfx: 'sk_heal', shake: 2 };
+    default: return { travel: 'steam', color: 0x86efac, sfx: 'sk_cast', shake: 2 };
+  }
+}
+
+function foeStamp(travel: SkillTravel): StampKind {
+  switch (travel) {
+    case 'hammer': return 'hammer';
+    case 'hook': return 'hook';
+    case 'saw': return 'saw';
+    case 'slash': return 'slash';
+    case 'pot': return 'pot';
+    case 'boom': return 'boom';
+    case 'dog': return 'dog';
+    case 'chick': return 'chick';
+    case 'lid': return 'lid';
+    case 'shell': return 'shell';
+    case 'steam': return 'steam';
+    default: return 'bloom';
+  }
+}
+
+function aidStamp(travel: SkillTravel): StampKind {
+  switch (travel) {
+    case 'pot': return 'pot';
+    case 'shell': return 'shell';
+    case 'steam': return 'steam';
+    case 'boom': return 'bloom';
+    default: return 'bloom';
   }
 }
 

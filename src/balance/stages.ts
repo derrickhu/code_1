@@ -16,7 +16,7 @@
  *
  * 章内把墙放在第 4、5 关，对应 §8「卡关点稳定落在每章的第 4–5 关」。
  */
-import { ARMOR_K, BOSS_HP_MUL, BOSS_UNITS, PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
+import { ARMOR_K, BOSS_HP_MUL, PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
 import type { Lane } from './villagers';
 
 /**
@@ -509,7 +509,10 @@ const LANE_SET: Readonly<Record<number, readonly number[]>> = {
  */
 const COUNT_CH1 = 12;
 const COUNT_STEP = Math.pow(2.19, 1 / 7);
-/** 第 9 章往后只数只再涨一半：12 → 40 只封顶，屏幕还看得清 */
+/**
+ * 第 9 章往后只数只再涨一半：预算从 12 收到 40 上下。
+ * 第 3 关起波次变多，杂兵按上一关的密度跟着铺，带大个子的关会比这个预算多。
+ */
 const TAIL_COUNT_STEP = Math.pow(1.5, 1 / CH_TAIL);
 const COUNT_IDX = [1, 1.05, 1.12, 1.2, 1.28] as const;
 
@@ -571,10 +574,26 @@ function pickMainLane(mix: readonly string[]): Lane {
   return getEnemy(mix[0]!).lane;
 }
 
-/** 这一关一共放多少只 */
+/** 这一关一共放多少只（还没打折、还没算大个子） */
 function stageCount(chapter: number, index: number): number {
   const ch = COUNT_CH1 * chMul(chapter, COUNT_STEP, TAIL_COUNT_STEP);
   return Math.max(3, Math.round(ch * (COUNT_IDX[index - 1] ?? 1)));
+}
+
+/** 打折之后的杂兵只数。大个子不算在里面 */
+function rushBudget(chapter: number, index: number): number {
+  return Math.max(3, Math.round(stageCount(chapter, index) * RUSH_COUNT_MUL));
+}
+
+/**
+ * 这一关实际放多少杂兵。大个子另外加，不从这里扣。
+ *
+ * 第 1 章按过一版「波次变多就把密度补齐」，1-5 补到 18 只再加大个子。
+ * 那时候村口还没开，三个人手艺是 1，人倒光了也算清完。倒光现在不算过关。
+ * 只数回到预算：1-3 起大个子是额外的，小怪不会比前两关少，1-5 也不会堆成墙。
+ */
+function crowdTotal(chapter: number, index: number): number {
+  return rushBudget(chapter, index);
 }
 
 /**
@@ -617,8 +636,7 @@ function laneGroups(
 function buildWaves(seed: ChapterSeed, chapter: number, index: number): Wave[] {
   const waveCount = IDX_WAVES[index - 1] ?? 3;
   const boss = index >= BOSS_FROM_IDX;
-  const total = Math.max(3, Math.round(stageCount(chapter, index) * RUSH_COUNT_MUL)
-    - (boss ? BOSS_UNITS : 0));
+  const total = crowdTotal(chapter, index);
 
   // 后面的波比前面的密一点，压力是递增的而不是平的
   const weights = Array.from({ length: waveCount }, (_, w) => 1 + w * 0.15);

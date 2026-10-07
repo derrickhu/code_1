@@ -70,3 +70,23 @@ describe('漏怪后续命', () => {
     expect(countedLeaks(state)).toBe(3);
   });
 });
+
+describe('人倒光了', () => {
+  it('怪清完了但没人站着，不算过关，也不给续命', () => {
+    const state = lostBoard(0, false);
+    state.phase = 'fighting';
+    state.loseReason = undefined;
+    state.leaked = 2;
+    for (const f of state.team) {
+      f.alive = false;
+      f.hp = 0;
+    }
+    tick(state);
+    expect(state.phase).toBe('lost');
+    expect(state.loseReason).toBe('wipe');
+    expect(state.stars).toBe(0);
+    expect(reviveCanContinue(state)).toBe(false);
+    tick(state);
+    expect(state.phase).toBe('lost');
+  });
+});

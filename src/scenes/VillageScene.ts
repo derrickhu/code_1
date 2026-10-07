@@ -31,7 +31,7 @@ import { YARD_MAX_SPAN, packPortraitRow, portraitWidth } from '@/fx/portraitFit'
 import { homePreloadPeople, yardCrowd, yardPeople } from '@/core/yardRoster';
 import { LANE_TINT } from '@/ui/BenchDock';
 import { folkLivePeak, folkSheet, folkSignName, type FolkPeak } from '@/balance/folkSheet';
-import { oneFolkLay, paintGrowCard, type OneFolkLay } from '@/ui/FolkSheetView';
+import { oneFolkLay, paintCraftBill, paintGrowCard, type OneFolkLay } from '@/ui/FolkSheetView';
 import { folkBrowseIds, folkNeighborId, isFolkOneSwipeBlocked } from '@/ui/folkOneSwipe';
 import { StallYard, STALL_BG_LAY } from '@/ui/StallYard';
 import { mountVillageRise } from '@/ui/villageRiseCard';
@@ -48,6 +48,7 @@ import {
 import {
   PELLET_AD, TARGETS, TARGET_UNLOCK_LV, pelletCap, pelletRegenMin, prizeTier,
 } from '@/balance/stall';
+import { chapter1CraftStep, villageGateOpen, type CraftStep } from '@/balance/opening';
 import { homeRoadBrief } from '@/balance/roadMap';
 import { Platform } from '@/core/PlatformService';
 import { rewardedAdUnitId } from '@/config/rewardedAds';
@@ -381,6 +382,11 @@ export class VillageScene implements Scene {
   }
 
   private _open(page: Page): void {
+    if (page !== 'home' && !villageGateOpen(this._mem.stageTop)) {
+      playSfx('ui_tap', 0);
+      Platform.showToast('先把村口守住');
+      return;
+    }
     if (page !== 'folks') this._waitSheet = '';
     this._page = page;
     playSfx('ui_tap', 0);
@@ -545,7 +551,7 @@ export class VillageScene implements Scene {
     const hint = label(14, MUTED, false);
     hint.anchor.set(0.5, 0);
     hint.position.set(375, lay.hintY);
-    hint.text = villageNeedHint(lv, this._mem.villageExp);
+    hint.text = this._homeHint(lv);
     layer.addChild(hint);
 
     const cells: readonly [UiName, number, 'icon_scrap' | 'icon_parts' | 'icon_credits' | 'icon_pellets', string, (() => void) | null][] = [
@@ -869,6 +875,27 @@ export class VillageScene implements Scene {
     });
   }
 
+  /** 村口刚开、1-5 还没过，横楣按零件够不够往下指。再往后交给经验条 */
+  private _homeHint(lv: number): string {
+    if (this._page !== 'home') return villageNeedHint(lv, this._mem.villageExp);
+    if (!villageGateOpen(this._mem.stageTop)) return '出村接着打';
+    const step = this._craftStep();
+    if (step === 'stall') return '先去弹弓摊，打中破电视拿零件';
+    if (step === 'craft') return '零件够了，点开一个人升手艺';
+    if (this._mem.stageTop <= 6) return '出村接着打';
+    return villageNeedHint(lv, this._mem.villageExp);
+  }
+
+  private _craftStep(): CraftStep {
+    const maxCraft = this._mem.roster.reduce((m, id) => Math.max(m, this._mem.craft[id] ?? 1), 1);
+    return chapter1CraftStep(
+      this._mem.stageTop,
+      (this._mem.stageStars[5] ?? 0) > 0,
+      maxCraft,
+      this._mem.parts,
+    );
+  }
+
   private _homePost(layer: PIXI.Container, lay: HomeLay): void {
     const mem = this._mem;
     const { cx, cy, w, h } = lay.post;
@@ -900,6 +927,10 @@ export class VillageScene implements Scene {
     const cx = x + w / 2;
     const cy = y + h / 2;
     const box = this._hit(layer, cx, cy, w, h, () => {
+      if (!villageGateOpen(this._mem.stageTop)) {
+        SceneManager.switchTo('battle', { stageId: this._mem.stageId });
+        return;
+      }
       SceneManager.switchTo('road');
     });
     const paintedOn = fillSprite(box, uiTex('gate_chu'), 0, 0, w, h)
@@ -979,9 +1010,14 @@ export class VillageScene implements Scene {
     pity.anchor.set(0.5);
     pity.position.set(375, chrome.hintY);
     const wait = left <= 1 ? '下一发必出工分' : `再 ${left} 发必出工分`;
-    pity.text = this._mem.pellets >= cap
-      ? `满了 · ${wait}`
-      : `${pelletRegenMin(this._mem.villageLv)} 分钟回一发 · ${wait}`;
+    const step = this._craftStep();
+    pity.text = step === 'stall'
+      ? '打中破电视，就出零件'
+      : step === 'craft'
+        ? '零件够了，回村点人升手艺'
+        : this._mem.pellets >= cap
+          ? `满了 · ${wait}`
+          : `${pelletRegenMin(this._mem.villageLv)} 分钟回一发 · ${wait}`;
     layer.addChild(pity);
     this._paintStallPocket(layer, chrome, left);
   }
@@ -1714,7 +1750,8 @@ export class VillageScene implements Scene {
       this._open('folks');
       return;
     }
-    const lay = oneFolkLay(top, this._height(), Game.safeBottom);
+    const feed = nextFeed(progressOf(this._mem), this._focus);
+    const lay = oneFolkLay(top, this._height(), Game.safeBottom, feed ? 188 : 0);
     this._oneLay = lay;
     this._oneHeaderBottom = top;
     this._oneDockTop = lay.btnY - lay.btnH / 2;
@@ -1823,12 +1860,36 @@ export class VillageScene implements Scene {
     }
     const can = mem.scrap >= feed.scrap && mem.parts >= feed.parts;
     const next = craft + 1;
+    this._paintCraftBill(layer, lay, feed.scrap, feed.parts);
     this._btn(layer, lay.btnCx, lay.btnY, lay.btnW, lay.btnH, '再练一级', () => this._evolve(v.id), {
       sub: `Lv.${craft}→Lv.${next}`,
-      note: `${compactNum(feed.scrap)}废铁+${compactNum(feed.parts)}零件`,
       enabled: can,
       art: 'fight_btn',
     });
+  }
+
+  /** 两块方铁牌：够了写手上，不够盖章写还差 */
+  private _paintCraftBill(layer: PIXI.Container, lay: OneFolkLay, scrap: number, parts: number): void {
+    if (lay.costH <= 0) return;
+    const line = (
+      name: string,
+      icon: 'icon_scrap' | 'icon_parts',
+      need: number,
+      have: number,
+    ) => {
+      const gap = need - have;
+      return {
+        name,
+        icon,
+        need: compactNum(need),
+        have: compactNum(have),
+        short: gap > 0 ? compactNum(gap) : '',
+      };
+    };
+    paintCraftBill(layer, [
+      line('废铁', 'icon_scrap', scrap, this._mem.scrap),
+      line('零件', 'icon_parts', parts, this._mem.parts),
+    ], lay.costX, lay.costTop, lay.costW, lay.costH);
   }
 
   private _preloadOneNeighbors(): void {

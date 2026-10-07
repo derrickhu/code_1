@@ -21,7 +21,8 @@ import { Platform } from '@/core/PlatformService';
 import { OverlayManager } from '@/core/OverlayManager';
 import { BgmPlayer } from '@/core/BgmPlayer';
 import { GMManager } from '@/core/GMManager';
-import { BattleScene } from '@/scenes/BattleScene';
+import { loadMemory } from '@/core/RunMemory';
+import { BattleScene, notifyBattleHide } from '@/scenes/BattleScene';
 import { RoadScene } from '@/scenes/RoadScene';
 import { VillageScene } from '@/scenes/VillageScene';
 import { LoadingScreenOverlay } from '@/ui/LoadingScreenOverlay';
@@ -109,13 +110,21 @@ async function main(): Promise<void> {
   await CdnAssetService.fetchManifest().catch(() => false);
   loading.setProgress(0.28);
 
-  // 村口壳在分包里，出插画后再等，避免主界面空壳。立绘 / 战斗仍后台 CDN。
-  await ensureAssets(VILLAGE_HOME_SHELL, (loaded, total) => {
-    loading.setProgress(0.28 + 0.58 * (total > 0 ? loaded / total : 1));
-  }).catch((e) => {
-    console.warn('[main] 村口壳预热失败', e);
-  });
-  loading.setProgress(0.86);
+  // 赢下 1-3 之前直接进战斗，村口壳改后台拉，不挡开打。
+  const opening = loadMemory().stageTop <= 3;
+  if (opening) {
+    void ensureAssets(VILLAGE_HOME_SHELL).catch((e) => {
+      console.warn('[main] 村口壳预热失败', e);
+    });
+    loading.setProgress(0.86);
+  } else {
+    await ensureAssets(VILLAGE_HOME_SHELL, (loaded, total) => {
+      loading.setProgress(0.28 + 0.58 * (total > 0 ? loaded / total : 1));
+    }).catch((e) => {
+      console.warn('[main] 村口壳预热失败', e);
+    });
+    loading.setProgress(0.86);
+  }
 
   const userId = await userIdP;
   loading.setProgress(0.92);
@@ -123,7 +132,12 @@ async function main(): Promise<void> {
   SceneManager.register(new VillageScene());
   SceneManager.register(new RoadScene());
   SceneManager.register(new BattleScene());
-  SceneManager.switchTo('village');
+  const mem = loadMemory();
+  if (mem.stageTop <= 3) {
+    SceneManager.switchTo('battle', { stageId: mem.stageId });
+  } else {
+    SceneManager.switchTo('village');
+  }
 
   if (GMManager.isRuntimeAllowed) {
     OverlayManager.container.addChild(new GMPanel());
@@ -157,6 +171,7 @@ async function main(): Promise<void> {
 
   let lastHideAt = 0;
   Platform.onHide(() => {
+    notifyBattleHide();
     BgmPlayer.pause();
     void CloudSyncManager.flushNow('app-hide');
     analytics.trackSessionEnd('app-hide');

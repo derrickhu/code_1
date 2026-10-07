@@ -125,7 +125,7 @@ for (const r of runs) {
 console.log('\n== 逐关明细（种子 20260904）==');
 console.log('  关卡  村庄 人数/上场  主门路  只数   smart          dumb');
 for (const p of sweepStages(runs[0]!.smart)) {
-  const mark = (r: typeof p.smart): string => (r.won ? `通 ★${r.stars} ${pad(r.elapsedMs / 1000, 4, 0)}s` : `${r.reason === 'leak' ? '漏' : '超'} 漏${r.leaked} 剩${r.leftAlive}`.padEnd(11));
+  const mark = (r: typeof p.smart): string => (r.won ? `通 ★${r.stars} ${pad(r.elapsedMs / 1000, 4, 0)}s` : `${r.reason === 'leak' ? '漏' : r.reason === 'wipe' ? '倒' : '超'} 漏${r.leaked} 剩${r.leftAlive}`.padEnd(11));
   console.log(
     `  ${p.stage.label.padEnd(4)}  Lv.${pad(p.atLv, 2)} ${pad(p.roster, 3)}/${p.cap}` +
     `${p.capped ? '*' : ' '}   ${LANE_NAME[p.stage.mainLane].padEnd(5)} ${pad(stageEnemyCount(p.stage), 4)}  ` +
