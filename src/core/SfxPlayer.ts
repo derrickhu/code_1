@@ -51,6 +51,10 @@ export const SFX_FILE: Readonly<Record<string, string>> = {
   sk_multi: 'audio/sk_multi.mp3',
   /** 村口大喇叭喊一嗓子 */
   shout: 'audio/shout.mp3',
+  /** 战斗里爬起来、续命成功。短一声，不是通关 */
+  get_up: 'audio/get_up.mp3',
+  /** 手艺升一级。短一声，不是通关 */
+  craft_up: 'audio/craft_up.mp3',
 };
 
 /** 没单独出文件的签名，直接用已有音，不发空路径 */

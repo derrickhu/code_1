@@ -226,8 +226,8 @@ export class CombatFx {
       const key = pos.enemyId !== undefined ? enemyImpactKey(pos.enemyId) : undefined;
       const play = (): void => {
         this._death(pos.ex!, pos.ey!, 0xffb070);
+        // 倒下只留这一声。再叠一声爆开，漏怪就盖不过去
         playSfx('enemy_down', 80);
-        playSfx('kill_pop', 80);
         this.hitStop = Math.max(this.hitStop, 0.045);
         pos.onLand?.();
       };
@@ -257,7 +257,7 @@ export class CombatFx {
       this._kit.plate('heal', pos.hx, pos.hy, { tint: 0xfde68a, s0: 0.32, s1: 0.62, life: 0.4, add: false });
       this._kit.spray(pos.hx, pos.hy, { n: 10, tint: 0xfde68a, kind: 'glow', speed: 90, gy: -30 });
       this._spawnPlainFloat('爬起来', pos.hx, pos.hy - 20, 0xfde68a, 22, 0.55);
-      playSfx('win', 80);
+      playSfx('get_up', 80);
     }
 
     if (ev.kind === 'burst' && pos.hx !== undefined && pos.hy !== undefined) {

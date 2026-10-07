@@ -734,7 +734,6 @@ export class BattleScene implements Scene {
     });
     this._syncPhaseUi();
     this._fx.markLand(laneScreenX(1), this._lay.goalY);
-    playSfx('hero_land', 0);
     this._say(this._auto ? '开打 · 绝活自动放，也能点底下头像' : '开打 · 头像亮了就点，放绝活');
   }
 
@@ -2132,7 +2131,6 @@ export class BattleScene implements Scene {
       this._leaveAsk.hide();
       this._syncLeaveBtn();
       this._revive.show(s.team, s.leaked, adRemaining('revive'), this._lay.height);
-      playSfx('lose', 0);
       return;
     }
     this._openSettle();
@@ -2172,6 +2170,7 @@ export class BattleScene implements Scene {
     this._syncLeaveBtn();
     this._consumeEvents();
     this._updateHud();
+    playSfx('get_up', 0);
     this._say('缓过来了，接着挡');
   }
 

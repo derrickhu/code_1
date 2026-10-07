@@ -2031,7 +2031,7 @@ export class VillageScene implements Scene {
     const p = progressOf(mem);
     const craft = craftOf(p, id);
     track('evolve', { id, to: evoOf(p, id), craft, village_lv: mem.villageLv });
-    playSfx('win', 0);
+    playSfx('craft_up', 0);
     /*
      * 喂料只报手艺。换形态归星管（见 village.EVO_STAR_GATE），
      * 那一下在大喇叭揭晓的牌面上报，不在这里 —— 一个入口报一件事。
