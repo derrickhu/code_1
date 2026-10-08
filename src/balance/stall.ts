@@ -163,11 +163,16 @@ export const PELLET_OFFLINE_CAP = 12;
 export const PELLET_AD = 5;
 export const PELLET_AD_DAILY = 3;
 /**
- * 过关结算看广告再给的弹子。固定 3 发，不跟这一关本来的过关弹子翻倍，
- * 也不再翻废铁。日限在 AdDay.settleDouble，跟摊子广告对齐成一天 3 次。
+ * 过关结算看广告的保底弹子。按钮本身是「这关再拿一份」，弹子和废铁照这一关的结算再给一次；
+ * 结算没给弹子时才退回这个数。日限在 AdDay.settleDouble，一天 3 次。
  * 不进 DAILY_PELLETS：这是玩家自己点的，模拟器不算进每天的自动进账。
  */
 export const SETTLE_AD_PELLETS = 3;
+/** 输了看广告领的补给。大约是重打赢一关的一半，日限 AdDay.loseBonus */
+export const LOSE_AD_PELLETS = 2;
+export const LOSE_AD_SCRAP = 10;
+/** 升手艺零件不够时，看一段给几个零件。日限 AdDay.craftParts */
+export const CRAFT_AD_PARTS = 1;
 /** 存量上限。村庄 Lv.5 之后涨到 26 */
 export const PELLET_CAP = 20;
 export const PELLET_CAP_LATE = 26;

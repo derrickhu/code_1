@@ -24,13 +24,15 @@ import { SceneManager, type Scene } from '@/core/SceneManager';
 import { bindPointerTap } from '@/minigame';
 import { getTouchCanvas } from '@/utils/touchCanvas';
 import {
-  CELL_COUNT, FIELD_W, FIELD_X, GOAL_POS, LANE_COUNT, LANE_W, LEAK_ALLOW, TICK_MS,
+  CELL_COUNT, FIELD_W, FIELD_X, GOAL_POS, LANE_COUNT, LANE_W, LEAK_ALLOW, SLOW_MUL, TICK_MS,
   battleFieldLay, cellPos, fieldEnemyH, fieldFightUnitH, hitDeployCell,
   laneScreenX, posScreenY,
 } from '@/balance/combat';
 import { getStage, stageEnemyCount } from '@/balance/stages';
-import { chapter1CraftStep, villageGateOpen, winFooter, type CraftStep } from '@/balance/opening';
-import { SETTLE_AD_PELLETS } from '@/balance/stall';
+import {
+  OPENING_CALL_ID, chapter1CraftStep, needOpeningCall, villageGateOpen, winFooter, type CraftStep,
+} from '@/balance/opening';
+import { LOSE_AD_PELLETS, LOSE_AD_SCRAP, SETTLE_AD_PELLETS } from '@/balance/stall';
 import { resolveAttackFx, resolveEnemyFx, resolveFxSkin } from '@/balance/fx';
 import { LANE_NAME, evoKindOf, getVillager, jobOf, statsOf } from '@/balance/villagers';
 import {
@@ -39,19 +41,22 @@ import {
 import { LeaveAskOverlay } from '@/ui/LeaveAskOverlay';
 import { ReviveOverlay } from '@/ui/ReviveOverlay';
 import { SettleOverlay } from '@/ui/SettleOverlay';
+import { CallReveal } from '@/ui/CallReveal';
 import { CombatFx, type SkillMark } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
 import { motionForSkin, UnitActor } from '@/fx/UnitActor';
-import { BATTLE_FX_IMAGES, battleFaceImages, battlePreloadImages, type HeroArtNeed } from '@/config/assetPreload';
+import {
+  BATTLE_FX_IMAGES, battleFaceImages, battlePreloadImages, heroStillArt, type HeroArtNeed,
+} from '@/config/assetPreload';
 import { ensureAssets } from '@/core/ensureAssets';
 import { bgTex, fillCover, heroTex, uiTex, watchArt, type UiName } from '@/core/TextureLoader';
 import { playSfx } from '@/core/SfxPlayer';
 import { track } from '@/core/Analytics';
 import {
-  grantSettlePellets, capOf, loadMemory, progressOf, saveLayout, settleStage,
+  grantLoot, capOf, loadMemory, openingCall, progressOf, saveLayout, settleStage,
   type RunMemory, type Slot,
 } from '@/core/RunMemory';
-import { craftOf, evoOf, starsOf, villageMul } from '@/balance/village';
+import { craftOf, evoOf, starsOf, villageMul, yieldMul } from '@/balance/village';
 import { Platform } from '@/core/PlatformService';
 import { rewardedAdUnitId } from '@/config/rewardedAds';
 import {
@@ -65,11 +70,11 @@ import {
 } from '@/ui/paint';
 import {
   autoPlace, battleClockMs, castSkill, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin,
-  placeAt, placedOf, removeAt, skillAllies, skillReady,
+  bumpFor, placeAt, placedOf, removeAt, skillAllies, skillReady, skillTargets,
   countedLeaks, reviveAfterLeak, reviveCanContinue, startFight, tick,
   type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
-import { marchLerp } from '@/game/march';
+import { marchLerp, marchStep } from '@/game/march';
 import { canReach, reachOriginY, reachScreenPoly } from '@/game/reach';
 import { ENERGY_MAX, skillAt, skillOf, type SkillDef } from '@/balance/skills';
 import { PersistService } from '@/core/PersistService';
@@ -79,6 +84,22 @@ import {
 } from '@/ui/battleSkillUi';
 
 const SPEED_KEY = 'battle_speed';
+/** 开局三件事各教一次，教过就记下，重打不再教 */
+const GUIDE_SKILL_KEY = 'guide_skill';
+const GUIDE_SWAP_KEY = 'guide_swap';
+/** 开打时补到的图最多隔多久重搭一次画面 */
+const ART_FLUSH_FIGHT_S = 0.4;
+/** 第一招等多久没点就替他放。战斗照常走，不放慢 */
+const SKILL_GUIDE_WAIT_S = 6;
+/** 1-1 第一招教谁。连射整条路都挨，一下能带走一串，最容易看懂 */
+const GUIDE_SKILL_ID = 'laoyanqiang';
+/** 开打多久、路上至少几只怪，才叫玩家点第一招 */
+const SKILL_GUIDE_FROM_MS = 1500;
+const SKILL_GUIDE_CROWD = 3;
+/** 等到这会儿还凑不齐，打得着一只也叫 */
+const SKILL_GUIDE_LATE_MS = 4000;
+/** 开打后第几秒报一次还在不在。冷启动要看清人是在哪一秒走的 */
+const PULSE_SECS = [5, 10, 15, 20, 30] as const;
 
 let battleHide: (() => void) | null = null;
 
@@ -154,7 +175,9 @@ export class BattleScene implements Scene {
     () => this._doubleSettle(),
     () => SceneManager.switchTo('village'),
     () => this._nextOnRoad(),
+    () => this._runOpeningCall(() => this._nextOnRoad()),
   );
+  private readonly _reveal = new CallReveal();
   private readonly _revive = new ReviveOverlay(
     () => { void this._acceptRevive(); },
     () => this._giveUpRevive(),
@@ -187,8 +210,15 @@ export class BattleScene implements Scene {
   private _autoStartLeft = 0;
   /** 1-1 开打时底线亮一下 */
   private _lineFlash = 0;
-  private _pulsed = false;
+  /** PULSE_SECS 报到第几个了 */
+  private _pulseIdx = 0;
   private _hideNoted = false;
+  /** 1-1 第一招：wait 等劲头满，on 放慢等玩家点 */
+  private _skillGuide: 'off' | 'wait' | 'on' = 'off';
+  private _skillGuideLeft = 0;
+  private _skillGuideUid = '';
+  /** 布阵时等玩家把这个人拖上路。1-2 是弹弓叔，1-3 是刚喊来的人 */
+  private _placeGuide: { id: string; key: string; say: string; nudged: boolean } | null = null;
   /**
    * 点人看射程。Clash / 王国保卫战都是点选不暂停。
    * 布阵阶段是村民 id，开打后是 Fighter.uid —— 两套人表不是同一份。
@@ -200,6 +230,10 @@ export class BattleScene implements Scene {
 
   /** 上一逻辑帧的轴坐标，用来在 100ms 步长之间把走路插成滑步 */
   private readonly _prevPos = new Map<number, number>();
+  /** 画面上这一刻站在轴上哪 */
+  private readonly _shownPos = new Map<number, number>();
+  /** 引擎里已经倒了、画面上弹还没落到身上的怪，接着走到挨那一下 */
+  private readonly _ghostPos = new Map<number, number>();
   private readonly _hurtFlash = new Map<string, number>();
   private readonly _lastFoeXY = new Map<number, { x: number; y: number; feetY: number; h: number }>();
 
@@ -215,6 +249,8 @@ export class BattleScene implements Scene {
   private readonly _castSeen = new Set<string>();
   /** 绝活砸下去那一顿还剩多久，真实时间。只停战斗推进，演出照走 */
   private _skillFreeze = 0;
+  private _artDirty = false;
+  private _artCool = 0;
   /** 哪几路快漏了 → 还要闪多久。和提示的限频分开记 */
   private readonly _dangerLane = new Map<number, number>();
   private readonly _dangerSaidAt = new Map<number, number>();
@@ -258,23 +294,37 @@ export class BattleScene implements Scene {
     this.container.addChild(this._cutIn);
     this.container.addChild(this._revive);
     this.container.addChild(this._settle);
+    this.container.addChild(this._reveal);
+    this._reveal.close();
     this.container.addChild(this._leaveAsk);
     this._buildHud();
     watchArt(() => {
-      this._rebuildStripBtns();
-      this._rebuildLeaveBtn();
-      this._bench.paintChrome();
-      this._bench.invalidate();
-      this._renderBench();
-      this._applyHudLayout();
-      this._syncPhaseUi();
-      if (this._hand?.mode === 'drag') {
-        this._paintGhost(this._hand.id);
-        this._raiseGhost();
-      }
-      this._rebindFieldArt();
-      for (const e of this._state.foes) this._foeActors.get(e.id)?.bindEnemy(e.def.id);
+      this._artDirty = true;
     });
+  }
+
+  /**
+   * 图一张张到，每张都叫一次。整屏重搭一帧只做一回，开打时再隔开一点，
+   * 不然首局 CDN 补图那几秒每到一张就顿一下。
+   */
+  private _flushArt(realDt: number): void {
+    this._artCool = Math.max(0, this._artCool - realDt);
+    if (!this._artDirty || this._artCool > 0) return;
+    this._artDirty = false;
+    if (this._state.phase === 'fighting') this._artCool = ART_FLUSH_FIGHT_S;
+    this._rebuildStripBtns();
+    this._rebuildLeaveBtn();
+    this._bench.paintChrome();
+    this._bench.invalidate();
+    this._renderBench();
+    this._applyHudLayout();
+    this._syncPhaseUi();
+    if (this._hand?.mode === 'drag') {
+      this._paintGhost(this._hand.id);
+      this._raiseGhost();
+    }
+    this._rebindFieldArt();
+    for (const e of this._state.foes) this._foeActors.get(e.id)?.bindEnemy(e.def.id);
   }
 
   /* ---------------- 生命周期 ---------------- */
@@ -284,8 +334,13 @@ export class BattleScene implements Scene {
     this._applyHudLayout();
     this._settle.hide();
     this._revive.hide();
+    this._reveal.close();
     this._leaveAsk.hide();
     this._fx.reset();
+    this._fx.setFoeLocator((id) => {
+      const p = this._lastFoeXY.get(id);
+      return p ? { x: p.x, y: p.y - p.h * 0.5 } : undefined;
+    });
     this._clearActors();
 
     this._mem = loadMemory();
@@ -293,6 +348,11 @@ export class BattleScene implements Scene {
       ? (data as { stageId: number }).stageId
       : this._mem.stageId;
     const stage = getStage(stageId);
+    this._placeGuide = this._placeGuideFor(stage.id, this._mem);
+    if (stage.id === 2 && this._mem.callCount === 0) {
+      // 打完这关就要喊人，揭晓牌上的立绘先拉
+      void ensureAssets(heroStillArt({ id: OPENING_CALL_ID, evo: 1 })).catch(() => { /* 牌子会等图 */ });
+    }
 
     const bench = this._benchOf(this._mem);
     const heroes: HeroArtNeed[] = bench.map((c) => ({
@@ -310,7 +370,8 @@ export class BattleScene implements Scene {
         });
         void ensureAssets(BATTLE_FX_IMAGES).catch(() => { /* tex() 缺图时战斗特效降级 */ });
       });
-    const cap = capOf(this._mem);
+    // 人比格子少就按人数算，开局两个人顶板写 2/2，不留一格空着让人以为缺了谁
+    const cap = Math.min(capOf(this._mem), Math.max(1, bench.length));
     this._state = createBattle(
       stage,
       bench,
@@ -327,10 +388,14 @@ export class BattleScene implements Scene {
     this._guideHold = false;
     this._autoStartLeft = stage.id === 1 ? 0.45 : 0;
     this._lineFlash = 0;
-    this._pulsed = false;
+    this._pulseIdx = 0;
     this._hideNoted = false;
+    this._skillGuide = 'off';
+    this._skillGuideLeft = 0;
     this._guide.visible = false;
     this._prevPos.clear();
+    this._shownPos.clear();
+    this._ghostPos.clear();
     this._hurtFlash.clear();
     this._lastFoeXY.clear();
     this._vitals.reset();
@@ -352,6 +417,28 @@ export class BattleScene implements Scene {
     BgmPlayer.play('battle');
     battleHide = () => this._noteHide();
     this._sayOpening(stage.chapter, stage.index, stage.pitch, stage.label, stage.name, stage.mainLane);
+    if (this._placeGuide) this._bench.select(this._placeGuide.id);
+    // 1-2 打完没点喊人就走了的，进 1-3 先把这一嗓子补上，再回来布阵
+    if (stage.id === 3 && needOpeningCall(this._mem.stageTop, this._mem.callCount, this._mem.roster)) {
+      this._runOpeningCall(() => this._restart(3));
+    }
+  }
+
+  /**
+   * 只有 1-3 要等玩家拖人。1-2 打完才喊来三婶，第三格是空的，
+   * 她没上路之前开打键不放行。1-1、1-2 两个人默认都在场上。
+   */
+  private _placeGuideFor(stageId: number, mem: RunMemory): BattleScene['_placeGuide'] {
+    if (
+      stageId === 3
+      && !PersistService.readRaw(GUIDE_SWAP_KEY)
+      && mem.roster.includes(OPENING_CALL_ID)
+      && !mem.layout.some((s) => s.id === OPENING_CALL_ID)
+    ) {
+      const name = getVillager(OPENING_CALL_ID).name;
+      return { id: OPENING_CALL_ID, key: GUIDE_SWAP_KEY, say: `${name}来了，把她拖上路再开打`, nudged: false };
+    }
+    return null;
   }
 
   onExit(): void {
@@ -393,6 +480,15 @@ export class BattleScene implements Scene {
    * 新手第一眼不该是十二个空格子加一句「请布阵」，那撞「十秒可懂」。
    */
   private _presetOf(
+    mem: RunMemory,
+    bench: readonly Candidate[],
+    stage: ReturnType<typeof getStage>,
+    cap: number,
+  ): Placement[] {
+    return this._presetBase(mem, bench, stage, cap);
+  }
+
+  private _presetBase(
     mem: RunMemory,
     bench: readonly Candidate[],
     stage: ReturnType<typeof getStage>,
@@ -485,7 +581,7 @@ export class BattleScene implements Scene {
   }
 
   private _chromeBusy(): boolean {
-    return this._settle.visible || this._revive.visible || this._leaveAsk.visible;
+    return this._settle.visible || this._revive.visible || this._leaveAsk.visible || this._reveal.visible;
   }
 
   private _paintGhost(id: string): void {
@@ -526,16 +622,23 @@ export class BattleScene implements Scene {
   private _tryPlace(id: string, lane: number, cell: number): void {
     const mine = placedOf(this._state, id);
     if (mine && mine.lane === lane && mine.cell === cell) return;
+    let benched = '';
+    const guided = !!this._placeGuide;
     if (!placeAt(this._state, id, lane, cell)) {
-      Platform.showToast(
-        this._state.placed.length >= this._state.cap
-          ? `这一关只能上 ${this._state.cap} 个，先撤一个`
-          : '放不下',
-      );
-      return;
+      // 满员还往空格拖：换下离这格最近的那个，不让玩家先撤再拖
+      const out = !mine && this._state.placed.length >= this._state.cap
+        ? bumpFor(this._state, lane, cell)
+        : undefined;
+      if (!out || !removeAt(this._state, out.lane, out.cell) || !placeAt(this._state, id, lane, cell)) {
+        if (out && !placedOf(this._state, out.villager.id)) placeAt(this._state, out.villager.id, out.lane, out.cell);
+        Platform.showToast('放不下');
+        return;
+      }
+      benched = out.villager.name;
     }
     playSfx('install_on', 0);
     this._afterPlaceChange();
+    if (benched && !guided) this._say(`换下了${benched}`, 2);
   }
 
   private _onPlaceDown(e: Event): void {
@@ -714,6 +817,12 @@ export class BattleScene implements Scene {
     if (this._inspectUid && !placedOf(this._state, this._inspectUid)) {
       this._inspectUid = null;
     }
+    const guide = this._placeGuide;
+    if (guide && placedOf(this._state, guide.id)) {
+      this._placeGuide = null;
+      PersistService.writeRaw(guide.key, '1');
+      this._say('站好了，点开打', 3);
+    }
     this._renderBench();
     this._drawField();
     this._drawUnits();
@@ -734,6 +843,14 @@ export class BattleScene implements Scene {
       Platform.showToast('先放几个人上去');
       return;
     }
+    const guide = this._placeGuide;
+    if (guide && !placedOf(this._state, guide.id)) {
+      // 新来的人没上路就不开打。点开打只把这句话再说一遍
+      this._sayHeld(guide.say);
+      this._bench.select(guide.id);
+      playSfx('ui_tap', 0);
+      return;
+    }
     // 记下这一次的排法。下一关直接铺上，玩家不用每关从零摆
     saveLayout(this._state.placed.map((p): Slot => ({
       id: p.villager.id, lane: p.lane, cell: p.cell,
@@ -745,9 +862,22 @@ export class BattleScene implements Scene {
       return;
     }
     console.log('[battle-tap] 已开打', this._state.phase, '上场', this._state.team.length);
+    this._placeGuide = null;
     this._inspectUid = null;
     this._startedAt = Date.now();
+    if (this._state.stage.id === 1 && !PersistService.readRaw(GUIDE_SKILL_KEY)) {
+      const who = this._state.team.find((f) => f.def.id === GUIDE_SKILL_ID) ?? this._state.team[0];
+      if (who) {
+        who.energy = ENERGY_MAX;
+        this._state.autoSkill = false;
+        this._skillGuide = 'wait';
+        this._skillGuideUid = who.uid;
+      }
+    }
     adMarkRunStart();
+    // 打着的时候先把广告拉好，复活和结算一点就能播
+    Platform.preloadRewardedVideo(rewardedAdUnitId('revive', Platform.name));
+    Platform.preloadRewardedVideo(rewardedAdUnitId('settleDouble', Platform.name));
     track('run_start', {
       stage_id: this._state.stage.id,
       village_lv: this._mem.villageLv,
@@ -799,6 +929,7 @@ export class BattleScene implements Scene {
   /* ---------------- 主循环 ---------------- */
 
   update(realDt: number): void {
+    this._flushArt(realDt);
     if (this._lineFlash > 0) this._lineFlash = Math.max(0, this._lineFlash - realDt);
     if (this._autoStartLeft > 0) {
       this._autoStartLeft = Math.max(0, this._autoStartLeft - realDt);
@@ -806,15 +937,18 @@ export class BattleScene implements Scene {
         this._beginFight();
       }
     }
+    const pulseAt = PULSE_SECS[this._pulseIdx];
     if (
       this._state.phase === 'fighting'
-      && !this._pulsed
+      && pulseAt !== undefined
       && this._startedAt > 0
-      && Date.now() - this._startedAt >= 5000
+      && Date.now() - this._startedAt >= pulseAt * 1000
     ) {
-      this._pulsed = true;
+      this._pulseIdx += 1;
       track('run_pulse', {
         stage_id: this._state.stage.id,
+        sec: pulseAt,
+        wave: this._state.wave,
         play_ms: Date.now() - this._startedAt,
       });
     }
@@ -823,6 +957,7 @@ export class BattleScene implements Scene {
       this._fx.update(realDt);
       return;
     }
+    this._tickSkillGuide(realDt);
     // 倍速只快战斗本身。横切条、提示按真实时间走，快进时照样念得完
     const dt = this._state.phase === 'fighting' ? realDt * this._speed : realDt;
     this._pulseT += realDt;
@@ -848,6 +983,7 @@ export class BattleScene implements Scene {
       }
     }
 
+    if (!frozen) this._walkGhosts(dt);
     this._fx.update(dt);
     const sh = this._fx.shakePx;
     this._arena.position.set(sh > 0 ? (Math.random() - 0.5) * 2 * sh : 0, sh > 0 ? (Math.random() - 0.5) * 2 * sh : 0);
@@ -865,6 +1001,68 @@ export class BattleScene implements Scene {
     if ((this._state.phase === 'won' || this._state.phase === 'lost') && !this._fx.busy()) {
       this._endRun();
     }
+  }
+
+  /**
+   * 引擎出手那一刻就结算，打死的怪在画面上还要等弹飞过来。
+   * 这段时间钉在原地就是「走着走着突然停一下」，所以照它原来的走法接着走，
+   * 挨着人就停、被钉住就不动，等那一下落上去再倒。
+   */
+  private _walkGhosts(dt: number): void {
+    for (const e of this._state.foes) {
+      if (e.alive || !this._fx.holdingEnemy(e.id) || this._foeActors.get(e.id)?.dead) {
+        this._ghostPos.delete(e.id);
+        continue;
+      }
+      const from = this._ghostPos.get(e.id) ?? this._shownPos.get(e.id) ?? e.pos;
+      if (e.stunMs > 0) {
+        this._ghostPos.set(e.id, from);
+        continue;
+      }
+      const halt = foeHaltPos(e, this._state.team);
+      let pos = marchStep(from, e.spd, dt, e.slowMs > 0 ? SLOW_MUL : 1);
+      if (halt !== undefined) pos = from >= halt ? from : Math.min(pos, halt);
+      this._ghostPos.set(e.id, Math.min(pos, GOAL_POS));
+    }
+  }
+
+  /**
+   * 1-1 第一招留给玩家点：劲头一满挂一句话，等他点底下的头像。
+   * 不放慢、不盖遮罩、不画手指，头像本来就在亮。等太久就替他放。
+   */
+  private _tickSkillGuide(realDt: number): void {
+    if (this._skillGuide === 'off' || this._state.phase !== 'fighting') return;
+    if (this._skillGuide === 'wait') {
+      const ready = this._state.team.find((f) => f.uid === this._skillGuideUid && skillReady(f))
+        ?? this._state.team.find((f) => skillReady(f));
+      if (!ready) return;
+      // 等路上来一串再叫他点：第一招必须打得着、最好一下带走几只
+      const n = skillTargets(this._state, ready.uid);
+      const t = this._state.elapsedMs;
+      if (!(t >= SKILL_GUIDE_FROM_MS && n >= SKILL_GUIDE_CROWD) && !(t >= SKILL_GUIDE_LATE_MS && n > 0)) return;
+      this._skillGuide = 'on';
+      this._skillGuideLeft = SKILL_GUIDE_WAIT_S;
+      this._sayHeld(`${ready.def.name}攒满劲了！点底下他的头像`);
+      playSfx('ui_tap', 0);
+      return;
+    }
+    this._skillGuideLeft -= realDt;
+    if (this._skillGuideLeft > 0) return;
+    const ready = this._state.team.find((f) => skillReady(f));
+    if (ready) {
+      this._state.events.length = 0;
+      if (castSkill(this._state, ready.uid)) this._consumeEvents();
+      this._state.events.length = 0;
+    }
+    this._endSkillGuide(false);
+  }
+
+  private _endSkillGuide(byHand: boolean): void {
+    if (this._skillGuide === 'off') return;
+    this._skillGuide = 'off';
+    PersistService.writeRaw(GUIDE_SKILL_KEY, '1');
+    this._state.autoSkill = this._auto;
+    this._say(byHand ? '打得好！以后攒满了会自己放' : '攒满了会自己放，也能点头像抢先放', 3);
   }
 
   /** 没人拦、又快走到底线的怪：那一路底线闪红，隔几秒念一句 */
@@ -923,7 +1121,7 @@ export class BattleScene implements Scene {
       if (ev.kind === 'waveStart') {
         if (ev.wave > this._waveTold) {
           this._waveTold = ev.wave;
-          if (this._guideHold && ev.wave >= 2) {
+          if (this._guideHold && ev.wave >= 2 && this._skillGuide !== 'on') {
             this._guideHold = false;
             this._guideLife = 0.6;
           }
@@ -971,6 +1169,8 @@ export class BattleScene implements Scene {
         if (!ep) continue;
         const hp = this._villagerXY(f);
         this._actorFor(f).faceToward(ep.x);
+        // 站住的怪是在出手，得看得出它在打，不然像卡在路中间
+        this._foeActors.get(ev.foeId)?.playAttack(hp.x, hp.y, 'lunge');
         this._fx.consume(ev, {
           ex: ep.x, ey: ep.y - ep.h * 0.5,
           hx: hp.x, hy: hp.y - hp.h * 0.5,
@@ -1064,16 +1264,22 @@ export class BattleScene implements Scene {
         const bag = cast.get(ev.uid);
         if (!ep || !bag) continue;
         this._vitals.seed(`e${ev.foeId}`, e?.maxHp ?? ev.damage, 0);
-        this._vitals.landEnemy(`e${ev.foeId}`, ev.damage);
+        // 掉血、倒下都等这一招真落到身上，不抢在钢珠前头
+        this._fx.holdFoe(ev.foeId);
         bag.hits.push({
+          foeId: ev.foeId,
           x: ep.x,
-          y: ep.y - ep.h * 0.45,
+          y: ep.y - ep.h * 0.5,
           damage: ev.damage,
           killed: ev.killed,
           stun: ev.stun,
           push: ev.push,
           slow: ev.slow,
-          land: () => this._foeActors.get(ev.foeId)?.flash(180),
+          land: () => {
+            this._foeActors.get(ev.foeId)?.flash(180);
+            this._vitals.landEnemy(`e${ev.foeId}`, ev.damage);
+            this._fx.landFoe(ev.foeId);
+          },
         });
         continue;
       }
@@ -1155,6 +1361,11 @@ export class BattleScene implements Scene {
   private _foeXY(e: Foe, frac = 0): { x: number; y: number; feetY: number; h: number } {
     const prev = this._prevPos.get(e.id) ?? e.pos;
     const pos = marchLerp(prev, e.pos, frac);
+    this._shownPos.set(e.id, pos);
+    return this._foeAt(e, pos);
+  }
+
+  private _foeAt(e: Foe, pos: number): { x: number; y: number; feetY: number; h: number } {
     const y = posScreenY(pos, this._lay.spawnY, this._lay.goalY);
     // 同一路上的怪按 id 微微错开，不然一队铁罐会叠成一个
     const x = laneScreenX(e.lane) + (((e.id * 37) % 5) - 2) * 8;
@@ -1251,8 +1462,12 @@ export class BattleScene implements Scene {
         if (uid) {
           // 上一步 tick 的事件已经演过了，清掉再放，不然会重演一遍
           this._state.events.length = 0;
-          if (castSkill(this._state, uid)) this._consumeEvents();
-          else this._say(`${skillOf(this._state.team.find((f) => f.uid === uid)!.def).name}还没攒满`);
+          if (castSkill(this._state, uid)) {
+            this._consumeEvents();
+            this._endSkillGuide(true);
+          } else {
+            this._say(`${skillOf(this._state.team.find((f) => f.uid === uid)!.def).name}还没攒满`);
+          }
           this._state.events.length = 0;
         }
       }
@@ -1574,9 +1789,17 @@ export class BattleScene implements Scene {
         const p = this._foeXY(e, frac);
         const haltAt = foeHaltPos(e, this._state.team);
         a.walkBob = e.stunMs <= 0 && (haltAt === undefined || e.pos < haltAt - 0.02);
+        a.dazed = e.stunMs > 0;
         a.place(p.x, p.feetY, p.h);
         this._foeHp(e, p.x, p.feetY, p.h);
       } else {
+        const ghost = this._ghostPos.get(e.id);
+        if (ghost !== undefined) {
+          this._lastFoeXY.set(e.id, this._foeAt(e, ghost));
+          const haltAt = foeHaltPos(e, this._state.team);
+          a.walkBob = e.stunMs <= 0 && (haltAt === undefined || ghost < haltAt - 0.02);
+          a.dazed = e.stunMs > 0;
+        }
         const pose = this._lastFoeXY.get(e.id);
         if (pose) {
           a.place(pose.x, pose.feetY, pose.h);
@@ -1595,6 +1818,8 @@ export class BattleScene implements Scene {
       a.destroy();
       this._foeActors.delete(id);
       this._prevPos.delete(id);
+      this._shownPos.delete(id);
+      this._ghostPos.delete(id);
       this._vitals.drop(`e${id}`);
     }
 
@@ -2207,6 +2432,10 @@ export class BattleScene implements Scene {
       this._sayHeld('别让它们从这条路走到底');
       return;
     }
+    if (this._placeGuide) {
+      this._sayHeld(this._placeGuide.say);
+      return;
+    }
     if (chapter === 1 && index === 2) {
       this._say('想换位就拖一拖', 4);
       return;
@@ -2271,15 +2500,19 @@ export class BattleScene implements Scene {
       this._leaveAsk.hide();
       this._syncLeaveBtn();
       this._revive.show(s.team, s.leaked, adRemaining('revive'), this._lay.height);
+      track('ad_offer', { placement: 'revive', stage_id: s.stage.id });
       return;
     }
     this._openSettle();
   }
 
-  private async _watchAd(placement: 'revive' | 'settleDouble'): Promise<boolean> {
+  private async _watchAd(placement: 'revive' | 'settleDouble' | 'loseBonus'): Promise<boolean> {
     track('ad_show', { placement, stage_id: this._state.stage.id });
     const ok = await Platform.showRewardedVideo(rewardedAdUnitId(placement, Platform.name));
-    track('ad_close', { placement, stage_id: this._state.stage.id, completed: ok });
+    track('ad_close', {
+      placement, stage_id: this._state.stage.id, completed: ok, result: Platform.lastAdResult,
+    });
+    if (!ok && Platform.lastAdResult === 'error') Platform.showToast('广告没拉到，稍后再试');
     return ok;
   }
 
@@ -2288,7 +2521,7 @@ export class BattleScene implements Scene {
     if (!ok) {
       // 广告没看完就留在弹窗上。直接掉进结算会让人以为「点了没反应」
       this._revive.unlock();
-      Platform.showToast('没看完，挡不住');
+      if (Platform.lastAdResult === 'closed') Platform.showToast('没看完，挡不住');
       return;
     }
     adRecord('revive');
@@ -2320,6 +2553,7 @@ export class BattleScene implements Scene {
   }
 
   private _settleGot: { pellets: number; scrap: number } = { pellets: 0, scrap: 0 };
+  private _settleAd: { pellets: number; scrap: number } = { pellets: 0, scrap: 0 };
 
   private _openSettle(): void {
     if (this._settled) return;
@@ -2332,6 +2566,17 @@ export class BattleScene implements Scene {
     const res = settleStage(s.stage.id, won, s.stars);
     this._mem = res.mem;
     this._settleGot = { pellets: res.pellets, scrap: res.scrap };
+    const ch1 = s.stage.chapter === 1;
+    const footer = won
+      ? winFooter(s.stage.chapter, s.stage.index, {
+        needCall: needOpeningCall(this._mem.stageTop, this._mem.callCount, this._mem.roster),
+        craftReady: this._craftStep() === 'craft',
+      })
+      : undefined;
+    const back = res.joined ? `${getVillager(res.joined).name}听说村口守住了，回来了\n` : '';
+    const gift = res.parts > 0
+      ? `${back}外星人身上拆下 ${res.parts} 个零件，够升一级手艺`
+      : footer === 'call' ? '村里听见动静，有人想来帮忙' : (back.trim() || undefined);
 
     track('run_end', {
       stage_id: s.stage.id,
@@ -2345,6 +2590,20 @@ export class BattleScene implements Scene {
     playSfx(won ? 'win' : 'lose', 0);
 
     const next = won ? getStage(s.stage.id + 1) : undefined;
+    // 开局三关不摆广告：新人点进去看完视频，多半就不回来了
+    const opening = ch1 && s.stage.index <= 3;
+    const placement = won ? 'settleDouble' : 'loseBonus';
+    const canDouble = won
+      ? !(opening && res.first) && adCanShow('settleDouble')
+      : !opening && adCanShow('loseBonus');
+    const k = yieldMul(this._mem.villageLv);
+    this._settleAd = won
+      ? { pellets: res.pellets > 0 ? res.pellets : SETTLE_AD_PELLETS, scrap: res.scrap }
+      : { pellets: LOSE_AD_PELLETS, scrap: Math.round(LOSE_AD_SCRAP * k) };
+    if (canDouble) {
+      track('ad_offer', { placement, stage_id: s.stage.id });
+      Platform.preloadRewardedVideo(rewardedAdUnitId(placement, Platform.name));
+    }
     this._settle.show(s, this._mem, this._lay.height, {
       earned: res.scrap,
       scrap: this._mem.scrap,
@@ -2353,9 +2612,45 @@ export class BattleScene implements Scene {
       identity: won ? this._winLine() : undefined,
       nextMove: won ? undefined : this._loseHint(),
       nextStageLabel: next && next.id !== s.stage.id ? next.label : undefined,
-      canDouble: won && adCanShow('settleDouble'),
-      footer: won ? winFooter(s.stage.chapter, s.stage.index) : undefined,
-      guideHome: !won && s.stage.chapter === 1 && s.stage.index === 5 && this._craftStep() !== 'done',
+      canDouble,
+      adPellets: this._settleAd.pellets,
+      adScrap: this._settleAd.scrap,
+      footer,
+      guideHome: !won && ch1 && s.stage.index === 5 && this._craftStep() !== 'done',
+      gift,
+      pace: ch1 && s.stage.index <= 3 ? 0.55 : 1,
+      autoNextSec: won && res.first && ch1 && footer === 'push' ? 3 : undefined,
+    });
+  }
+
+  /**
+   * 不花工分的那一嗓子（见 opening.OPENING_CALL_ID）。喇叭声、揭晓牌和村里喊人是同一套，
+   * 点「好」之后再走 then。已经喊过就直接走 then。
+   */
+  private _runOpeningCall(then: () => void): void {
+    const res = openingCall();
+    if (!res) {
+      then();
+      return;
+    }
+    this._mem = res.mem;
+    track('call_villager', {
+      got: res.got, is_new: true, roster: res.mem.roster.length, free: true,
+    });
+    void ensureAssets(heroStillArt({ id: res.got, evo: 1 })).catch(() => { /* 牌子会等图 */ });
+    BgmPlayer.duck(true);
+    playSfx('shout', 0);
+    this.container.addChild(this._reveal);
+    this._reveal.open({
+      got: res.got,
+      isNew: true,
+      rosterN: res.mem.roster.length,
+      progress: progressOf(res.mem),
+      height: this._lay.height,
+      onDone: () => {
+        BgmPlayer.duck(false);
+        then();
+      },
     });
   }
 
@@ -2429,13 +2724,17 @@ export class BattleScene implements Scene {
       : `${name}路人太少，加厚一格`;
   }
 
+  /** 赢了是「这关再拿一份」，输了是补给。数额在开结算时就定好，按钮上写的就是给的 */
   private async _doubleSettle(): Promise<boolean> {
-    if (!adCanShow('settleDouble')) return false;
-    const ok = await this._watchAd('settleDouble');
+    const placement = this._state.phase === 'won' ? 'settleDouble' : 'loseBonus';
+    if (!adCanShow(placement)) return false;
+    const ok = await this._watchAd(placement);
     if (!ok) return false;
-    adRecord('settleDouble');
-    this._mem = grantSettlePellets(SETTLE_AD_PELLETS);
-    this._settleGot.pellets += SETTLE_AD_PELLETS;
+    adRecord(placement);
+    const add = this._settleAd;
+    this._mem = grantLoot(add);
+    this._settleGot.pellets += add.pellets;
+    this._settleGot.scrap += add.scrap;
     return true;
   }
 

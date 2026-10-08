@@ -464,6 +464,17 @@ export function placeAt(
   return true;
 }
 
+/** 满员时往空格拖人，换下谁：同一路离得最近的；这一路没人就挑整盘最近的 */
+export function bumpFor(state: BattleState, lane: number, cell: number): Placement | undefined {
+  let best: Placement | undefined;
+  let bestKey = Infinity;
+  for (const p of state.placed) {
+    const key = (p.lane === lane ? 0 : 100 + Math.abs(p.lane - lane) * 10) + Math.abs(p.cell - cell);
+    if (key < bestKey) { bestKey = key; best = p; }
+  }
+  return best;
+}
+
 /** 把人撤下来 */
 export function removeAt(state: BattleState, lane: number, cell: number): boolean {
   if (state.phase !== 'placing') return false;
@@ -908,6 +919,13 @@ function fireSkill(state: BattleState, f: Fighter, manual: boolean): void {
       t.hasteMs = Math.max(t.hasteMs, (sk.buffMs ?? 0) * pow);
     }
   }
+}
+
+/** 这一刻放这个人的绝活能打着几只怪 */
+export function skillTargets(state: BattleState, uid: string): number {
+  const f = state.team.find((t) => t.uid === uid);
+  if (!f || !f.alive) return 0;
+  return skillFoes(state, f, skillAt(f.def, f.evoStage)).length;
 }
 
 /** 劲头满了吗 */

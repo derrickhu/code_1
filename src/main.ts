@@ -5,7 +5,8 @@
  */
 import '@/core/pixiUnsafeEvalPatch';
 import { analytics, initAnalytics, setAnalyticsUserId } from '@/analytics';
-import { MAIN_PRELOAD_IMAGES, VILLAGE_HOME_SHELL } from '@/config/assetPreload';
+import { MAIN_PRELOAD_IMAGES, VILLAGE_HOME_SHELL, openingBattleImages } from '@/config/assetPreload';
+import { evoOf } from '@/balance/village';
 import { warmupCdnAssets } from '@/config/CdnWarmup';
 import { SAVE_KEY } from '@/config/CloudConfig';
 import { BASE_GAME_KEY } from '@/config/gameKeyScope';
@@ -21,7 +22,7 @@ import { Platform } from '@/core/PlatformService';
 import { OverlayManager } from '@/core/OverlayManager';
 import { BgmPlayer } from '@/core/BgmPlayer';
 import { GMManager } from '@/core/GMManager';
-import { loadMemory } from '@/core/RunMemory';
+import { loadMemory, progressOf } from '@/core/RunMemory';
 import { BattleScene, notifyBattleHide } from '@/scenes/BattleScene';
 import { RoadScene } from '@/scenes/RoadScene';
 import { VillageScene } from '@/scenes/VillageScene';
@@ -33,6 +34,8 @@ import { GMPanel } from '@/ui/GMPanel';
 declare const GameGlobal: any;
 
 const MIN_LOADING_MS = 900;
+/** 新人首战的图最多在加载页等多久 */
+const OPENING_WAIT_MS = 8000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -111,8 +114,18 @@ async function main(): Promise<void> {
   loading.setProgress(0.28);
 
   // 赢下 1-3 之前直接进战斗，村口壳改后台拉，不挡开打。
-  const opening = loadMemory().stageTop <= 3;
+  const bootMem = loadMemory();
+  const opening = bootMem.stageTop <= 3;
   if (opening) {
+    const prog = progressOf(bootMem);
+    const heroes = bootMem.roster.map((id) => ({ id, evo: evoOf(prog, id) }));
+    const ready = ensureAssets(openingBattleImages(bootMem.stageId, heroes), (loaded, total) => {
+      loading.setProgress(0.28 + 0.58 * (total > 0 ? loaded / total : 1));
+    }).catch((e) => {
+      console.warn('[main] 首战预热失败', e);
+    });
+    // 网差也别卡在加载页：最多等这么久，剩下的开打后接着补
+    await Promise.race([ready, new Promise<void>((r) => setTimeout(r, OPENING_WAIT_MS))]);
     void ensureAssets(VILLAGE_HOME_SHELL).catch((e) => {
       console.warn('[main] 村口壳预热失败', e);
     });

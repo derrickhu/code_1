@@ -10,7 +10,7 @@ import { buzz, playSfx } from '@/core/SfxPlayer';
 import { TweenManager, Ease } from '@/core/TweenManager';
 import { uiTex, type UiName } from '@/core/TextureLoader';
 import {
-  PRIZE_BEAT, TARGETS, prizeAccent, prizeChips, prizeTier, targetLockUse,
+  PRIZE_BEAT, TARGETS, prizeAccent, prizeChips, prizeTier, TARGET_UNLOCK_LV,
   type PrizeChip, type PrizeTier, type ShotResult, type TargetDef,
 } from '@/balance/stall';
 import { BgmPlayer } from '@/core/BgmPlayer';
@@ -44,36 +44,76 @@ const TARGET_ART: Readonly<Record<string, UiName>> = {
   horn: 'stall_horn',
 };
 
-/** 摊位底图墙面裁切。两根木梁的 UV 跟 jpg 对过，画背景和摆货用同一套。 */
+/**
+ * 摊位底图（stall_v2.jpg）裁切。墙面是空的暗板，货架在代码里画，
+ * 这样物品永远压在暗底上最亮。counter = 柜台台面在原图的高度比例，跟 jpg 对过。
+ */
 export const STALL_BG_LAY = {
   imgW: 720,
   imgH: 1280,
-  uvY: 0.22,
-  uvH: 0.46,
-  alignY: 0.5,
-  /** 挂钩横梁上沿。两排都从钩上垂下来，不混坐/挂。 */
-  shelves: [0.360, 0.439] as const,
+  uvY: 0.10,
+  uvH: 0.90,
+  alignY: 0,
+  counter: 0.605,
 } as const;
 
 /**
- * 夜市射击摊 / 套圈货架的格子：同一行同一套盒子。
- * 图顶对齐挂钩，字钉在格底，锁钉在右上。不许一格坐梁、一格垂下去。
+ * 货架一格：物品站在板上，金名牌挂在板下，再下一行写打中给什么。
+ * 物品高度按屏高在 itemMin..itemMax 之间伸缩，宽固定。
  */
 export const STALL_SLOT = {
-  w: 148,
-  h: 92,
-  pad: 6,
+  w: 184,
+  itemMin: 96,
+  itemMax: 170,
+  shelf: 20,
+  plateW: 176,
+  plateH: 64,
+  payH: 30,
 } as const;
 
+/** 物品下沿到这一格最底的高度（板 + 名牌 + 产出行） */
+const SLOT_FOOT = STALL_SLOT.shelf + 6 + STALL_SLOT.plateH + 4 + STALL_SLOT.payH;
+
 const SLOT_NAME: Readonly<Partial<Record<string, string>>> = {
+  cans: '铁皮罐',
+  bottles: '绿酒瓶',
   basin: '铁盆',
   horn: '旧喇叭',
 };
 
+interface PayBit {
+  icon?: UiName;
+  text: string;
+  color: number;
+}
+
+const EXP_TINT = 0x9be08a;
+const GOLD_TINT = 0xffe08a;
+
+/** 打中给什么，只写种类不写数（实际数要乘连带和村庄加成） */
+const TARGET_PAY: Readonly<Record<string, readonly PayBit[]>> = {
+  cans: [{ text: '经验', color: EXP_TINT }],
+  bottles: [{ icon: 'icon_scrap', text: '废铁', color: CREAM }],
+  tv: [{ icon: 'icon_parts', text: '零件', color: CREAM }],
+  crate: [{ text: '经验', color: EXP_TINT }, { icon: 'icon_parts', text: '零件', color: CREAM }],
+  basin: [{ text: '经验', color: EXP_TINT }, { text: '再来一发', color: GOLD_TINT }],
+  horn: [{ icon: 'icon_credits', text: '工分', color: GOLD_TINT }],
+};
+
+/** 背光按好不好打分三档：常见暖白、少见冷蓝、稀有金 */
+function spotTint(weight: number): number {
+  if (weight >= 240) return 0xffe8b0;
+  if (weight >= 120) return 0x9ad0ff;
+  return 0xffc84a;
+}
+
 export interface StallYardLay {
   cellW: number;
   originX: number;
+  /** 两排货架板的上沿 = 物品脚底 */
   shelves: readonly [number, number];
+  itemH: number;
+  counterY: number;
   slingY: number;
 }
 
@@ -94,20 +134,33 @@ export function stallImgY(imgFrac: number, roomTop: number, roomH: number, destW
   return oy + imgFrac * imgH * scale;
 }
 
-/** 货架钉在底图木梁上，列往里收，别压到两侧帘子。 */
+/**
+ * 墙面从门楣下沿到柜台台面，两排货架平分。底图铺到屏底（roomBottom = 屏底），
+ * 柜台跟着底图走，弹弓站在柜台前面的地上。
+ */
 export function stallYardLay(roomTop: number, roomBottom: number, floor: number): StallYardLay {
   const roomH = Math.max(80, roomBottom - roomTop);
+  const counterY = stallImgY(STALL_BG_LAY.counter, roomTop, roomH);
+  const wallTop = roomTop + 30;
+  const rowH = Math.max(80, (counterY - 10 - wallTop) / 2);
+  const itemH = Math.round(Math.max(
+    STALL_SLOT.itemMin,
+    Math.min(STALL_SLOT.itemMax, rowH - SLOT_FOOT - 16),
+  ));
+  const topPad = Math.max(6, (rowH - itemH - SLOT_FOOT) / 2);
   const shelves: [number, number] = [
-    stallImgY(STALL_BG_LAY.shelves[0], roomTop, roomH),
-    stallImgY(STALL_BG_LAY.shelves[1], roomTop, roomH),
+    Math.round(wallTop + topPad + itemH),
+    Math.round(wallTop + rowH + topPad + itemH),
   ];
   const cols = 3;
-  const cellW = 176;
+  const cellW = 204;
   return {
     cellW,
     originX: 375 - (cols * cellW) / 2 + cellW / 2,
     shelves,
-    slingY: floor - 36,
+    itemH,
+    counterY,
+    slingY: Math.round(Math.min(floor - 36, counterY + 190)),
   };
 }
 
@@ -133,6 +186,8 @@ interface Peg {
   cx: number;
   cy: number;
   locked: boolean;
+  /** 新的一发开始时加一，把还在播的「摆回去」掐掉 */
+  pose: number;
 }
 
 interface FlyingChip {
@@ -149,7 +204,9 @@ export class StallYard extends PIXI.Container {
   private readonly _fx = new PIXI.Container();
   private readonly _pegs: Peg[] = [];
   private readonly _chips: FlyingChip[] = [];
+  private readonly _spot = new PIXI.Graphics();
   private _veil: PIXI.Graphics | null = null;
+  private _itemH: number = STALL_SLOT.itemMax;
   private _viewH = 1334;
   private _hung = false;
   private _openSize = 0;
@@ -165,11 +222,13 @@ export class StallYard extends PIXI.Container {
   constructor(onPull: () => void) {
     super();
     this._onPull = onPull;
+    this._spot.eventMode = 'none';
+    this.addChild(this._spot);
     this.addChild(this._wall);
     this.addChild(this._sling);
     this.addChild(this._vfx.root);
     this.addChild(this._fx);
-    this._hint = label(18, CREAM, true);
+    this._hint = painted(20, CREAM, '#1a1008', 4);
     this._hint.anchor.set(0.5);
     this.addChild(this._hint);
     this._sling.eventMode = 'none';
@@ -194,6 +253,8 @@ export class StallYard extends PIXI.Container {
     this._viewH = Math.max(roomBottom, floor) + 80;
 
     const lay = stallYardLay(roomTop, roomBottom, floor);
+    this._itemH = lay.itemH;
+    for (const y of lay.shelves) this._paintShelf(y);
     TARGETS.forEach((def, i) => {
       const col = i % 3;
       const row = Math.floor(i / 3);
@@ -201,14 +262,14 @@ export class StallYard extends PIXI.Container {
       const cy = lay.shelves[row] ?? lay.shelves[0];
       const locked = !openIds.has(def.id);
       const peg = this._peg(def, cx, cy, locked);
-      this._wall.addChild(peg.box);
       this._pegs.push(peg);
     });
 
     this._paintSling();
     this._restY = lay.slingY;
     this._sling.position.set(375, this._restY);
-    this._hint.position.set(375, floor + 18);
+    this._paintSlingSpot(lay.slingY);
+    this._hint.position.set(375, lay.slingY + 70);
     this._hint.text = this._restHint();
     this._hung = true;
     this._openSize = openIds.size;
@@ -291,7 +352,7 @@ export class StallYard extends PIXI.Container {
     this._busy = true;
     this._sling.alpha = 0.45;
     this._resetPeg(peg);
-    const aimY = peg.cy + STALL_SLOT.pad + STALL_SLOT.h / 2;
+    const aimY = this._aimY(peg);
     const finish = (): void => this._reveal(result, peg, dock, done);
     this._fly(375, this._sling.y - 48, peg.cx, aimY, false, () => {
       this._afterHit(peg, result, false, () => {
@@ -299,49 +360,161 @@ export class StallYard extends PIXI.Container {
           finish();
           return;
         }
-        this._fly(peg.cx, peg.cy, peg.cx + 40, peg.cy - 50, true, () => {
+        this._fly(peg.cx, aimY, peg.cx + 40, aimY - 50, true, () => {
           this._afterHit(peg, result, true, finish);
         });
       });
     });
   }
 
+  /** 物品中心。弹道、碎片、奖励都从这里出 */
+  private _aimY(peg: Peg): number {
+    return peg.cy - this._itemH / 2;
+  }
+
+  /** 一整条横板：顶面亮、正面暗、底下一道投影，两头钉托架 */
+  private _paintShelf(y: number): void {
+    const x0 = 70;
+    const x1 = 680;
+    const { shelf } = STALL_SLOT;
+    const g = new PIXI.Graphics();
+    g.beginFill(0x000000, 0.35).drawRect(x0 + 6, y + shelf, x1 - x0 - 12, 10).endFill();
+    for (const bx of [x0 + 40, 375, x1 - 40]) {
+      g.beginFill(0x2a1a0e).drawPolygon([bx - 8, y + shelf, bx + 8, y + shelf, bx + 3, y + shelf + 26, bx - 3, y + shelf + 26]).endFill();
+    }
+    g.beginFill(0x6b4426).drawRoundedRect(x0, y, x1 - x0, shelf, 3).endFill();
+    g.beginFill(0xa8743f).drawRect(x0 + 2, y, x1 - x0 - 4, 5).endFill();
+    g.beginFill(0x3e2614, 0.7).drawRect(x0 + 2, y + shelf - 4, x1 - x0 - 4, 3).endFill();
+    g.beginFill(0x1a1008, 0.5);
+    for (let x = x0 + 120; x < x1 - 60; x += 150) g.drawRect(x, y + 7, 26, 1.5);
+    g.endFill();
+    g.beginFill(0xc9a46a);
+    for (const nx of [x0 + 10, x1 - 10]) g.drawCircle(nx, y + shelf / 2 + 1, 3);
+    g.endFill();
+    g.eventMode = 'none';
+    this._wall.addChild(g);
+  }
+
+  /** 弹弓站在柜台前的暗地上，脚下给一圈暖光才看得见 */
+  private _paintSlingSpot(y: number): void {
+    const g = this._spot;
+    g.clear();
+    for (let i = 0; i < 8; i += 1) {
+      const k = 1 - i * 0.11;
+      g.beginFill(0xffd890, 0.032).drawEllipse(375, y + 52, 190 * k, 44 * k).endFill();
+    }
+  }
+
   private _peg(def: TargetDef, cx: number, cy: number, locked: boolean): Peg {
+    const ih = this._itemH;
+    const halo = new PIXI.Graphics();
+    halo.position.set(cx, cy - ih * 0.5);
+    const tint = locked ? 0x8a8a90 : spotTint(def.weight);
+    for (let i = 0; i < 9; i += 1) {
+      const k = 1 - i * 0.1;
+      halo.beginFill(tint, locked ? 0.018 : 0.036)
+        .drawEllipse(0, 0, STALL_SLOT.w * 0.62 * k, ih * 0.68 * k)
+        .endFill();
+    }
+    halo.beginFill(0x000000, 0.4).drawEllipse(0, ih * 0.5 - 2, STALL_SLOT.w * 0.36, 7).endFill();
+    halo.eventMode = 'none';
+    this._wall.addChild(halo);
+
     const box = new PIXI.Container();
     box.position.set(cx, cy);
-    const { h, pad } = STALL_SLOT;
-    const artTop = pad;
-    const g = new PIXI.Graphics();
-    g.beginFill(0x1a1008, locked ? 0.18 : 0.28)
-      .drawEllipse(0, artTop + h + 2, 34, 6)
-      .endFill();
-    box.addChild(g);
     const art = new PIXI.Container();
     box.addChild(art);
+    this._wall.addChild(box);
 
-    const name = label(16, locked ? 0xc4b59a : CREAM, true);
-    name.anchor.set(0.5, 0);
-    name.position.set(0, artTop + h + 2);
-    name.text = SLOT_NAME[def.id] ?? def.name;
-    box.addChild(name);
-    if (locked) {
-      this._lockMark(box, STALL_SLOT.w * 0.36, artTop + 10);
-      const use = targetLockUse(def.id);
-      if (use) {
-        const pay = label(15, 0xffe08a, true);
-        pay.anchor.set(0.5, 0);
-        pay.position.set(0, artTop + h + 22);
-        pay.text = use;
-        box.addChild(pay);
-      }
-    }
-    const peg: Peg = { def, box, art, cx, cy, locked };
+    const info = new PIXI.Container();
+    info.position.set(cx, cy + STALL_SLOT.shelf + 6);
+    info.eventMode = 'none';
+    this._paintPlate(info, SLOT_NAME[def.id] ?? def.name, locked);
+    this._paintPay(info, def.id, STALL_SLOT.plateH + 4 + STALL_SLOT.payH / 2, locked);
+    this._wall.addChild(info);
+
+    if (locked) this._lockBadge(cx, cy - ih * 0.5, def.id);
+    const peg: Peg = { def, box, art, cx, cy, locked, pose: 0 };
     this._fillPegArt(peg);
     return peg;
   }
 
+  /** 金名牌挂在板下，深色字。图没到就退成深底描边牌 */
+  private _paintPlate(info: PIXI.Container, name: string, locked: boolean): void {
+    const { plateW, plateH } = STALL_SLOT;
+    const plate = fitSprite(info, uiTex('settle_name'), 0, plateH / 2, plateW, plateH);
+    if (plate) {
+      plate.tint = locked ? 0x8a8478 : 0xffffff;
+    } else {
+      const g = new PIXI.Graphics();
+      g.beginFill(locked ? 0x3a3630 : 0x6b4426).drawRoundedRect(-plateW / 2 + 10, 8, plateW - 20, plateH - 16, 8).endFill();
+      g.lineStyle(2, 0xc9a46a, 0.8).drawRoundedRect(-plateW / 2 + 10, 8, plateW - 20, plateH - 16, 8);
+      info.addChild(g);
+    }
+    const t = label(name.length >= 4 ? 21 : 23, plate ? 0x3a1e0a : CREAM, true);
+    t.anchor.set(0.5);
+    t.position.set(0, plateH / 2 + 1);
+    t.text = name;
+    if (locked) t.alpha = 0.75;
+    info.addChild(t);
+  }
+
+  /** 名牌底下一行：图标 + 种类，一眼知道打它图什么 */
+  private _paintPay(info: PIXI.Container, id: string, y: number, locked: boolean): void {
+    const bits = TARGET_PAY[id] ?? [];
+    const iconS = 26;
+    const gap = 4;
+    const sep = 14;
+    const row = new PIXI.Container();
+    let x = 0;
+    bits.forEach((bit, i) => {
+      if (i > 0) {
+        const plus = painted(18, CREAM, '#1a1008', 3);
+        plus.anchor.set(0, 0.5);
+        plus.position.set(x + sep / 2 - 6, 0);
+        plus.text = '+';
+        row.addChild(plus);
+        x += sep + 8;
+      }
+      if (bit.icon && fitSprite(row, uiTex(bit.icon), x + iconS / 2, 0, iconS, iconS)) {
+        x += iconS + gap;
+      }
+      const t = painted(19, bit.color, '#1a1008', 4);
+      t.anchor.set(0, 0.5);
+      t.position.set(x, 0);
+      t.text = bit.text;
+      row.addChild(t);
+      x += t.width;
+    });
+    row.position.set(-x / 2, y);
+    if (locked) row.alpha = 0.6;
+    info.addChild(row);
+  }
+
+  /** 锁着的：剪影上压一块深牌，锁 + 「村 N 级开」 */
+  private _lockBadge(cx: number, cy: number, id: string): void {
+    const lv = TARGET_UNLOCK_LV[id] ?? 1;
+    const root = new PIXI.Container();
+    root.position.set(cx, cy);
+    root.eventMode = 'none';
+    const w = 132;
+    const h = 44;
+    const g = new PIXI.Graphics();
+    g.beginFill(0x140e0a, 0.82).drawRoundedRect(-w / 2, -h / 2, w, h, 22).endFill();
+    g.lineStyle(2, 0xc9a46a, 0.85).drawRoundedRect(-w / 2, -h / 2, w, h, 22).lineStyle(0);
+    root.addChild(g);
+    this._lockMark(root, -w / 2 + 24, -8);
+    const t = label(19, CREAM, true);
+    t.anchor.set(0, 0.5);
+    t.position.set(-w / 2 + 40, 0);
+    t.text = `村${lv}级开`;
+    root.addChild(t);
+    this._wall.addChild(root);
+  }
+
   private _fillPegArt(peg: Peg): void {
-    const { w, h, pad } = STALL_SLOT;
+    const w = STALL_SLOT.w;
+    const h = this._itemH;
     const artName = TARGET_ART[peg.def.id];
     const tex = artName ? uiTex(artName) : null;
     const ready = !!(tex?.baseTexture.valid && tex.width > 1);
@@ -350,8 +523,8 @@ export class StallYard extends PIXI.Container {
     peg.art.removeChildren().forEach((c) => safeDestroy(c, { children: true }));
     if (ready && tex) {
       const next = new PIXI.Sprite(tex);
-      next.anchor.set(0.5, 0);
-      next.position.set(0, pad);
+      next.anchor.set(0.5, 1);
+      next.position.set(0, 2);
       next.scale.set(Math.min(w / tex.width, h / tex.height));
       next.eventMode = 'none';
       this._skinTarget(next, peg.locked);
@@ -360,13 +533,15 @@ export class StallYard extends PIXI.Container {
     }
     const g = new PIXI.Graphics();
     this._drawBody(g, peg.def.id, peg.locked);
+    g.position.set(0, -h / 2);
+    g.scale.set(h / 80);
     peg.art.addChild(g);
   }
 
-  /** 锁着的也要认得出来。0.4 透明贴在木纹上等于没图。 */
+  /** 锁着的压成暗剪影，靠锁牌说明，不靠半透明 */
   private _skinTarget(spr: PIXI.Sprite, locked: boolean): void {
-    spr.alpha = locked ? 0.9 : 1;
-    spr.tint = locked ? 0xb8b0a4 : 0xffffff;
+    spr.alpha = locked ? 0.85 : 1;
+    spr.tint = locked ? 0x4a4650 : 0xffffff;
   }
 
   private _lockMark(box: PIXI.Container, x: number, y: number): void {
@@ -554,15 +729,7 @@ export class StallYard extends PIXI.Container {
     this._squash(peg);
     if (peg.def.id !== 'cans') this._flash(peg);
     this._smash(peg, combo ? 'common' : tier);
-    if (peg.def.id === 'cans' && !combo) {
-      this._wrecked.add(peg.def.id);
-      this._wreckCans(peg);
-      TweenManager.to({
-        target: peg.box,
-        props: { alpha: 0 },
-        duration: 0.18,
-      });
-    }
+    if (peg.def.id === 'cans' && !combo) this._wreckCans(peg);
     this._punch(PRIZE_BEAT[combo ? 'common' : tier].punch);
     playSfx(combo ? 'kill_pop' : impactSfx(result.hit.id), 0);
     buzz(tier === 'jackpot' && !combo ? 'heavy' : tier === 'rare' && !combo ? 'medium' : 'light');
@@ -573,7 +740,7 @@ export class StallYard extends PIXI.Container {
     const tier = prizeTier(result.gain);
     const beat = PRIZE_BEAT[tier];
     const x = peg.cx;
-    const y = peg.cy + STALL_SLOT.pad + STALL_SLOT.h / 2;
+    const y = this._aimY(peg);
     if (needsCard(tier)) {
       this._dim(peg);
       if (tier === 'jackpot') BgmPlayer.duck(true);
@@ -608,6 +775,7 @@ export class StallYard extends PIXI.Container {
   }
 
   private _resetPeg(peg: Peg): void {
+    peg.pose += 1;
     this._wrecked.delete(peg.def.id);
     peg.box.rotation = 0;
     peg.box.y = peg.cy;
@@ -618,6 +786,7 @@ export class StallYard extends PIXI.Container {
   private _knock(peg: Peg, tier: PrizeTier, dur = 0.42): void {
     const box = peg.box;
     const cans = peg.def.id === 'cans';
+    const pose = peg.pose;
     const amp = tier === 'jackpot' ? 0.55 : cans ? 0.52 : 0.38;
     const drop = cans ? 22 : tier === 'jackpot' ? 18 : 12;
     const restR = cans ? 0.28 : 0;
@@ -629,20 +798,54 @@ export class StallYard extends PIXI.Container {
       duration: dur,
       ease: Ease.easeOutBounce,
       onUpdate: () => {
+        if (peg.pose !== pose) return;
         const swing = Math.sin(rot.r * Math.PI);
         box.rotation = swing * amp + rot.r * restR;
         box.y = peg.cy + swing * drop + rot.r * restDrop;
       },
       onComplete: () => {
+        if (peg.pose !== pose) return;
+        if (cans) {
+          this._standCans(peg, pose);
+          return;
+        }
         box.rotation = restR;
         box.y = peg.cy + restDrop;
       },
     });
   }
 
+  /** 铁皮罐倒在板上只是这一下的反馈，倒完就摆回原样。以前要等下次打中才立起来。 */
+  private _standCans(peg: Peg, pose: number): void {
+    const box = peg.box;
+    const hold = { t: 0 };
+    TweenManager.to({
+      target: hold,
+      props: { t: 1 },
+      duration: 0.32,
+      delay: 0.12,
+      ease: Ease.easeOutBack,
+      onUpdate: () => {
+        if (peg.pose !== pose) return;
+        const k = Math.max(0, Math.min(1, hold.t));
+        box.rotation = 0.28 * (1 - k);
+        box.y = peg.cy + 10 * (1 - k);
+        box.scale.set(1 + 0.16 * (1 - k), 0.4 + 0.6 * Math.max(0, hold.t));
+        box.alpha = 1;
+      },
+      onComplete: () => {
+        if (peg.pose !== pose) return;
+        box.rotation = 0;
+        box.y = peg.cy;
+        box.scale.set(1);
+        box.alpha = 1;
+      },
+    });
+  }
+
   private _flash(peg: Peg): void {
     const flash = new PIXI.Graphics();
-    flash.beginFill(0xffffff, 0.7).drawRoundedRect(-42, 2, 84, 78, 8).endFill();
+    flash.beginFill(0xffffff, 0.7).drawRoundedRect(-STALL_SLOT.w * 0.32, -this._itemH * 0.9, STALL_SLOT.w * 0.64, this._itemH * 0.86, 10).endFill();
     peg.box.addChild(flash);
     const hold = { a: 0.7 };
     TweenManager.to({
@@ -656,15 +859,19 @@ export class StallYard extends PIXI.Container {
 
   private _squash(peg: Peg): void {
     const box = peg.box;
-    const stay = peg.def.id === 'cans';
+    const cans = peg.def.id === 'cans';
+    const pose = peg.pose;
     const hold = { x: 1.25, y: 0.55 };
     box.scale.set(hold.x, hold.y);
     TweenManager.to({
       target: hold,
-      props: stay ? { x: 1.16, y: 0.4 } : { x: 1, y: 1 },
-      duration: stay ? 0.22 : 0.3,
+      props: cans ? { x: 1.16, y: 0.4 } : { x: 1, y: 1 },
+      duration: cans ? 0.22 : 0.3,
       ease: Ease.easeOutBack,
-      onUpdate: () => box.scale.set(hold.x, hold.y),
+      onUpdate: () => {
+        if (peg.pose !== pose) return;
+        box.scale.set(hold.x, hold.y);
+      },
     });
   }
 
@@ -723,7 +930,7 @@ export class StallYard extends PIXI.Container {
 
   private _smash(peg: Peg, tier: PrizeTier): void {
     const x = peg.cx;
-    const y = peg.cy + STALL_SLOT.pad + STALL_SLOT.h / 2;
+    const y = this._aimY(peg);
     const tint = TINT[peg.def.id] ?? 0xc9a46a;
     const scale = tier === 'jackpot' ? 1.8 : tier === 'rare' ? 1.35 : 1;
     const id = peg.def.id;
@@ -770,7 +977,7 @@ export class StallYard extends PIXI.Container {
   /** 三只铁皮罐拆开：飞出去、砸在货架上停一会，再淡掉。 */
   private _wreckCans(peg: Peg): void {
     const x = peg.cx;
-    const y = peg.cy + STALL_SLOT.pad + STALL_SLOT.h / 2;
+    const y = this._aimY(peg);
     const specs = [
       { dx: -1.05, lift: 46, spin: 6.4, w: 16, h: 28 },
       { dx: 0.12, lift: 58, spin: -7.2, w: 18, h: 30 },
@@ -788,7 +995,7 @@ export class StallYard extends PIXI.Container {
       TweenManager.to({
         target: hold,
         props: { t: 1 },
-        duration: 1.08,
+        duration: 0.72,
         ease: Ease.linear,
         onUpdate: () => {
           const fly = Math.min(1, hold.t / 0.48);

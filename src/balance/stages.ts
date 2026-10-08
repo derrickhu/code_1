@@ -705,6 +705,32 @@ function skillAtk(chapter: number): number {
   return chapter <= CH_TUNED ? 1 : SKILL_ATK_TAIL;
 }
 
+/**
+ * 1-1 手写。冷启动里一半人在开打后 5~15 秒走掉：生成的那一版头一只是慢吞吞的方块，
+ * 7 秒才倒第一只。这里让快的小灰先冲，两三秒就有人倒、一窝接一窝。
+ * 只数和生成版一样是 10，只换先后和种类。章内的血量折算仍按生成版算，不牵动后面的章。
+ */
+const OPENING_WAVES: readonly Wave[] = [
+  {
+    groups: [
+      { lane: 1, enemy: 'grunt', count: 3, gapMs: 500, atMs: 0 },
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 2000 },
+    ],
+  },
+  {
+    groups: [
+      { lane: 1, enemy: 'grunt', count: 2, gapMs: 450, atMs: 0 },
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 1300 },
+    ],
+  },
+  {
+    groups: [
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
+      { lane: 1, enemy: 'grunt', count: 2, gapMs: 400, atMs: 1200 },
+    ],
+  },
+];
+
 function buildStages(): StageDef[] {
   const allWaves = CHAPTERS.map((seed, c) =>
     [1, 2, 3, 4, 5].map((i) => buildWaves(seed, c + 1, i)));
@@ -725,7 +751,7 @@ function buildStages(): StageDef[] {
     const [lvFrom, lvTo] = seed.suggestLv;
     for (let i = 1; i <= 5; i += 1) {
       const ramp = IDX_RAMP[i - 1] ?? 1;
-      const waves = allWaves[c]![i - 1]!;
+      const waves = c === 0 && i === 1 ? OPENING_WAVES : allWaves[c]![i - 1]!;
       const suggestLv = Math.round(lvFrom + ((lvTo - lvFrom) * (i - 1)) / 4);
       out.push({
         id,

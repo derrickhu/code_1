@@ -122,10 +122,10 @@ export class ReviveOverlay extends PIXI.Container {
     const cast = castOf(team);
     const top = Math.max(Game.safeTop, 20);
 
-    const skipH = 72;
-    const skipCy = height - Game.safeBottom - 18 - skipH / 2;
-    const playH = 118;
-    const playCy = skipCy - skipH / 2 - 14 - playH / 2;
+    const skipH = 56;
+    const skipCy = height - Game.safeBottom - 14 - skipH / 2;
+    const playH = 150;
+    const playCy = skipCy - skipH / 2 - 10 - playH / 2;
 
     const plaqueW = 680;
     const plaqueH = 280;
@@ -199,7 +199,7 @@ export class ReviveOverlay extends PIXI.Container {
       this.addChild(tag);
     });
 
-    this._playBtn(375, playCy, 560, playH, () => {
+    this._playBtn(375, playCy, 680, playH, () => {
       if (this._busy) return;
       this._busy = true;
       this._onRevive();
@@ -251,7 +251,7 @@ export class ReviveOverlay extends PIXI.Container {
   private _tickPulse(): void {
     if (!this.visible || !this._pulse) return;
     this._pulseT += Game.ticker.deltaMS / 1000;
-    this._pulse.scale.set(1 + Math.sin(this._pulseT * 3.2) * 0.03);
+    this._pulse.scale.set(1 + Math.sin(this._pulseT * 3.6) * 0.05);
   }
 
   private _drawCurb(x: number, y: number, w: number, h: number): void {
@@ -280,21 +280,16 @@ export class ReviveOverlay extends PIXI.Container {
     box.eventMode = 'static';
     box.interactiveChildren = false;
     box.position.set(cx, cy);
-    box.hitArea = new PIXI.Rectangle(-w / 2, -h / 2, w, h);
-    fillSprite(box, uiTex('settle_btn'), 0, 0, w, h)
-      || fillSprite(box, uiTex('play_plate'), 0, 0, w, h);
-    const t = stroke(28, INK, '#fff4c4', 4);
+    // ad_btn 自带播放钮，跟结算、摊子的看视频是同一块牌子，玩家一眼认得
+    const ad = fitSprite(box, uiTex('ad_btn'), 0, 0, w, h);
+    const bw = ad ? ad.width : w;
+    if (!ad) fillSprite(box, uiTex('settle_btn'), 0, 0, w, h);
+    box.hitArea = new PIXI.Rectangle(-bw / 2, -h / 2, bw, h);
+    const t = stroke(32, INK, '#fff4c4', 5);
     t.anchor.set(0.5);
     t.text = '看完继续打';
-    t.position.set(16, 0);
-    const tri = new PIXI.Graphics();
-    tri.beginFill(INK, 0.88);
-    tri.moveTo(-9, -11);
-    tri.lineTo(12, 0);
-    tri.lineTo(-9, 11);
-    tri.endFill();
-    tri.position.set(-t.width * 0.5 - 8, 0);
-    box.addChild(tri, t);
+    t.position.set(ad ? bw * 0.08 : 0, 0);
+    box.addChild(t);
     this.addChild(box);
     this._pulse = box;
     bindPointerTap(box, onTap);
@@ -306,11 +301,12 @@ export class ReviveOverlay extends PIXI.Container {
     box.interactiveChildren = false;
     box.position.set(cx, cy);
     box.hitArea = new PIXI.Rectangle(-w / 2, -h / 2, w, h);
-    fillSprite(this, uiTex('iron_bar'), cx, cy, w, h);
-    const t = stroke(17, MUTED, '#1a1008', 3);
+    const t = stroke(18, MUTED, '#1a1008', 3);
     t.anchor.set(0.5);
     t.text = '算了，看结算';
-    box.addChild(t);
+    const line = new PIXI.Graphics();
+    line.lineStyle(2, MUTED, 0.7).moveTo(-t.width / 2, 14).lineTo(t.width / 2, 14);
+    box.addChild(t, line);
     this.addChild(box);
     bindPointerTap(box, onTap);
   }

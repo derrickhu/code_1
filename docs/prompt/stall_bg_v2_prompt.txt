@@ -1,0 +1,12 @@
+Vertical 9:16 mobile game background, front view of the INSIDE of a small rustic village slingshot shooting-gallery booth at dusk, hand-painted cartoon game art matching the reference (same rusty corrugated roof, red-white striped side curtains, weathered wood).
+
+Layout (top to bottom):
+- Top 10%: rusty corrugated metal roof edge with a row of small warm glowing bulb string lights.
+- 12%–70%: the booth back wall. Make it a DARK, CALM, LOW-DETAIL backdrop: deep charcoal-teal painted wooden planks, almost flat, very subtle wood grain, slightly darker toward the edges (vignette). Two soft warm spotlight pools from above fall on the wall, one centered around 30% height and one around 52% height, each a wide gentle oval glow spanning most of the wall width. The wall must be EMPTY: no shelves, no hooks, no beams, no targets, no props, no rope, no bulb in the middle.
+- Left and right edges: red-white striped curtains tied back, framing the wall, occupying only the outer 8% on each side.
+- 72%–80%: a thick, clean wooden counter top running the full width, warm lit front edge.
+- Bottom 20%: dark shadowed floor area under the counter, very low detail, darker than everything else (UI buttons sit here).
+
+Style: warm, cozy, readable, strong value contrast: back wall dark so bright objects placed in front will pop. Painterly cartoon, no photorealism. Keep the whole image calm and uncluttered.
+
+NO TEXT, no letters, no numbers, no signs, no labels, no writing anywhere in the image. No people, no animals, no items on the wall or counter.

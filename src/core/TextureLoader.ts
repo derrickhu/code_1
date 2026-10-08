@@ -157,7 +157,7 @@ export const BATTLE_BG = 'images/bg/battle.jpg';
 export const VILLAGE_BG = 'subpackages/pkg-home/images/bg/village.jpg';
 export const VILLAGE_HOME_BG = 'subpackages/pkg-home/images/bg/village_home.jpg';
 export const YARD_BG = 'images/bg/yard.jpg';
-export const STALL_BG = 'images/bg/stall.jpg';
+export const STALL_BG = 'images/bg/stall_v2.jpg';
 /** 出村后的章节路径底图。主包 jpg，跟院子同一档 */
 export const ROAD_BG = 'images/bg/road.jpg';
 

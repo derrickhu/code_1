@@ -25,10 +25,11 @@ import {
   type Progress,
 } from '@/balance/village';
 import {
-  CRAFT_MAX, DEFAULT_SQUAD, STAR_MAX, VILLAGERS, VILLAGER_BY_ID,
+  CRAFT_MAX, DEFAULT_SQUAD, OPENING_LATE_ID, OPENING_SQUAD, STAR_MAX, VILLAGERS, VILLAGER_BY_ID,
 } from '@/balance/villagers';
 import { STAGE_COUNT, clampStage, getStage } from '@/balance/stages';
 import { CELL_COUNT, LANE_COUNT } from '@/balance/combat';
+import { OPENING_CALL_ID, needOpeningCall, openingParts } from '@/balance/opening';
 
 const KEY = SAVE_KEY;
 
@@ -100,7 +101,7 @@ function empty(): RunMemory {
     rev: REV,
     villageLv: 1,
     villageExp: 0,
-    roster: [...DEFAULT_SQUAD],
+    roster: [...OPENING_SQUAD],
     evo: {},
     craft: {},
     stars: {},
@@ -117,7 +118,7 @@ function empty(): RunMemory {
     stageStars: {},
     layout: [],
     callCount: 0,
-    seenIds: [...DEFAULT_SQUAD],
+    seenIds: [...OPENING_SQUAD],
     waitId: '',
     starWeek: '',
   };
@@ -369,6 +370,26 @@ export function callVillager(nowMs: number = Date.now()): {
 }
 
 
+/**
+ * 1-2 打完那一嗓子，不花工分，来的固定是 OPENING_CALL_ID。
+ * 算进喊人次数，所以「前 4 次必出新人」的保底照样往下数。已经喊过就返回 undefined。
+ */
+export function openingCall(): { mem: RunMemory; got: string } | undefined {
+  const prev = loadMemory();
+  if (!needOpeningCall(prev.stageTop, prev.callCount, prev.roster)) return undefined;
+  const got = OPENING_CALL_ID;
+  const seen = new Set(prev.seenIds);
+  seen.add(got);
+  const mem = persist({
+    ...prev,
+    callCount: prev.callCount + 1,
+    roster: [...prev.roster, got],
+    seenIds: [...seen],
+    waitId: prev.waitId === got ? '' : prev.waitId,
+  });
+  return { mem, got };
+}
+
 /* ---------------- 手艺 ---------------- */
 
 /** 乡亲里标一个还没来的人。再标同一个人就取消。已经在村里的标不上 */
@@ -441,15 +462,18 @@ export function settleStage(
   stageId: number,
   won: boolean,
   stars: number,
-): { mem: RunMemory; pellets: number; scrap: number } {
+): { mem: RunMemory; pellets: number; scrap: number; parts: number; first: boolean; joined?: string } {
   const prev = loadMemory();
   const id = clampStage(stageId);
   const first = won && !prev.stageStars[id];
+  // 开局两人档：1-3 首通，没来的那个回村
+  const joined = first && id === 3 && !prev.roster.includes(OPENING_LATE_ID) ? OPENING_LATE_ID : undefined;
 
   const pellets = won ? pelletsForStage(id, first) : PELLET_LOSE;
   // 重打给得少：通关后还有活水，但蹲在 1-1 刷不出手艺后段
   const base = first ? SETTLE_SCRAP : SETTLE_SCRAP_REPLAY;
   const scrap = won ? Math.round(base * yieldMul(prev.villageLv)) : 0;
+  const parts = openingParts(id, first);
 
   const stageTop = won ? Math.min(STAGE_COUNT, Math.max(prev.stageTop, id + 1)) : prev.stageTop;
   const best = Math.max(prev.stageStars[id] ?? 0, won ? stars : 0);
@@ -458,11 +482,16 @@ export function settleStage(
     ...prev,
     pellets: prev.pellets + pellets,
     scrap: prev.scrap + scrap,
+    parts: prev.parts + parts,
     stageTop,
     stageId: won ? Math.min(stageTop, id + 1) : id,
     stageStars: { ...prev.stageStars, [id]: best },
+    ...(joined ? {
+      roster: [...prev.roster, joined],
+      seenIds: prev.seenIds.includes(joined) ? prev.seenIds : [...prev.seenIds, joined],
+    } : {}),
   });
-  return { mem, pellets, scrap };
+  return { mem, pellets, scrap, parts, first, joined };
 }
 
 /** 一共拿了多少颗星。图鉴和进度条用 */
@@ -578,4 +607,24 @@ export function grantSettlePellets(amount: number): RunMemory {
   const prev = loadMemory();
   const add = Math.max(0, Math.floor(amount));
   return persist({ ...prev, pellets: prev.pellets + add });
+}
+
+export interface Loot {
+  pellets?: number;
+  scrap?: number;
+  parts?: number;
+  credits?: number;
+}
+
+/** 广告和签到给的东西。弹子允许顶到上限之上，跟结算广告一个口径 */
+export function grantLoot(loot: Loot): RunMemory {
+  const prev = loadMemory();
+  const n = (v: number | undefined): number => Math.max(0, Math.floor(v ?? 0));
+  return persist({
+    ...prev,
+    pellets: prev.pellets + n(loot.pellets),
+    scrap: prev.scrap + n(loot.scrap),
+    parts: prev.parts + n(loot.parts),
+    credits: prev.credits + n(loot.credits),
+  });
 }

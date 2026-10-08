@@ -1,6 +1,6 @@
 /**
- * 广告位日限。核心流程只有复活和过关再给弹子；
- * 首局多带一件、翻废品站是局外，不挡十秒开场。
+ * 广告位日限。核心流程是复活、过关再拿一份、输了领补给；
+ * 签到翻倍、升手艺补零件、首局多带一件、翻废品站是局外，不挡十秒开场。
  * 插屏不做。日限见 docs/01-核心玩法循环.md §9。
  */
 import { scopedStorageKey } from '@/config/gameKeyScope';
@@ -10,11 +10,14 @@ const KEY = scopedStorageKey('ad_day');
 const LEGACY_KEY = 'code1_ad_day';
 
 export type AdPlacement =
-  | 'revive' | 'settleDouble' | 'dailyGift' | 'junkyard' | 'pileFill';
+  | 'revive' | 'settleDouble' | 'loseBonus' | 'craftParts' | 'dailyGift' | 'junkyard' | 'pileFill';
 
 const LIMIT: Readonly<Record<AdPlacement, number>> = {
   revive: 2,
   settleDouble: 3,
+  loseBonus: 3,
+  // 零件是升手艺的硬门槛，给多了打摊拿零件那条路就没人走了
+  craftParts: 2,
   dailyGift: 1,
   junkyard: 1,
   // 村里那堆废品一键涨满。纯局外，不挡开场，一天一次 ——
@@ -22,15 +25,9 @@ const LIMIT: Readonly<Record<AdPlacement, number>> = {
   pileFill: 1,
 };
 
-interface DayBook {
-  date: string;
-  revive: number;
-  settleDouble: number;
-  dailyGift: number;
-  junkyard: number;
-  pileFill: number;
-  runsStarted: number;
-}
+const PLACEMENTS = Object.keys(LIMIT) as AdPlacement[];
+
+type DayBook = { date: string; runsStarted: number } & Record<AdPlacement, number>;
 
 function today(): string {
   const d = new Date();
@@ -40,26 +37,21 @@ function today(): string {
 }
 
 function empty(date = today()): DayBook {
-  return {
-    date, revive: 0, settleDouble: 0, dailyGift: 0, junkyard: 0, pileFill: 0, runsStarted: 0,
-  };
+  const book = { date, runsStarted: 0 } as DayBook;
+  for (const p of PLACEMENTS) book[p] = 0;
+  return book;
 }
 
 function load(): DayBook {
   try {
     const raw = Platform.getStorageSync(KEY) || Platform.getStorageSync(LEGACY_KEY);
     if (!raw) return empty();
-    const parsed = JSON.parse(raw) as DayBook;
+    const parsed = JSON.parse(raw) as Partial<DayBook>;
     if (parsed.date !== today()) return empty();
-    return {
-      date: parsed.date,
-      revive: Math.max(0, Number(parsed.revive) || 0),
-      settleDouble: Math.max(0, Number(parsed.settleDouble) || 0),
-      dailyGift: Math.max(0, Number(parsed.dailyGift) || 0),
-      junkyard: Math.max(0, Number(parsed.junkyard) || 0),
-      pileFill: Math.max(0, Number(parsed.pileFill) || 0),
-      runsStarted: Math.max(0, Number(parsed.runsStarted) || 0),
-    };
+    const book = empty(parsed.date);
+    for (const p of PLACEMENTS) book[p] = Math.max(0, Number(parsed[p]) || 0);
+    book.runsStarted = Math.max(0, Number(parsed.runsStarted) || 0);
+    return book;
   } catch {
     return empty();
   }

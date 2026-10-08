@@ -380,9 +380,11 @@ class PlatformServiceClass {
     return new Promise((resolve) => {
       // 同一时刻只允许一支广告在播，避免两个入口的奖励串到一起
       if (this._adResolve) {
+        this.lastAdResult = 'busy';
         resolve(false);
         return;
       }
+      this.lastAdResult = 'mock';
 
       // 开发者工具里也能 new 出广告实例，但关广告经常不带 isEnded，
       // 联调会误判没看完。工具里走桩，真机才拉真实激励视频。
@@ -417,14 +419,28 @@ class PlatformServiceClass {
         if (p?.catch) {
           p.catch(() => {
             const l = ad.load?.();
-            if (l?.then) l.then(() => ad.show()).catch(() => this._settleAd(false));
-            else this._settleAd(false);
+            if (l?.then) l.then(() => ad.show()).catch(() => this._settleAd(false, 'error'));
+            else this._settleAd(false, 'error');
           });
         }
       } catch (_) {
-        this._settleAd(false);
+        this._settleAd(false, 'error');
       }
     });
+  }
+
+  /**
+   * 上一支激励视频怎么收场的。埋点拿去分「没拉到广告」和「自己关了」：
+   * 两者都返回 false，混在一起就看不出是填充率问题还是奖励不值。
+   */
+  lastAdResult: 'ok' | 'closed' | 'error' | 'busy' | 'mock' = 'mock';
+
+  /** 提前建好实例，宿主会在后台先拉一支。点按钮时就不用干等 */
+  preloadRewardedVideo(adUnitId = ''): void {
+    if (!adUnitId || this.isDevtools) return;
+    try {
+      this._rewardedAd(adUnitId);
+    } catch (_) { /* 预拉失败不挡玩，点的时候再拉 */ }
   }
 
   private _rewardedAd(adUnitId: string): any {
@@ -434,15 +450,16 @@ class PlatformServiceClass {
     if (typeof create !== 'function') return null;
     const ad = create.call(this._api, { adUnitId });
     if (!ad?.onClose || !ad?.show) return null;
-    ad.onClose((res: { isEnded?: boolean }) => this._settleAd(!!res?.isEnded));
-    ad.onError?.(() => this._settleAd(false));
+    ad.onClose((res: { isEnded?: boolean }) => this._settleAd(!!res?.isEnded, res?.isEnded ? 'ok' : 'closed'));
+    ad.onError?.(() => this._settleAd(false, 'error'));
     this._adCache.set(adUnitId, ad);
     return ad;
   }
 
-  private _settleAd(ok: boolean): void {
+  private _settleAd(ok: boolean, why: 'ok' | 'closed' | 'error'): void {
     const resolve = this._adResolve;
     this._adResolve = null;
+    if (resolve) this.lastAdResult = why;
     resolve?.(ok);
   }
 

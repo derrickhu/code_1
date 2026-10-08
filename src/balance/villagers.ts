@@ -575,6 +575,14 @@ export const LEGACY_IDS: readonly string[] = [
 /** 村子没点过人时的默认三人：挨、拦、打 */
 export const DEFAULT_SQUAD: readonly string[] = ['tiezhu', 'dachui', 'laoyanqiang'];
 
+/**
+ * 新档开局只有两个人。1-2 打完喊来的人正好补第三格，1-3 是「拖上去」不是「顶掉谁」——
+ * 刚喊来的人上不了场，是开局最劝退的一下。
+ */
+export const OPENING_SQUAD: readonly string[] = ['tiezhu', 'laoyanqiang'];
+/** DEFAULT_SQUAD 里开局没来的那个，1-3 首通后回村。从 1-4 起名单跟 DEFAULT_SQUAD + 三婶一样 */
+export const OPENING_LATE_ID = 'dachui';
+
 export function byLaneRole(lane: Lane, role: Role): VillagerDef | undefined {
   return VILLAGERS.find((v) => v.lane === lane && v.role === role);
 }

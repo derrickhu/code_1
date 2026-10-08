@@ -22,27 +22,31 @@ describe('弹弓要拉够才出弹', () => {
 });
 
 describe('弹弓摊货架', () => {
-  it('两排格子等高，下排还能放下图和字', () => {
-    const lay = stallYardLay(217, 1152, 1132);
-    const slot = STALL_SLOT.pad + STALL_SLOT.h + 22;
-    expect(lay.shelves[1] - lay.shelves[0]).toBeGreaterThan(slot);
-    expect(lay.shelves[0]).toBeGreaterThan(400);
-    expect(lay.shelves[1]).toBeLessThan(lay.slingY - 200);
-    expect(lay.originX).toBeGreaterThan(180);
-    expect(lay.originX + lay.cellW * 2).toBeLessThan(570);
-  });
+  /** 物品脚底到这一格最底：板 + 名牌 + 产出行 */
+  const foot = STALL_SLOT.shelf + STALL_SLOT.plateH + STALL_SLOT.payH;
 
-  it('门楣变矮货架跟着底图上移，不挤弹弓', () => {
-    const tall = stallYardLay(400, 1152, 1132);
-    const short = stallYardLay(217, 1152, 1132);
-    expect(short.shelves[0]).toBeLessThan(tall.shelves[0]);
-    expect(short.shelves[1] + 90).toBeLessThan(short.slingY);
-  });
-
-  it('口袋叠在门楣里，货架不用往下让', () => {
+  it('标准屏：物品放得大，两排名牌都在柜台之上', () => {
     const chrome = stallHudLay(47, 1334);
-    const lay = stallYardLay(chrome.barBottom - 16, 1152, 1132);
-    expect(chrome.pocket.y + chrome.pocket.h / 2).toBeLessThan(chrome.barBottom);
-    expect(lay.shelves[0]).toBeGreaterThan(chrome.barBottom + 80);
+    const lay = stallYardLay(chrome.barBottom - 16, 1334, 1334 - 34 - 168);
+    expect(lay.itemH).toBeGreaterThanOrEqual(150);
+    expect(lay.shelves[0] - lay.itemH).toBeGreaterThan(chrome.barBottom);
+    expect(lay.shelves[1] - lay.shelves[0]).toBeGreaterThan(lay.itemH + foot);
+    expect(lay.shelves[1] + foot).toBeLessThan(lay.counterY);
+    expect(lay.counterY).toBeLessThan(lay.slingY - 60);
+  });
+
+  it('矮屏缩物品不缩字，仍不压柜台', () => {
+    const chrome = stallHudLay(20, 1100);
+    const lay = stallYardLay(chrome.barBottom - 16, 1100, 1100 - 168);
+    expect(lay.itemH).toBeGreaterThanOrEqual(STALL_SLOT.itemMin);
+    expect(lay.shelves[0] - lay.itemH).toBeGreaterThan(chrome.barBottom);
+    expect(lay.shelves[1] + foot).toBeLessThan(lay.counterY + 4);
+  });
+
+  it('三列不出屏，物品不互相压', () => {
+    const lay = stallYardLay(217, 1334, 1132);
+    expect(lay.cellW).toBeGreaterThan(STALL_SLOT.w);
+    expect(lay.originX - STALL_SLOT.w / 2).toBeGreaterThan(60);
+    expect(lay.originX + lay.cellW * 2 + STALL_SLOT.w / 2).toBeLessThan(690);
   });
 });

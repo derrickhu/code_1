@@ -30,6 +30,9 @@ export type TrackName =
   | 'call_villager'
   /** 喂了一阶。看玩家是摊平养还是堆主力 */
   | 'evolve'
+  /** 村口每日礼包白领了一天。看签到能不能把人拉回来 */
+  | 'sign_in'
+  | 'ad_offer'
   | 'ad_show'
   | 'ad_close';
 

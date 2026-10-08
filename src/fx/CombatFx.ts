@@ -46,7 +46,9 @@ interface ShotBit {
   beam: boolean;
   emit: number;
   done: boolean;
-  land: () => void;
+  /** 飞的这一路一直盯着这只怪，落点跟着它走 */
+  track?: { id: number; dx: number; dy: number };
+  land: (x: number, y: number) => void;
 }
 
 interface FlashBit {
@@ -84,11 +86,14 @@ interface StampBit {
   color: number;
   wide: number;
   done: boolean;
+  follow?: { mark: SkillMark; dy: number };
   land: () => void;
 }
 
 /** 绝活打在一只怪身上的结果。数字和标记都画在这只怪上 */
 export interface SkillMark {
+  /** 有 id 就跟着这只怪走；x / y 是出招那一刻的位置 */
+  foeId?: number;
   x: number;
   y: number;
   damage: number;
@@ -116,9 +121,38 @@ export class CombatFx {
   private _meleeRadius = 72;
   private readonly _waits: { t: number; fn: () => void }[] = [];
   private readonly _gate = new ImpactGate();
+  private _locate: ((id: number) => { x: number; y: number } | undefined) | null = null;
 
   constructor() {
     this.layer.addChild(this._kit.root);
+  }
+
+  /** 怪此刻的身子中心。弹在路上它还在走，落点得每帧问一次 */
+  setFoeLocator(fn: (id: number) => { x: number; y: number } | undefined): void {
+    this._locate = fn;
+  }
+
+  /** 绝活打到这只怪：倒下要等这一下落上去 */
+  holdFoe(id: number): void {
+    this._gate.begin(enemyImpactKey(id));
+  }
+
+  landFoe(id: number): void {
+    this._finishLand(enemyImpactKey(id));
+  }
+
+  private _foeAt(id: number | undefined): { x: number; y: number } | undefined {
+    return id === undefined ? undefined : this._locate?.(id);
+  }
+
+  /** 把绝活标记挪到这只怪现在站的地方 */
+  private _sync(h: SkillMark): SkillMark {
+    const p = this._foeAt(h.foeId);
+    if (p) {
+      h.x = p.x;
+      h.y = p.y;
+    }
+    return h;
   }
 
   reset(): void {
@@ -206,13 +240,16 @@ export class CombatFx {
       const key = pos.enemyId !== undefined ? enemyImpactKey(pos.enemyId) : undefined;
       if (key) this._gate.begin(key);
       const landHit = (): void => {
-        this._impactHero(ev, pos.ex!, pos.ey!, color, pos.fx, pos.skin ? skinLook(pos.skin) : undefined);
-        if (pos.slowed) this._spawnPlainFloat('减速', pos.ex!, pos.ey! + 10, 0x86efac, 16, 0.4);
+        const at = this._foeAt(pos.enemyId) ?? { x: pos.ex!, y: pos.ey! };
+        this._impactHero(ev, at.x, at.y, color, pos.fx, pos.skin ? skinLook(pos.skin) : undefined);
+        if (pos.slowed) this._spawnPlainFloat('减速', at.x, at.y + 10, 0x86efac, 16, 0.4);
         pos.onLand?.();
         this._finishLand(key);
       };
       if (pos.hx !== undefined && pos.hy !== undefined) {
-        this._spawnHeroAttack(ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.fx, pos.melee, pos.orb, landHit, pos.byPet, pos.skin);
+        this._spawnHeroAttack(
+          ev, pos.hx, pos.hy, pos.ex, pos.ey, color, pos.fx, pos.melee, pos.orb, landHit, pos.byPet, pos.skin, pos.enemyId,
+        );
       } else {
         landHit();
       }
@@ -231,7 +268,8 @@ export class CombatFx {
     if (ev.kind === 'foeDown' && pos.ex !== undefined && pos.ey !== undefined) {
       const key = pos.enemyId !== undefined ? enemyImpactKey(pos.enemyId) : undefined;
       const play = (): void => {
-        this._death(pos.ex!, pos.ey!, 0xffb070);
+        const at = this._foeAt(pos.enemyId) ?? { x: pos.ex!, y: pos.ey! };
+        this._death(at.x, at.y, 0xffb070);
         // 倒下只留这一声。再叠一声爆开，漏怪就盖不过去
         playSfx('enemy_down', 80);
         this.hitStop = Math.max(this.hitStop, 0.045);
@@ -341,7 +379,7 @@ export class CombatFx {
         const mark = h;
         this._stamp('roller', fromX, fromY, mark.x, feet(mark), cast.color, 46, 0.36, delay, () => {
           this._impact(mark, 'smash');
-        });
+        }, mark);
         delay += 0.24;
         px = mark.x;
         py = feet(mark);
@@ -383,7 +421,7 @@ export class CombatFx {
       const wide = cast.travel === 'pot' ? 28 : cast.travel === 'dog' ? 20 : cast.travel === 'chick' ? 14 : 16;
       this._stamp(per, fromX, fromY, h.x, toY, cast.color, wide, fly, 0.05 + i * 0.08, () => {
         this._impact(h, look);
-      });
+      }, cast.travel === 'boom' ? undefined : h);
     });
   }
 
@@ -449,21 +487,24 @@ export class CombatFx {
 
   /**
    * 滑轮连射：跟他平时那颗钢珠一样，只是一颗接一颗。
-   * 间隔拉得开，天上同时挂着两三颗，才数得出是连射。
+   * 一颗一颗数得清：每颗隔 0.2 秒上下，一串压在一秒半里。
+   * 挨打的每只都至少分到一颗，第一颗才报伤害、才放它倒下。
    */
   private _volley(x0: number, y0: number, hits: readonly SkillMark[]): void {
     const lane = [...hits].sort((a, b) => b.y - a.y);
-    const n = Math.min(12, Math.max(6, lane.length * 3));
-    const look: FxLook = { ...skinLook('sling'), projPx: 30, loft: 34, spin: 12 };
+    const n = Math.max(lane.length, Math.min(8, Math.max(5, lane.length * 2)));
+    const gap = Math.min(0.2, 1.5 / n);
+    const look: FxLook = { ...skinLook('sling'), projPx: 30, loft: 40, spin: 10 };
     const handY = y0 - 18;
     const shown = new Set<SkillMark>();
     for (let i = 0; i < n; i += 1) {
       const h = lane[i % lane.length]!;
       const show = !shown.has(h);
       shown.add(h);
-      const spread = ((i % 3) - 1) * 16;
-      this._after(0.08 + i * 0.13, () => {
+      const spread = ((i % 3) - 1) * 10;
+      this._after(0.1 + i * gap, () => {
         playSfx('atk_sniper', 0);
+        this._sync(h);
         const x1 = h.x + spread;
         const y1 = h.y;
         const ang = Math.atan2(y1 - handY, x1 - x0);
@@ -476,9 +517,10 @@ export class CombatFx {
           y1,
           color: look.tint,
           kind: 'sniper',
-          fly: Math.max(0.3, Math.min(0.46, dist / 980)),
+          fly: Math.max(0.36, Math.min(0.56, dist / 820)),
           look,
-          land: () => this._pebbleHit(h, x1, y1, show),
+          track: h.foeId === undefined ? undefined : { id: h.foeId, dx: spread, dy: 0 },
+          land: (x, y) => this._pebbleHit(h, x, y, show),
         });
       });
     }
@@ -489,6 +531,7 @@ export class CombatFx {
     this._kit.plate('flash', x, y, { tint: 0xe8d4b0, s0: 0.22, s1: 0.42, life: 0.1, add: false });
     this._kit.spray(x, y, { n: show ? 6 : 3, tint: 0xc4b59a, kind: 'glow', speed: 80, gy: 90 });
     if (!show) return;
+    this._sync(h);
     h.land?.();
     playSfx('hit_sniper', 40);
     if (h.damage > 0) {
@@ -500,6 +543,7 @@ export class CombatFx {
 
   /** 落在怪身上：伤害数字，再加上这一下干了什么 */
   private _impact(h: SkillMark, look: 'bolt' | 'smash' | 'blast' | 'net'): void {
+    this._sync(h);
     h.land?.();
     const feet = h.y + 34;
     if (look === 'smash') {
@@ -531,7 +575,9 @@ export class CombatFx {
     kind: StampKind,
     x0: number, y0: number, x1: number, y1: number,
     color: number, wide: number, fly: number, delay: number, land: () => void,
+    follow?: SkillMark,
   ): void {
+    const dy = follow ? y1 - follow.y : 0;
     this._after(delay, () => {
       if (this._stamps.length >= 40) {
         const old = this._stamps.shift();
@@ -542,6 +588,7 @@ export class CombatFx {
       this.layer.addChild(g);
       this._stamps.push({
         g, kind, life: fly, max: fly, x0, y0, x1, y1, color, wide, done: false, land,
+        follow: follow ? { mark: follow, dy } : undefined,
       });
     });
   }
@@ -877,6 +924,11 @@ export class CombatFx {
       const s = this._stamps[i];
       if (!s) continue;
       s.life -= dt;
+      if (s.follow && !s.done) {
+        const h = this._sync(s.follow.mark);
+        s.x1 = h.x;
+        s.y1 = h.y + s.follow.dy;
+      }
       this._drawStamp(s);
       if (s.life <= 0 && !s.done) {
         s.done = true;
@@ -907,6 +959,13 @@ export class CombatFx {
       const s = this._shots[i];
       if (!s) continue;
       s.age += dt;
+      if (s.track && !s.done) {
+        const q = this._foeAt(s.track.id);
+        if (q) {
+          s.x1 = q.x + s.track.dx;
+          s.y1 = q.y + s.track.dy;
+        }
+      }
       const u = Math.min(1, s.age / s.fly);
       const p = this._point(s, u);
       const ang = Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
@@ -923,7 +982,7 @@ export class CombatFx {
       }
       if (u >= 1 && !s.done) {
         s.done = true;
-        s.land();
+        s.land(s.x1, s.y1);
       }
       if (s.age >= s.fly + 0.04) {
         s.body.destroy();
@@ -1002,6 +1061,7 @@ export class CombatFx {
     onLand?: () => void,
     byPet?: boolean,
     skin?: string,
+    foeId?: number,
   ): void {
     const style: AttackFx = fx ?? (melee ? 'slash' : orb ? 'orb' : 'bolt');
     const look = skin ? skinLook(skin) : attackLook(style);
@@ -1016,8 +1076,9 @@ export class CombatFx {
       : fly ? releaseAt(motion) : contactAt(motion);
     this._after(windup, () => {
       playSfx(`atk_${style}`, 90);
-      const ang = Math.atan2(y1 - y0, x1 - x0);
-      const dist = Math.hypot(x1 - x0, y1 - y0);
+      const now = this._foeAt(foeId) ?? { x: x1, y: y1 };
+      const ang = Math.atan2(now.y - y0, now.x - x0);
+      const dist = Math.hypot(now.x - x0, now.y - y0);
       playMuzzle(this._kit, look, x0, y0, ang);
 
       if (!fly) {
@@ -1026,9 +1087,10 @@ export class CombatFx {
         return;
       }
       this._pushShot({
-        x0, y0, x1, y1, color: tint, kind: style,
+        x0, y0, x1: now.x, y1: now.y, color: tint, kind: style,
         fly: shotFlight(look, dist, !!melee),
         look,
+        track: foeId === undefined ? undefined : { id: foeId, dx: 0, dy: 0 },
         land,
       });
     });
@@ -1093,11 +1155,12 @@ export class CombatFx {
     kind: ShotKind;
     fly: number;
     look?: FxLook;
-    land: () => void;
+    track?: { id: number; dx: number; dy: number };
+    land: (x: number, y: number) => void;
   }): void {
     if (this._shots.length >= MAX_SHOTS) {
       const old = this._shots.shift();
-      if (old && !old.done) old.land();
+      if (old && !old.done) old.land(old.x1, old.y1);
       old?.body.destroy();
       old?.spr?.destroy();
     }
@@ -1154,6 +1217,7 @@ export class CombatFx {
       beam: !!spec.look?.beam,
       emit: 0,
       done: false,
+      track: spec.track,
       land: spec.land,
     });
   }

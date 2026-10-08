@@ -66,6 +66,10 @@ function frames(id: string, clip: string, n: number): PIXI.Texture[] {
   return out;
 }
 
+function sameFrames(a: readonly PIXI.Texture[], b: readonly PIXI.Texture[]): boolean {
+  return a.length === b.length && a.every((t, i) => t === b[i]);
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -127,6 +131,8 @@ export class UnitActor {
   /** 出手也在画立绘（没有攻击切片） */
   private _atkPortrait = false;
   walkBob = false;
+  /** 被钉住 / 打晕：原地左右晃，一看就知道是被定住了 */
+  dazed = false;
   /** 村里点中「要换掉」的人，呼吸放大，让玩家一眼看见换的是谁 */
   holdPulse = false;
 
@@ -261,6 +267,10 @@ export class UnitActor {
     } else {
       this._holdRest();
       rot = this._kind === 'hero' ? this._tilt * 0.35 : 0;
+      if (this.dazed) {
+        rot = Math.sin(this._breath * 5) * 0.1;
+        ox = Math.sin(this._breath * 5) * 3;
+      }
     }
 
     const breath = !this._dead && this._atkT < 0 && this._clip === 'idle'
@@ -405,6 +415,7 @@ export class UnitActor {
       else this._holdRest();
       return;
     }
+    const was = this._clip ? this._listOf(this._clip) : null;
     if (this._kind === 'hero') {
       const idle = frames(this._id, 'idle', 4);
       const atk = frames(this._id, 'atk', 4);
@@ -437,14 +448,20 @@ export class UnitActor {
       this._atk = frames(art, 'atk', 4);
       if (this._walk.length === 0) this._walk = this._idle;
     }
+    // 别的图到了也会叫一遍重载。正在放的这段没变就接着放，不然走路帧天天被拉回第 0 帧
+    if (was && this._clip && sameFrames(was, this._listOf(this._clip))) return;
     const keepAtk = this._clip === 'atk' && this._atkT >= 0;
     this._clip = '';
     if (keepAtk) this._play('atk', false);
     else this._holdRest();
   }
 
+  private _listOf(name: 'idle' | 'walk' | 'atk'): PIXI.Texture[] {
+    return name === 'atk' ? this._atk : name === 'walk' ? this._walk : this._idle;
+  }
+
   private _play(name: 'idle' | 'walk' | 'atk', loop: boolean): boolean {
-    const list = name === 'atk' ? this._atk : name === 'walk' ? this._walk : this._idle;
+    const list = this._listOf(name);
     if (list.length === 0) {
       this._anim.visible = false;
       return false;

@@ -46,18 +46,22 @@ import {
   type Job, type VillagerDef,
 } from '@/balance/villagers';
 import {
-  PELLET_AD, TARGETS, TARGET_UNLOCK_LV, pelletCap, pelletRegenMin, prizeTier,
+  CRAFT_AD_PARTS, PELLET_AD, TARGETS, TARGET_UNLOCK_LV, pelletCap, pelletRegenMin, prizeTier,
 } from '@/balance/stall';
 import { chapter1CraftStep, villageGateOpen, type CraftStep } from '@/balance/opening';
 import { homeRoadBrief } from '@/balance/roadMap';
 import { Platform } from '@/core/PlatformService';
-import { rewardedAdUnitId } from '@/config/rewardedAds';
+import { rewardedAdUnitId, type RewardedSlot } from '@/config/rewardedAds';
 import { track } from '@/core/Analytics';
+import { adCanShow, adRecord, adRemaining } from '@/core/AdDay';
 import {
-  buyEvo, callVillager, claimAdPellets, grantStar, loadMemory, nextGoal, progressOf,
+  SIGN_GIFTS, SIGN_PITCH, signClaim, signGiftText, signState, signToday,
+} from '@/core/SignIn';
+import {
+  buyEvo, callVillager, claimAdPellets, grantLoot, grantStar, loadMemory, nextGoal, progressOf,
   setWait,
   settlePellets, shootStall, stallAdLeft, stallPityLeft,
-  type RunMemory,
+  type Loot, type RunMemory,
 } from '@/core/RunMemory';
 import { buzz, playSfx, warmSfx } from '@/core/SfxPlayer';
 import {
@@ -71,7 +75,7 @@ import {
 } from '@/config/assetPreload';
 import { ensureAssets } from '@/core/ensureAssets';
 import {
-  addFitPortrait, fillCover, fillCoverUv, heroTex, stallBgTex, uiTex,
+  addFitPortrait, fillCover, fillCoverUv, heroTex, stallBgTex, uiPath, uiTex,
   villageBgTex, villageHomeBgTex, watchArt,
   type UiName,
 } from '@/core/TextureLoader';
@@ -87,6 +91,104 @@ import {
 const CREAM = 0xfff4c4;
 const MUTED = 0x8a8a92;
 const RUST_RED = 0xc43a28;
+/** 「够升级了」只用这一种绿，乡亲格和详情页对得上 */
+const READY_GREEN = 0x9be08a;
+
+/** ad_btn 原图 1491×604，左边 490 是播放钮，右边留铆钉 */
+const AD_SLICE = { l: 490, t: 150, r: 150, b: 150 } as const;
+/** 签到牌和看视频钮用的图，不在村口包里，进村口另拉 */
+const SIGN_ART = ['ad_btn', 'rust_badge', 'fight_btn', 'settle_stamp', 'title_plaque', 'icon_credits'] as const;
+/** 签到牌的竖排。吊牌 380 见方，木板在图的下半截，标题和副标题写在木板上 */
+const SIGN_LAY = (() => {
+  const plaque = 380;
+  const plaqueCy = plaque / 2;
+  const tileW = 200;
+  const tileH = 172;
+  const gap = 14;
+  const bigH = 164;
+  const gridTop = plaqueCy + 141 + 14;
+  const total = gridTop + (tileH + gap) * 2 + bigH + 18 + 30 + 14 + 108 + 10 + 44;
+  return {
+    plaque, plaqueCy, titleY: plaqueCy + 18, subY: plaqueCy + 66,
+    tileW, tileH, gap, bigH, gridW: tileW * 3 + gap * 2, gridTop, total,
+  };
+})();
+/** 锈铁牌和金框牌九宫格的边，原图像素，铆钉都在边里 */
+const RUST_SLICE = { l: 62, t: 62, r: 62, b: 62 } as const;
+const GOLD_SLICE = { l: 100, t: 100, r: 100, b: 100 } as const;
+const FIGHT_SLICE = { l: 100, t: 90, r: 100, b: 90 } as const;
+
+type LootIcon = 'icon_pellets' | 'icon_scrap' | 'icon_parts' | 'icon_credits';
+
+function lootItems(g: Loot): [LootIcon, number][] {
+  return ([
+    ['icon_pellets', g.pellets ?? 0], ['icon_scrap', g.scrap ?? 0],
+    ['icon_parts', g.parts ?? 0], ['icon_credits', g.credits ?? 0],
+  ] as [LootIcon, number][]).filter(([, n]) => n > 0);
+}
+
+/** 签到入口上画哪一样：最稀罕的那样 */
+function signIcon(g: Loot): LootIcon {
+  if (g.credits) return 'icon_credits';
+  if (g.parts) return 'icon_parts';
+  if (g.pellets) return 'icon_pellets';
+  return 'icon_scrap';
+}
+/** 哪天已经自动弹过签到。一天只弹一次，关掉了就不再追着弹 */
+let signPoppedOn = '';
+
+const sliceCache = new Map<string, PIXI.Texture>();
+
+function sliceTex(tex: PIXI.Texture, x: number, y: number, w: number, h: number): PIXI.Texture {
+  const key = `${tex.baseTexture.uid}:${tex.frame.x + x},${tex.frame.y + y},${w},${h}`;
+  let t = sliceCache.get(key);
+  if (!t) {
+    t = new PIXI.Texture(tex.baseTexture, new PIXI.Rectangle(tex.frame.x + x, tex.frame.y + y, w, h));
+    sliceCache.set(key, t);
+  }
+  return t;
+}
+
+/**
+ * 九宫格，只用普通 Sprite 拼，不走 Mesh（小游戏里 Mesh 没验过）。
+ * l/t/r/b 是原图像素，s 是边在屏幕上的缩放。
+ */
+function slicePlate(
+  parent: PIXI.Container,
+  tex: PIXI.Texture,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  edge: { l: number; t: number; r: number; b: number },
+  s: number,
+): void {
+  const tw = tex.frame.width;
+  const th = tex.frame.height;
+  const cols = [[0, edge.l], [edge.l, tw - edge.r], [tw - edge.r, tw]] as const;
+  const rows = [[0, edge.t], [edge.t, th - edge.b], [th - edge.b, th]] as const;
+  const dl = edge.l * s;
+  const dr = edge.r * s;
+  const dt = edge.t * s;
+  const db = edge.b * s;
+  const xs = [[x, dl], [x + dl, Math.max(0, w - dl - dr)], [x + w - dr, dr]] as const;
+  const ys = [[y, dt], [y + dt, Math.max(0, h - dt - db)], [y + h - db, db]] as const;
+  for (let r = 0; r < 3; r += 1) {
+    for (let c = 0; c < 3; c += 1) {
+      const [sx0, sx1] = cols[c]!;
+      const [sy0, sy1] = rows[r]!;
+      const [dx, dw] = xs[c]!;
+      const [dy, dh] = ys[r]!;
+      if (sx1 <= sx0 || sy1 <= sy0 || dw <= 0 || dh <= 0) continue;
+      const spr = new PIXI.Sprite(sliceTex(tex, sx0, sy0, sx1 - sx0, sy1 - sy0));
+      spr.position.set(dx, dy);
+      spr.width = dw;
+      spr.height = dh;
+      spr.eventMode = 'none';
+      parent.addChild(spr);
+    }
+  }
+}
 
 type Page = 'home' | 'horn' | 'stall' | 'folks' | 'one';
 const PAGES: readonly Page[] = ['home', 'horn', 'stall', 'folks', 'one'];
@@ -280,6 +382,12 @@ export class VillageScene implements Scene {
   /** 乡亲里正打开的还没来的人。点卡片只看人，等不等在半屏按钮上 */
   private _waitSheet = '';
   private _adBusy = false;
+  private _adGlow: PIXI.Container[] = [];
+  private _adOffered = new Set<string>();
+  private _glowT = 0;
+  private _signOpen = false;
+  private _signGot = '';
+  private _signBadge: PIXI.Container | null = null;
   private _actors: UnitActor[] = [];
   /** 刚喊来的新人。揭晓关掉后从村道右边走进来 */
   private _arrive = '';
@@ -344,6 +452,8 @@ export class VillageScene implements Scene {
     this._page = 'home';
     this._waitSheet = '';
     this._adBusy = false;
+    this._adOffered.clear();
+    this._signOpen = this._signAutoPop();
     this._arrive = '';
     this._pendingArrive = '';
     this._reveal.close();
@@ -369,6 +479,15 @@ export class VillageScene implements Scene {
   update(dt: number): void {
     for (const a of this._actors) a.update(dt);
     if (this._page === 'stall') this._yard.update(dt);
+    this._glowT += dt;
+    const s = 1 + Math.sin(this._glowT * 3.6) * 0.05;
+    for (const b of this._adGlow) if (!b.destroyed) b.scale.set(s);
+    const badge = this._signBadge;
+    if (badge && !badge.destroyed) {
+      // 晃一阵停一阵，一直晃会被当成背景
+      const k = this._glowT % 2.4;
+      badge.rotation = k < 0.6 ? Math.sin(k * Math.PI * 6) * 0.12 * (1 - k / 0.6) : 0;
+    }
   }
 
   private _height(): number {
@@ -389,6 +508,10 @@ export class VillageScene implements Scene {
     }
     if (page !== 'folks') this._waitSheet = '';
     this._page = page;
+    if (page === 'stall' && stallAdLeft() > 0) {
+      Platform.preloadRewardedVideo(rewardedAdUnitId('stallPellets', Platform.name));
+      track('ad_offer', { placement: 'stallPellets', pellets: this._mem.pellets });
+    }
     playSfx('ui_tap', 0);
     this._kickPageArt(page);
     this._render();
@@ -417,9 +540,9 @@ export class VillageScene implements Scene {
         evo: Object.fromEntries(mem.roster.map((id) => [id, evoOf(p, id)])),
       });
     }
-    if (page === 'one') return villagerDetailImages(this._focus, evoOf(p, this._focus));
+    if (page === 'one') return [...villagerDetailImages(this._focus, evoOf(p, this._focus)), uiPath('ad_btn')];
     if (page === 'horn') return hornPreloadImages(this._hornArtPeople());
-    return villageHomeImages(this._homeArtPeople());
+    return [...villageHomeImages(this._homeArtPeople()), ...SIGN_ART.map(uiPath)];
   }
 
   private _hornArtPeople(): HeroArtNeed[] {
@@ -472,6 +595,8 @@ export class VillageScene implements Scene {
         c.destroy({ children: true });
       });
     }
+    this._adGlow = [];
+    this._signBadge = null;
     const layer = this._layers[this._page];
     if (this._page === 'home') this._renderHome(layer);
     if (this._page === 'horn') this._renderHorn(layer);
@@ -698,6 +823,78 @@ export class VillageScene implements Scene {
     return box;
   }
 
+  /**
+   * 看视频的按钮。跟结算、复活是同一块 ad_btn，左边的播放钮按九宫格保住不被拉扁。
+   * glow 的会跟着 update 呼吸，留给「现在正缺这个」的那一刻。
+   */
+  private _adPlate(
+    layer: PIXI.Container,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    text: string,
+    onTap: () => void,
+    opts: { sub?: string; enabled?: boolean; glow?: boolean } = {},
+  ): PIXI.Container {
+    const on = opts.enabled !== false;
+    const box = new PIXI.Container();
+    box.eventMode = on ? 'static' : 'none';
+    box.interactiveChildren = false;
+    box.position.set(cx, cy);
+    box.hitArea = new PIXI.Rectangle(-w / 2, -h / 2, w, h);
+    const tex = uiTex('ad_btn');
+    let left = 0;
+    let right = 0;
+    if (tex && tex.baseTexture.valid && tex.width > 1) {
+      const s = h / tex.height;
+      slicePlate(box, tex, -w / 2, -h / 2, w, h, AD_SLICE, s);
+      left = AD_SLICE.l * s;
+      right = AD_SLICE.r * s * 0.5;
+    } else {
+      const g = new PIXI.Graphics();
+      goldBtn(g, -w / 2, -h / 2, w, h);
+      box.addChild(g);
+    }
+    const mid = (-w / 2 + left + w / 2 - right) / 2;
+    const t = painted(opts.sub ? 26 : 28, 0x2a160c, '#fff4c4', 4);
+    t.anchor.set(0.5);
+    t.position.set(mid, opts.sub ? -h * 0.15 : 0);
+    t.text = text;
+    box.addChild(t);
+    if (opts.sub) {
+      const s = painted(17, 0x5a2a0c, '#fff4c4', 3);
+      s.anchor.set(0.5);
+      s.position.set(mid, h * 0.2);
+      s.text = opts.sub;
+      box.addChild(s);
+    }
+    box.alpha = on ? 1 : 0.55;
+    if (on) {
+      bindPointerTap(box, onTap);
+      if (opts.glow) this._adGlow.push(box);
+    }
+    layer.addChild(box);
+    return box;
+  }
+
+  /** 同一个广告位一次进村只报一次曝光，重画不重复记 */
+  private _offerAd(placement: string, extra: Record<string, unknown> = {}): void {
+    if (this._adOffered.has(placement)) return;
+    this._adOffered.add(placement);
+    Platform.preloadRewardedVideo(rewardedAdUnitId(placement as RewardedSlot, Platform.name));
+    track('ad_offer', { placement, ...extra });
+  }
+
+  /** 看一段。看完返回 true，没看完已经提示过 */
+  private async _watchVillageAd(placement: RewardedSlot): Promise<boolean> {
+    track('ad_show', { placement });
+    const ok = await Platform.showRewardedVideo(rewardedAdUnitId(placement, Platform.name));
+    track('ad_close', { placement, completed: ok, result: Platform.lastAdResult });
+    if (!ok) Platform.showToast(Platform.lastAdResult === 'error' ? '广告没拉到，稍后再试' : '看完才能领');
+    return ok;
+  }
+
   private _back(layer: PIXI.Container, to: Page = 'home'): void {
     const y = this._height() - Game.safeBottom - 52;
     this._btn(layer, 375, y, 260, 76, '回村口', () => this._open(to));
@@ -717,6 +914,8 @@ export class VillageScene implements Scene {
     this._homeAtlas(layer, lay);
     this._homeGate(layer, lay);
     this._homeGoal(layer, lay);
+    this._homeSign(layer, lay);
+    if (this._signOpen && villageGateOpen(this._mem.stageTop)) this._paintSignSheet(layer);
   }
 
   /**
@@ -956,7 +1155,7 @@ export class VillageScene implements Scene {
     const h = this._height();
     const chrome = stallHudLay(Game.safeTop, h);
     const roomTop = Math.round(chrome.barBottom - 16);
-    const roomBottom = h - Game.safeBottom - 148;
+    const roomBottom = h;
     const behind = new PIXI.Graphics();
     behind.beginFill(0x140e0a).drawRect(0, 0, 750, chrome.titleH).endFill();
     layer.addChild(behind);
@@ -979,9 +1178,11 @@ export class VillageScene implements Scene {
 
     const btnY = h - Game.safeBottom - 72;
     const adLeft = stallAdLeft();
-    this._btn(layer, 220, btnY, 240, 76, '看一段', () => { void this._adPellets(); }, {
+    this._adPlate(layer, 216, btnY, 300, 88, '看一段', () => { void this._adPellets(); }, {
       sub: adLeft > 0 ? `+${PELLET_AD} 发 · 剩 ${adLeft} 次` : '今天看完了',
       enabled: adLeft > 0 && !this._adBusy && !this._yard.busy,
+      // 弹子打光的那一刻最想要，这时候让它动起来
+      glow: mem.pellets <= 0,
     });
     this._btn(layer, 530, btnY, 240, 76, '回村口', () => this._open('home'), {
       enabled: !this._yard.busy,
@@ -1244,9 +1445,9 @@ export class VillageScene implements Scene {
     try {
       track('ad_show', { placement: 'stallPellets' });
       const ok = await Platform.showRewardedVideo(rewardedAdUnitId('stallPellets', Platform.name));
-      track('ad_close', { placement: 'stallPellets', completed: ok });
+      track('ad_close', { placement: 'stallPellets', completed: ok, result: Platform.lastAdResult });
       if (!ok) {
-        Platform.showToast('没看完，没给弹子');
+        Platform.showToast(Platform.lastAdResult === 'error' ? '广告没拉到，稍后再试' : '没看完，没给弹子');
         return;
       }
       const mem = claimAdPellets();
@@ -1256,6 +1457,352 @@ export class VillageScene implements Scene {
       }
       this._mem = mem;
       Platform.showToast(`弹子 +${PELLET_AD}`, 'success');
+    } finally {
+      this._adBusy = false;
+      this._render();
+    }
+  }
+
+  private async _adCraftParts(): Promise<void> {
+    if (this._adBusy || !adCanShow('craftParts')) return;
+    this._adBusy = true;
+    try {
+      if (!(await this._watchVillageAd('craftParts'))) return;
+      adRecord('craftParts');
+      this._mem = grantLoot({ parts: CRAFT_AD_PARTS });
+      Platform.hideToast();
+      Platform.showToast(`零件 +${CRAFT_AD_PARTS}`, 'success');
+      playSfx('ui_tap', 0);
+    } finally {
+      this._adBusy = false;
+      this._render();
+    }
+  }
+
+  /* ---------------- 村口每日礼包（签到） ---------------- */
+
+  /** 签到只在村口开了之后出现；第一章教打摊、升手艺那段不自动弹，免得把引导打断 */
+  private _signAutoPop(): boolean {
+    if (!villageGateOpen(this._mem.stageTop) || this._mem.stageTop <= 6) return false;
+    if (!signState().open || signPoppedOn === signToday()) return false;
+    signPoppedOn = signToday();
+    return true;
+  }
+
+  private _homeSign(layer: PIXI.Container, lay: HomeLay): void {
+    if (!villageGateOpen(this._mem.stageTop)) return;
+    const st = signState();
+    const adLeft = adCanShow('dailyGift');
+    const lively = st.open || adLeft;
+    const w = 140;
+    const h = 150;
+    const cx = 750 - 16 - w / 2;
+    const cy = lay.barBottom + 20 + h / 2;
+    const box = this._hit(layer, cx, cy, w, h, () => {
+      playSfx('ui_tap', 0);
+      this._signOpen = true;
+      this._render();
+    });
+    // 还有得领就是金框牌，跟村口的锈铁一眼分开；领完退回锈铁
+    if (!fillSprite(box, uiTex(lively ? 'settle_stamp' : 'rust_badge'), 0, 0, w, h)) {
+      this._skin(box, 'rust_tile', 0, 0, w, h, (g) => ironSlab(g, -w / 2, -h / 2, w, h, 12));
+    }
+    const icon = signIcon(SIGN_GIFTS[st.slot]!);
+    fitSprite(box, uiTex(icon), 0, -14, 58, 58);
+    const t = lively ? painted(19, 0x8b2e1f, '#fff4c4', 4) : painted(19, MUTED, '#1a1008', 4);
+    t.anchor.set(0.5);
+    t.position.set(0, 30);
+    t.text = st.open ? '每日礼包' : (adLeft ? '再领一份' : '明天再来');
+    box.addChild(t);
+    if (st.open) {
+      const dot = new PIXI.Graphics();
+      dot.beginFill(RUST_RED).lineStyle(3, CREAM, 1).drawCircle(0, 0, 14).endFill();
+      dot.position.set(w / 2 - 10, -h / 2 + 10);
+      box.addChild(dot);
+    }
+    if (lively) this._signBadge = box;
+  }
+
+  /**
+   * 签到牌。不再垫一整块大锈铁板 —— 板子四角的大铆钉总会压到格子和字。
+   * 黑底上直接挂：吊牌写标题，三行格子，第 7 天单独一整条金框，底下一颗主按钮。
+   */
+  private _paintSignSheet(layer: PIXI.Container): void {
+    const H = this._height();
+    const st = signState();
+    const close = (): void => {
+      this._signOpen = false;
+      this._signGot = '';
+      this._render();
+    };
+    const veil = new PIXI.Graphics();
+    veil.beginFill(0x0a0806, 0.84).drawRect(0, 0, 750, H).endFill();
+    veil.eventMode = 'static';
+    veil.hitArea = new PIXI.Rectangle(0, 0, 750, H);
+    bindPointerTap(veil, close, { silent: true });
+    layer.addChild(veil);
+
+    const total = SIGN_LAY.total;
+    const avail = H - Game.safeTop - Game.safeBottom - 16;
+    const k = Math.min(1, avail / total);
+    const sheet = new PIXI.Container();
+    sheet.scale.set(k);
+    sheet.position.set(375, Game.safeTop + 8 + Math.max(0, (avail - total * k) / 2));
+    sheet.eventMode = 'static';
+    sheet.hitArea = new PIXI.Rectangle(-345, 0, 690, total);
+    layer.addChild(sheet);
+
+    const L = SIGN_LAY;
+    const plaque = fitSprite(sheet, uiTex('title_plaque'), 0, L.plaqueCy, L.plaque, L.plaque);
+    const title = plaque ? painted(42, 0x5a1a0c, '#fff0c0', 6) : painted(42, GOLD, '#1a1008', 6);
+    title.anchor.set(0.5);
+    title.position.set(0, L.titleY);
+    title.text = '村口每日礼包';
+    sheet.addChild(title);
+    const sub = plaque ? painted(19, 0x3a1a08, '#fff0c0', 4) : painted(19, CREAM, '#1a1008', 4);
+    sub.anchor.set(0.5);
+    sub.position.set(0, L.subY);
+    sub.text = '天天来领，第 7 天白送喊一次人';
+    sheet.addChild(sub);
+
+    let y = L.gridTop;
+    for (const row of [[0, 1, 2], [3, 4, 5]] as const) {
+      row.forEach((slot, i) => {
+        this._paintSignTile(sheet, (i - 1) * (L.tileW + L.gap), y + L.tileH / 2, L.tileW, L.tileH, slot, st);
+      });
+      y += L.tileH + L.gap;
+    }
+    this._paintSignTile(sheet, 0, y + L.bigH / 2, L.gridW, L.bigH, SIGN_GIFTS.length - 1, st);
+    y += L.bigH + 18;
+
+    const today = SIGN_GIFTS[st.slot]!;
+    const nextSlot = (st.slot + 1) % SIGN_GIFTS.length;
+    const info = painted(22, GOLD, '#1a1008', 4);
+    info.anchor.set(0.5);
+    info.position.set(0, y + 15);
+    const pitch = (slot: number): string => (SIGN_PITCH[slot] ? ` · ${SIGN_PITCH[slot]}` : '');
+    info.text = st.open
+      ? `今天领：${signGiftText(today)}${pitch(st.slot)}`
+      : `明天来领：${signGiftText(SIGN_GIFTS[nextSlot]!)}${pitch(nextSlot)}`;
+    sheet.addChild(info);
+    y += 30 + 14;
+
+    const btnY = y + 54;
+    if (st.open) {
+      this._adGlow.push(this._claimBtn(sheet, 0, btnY, 460, 108, '免费领取', () => this._claimSign()));
+    } else if (adCanShow('dailyGift')) {
+      this._offerAd('dailyGift', { slot: st.slot });
+      this._adPlate(sheet, 0, btnY, 580, 108, '看视频 今天再领一份', () => { void this._adSign(); }, {
+        sub: `再拿 ${signGiftText(today)}`,
+        enabled: !this._adBusy,
+        glow: true,
+      });
+    } else {
+      const done = painted(26, CREAM, '#1a1008', 4);
+      done.anchor.set(0.5);
+      done.position.set(0, btnY);
+      done.text = '今天领满了，明天再来';
+      sheet.addChild(done);
+    }
+    y += 108 + 10;
+
+    const x = painted(22, 0xc8b89a, '#1a1008', 3);
+    x.anchor.set(0.5);
+    x.position.set(0, y + 22);
+    x.text = '关闭';
+    x.eventMode = 'static';
+    x.hitArea = new PIXI.Rectangle(-90, -26, 180, 52);
+    bindPointerTap(x, close);
+    sheet.addChild(x);
+
+    if (this._signGot) this._popSignGot(sheet, btnY - 150, this._signGot);
+    this._signGot = '';
+  }
+
+  /** 金色主按钮。fight_btn 原图 520×238，拉成长条要按九宫格，否则四角铆钉被拉扁 */
+  private _claimBtn(
+    parent: PIXI.Container,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    text: string,
+    onTap: () => void,
+  ): PIXI.Container {
+    const box = new PIXI.Container();
+    box.eventMode = 'static';
+    box.interactiveChildren = false;
+    box.position.set(cx, cy);
+    box.hitArea = new PIXI.Rectangle(-w / 2, -h / 2, w, h);
+    const tex = uiTex('fight_btn');
+    if (tex && tex.baseTexture.valid && tex.width > 1) {
+      slicePlate(box, tex, -w / 2, -h / 2, w, h, FIGHT_SLICE, h / tex.height);
+    } else {
+      const g = new PIXI.Graphics();
+      goldBtn(g, -w / 2, -h / 2, w, h);
+      box.addChild(g);
+    }
+    const t = painted(34, 0x2a160c, '#fff4c4', 5);
+    t.anchor.set(0.5);
+    t.text = text;
+    box.addChild(t);
+    bindPointerTap(box, onTap);
+    parent.addChild(box);
+    return box;
+  }
+
+  /** 领到的那一下：大字弹出来停一拍再淡掉 */
+  private _popSignGot(parent: PIXI.Container, y: number, text: string): void {
+    const t = painted(40, GOLD, '#1a1008', 7);
+    t.anchor.set(0.5);
+    t.position.set(0, y);
+    t.text = text;
+    t.eventMode = 'none';
+    t.scale.set(0.3);
+    parent.addChild(t);
+    TweenManager.to({
+      target: t.scale,
+      props: { x: 1, y: 1 },
+      duration: 0.34,
+      ease: Ease.easeOutBack,
+    });
+    TweenManager.to({
+      target: t,
+      props: { y: y - 60, alpha: 0 },
+      delay: 1.3,
+      duration: 0.5,
+      ease: Ease.easeInOutQuad,
+    });
+  }
+
+  private _paintSignTile(
+    parent: PIXI.Container,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    slot: number,
+    st: ReturnType<typeof signState>,
+  ): void {
+    const got = slot < st.done;
+    const now = slot === st.slot && st.open;
+    const big = slot === SIGN_GIFTS.length - 1;
+    const gold = (now || big) && !got;
+    const tile = new PIXI.Container();
+    tile.position.set(x, y);
+    parent.addChild(tile);
+    if (gold) {
+      const halo = new PIXI.Graphics();
+      for (let i = 4; i >= 1; i -= 1) {
+        halo.beginFill(0xffc23a, 0.07).drawRoundedRect(-w / 2 - i * 7, -h / 2 - i * 7, w + i * 14, h + i * 14, 18 + i * 6).endFill();
+      }
+      tile.addChild(halo);
+    }
+    const tex = uiTex(gold ? 'settle_stamp' : 'rust_badge');
+    if (tex && tex.baseTexture.valid && tex.width > 1) {
+      slicePlate(tile, tex, -w / 2, -h / 2, w, h, gold ? GOLD_SLICE : RUST_SLICE, gold ? 0.36 : 0.6);
+    } else {
+      const g = new PIXI.Graphics();
+      ironSlab(g, -w / 2, -h / 2, w, h, 10);
+      tile.addChild(g);
+    }
+    const ink = (size: number): PIXI.Text => (gold
+      ? painted(size, 0x5a1a0c, '#fff0c0', 4)
+      : painted(size, CREAM, '#1a1008', 4));
+    const items = lootItems(SIGN_GIFTS[slot]!);
+
+    if (big) {
+      const day = ink(24);
+      day.anchor.set(0.5);
+      day.position.set(-w / 2 + 92, -20);
+      day.text = now ? '今天 第7天' : '第7天';
+      tile.addChild(day);
+      const tag = gold ? painted(42, 0xc43a28, '#fff0c0', 6) : painted(42, CREAM, '#1a1008', 6);
+      tag.anchor.set(0.5);
+      tag.position.set(-w / 2 + 92, 22);
+      tag.text = '大礼';
+      tile.addChild(tag);
+      const x0 = -w / 2 + 210;
+      const x1 = w / 2 - 90;
+      const step = (x1 - x0) / Math.max(1, items.length - 1);
+      items.forEach(([icon, n], i) => {
+        const ix = x0 + i * step;
+        fitSprite(tile, uiTex(icon), ix, -12, 56, 56);
+        const num = ink(24);
+        num.anchor.set(0.5);
+        num.position.set(ix, 32);
+        num.text = `×${n}`;
+        tile.addChild(num);
+      });
+      const pitch = SIGN_PITCH[slot];
+      if (pitch) {
+        const p = painted(18, 0xc43a28, '#fff0c0', 4);
+        p.anchor.set(0.5);
+        p.position.set((x0 + x1) / 2, -h / 2 + 14);
+        p.text = pitch;
+        tile.addChild(p);
+      }
+    } else {
+      const day = ink(20);
+      day.anchor.set(0.5);
+      day.position.set(0, -h / 2 + (gold ? 36 : 30));
+      day.text = now ? `今天 第${slot + 1}天` : `第${slot + 1}天`;
+      tile.addChild(day);
+      const icon = items.length > 1 ? 50 : 62;
+      items.forEach(([name, n], i) => {
+        const ix = (i - (items.length - 1) / 2) * 84;
+        fitSprite(tile, uiTex(name), ix, -8, icon, icon);
+        const num = ink(22);
+        num.anchor.set(0.5);
+        num.position.set(ix, 32);
+        num.text = `×${n}`;
+        tile.addChild(num);
+      });
+      const pitch = SIGN_PITCH[slot];
+      if (pitch) {
+        const p = gold ? painted(15, 0xc43a28, '#fff0c0', 3) : painted(15, GOLD, '#1a1008', 3);
+        p.anchor.set(0.5);
+        p.position.set(0, h / 2 - 20);
+        p.text = pitch;
+        tile.addChild(p);
+      }
+    }
+
+    if (got) {
+      tile.alpha = 0.5;
+      const mark = painted(36, 0x9be08a, '#1a1008', 6);
+      mark.anchor.set(0.5);
+      mark.rotation = -0.2;
+      mark.text = '已领';
+      tile.addChild(mark);
+    }
+    if (now) this._adGlow.push(tile);
+  }
+
+  private _claimSign(): void {
+    const res = signClaim();
+    if (!res) {
+      this._render();
+      return;
+    }
+    this._mem = grantLoot(res.gift);
+    track('sign_in', { slot: res.slot });
+    playSfx('win', 0);
+    this._signGot = `领到啦  ${signGiftText(res.gift)}`;
+    this._render();
+  }
+
+  private async _adSign(): Promise<void> {
+    if (this._adBusy || !adCanShow('dailyGift')) return;
+    this._adBusy = true;
+    try {
+      if (!(await this._watchVillageAd('dailyGift'))) return;
+      adRecord('dailyGift');
+      const gift = SIGN_GIFTS[signState().slot]!;
+      this._mem = grantLoot(gift);
+      Platform.hideToast();
+      this._signGot = `又领到  ${signGiftText(gift)}`;
+      playSfx('win', 0);
     } finally {
       this._adBusy = false;
       this._render();
@@ -1491,9 +2038,14 @@ export class VillageScene implements Scene {
     const cardW = (750 - side * 2 - gap * (cols - 1)) / cols;
     const slotH = (gridBot - gridTop - gap * (rows - 1)) / rows;
     const cardH = slotH > 72 ? slotH : 72;
+    // 资源够再练一级的人。只标这些：挂一块静止的小绿牌，不闪不晃，满屏都在动就等于没标
+    const ready = new Set(mem.roster.filter((id) => {
+      const f = nextFeed(p, id);
+      return !!f && mem.scrap >= f.scrap && mem.parts >= f.parts;
+    }));
     const pick = owned.has(this._focus)
       ? this._focus
-      : (shown.find((x) => owned.has(x.id))?.id ?? '');
+      : (shown.find((x) => ready.has(x.id))?.id ?? shown.find((x) => owned.has(x.id))?.id ?? '');
 
     shown.forEach((v, i) => {
       const col = i % cols;
@@ -1541,13 +2093,31 @@ export class VillageScene implements Scene {
       nm.text = known ? v.name : '???';
       box.addChild(nm);
 
-      const tag = label(13, has ? GOLD : MUTED, true);
+      const up = ready.has(v.id);
+      const tag = label(13, up ? READY_GREEN : has ? GOLD : MUTED, true);
       tag.anchor.set(0.5, 0);
       tag.position.set(cardW / 2, cardH - footH + 20);
+      const lv = craftOf(p, v.id);
       tag.text = has
-        ? `${folkSignName(v.id)} Lv.${craftOf(p, v.id)} ${stars(starsOf(p, v.id))}`.trim()
+        ? `${folkSignName(v.id)} Lv.${up ? `${lv}→${lv + 1}` : lv} ${stars(starsOf(p, v.id))}`.trim()
         : known ? `${LANE_NAME[v.lane]}·${JOB_NAME[jobOf(v.role)]}` : '还没见过';
       box.addChild(tag);
+
+      if (up) {
+        const bw = 64;
+        const bh = 24;
+        const badge = new PIXI.Container();
+        badge.position.set(cardW - 10 - bw / 2, 26);
+        const mark = new PIXI.Graphics();
+        mark.beginFill(0x1e4a1a, 0.95).lineStyle(2, READY_GREEN, 1)
+          .drawRoundedRect(-bw / 2, -bh / 2, bw, bh, 8).endFill();
+        badge.addChild(mark);
+        const bt = label(14, READY_GREEN, true);
+        bt.anchor.set(0.5);
+        bt.text = '可升级';
+        badge.addChild(bt);
+        box.addChild(badge);
+      }
 
       if (wide) {
         // 20 个人里谁是主力，不该点进去才知道
@@ -1861,6 +2431,24 @@ export class VillageScene implements Scene {
     const can = mem.scrap >= feed.scrap && mem.parts >= feed.parts;
     const next = craft + 1;
     this._paintCraftBill(layer, lay, feed.scrap, feed.parts);
+    // 只差零件时把主按钮换成看视频：看完这一下就能练。废铁也差的话补零件没用，不摆。
+    // 开局教打摊拿零件那一步不摆，先让人认得破电视
+    const partsShort = feed.parts - mem.parts;
+    if (
+      !can && mem.scrap >= feed.scrap && partsShort > 0
+      && this._craftStep() !== 'stall' && adCanShow('craftParts')
+    ) {
+      const left = adRemaining('craftParts');
+      this._offerAd('craftParts', { short: partsShort });
+      this._adPlate(layer, lay.btnCx, lay.btnY, lay.btnW, lay.btnH, '看视频拿零件', () => {
+        void this._adCraftParts();
+      }, {
+        sub: `差 ${partsShort} 个 · +${CRAFT_AD_PARTS} 零件 · 今天剩 ${left} 次`,
+        enabled: !this._adBusy,
+        glow: true,
+      });
+      return;
+    }
     this._btn(layer, lay.btnCx, lay.btnY, lay.btnW, lay.btnH, '再练一级', () => this._evolve(v.id), {
       sub: `Lv.${craft}→Lv.${next}`,
       enabled: can,

@@ -9,8 +9,14 @@ export const WX_REWARDED_AD = {
   stallPellets: 'adunit-39a3bb98a95fc55c',
   /** 战斗漏怪后原地复活 */
   revive: 'adunit-fe7a8a11e1ea7ee9',
-  /** 结算「看视频，再给 3 发弹子」 */
+  /** 赢了结算「这关再拿一份」：弹子和废铁各再给一次 */
   settleDouble: 'adunit-6233ca9f96b05e36',
+  /** 村口每日礼包（签到）：领完再看一段，今天这份翻倍 */
+  dailyGift: 'adunit-ccd98449734cdc58',
+  /** 输了结算的补给 */
+  loseBonus: 'adunit-3e808f8ac0bd9209',
+  /** 升手艺零件差一点时，看一段拿零件 */
+  craftParts: 'adunit-c5587bc19363af50',
 } as const;
 
 export type RewardedSlot = keyof typeof WX_REWARDED_AD;

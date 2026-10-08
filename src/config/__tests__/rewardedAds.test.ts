@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { WX_REWARDED_AD, rewardedAdUnitId } from '@/config/rewardedAds';
 
 describe('微信激励视频广告位', () => {
-  it('三个入口各有一个已开启的广告位，互不共用', () => {
+  it('六个入口各有一个已开启的广告位，互不共用', () => {
     const ids = Object.values(WX_REWARDED_AD);
     expect(ids).toEqual([
       'adunit-39a3bb98a95fc55c',
       'adunit-fe7a8a11e1ea7ee9',
       'adunit-6233ca9f96b05e36',
+      'adunit-ccd98449734cdc58',
+      'adunit-3e808f8ac0bd9209',
+      'adunit-c5587bc19363af50',
     ]);
     expect(new Set(ids).size).toBe(ids.length);
   });

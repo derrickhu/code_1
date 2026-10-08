@@ -61,6 +61,9 @@ type SettleOpts = {
   nextMove?: string;
   nextStageLabel?: string;
   canDouble: boolean;
+  /** 看完视频多拿的弹子和废铁。赢了是这一关再来一份，输了是补给 */
+  adPellets?: number;
+  adScrap?: number;
   /**
    * 赢了底下那颗大按钮。push 只留下一关，home 只留回村子，next 是下一关为主。
    * 失败结算不看这个。
@@ -68,6 +71,12 @@ type SettleOpts = {
   footer?: WinFooter;
   /** 1-5 还没过、手艺还是 1。大按钮改成回村，再来一局收小 */
   guideHome?: boolean;
+  /** 这一关额外给的东西，进账牌下面单写一行 */
+  gift?: string;
+  /** 开场演出的快慢，1 是原速。开局几关压短，别让人干等 */
+  pace?: number;
+  /** 演完之后几秒自动点下一关。只认 push 底栏，碰了广告或回村就停 */
+  autoNextSec?: number;
 };
 
 type Slot = {
@@ -173,7 +182,11 @@ export class SettleOverlay extends PIXI.Container {
   private readonly _onDouble: () => Promise<boolean>;
   private readonly _onYard: () => void;
   private readonly _onNext: () => void;
+  private readonly _onCall: () => void;
   private _busy = false;
+  private _pace = 1;
+  private _autoNext: { left: number; tx: PIXI.Text; base: string } | null = null;
+  private _autoNextArmed: { sec: number; tx: PIXI.Text; base: string } | null = null;
   private _tookDouble = false;
   private _adPulse: PIXI.Container[] = [];
   private _pulseT = 0;
@@ -187,6 +200,7 @@ export class SettleOverlay extends PIXI.Container {
   private _earnTx: PIXI.Text | null = null;
   private _nameTx: PIXI.Text | null = null;
   private _haveTx: PIXI.Text | null = null;
+  private _losePlus: PIXI.Text | null = null;
   private _adBox: PIXI.Container | null = null;
   private _adLabel: PIXI.Text | null = null;
   /** 开场演出还没放完。点空白跳到终态，按钮呼吸等这段结束 */
@@ -201,12 +215,22 @@ export class SettleOverlay extends PIXI.Container {
     onDouble: () => Promise<boolean>,
     onYard: () => void,
     onNext: () => void,
+    onCall: () => void,
   ) {
     super();
     this._onReplay = onReplay;
     this._onDouble = onDouble;
-    this._onYard = onYard;
-    this._onNext = onNext;
+    this._onYard = () => {
+      this._autoNext = null;
+      this._autoNextArmed = null;
+      onYard();
+    };
+    this._onNext = () => {
+      this._autoNext = null;
+      this._autoNextArmed = null;
+      onNext();
+    };
+    this._onCall = onCall;
     this.visible = false;
     this.eventMode = 'static';
     Game.ticker.add(() => this._tickPulse());
@@ -221,6 +245,9 @@ export class SettleOverlay extends PIXI.Container {
     this._haltIntro();
     this._poses = [];
     this._nextPulse = [];
+    this._autoNext = null;
+    this._autoNextArmed = null;
+    this._pace = Math.max(0.2, Math.min(1, opts.pace ?? 1));
     this.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.visible = true;
     this.eventMode = 'static';
@@ -282,7 +309,7 @@ export class SettleOverlay extends PIXI.Container {
 
     const footerH = 96;
     const footerY = height - Game.safeBottom - 20 - footerH / 2;
-    this._winFooter(footer, footerY, opts.nextStageLabel);
+    this._winFooter(footer, footerY, opts.nextStageLabel, opts.autoNextSec);
 
     const slots: Slot[] = [];
 
@@ -310,24 +337,56 @@ export class SettleOverlay extends PIXI.Container {
       },
     });
 
+    if (opts.gift) {
+      const gift = opts.gift;
+      slots.push({
+        h: 34 * gift.split('\n').length,
+        draw: (cy) => {
+          const tx = stroke(24, 0x9be08a, '#1a1008', 5);
+          tx.anchor.set(0.5);
+          tx.style.align = 'center';
+          tx.style.lineHeight = 34;
+          tx.position.set(375, cy);
+          tx.text = gift;
+          this.addChild(tx);
+          this._pop(tx, WIN.foot, WIN.pop);
+        },
+      });
+    }
+
     if (opts.canDouble && !this._tookDouble) {
+      const addP = opts.adPellets ?? SETTLE_AD_PELLETS;
+      const addS = opts.adScrap ?? 0;
+      const gain = addS > 0 ? `+${addP} 弹子  +${addS} 废铁` : `+${addP} 发弹子`;
       slots.push({
         h: adBtn.h,
         draw: (cy) => {
-          const ad = this._adBtn(375, cy, 640, 146, `看视频，再给 ${SETTLE_AD_PELLETS} 发弹子`, async () => {
+          const ad = this._adBtn(375, cy, 640, 146, `看视频 这关再拿一份\n${gain}`, async () => {
             if (this._busy || this._tookDouble) return;
+            this._autoNext = null;
+            this._autoNextArmed = null;
             this._busy = true;
             const ok = await this._onDouble();
             this._busy = false;
             if (!ok || !this._held) return;
             this._tookDouble = true;
-            const from = this._held.opts.pellets;
-            const to = from + SETTLE_AD_PELLETS;
-            this._held.opts = { ...this._held.opts, pellets: to };
+            const was = this._held.opts;
+            const from = was.pellets;
+            const to = from + addP;
+            this._held.opts = {
+              ...was, pellets: to, earned: was.earned + addS, scrap: was.scrap + addS,
+            };
             // 宿主关广告后常自带「领取成功」，先清掉再滚数字，免得盖住变化
             Platform.hideToast();
             this._roll(this._nameTx, from, to, (n) => `废铁 · +${n} 发弹子`);
-            this._lockAd();
+            const nameTx = this._nameTx;
+            const earnTx = this._earnTx;
+            this._roll(earnTx, was.earned, was.earned + addS, (n) => `+${n}`, () => {
+              if (!nameTx || nameTx.destroyed || !earnTx || earnTx.destroyed) return;
+              nameTx.x = earnTx.x + earnTx.width + 12;
+            });
+            if (this._haveTx && !this._haveTx.destroyed) this._haveTx.text = `村里废铁 ${was.scrap + addS}`;
+            this._lockAd(`已多拿 ${gain}`);
           });
           this._pop(ad, WIN.ad, WIN.pop);
         },
@@ -335,7 +394,7 @@ export class SettleOverlay extends PIXI.Container {
     }
 
     // 回村是一颗小按钮，压在下一关上面，给它让出高度
-    const footerLift = footer === 'push' ? 80 : 0;
+    const footerLift = footer === 'push' || footer === 'craft' ? 80 : 0;
     let cursor = footerY - footerH / 2 - 16 - footerLift;
     for (let i = slots.length - 1; i >= 0; i -= 1) {
       const slot = slots[i]!;
@@ -378,7 +437,7 @@ export class SettleOverlay extends PIXI.Container {
 
   /**
    * 失败结算按 settle_ui_lose_v2：歪匾、坐马路牙子、下一手是主信息、
-   * 废品缩小、再来一局为主，没有广告。
+   * 废品缩小、再来一局为主。补给广告压在再来一局上面，不抢主按钮。
    */
   private _showLose(state: BattleState, memory: RunMemory, height: number, opts: SettleOpts): void {
     this._intro = true;
@@ -444,7 +503,10 @@ export class SettleOverlay extends PIXI.Container {
     const replayH = 118;
     const yardCy = height - Game.safeBottom - 18 - yardH / 2;
     const replayCy = yardCy - yardH / 2 - 14 - replayH / 2;
-    const capCy = replayCy - replayH / 2 - 24;
+    const supply = opts.canDouble && !this._tookDouble;
+    const adH = 124;
+    const adCy = replayCy - replayH / 2 - 12 - adH / 2;
+    const capCy = (supply ? adCy - adH / 2 : replayCy - replayH / 2) - 24;
     const lootH = 88;
     const lootCy = capCy - 18 - lootH / 2;
 
@@ -485,6 +547,27 @@ export class SettleOverlay extends PIXI.Container {
     cap.text = footLine(state, memory, opts);
     this.addChild(cap);
 
+    this._adPulse = [];
+    if (supply) {
+      const addP = opts.adPellets ?? 0;
+      const addS = opts.adScrap ?? 0;
+      const gain = `+${addP} 弹子  +${addS} 废铁`;
+      this._adBtn(375, adCy, 620, adH, `看视频领补给\n${gain}`, async () => {
+        if (this._busy || this._tookDouble) return;
+        this._busy = true;
+        const ok = await this._onDouble();
+        this._busy = false;
+        if (!ok || !this._held) return;
+        this._tookDouble = true;
+        const was = this._held.opts;
+        this._held.opts = { ...was, pellets: was.pellets + addP, scrap: was.scrap + addS };
+        Platform.hideToast();
+        this._roll(this._losePlus, was.pellets, was.pellets + addP, (n) => `+${n} 发弹子`);
+        this._roll(this._haveTx, was.scrap, was.scrap + addS, (n) => `村里废铁 ${n}`);
+        this._lockAd(`已领 ${gain}`);
+      });
+    }
+
     if (opts.guideHome) {
       this._fillBtn(375, replayCy, 560, replayH, '回村子', 28, () => this._onYard());
       this._fillBtn(375, yardCy, 360, yardH, '再来一局', 20, () => this._onReplay());
@@ -511,11 +594,13 @@ export class SettleOverlay extends PIXI.Container {
     plus.text = `+${opts.pellets} 发弹子`;
     plus.position.set(375 - size.w * 0.24, cy);
     this.addChild(plus);
+    this._losePlus = plus;
     const have = stroke(16, CREAM, '#1a1008', 3);
     have.anchor.set(1, 0.5);
     have.position.set(375 + size.w * 0.4, cy);
     have.text = `村里废铁 ${opts.scrap}`;
     this.addChild(have);
+    this._haveTx = have;
   }
 
   hide(): void {
@@ -527,6 +612,8 @@ export class SettleOverlay extends PIXI.Container {
     this.eventMode = 'none';
     this._busy = false;
     this._tookDouble = false;
+    this._autoNext = null;
+    this._autoNextArmed = null;
     this._adPulse = [];
     this._earnTx = null;
     this._nameTx = null;
@@ -599,11 +686,26 @@ export class SettleOverlay extends PIXI.Container {
       if (pellets !== undefined) this._nameTx.text = `废铁 · +${pellets} 发弹子`;
       this._nameTx.x = this._earnTx.x + this._earnTx.width + 12;
     }
+    this._startAutoNext();
   }
 
   /** 开场演完，下一关才开始呼吸。按钮本身一直能点 */
   private _openPlay(): void {
     this._intro = false;
+    this._startAutoNext();
+  }
+
+  private _startAutoNext(): void {
+    const armed = this._autoNextArmed;
+    this._autoNextArmed = null;
+    if (!armed || armed.tx.destroyed) return;
+    this._autoNext = { left: armed.sec, tx: armed.tx, base: armed.base };
+    armed.tx.text = `${armed.base} · ${armed.sec}`;
+  }
+
+  /** 演出快慢只乘在开场的拍子上 */
+  private _d(t: number): number {
+    return t * this._pace;
   }
 
   private _later(delay: number, fn: () => void): void {
@@ -612,7 +714,7 @@ export class SettleOverlay extends PIXI.Container {
     TweenManager.to({
       target: proxy,
       props: { t: 1 },
-      delay,
+      delay: this._d(delay),
       duration: 0.01,
       onComplete: fn,
     });
@@ -626,8 +728,8 @@ export class SettleOverlay extends PIXI.Container {
     TweenManager.to({
       target: node,
       props: { y: rest },
-      delay,
-      duration: dur,
+      delay: this._d(delay),
+      duration: this._d(dur),
       ease: Ease.easeOutBack,
       onComplete: () => {
         if (punch && !punch.destroyed) this._punch(punch);
@@ -644,8 +746,8 @@ export class SettleOverlay extends PIXI.Container {
     TweenManager.to({
       target: node.scale,
       props: { x: sx, y: sy },
-      delay,
-      duration: dur,
+      delay: this._d(delay),
+      duration: this._d(dur),
       ease: Ease.easeOutBack,
     });
   }
@@ -657,8 +759,8 @@ export class SettleOverlay extends PIXI.Container {
     TweenManager.to({
       target: node,
       props: { alpha: 1 },
-      delay,
-      duration: dur,
+      delay: this._d(delay),
+      duration: this._d(dur),
       ease: Ease.easeOutCubic,
     });
   }
@@ -703,7 +805,7 @@ export class SettleOverlay extends PIXI.Container {
     TweenManager.to({
       target: proxy,
       props: { t: 1 },
-      delay,
+      delay: this._d(delay),
       duration: 0.28,
       onUpdate: () => {
         if (node.destroyed) return;
@@ -725,13 +827,13 @@ export class SettleOverlay extends PIXI.Container {
     TweenManager.to({
       target: node,
       props: { alpha: 1 },
-      delay,
+      delay: this._d(delay),
       duration: 0.08,
     });
     TweenManager.to({
       target: node.scale,
       props: { x: 1, y: 1 },
-      delay,
+      delay: this._d(delay),
       duration: 0.26,
       ease: Ease.easeOutBack,
       onComplete: () => {
@@ -775,14 +877,14 @@ export class SettleOverlay extends PIXI.Container {
     TweenManager.to({
       target: node,
       props: { alpha: 1 },
-      delay,
+      delay: this._d(delay),
       duration: 0.1,
     });
     TweenManager.to({
       target: node.scale,
       props: { x: 1, y: 1 },
-      delay,
-      duration: WIN.slam,
+      delay: this._d(delay),
+      duration: this._d(WIN.slam),
       ease: Ease.easeOutBack,
       onComplete: () => {
         if (!this._intro || node.destroyed) return;
@@ -873,7 +975,24 @@ export class SettleOverlay extends PIXI.Container {
   }
 
   private _tickPulse(): void {
-    if (!this.visible || this._intro) return;
+    if (!this.visible) return;
+    const auto = this._autoNext;
+    if (auto && !this._busy) {
+      if (auto.tx.destroyed) {
+        this._autoNext = null;
+      } else {
+        const before = Math.ceil(auto.left);
+        auto.left -= Game.ticker.deltaMS / 1000;
+        if (auto.left <= 0) {
+          this._autoNext = null;
+          this._onNext();
+          return;
+        }
+        const now = Math.ceil(auto.left);
+        if (now !== before) auto.tx.text = `${auto.base} · ${now}`;
+      }
+    }
+    if (this._intro) return;
     if (this._adPulse.length === 0 && this._nextPulse.length === 0) return;
     this._pulseT += Game.ticker.deltaMS / 1000;
     const s = 1 + Math.sin(this._pulseT * 3.2) * 0.035;
@@ -936,8 +1055,8 @@ export class SettleOverlay extends PIXI.Container {
     TweenManager.to({
       target: proxy,
       props: { v: to },
-      delay,
-      duration,
+      delay: this._d(delay),
+      duration: this._d(duration),
       ease: Ease.easeOutCubic,
       onUpdate: () => {
         if (tx.destroyed) return;
@@ -972,14 +1091,14 @@ export class SettleOverlay extends PIXI.Container {
   }
 
   /** 广告钮停掉呼吸，改成已领，不能再点 */
-  private _lockAd(): void {
+  private _lockAd(done: string): void {
     this._adPulse = [];
     const box = this._adBox;
     if (!box || box.destroyed) return;
     box.eventMode = 'none';
     box.scale.set(1);
     if (this._adLabel && !this._adLabel.destroyed) {
-      this._adLabel.text = `已再给 ${SETTLE_AD_PELLETS} 发`;
+      this._adLabel.text = done;
     }
     TweenManager.to({
       target: box.scale,
@@ -1102,12 +1221,34 @@ export class SettleOverlay extends PIXI.Container {
   }
 
   /** 赢了的底栏。大按钮会呼吸，旁边的两颗不会 */
-  private _winFooter(footer: WinFooter, footerY: number, nextLabel?: string): void {
+  private _winFooter(footer: WinFooter, footerY: number, nextLabel?: string, autoNextSec?: number): void {
     const goHome = (): void => {
       const home = this._imgBtn('settle_btn', 375, footerY, 420, 96, '回村子', 26, () => this._onYard());
       this._pop(home, WIN.next, WIN.pop);
       this._nextPulse.push(home);
     };
+    if (footer === 'call') {
+      const call = this._imgBtn('settle_btn', 375, footerY, 420, 96, '喊人来帮忙', 26, () => {
+        if (this._busy) return;
+        this._busy = true;
+        this._onCall();
+      });
+      this._pop(call, WIN.next, WIN.pop);
+      this._nextPulse.push(call);
+      return;
+    }
+    if (footer === 'craft') {
+      const home = this._imgBtn('settle_btn', 375, footerY, 420, 96, '回村升手艺', 26, () => this._onYard());
+      this._pop(home, WIN.next, WIN.pop);
+      this._nextPulse.push(home);
+      if (nextLabel) {
+        const backH = 68;
+        const backY = footerY - 48 - 12 - backH / 2;
+        const next = this._imgBtn('settle_btn', 375, backY, 248, backH, `下一关 ${nextLabel}`, 20, () => this._onNext());
+        this._pop(next, WIN.yard, WIN.pop);
+      }
+      return;
+    }
     if (footer === 'home' || !nextLabel) {
       goHome();
       return;
@@ -1117,6 +1258,10 @@ export class SettleOverlay extends PIXI.Container {
       const next = this._imgBtn('settle_btn', 375, footerY, 420, 96, title, 24, () => this._onNext());
       this._pop(next, WIN.next, WIN.pop);
       this._nextPulse.push(next);
+      const tx = next.children.find((c): c is PIXI.Text => c instanceof PIXI.Text);
+      if (autoNextSec && autoNextSec > 0 && tx) {
+        this._autoNextArmed = { sec: Math.ceil(autoNextSec), tx, base: title };
+      }
       const backH = 68;
       const backY = footerY - 48 - 12 - backH / 2;
       const back = this._imgBtn('settle_btn', 375, backY, 248, backH, '回村子', 20, () => this._onYard());

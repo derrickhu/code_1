@@ -24,7 +24,9 @@ import {
 import {
   CALL_COST, CRAFT_COST, STAR_GRANT_COST, emptyProgress, nextVillageCost, rollCall, squadCap, starWeekKey,
 } from '@/balance/village';
-import { CRAFT_MAX, DEFAULT_SQUAD, STAR_MAX, VILLAGERS } from '@/balance/villagers';
+import {
+  CRAFT_MAX, DEFAULT_SQUAD, OPENING_LATE_ID, OPENING_SQUAD, STAR_MAX, VILLAGERS,
+} from '@/balance/villagers';
 import {
   buyEvo,
   callVillager,
@@ -36,6 +38,7 @@ import {
   gmGrant,
   gmUnlockToStage,
   loadMemory,
+  openingCall,
   saveLayout,
   setStageId,
   settlePellets,
@@ -48,6 +51,7 @@ import {
   totalStars,
 } from '@/core/RunMemory';
 import { STAGE_COUNT } from '@/balance/stages';
+import { OPENING_CALL_ID, OPENING_PARTS } from '@/balance/opening';
 
 function write(patch: Record<string, unknown>): void {
   store.set(KEY, JSON.stringify({ ...loadMemory(), ...patch }));
@@ -56,14 +60,25 @@ function write(patch: Record<string, unknown>): void {
 describe('新档开局', () => {
   beforeEach(() => store.clear());
 
-  it('开局就有三个人，能上的人数跟村庄等级对得上', () => {
+  it('开局两个人，1-2 喊来的正好补第三格', () => {
     const mem = loadMemory();
-    expect(mem.roster).toEqual([...DEFAULT_SQUAD]);
+    expect(mem.roster).toEqual([...OPENING_SQUAD]);
+    expect(mem.roster.length).toBe(squadCap(1) - 1);
     expect(mem.villageLv).toBe(1);
     expect(capOf(mem)).toBe(squadCap(1));
     // 第一关必须能打：没有弹子也不该卡在村里
     expect(mem.stageId).toBe(1);
     expect(mem.stageTop).toBe(1);
+  });
+
+  it('1-3 首通王大锤回村，重打不再给；从 1-4 起名单跟老三人 + 三婶一样', () => {
+    write({ roster: [...OPENING_SQUAD, OPENING_CALL_ID], stageTop: 3, callCount: 1 });
+    expect(settleStage(3, false, 0).joined).toBeUndefined();
+    const res = settleStage(3, true, 2);
+    expect(res.joined).toBe(OPENING_LATE_ID);
+    expect([...res.mem.roster].sort()).toEqual([...DEFAULT_SQUAD, OPENING_CALL_ID].sort());
+    expect(settleStage(3, true, 3).joined).toBeUndefined();
+    expect(loadMemory().roster.filter((id) => id === OPENING_LATE_ID)).toHaveLength(1);
   });
 
   /*
@@ -76,7 +91,7 @@ describe('新档开局', () => {
     }));
     const mem = loadMemory();
     expect(mem.scrap).toBe(0);
-    expect(mem.roster).toEqual([...DEFAULT_SQUAD]);
+    expect(mem.roster).toEqual([...OPENING_SQUAD]);
   });
 
   it('坏字段不会把存档读崩', () => {
@@ -166,6 +181,34 @@ describe('推图进度', () => {
       { id: 'nobody', lane: 1, cell: 1 },
     ]);
     expect(mem.layout.map((s) => s.id)).toEqual(['tiezhu']);
+  });
+});
+
+describe('开局三关', () => {
+  beforeEach(() => store.clear());
+
+  it('1-2 过了不花工分喊来三婶，只喊一次，算进喊人次数', () => {
+    expect(openingCall()).toBeUndefined();
+    settleStage(1, true, 3);
+    settleStage(2, true, 3);
+    const res = openingCall();
+    expect(res?.got).toBe(OPENING_CALL_ID);
+    expect(res!.mem.roster).toContain(OPENING_CALL_ID);
+    expect(res!.mem.callCount).toBe(1);
+    expect(res!.mem.credits).toBe(0);
+    expect(openingCall()).toBeUndefined();
+  });
+
+  it('1-3 首通送够第一档手艺的零件，重打不送', () => {
+    settleStage(1, true, 3);
+    settleStage(2, true, 3);
+    const first = settleStage(3, true, 3);
+    expect(first.parts).toBe(OPENING_PARTS);
+    expect(first.mem.parts).toBe(CRAFT_COST[0]!.parts);
+    expect(first.mem.scrap).toBeGreaterThanOrEqual(CRAFT_COST[0]!.scrap);
+    expect(buyEvo(DEFAULT_SQUAD[0]!)).toBeDefined();
+    expect(settleStage(3, true, 3).parts).toBe(0);
+    expect(settleStage(4, true, 3).parts).toBe(0);
   });
 });
 
@@ -263,7 +306,7 @@ describe('喊人与进化', () => {
       expect(res).toBeDefined();
       expect(res!.isNew).toBe(true);
     }
-    expect(loadMemory().roster.length).toBe(DEFAULT_SQUAD.length + 4);
+    expect(loadMemory().roster.length).toBe(OPENING_SQUAD.length + 4);
   });
 
   it('人满了之后喊重的折废铁并且加星', () => {

@@ -70,7 +70,7 @@ const STALL_CHROME = [
   'icon_scrap', 'icon_parts', 'icon_credits', 'icon_pellets',
   'paint_scrap', 'paint_parts', 'paint_credits', 'paint_pellets',
   ...PAINT_DIGITS,
-  'rust_btn', 'ad_btn', 'rust_plank',
+  'rust_btn', 'ad_btn', 'rust_plank', 'settle_name',
 ] as const;
 
 const ROAD_CHROME = [
@@ -260,8 +260,18 @@ export function battlePreloadImages(
     faces.push(...heroFaceArt(h));
     rest.push(...heroBattleArt(h));
   }
-  for (const id of stageEnemyIds(stage)) rest.push(...enemyBattleArt(id));
-  return unique([...faces, ...rest]);
+  // 怪一开打就上场，走路帧排在村民出手图前面；晚到了第一只会顶着站姿滑下来
+  const foes: string[] = [];
+  for (const id of stageEnemyIds(stage)) foes.push(...enemyBattleArt(id));
+  return unique([...faces, ...foes, ...rest]);
+}
+
+/**
+ * 新人开屏直接进 1-1，0.45 秒就自动开打。加载页先把这一局的人、怪、弹拉齐，
+ * 不然头几只怪只有血条、身子透明，弹也是一团色块。大特效图还是开打后补。
+ */
+export function openingBattleImages(stageId: number, heroes: readonly HeroArtNeed[]): string[] {
+  return unique([...battlePreloadImages(stageId, heroes), ...PROJ_FILES.map((n) => projPath(n))]);
 }
 
 /** 出手预览台：本机浏览器，可以把当前池子一次性拉齐。 */
