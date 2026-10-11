@@ -25,7 +25,7 @@ import { bindPointerTap } from '@/minigame';
 import { getTouchCanvas } from '@/utils/touchCanvas';
 import {
   CELL_COUNT, FIELD_W, FIELD_X, GOAL_POS, LANE_COUNT, LANE_W, LEAK_ALLOW, SLOW_MUL, TICK_MS,
-  battleFieldLay, cellPos, fieldEnemyH, fieldFightUnitH, hitDeployCell,
+  battleFieldLay, cellPos, cellScreenH, fieldEnemyH, fieldFightUnitH, hitDeployCell,
   laneScreenX, posScreenY,
 } from '@/balance/combat';
 import { getStage, stageEnemyCount } from '@/balance/stages';
@@ -40,7 +40,8 @@ import {
 } from '@/ui/BenchDock';
 import { LeaveAskOverlay } from '@/ui/LeaveAskOverlay';
 import { ReviveOverlay } from '@/ui/ReviveOverlay';
-import { SettleOverlay } from '@/ui/SettleOverlay';
+import { SettleOverlay, type ChestView } from '@/ui/SettleOverlay';
+import { chapterStars, nextChestNeed } from '@/balance/starChest';
 import { CallReveal } from '@/ui/CallReveal';
 import { CombatFx, type SkillMark } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
@@ -50,7 +51,8 @@ import {
 } from '@/config/assetPreload';
 import { ensureAssets } from '@/core/ensureAssets';
 import { bgTex, fillCover, heroTex, uiTex, watchArt, type UiName } from '@/core/TextureLoader';
-import { playSfx } from '@/core/SfxPlayer';
+import { buzz, playSfx } from '@/core/SfxPlayer';
+import { signNewcomerTomorrow } from '@/core/SignIn';
 import { track } from '@/core/Analytics';
 import {
   grantLoot, capOf, loadMemory, openingCall, progressOf, saveLayout, settleStage,
@@ -69,8 +71,8 @@ import {
   GOLD, fillSprite, fitSprite, goldBtn, hpBar, ironSlab, label, painted, reachPoly,
 } from '@/ui/paint';
 import {
-  autoPlace, battleClockMs, castSkill, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin,
-  bumpFor, placeAt, placedOf, removeAt, skillAllies, skillReady, skillTargets,
+  autoPlace, battleClockMs, castSkill, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin, laneLoad,
+  bumpFor, placeAt, placedOf, playerShot, removeAt, skillAllies, skillReady, skillTargets,
   countedLeaks, reviveAfterLeak, reviveCanContinue, startFight, tick,
   type BattleState, type Candidate, type Fighter, type Foe, type Placement,
 } from '@/game/BattleEngine';
@@ -91,6 +93,29 @@ const GUIDE_SWAP_KEY = 'guide_swap';
 const ART_FLUSH_FIGHT_S = 0.4;
 /** 第一招等多久没点就替他放。战斗照常走，不放慢 */
 const SKILL_GUIDE_WAIT_S = 6;
+/** 1-1 首通横幅停多久，然后直接进 1-2 */
+const FLOW_HOLD_S = 1.6;
+/** 两只倒下隔多久以内算连杀 */
+const COMBO_GAP_S = 1.8;
+/** 这么短里倒下 3 只以上算「一扫一片」 */
+const BURST_GAP_S = 0.45;
+/** 第 2 只起每 3 只掉一节电池，大个子必掉；场上最多同时躺 3 节 */
+const DROP_FIRST = 2;
+const DROP_EVERY = 3;
+const DROP_MAX = 3;
+const DROP_LIFE_S = 5;
+const DROP_HIT_R = 60;
+/** 点一节电池，场上每个人加这么多劲头（占满格的比例） */
+const DROP_ENERGY = 0.25;
+const GUIDE_DROP_KEY = 'guide_drop';
+/** 亲手点怪：连点最短间隔、手指离怪多远还算点中、怪走出来多远才挂「点它！」 */
+const TAP_GAP_S = 0.09;
+const TAP_NEAR = 110;
+const TAP_TIP_FROM = 0.3;
+const GUIDE_TAP_KEY = 'guide_tap';
+const TAP_FROM_X = 375;
+const ONE_LANE_UNIT_MUL = 1.3;
+const ONE_LANE_UNIT_FILL = 0.84;
 /** 1-1 第一招教谁。连射整条路都挨，一下能带走一串，最容易看懂 */
 const GUIDE_SKILL_ID = 'laoyanqiang';
 /** 开打多久、路上至少几只怪，才叫玩家点第一招 */
@@ -210,6 +235,26 @@ export class BattleScene implements Scene {
   private _autoStartLeft = 0;
   /** 第 1 章布阵时开打键的呼吸相位 */
   private _startPulseT = 0;
+  /** 连杀：倒下的间隔不超过 COMBO_GAP_S 就接着数 */
+  private _comboN = 0;
+  private _comboLeft = 0;
+  private _comboPunch = 0;
+  /** 最近一小撮同时倒下的，用来认「一扫一片」 */
+  private _burstN = 0;
+  private _burstLeft = 0;
+  private readonly _comboText = painted(40, GOLD, '#1a1008', 6);
+  /** 外星人掉的电池。点一下全员攒劲，没点到就散了，不扣东西 */
+  private _drops: { x: number; y: number; life: number; t: number; box: PIXI.Container }[] = [];
+  private _killN = 0;
+  private _dropHintDue = false;
+  /** 亲手点怪的连点间隔，按真实时间走 */
+  private _tapCd = 0;
+  /** 头一回挂在怪头上的「点它！」，点中过一次就不再挂 */
+  private readonly _tapTip = painted(30, GOLD, '#1a1008', 6);
+  private _tapTipT = 0;
+  /** 1-1 首通后横幅停留的倒计时，走完直接进 1-2。0 表示不在等 */
+  private _flowLeft = 0;
+  private readonly _flowBanner = new PIXI.Container();
   /** 1-1 开打时底线亮一下 */
   private _lineFlash = 0;
   /** PULSE_SECS 报到第几个了 */
@@ -382,13 +427,24 @@ export class BattleScene implements Scene {
       this._presetOf(this._mem, bench, stage, cap),
     );
 
+    this._computeLayout();
     this._accMs = 0;
     this._settled = false;
     this._waveTold = 0;
+    this._tapCd = 0;
+    this._tapTip.visible = false;
     this._startedAt = 0;
     this._guideLife = 0;
     this._guideHold = false;
-    this._autoStartLeft = stage.id === 1 ? 0.45 : 0;
+    this._autoStartLeft = this._autoStartFor(stage.id);
+    this._flowLeft = 0;
+    this._flowBanner.visible = false;
+    this._comboN = 0;
+    this._comboLeft = 0;
+    this._burstN = 0;
+    this._burstLeft = 0;
+    this._comboText.visible = false;
+    this._clearDrops();
     this._lineFlash = 0;
     this._pulseIdx = 0;
     this._hideNoted = false;
@@ -939,9 +995,15 @@ export class BattleScene implements Scene {
     if (this._lineFlash > 0) this._lineFlash = Math.max(0, this._lineFlash - realDt);
     if (this._autoStartLeft > 0) {
       this._autoStartLeft = Math.max(0, this._autoStartLeft - realDt);
-      if (this._autoStartLeft === 0 && this._placing() && this._state.stage.id === 1) {
+      if (this._autoStartLeft === 0 && this._placing() && this._state.placed.length > 0) {
         this._beginFight();
       }
+    }
+    if (this._flowLeft > 0) {
+      this._flowLeft = Math.max(0, this._flowLeft - realDt);
+      const k = Math.min(1, (FLOW_HOLD_S - this._flowLeft) / 0.25);
+      this._flowBanner.scale.set(0.7 + 0.3 * k + Math.sin(k * Math.PI) * 0.12);
+      if (this._flowLeft === 0) this._restart(this._state.stage.id + 1);
     }
     this._pulseStartBtn(realDt);
     const pulseAt = PULSE_SECS[this._pulseIdx];
@@ -965,6 +1027,8 @@ export class BattleScene implements Scene {
       return;
     }
     this._tickSkillGuide(realDt);
+    if (this._tapCd > 0) this._tapCd = Math.max(0, this._tapCd - realDt);
+    this._tickTapTip(realDt);
     // 倍速只快战斗本身。横切条、提示按真实时间走，快进时照样念得完
     const dt = this._state.phase === 'fighting' ? realDt * this._speed : realDt;
     this._pulseT += realDt;
@@ -992,6 +1056,8 @@ export class BattleScene implements Scene {
 
     if (!frozen) this._walkGhosts(dt);
     this._fx.update(dt);
+    this._tickCombo(dt);
+    this._tickDrops(dt);
     const sh = this._fx.shakePx;
     this._arena.position.set(sh > 0 ? (Math.random() - 0.5) * 2 * sh : 0, sh > 0 ? (Math.random() - 0.5) * 2 * sh : 0);
     this._tickFlash(dt);
@@ -1168,6 +1234,30 @@ export class BattleScene implements Scene {
         continue;
       }
 
+      if (ev.kind === 'tap') {
+        const e = this._state.foes.find((x) => x.id === ev.foeId);
+        if (!e) continue;
+        const ep = this._foeAt(e, this._shownPos.get(e.id) ?? e.pos);
+        this._lastFoeXY.set(e.id, ep);
+        this._vitals.seed(`e${ev.foeId}`, e.maxHp, 0);
+        const sling = getVillager('laoyanqiang');
+        this._fx.consume({ kind: 'hit', uid: 'tap', foeId: ev.foeId, damage: ev.damage, killed: ev.killed }, {
+          hx: TAP_FROM_X, hy: this._lay.goalY + 30,
+          ex: ep.x, ey: ep.y - ep.h * 0.5,
+          color: GOLD,
+          fx: resolveAttackFx(sling, 1),
+          skin: resolveFxSkin(sling, 1),
+          melee: false,
+          enemyId: ev.foeId,
+          tap: ev.crit ? 'crit' : 'hit',
+          onLand: () => {
+            this._foeActors.get(ev.foeId)?.flash(120);
+            this._vitals.landEnemy(`e${ev.foeId}`, ev.damage);
+          },
+        });
+        continue;
+      }
+
       if (ev.kind === 'foeHit') {
         const e = this._state.foes.find((x) => x.id === ev.foeId);
         const f = this._state.team.find((x) => x.uid === ev.uid);
@@ -1204,10 +1294,14 @@ export class BattleScene implements Scene {
       if (ev.kind === 'foeDown') {
         const p = this._lastFoeXY.get(ev.foeId);
         if (!p) continue;
+        const boss = !!this._state.foes.find((x) => x.id === ev.foeId)?.boss;
         // 倒下等最后一发落地。现在就淡出 / 抽血条，石子会打在空位上。
         this._fx.consume(ev, {
           ex: p.x, ey: p.y - p.h * 0.5, enemyId: ev.foeId,
-          onLand: () => this._foeActors.get(ev.foeId)?.killOff(),
+          onLand: () => {
+            this._foeActors.get(ev.foeId)?.killOff();
+            this._onKillLand(p.x, p.y - p.h * 0.5, boss);
+          },
         });
         continue;
       }
@@ -1320,12 +1414,19 @@ export class BattleScene implements Scene {
       benchH: BENCH_H + START_STRIP,
     });
     this._lay = { top: chrome.barBottom, spawnY, goalY, height, chrome };
-    this._unitH = fieldFightUnitH({
+    // 只来一路的关，两边路是空的，人和怪放大了站，别缩在一片土里像棋子
+    // 前后两格站人，身高加血条不能过一格，否则前一个的脚踩在后一个头上
+    const oneLane = laneLoad(this._state.stage).filter((n) => n > 0).length <= 1;
+    const unitArgs = {
       chromeBottom: chrome.barBottom,
       height,
       safeBottom: Game.safeBottom,
       benchH: BENCH_H + START_STRIP,
-    });
+    };
+    const base = fieldFightUnitH(unitArgs);
+    const fight = battleFieldLay({ ...unitArgs, placing: false });
+    const roof = cellScreenH(fight.spawnY, fight.goalY) * ONE_LANE_UNIT_FILL;
+    this._unitH = oneLane ? Math.round(Math.max(base, Math.min(base * ONE_LANE_UNIT_MUL, roof))) : base;
     this._arenaMask.clear();
     // 战场从牌下沿起。怪和弹都不许画进锈铁里。
     this._arenaMask.beginFill(0xffffff).drawRect(0, chrome.barBottom, 750, height - chrome.barBottom).endFill();
@@ -1480,6 +1581,8 @@ export class BattleScene implements Scene {
       }
       return;
     }
+    if (this._tapDrop(p)) return;
+    if (this._tapFoe(p)) return;
     const hit = this._hitFighter(p.x, p.y);
     this._toggleInspect(hit?.uid ?? null);
   }
@@ -1991,6 +2094,220 @@ export class BattleScene implements Scene {
     this._applyHudLayout();
   }
 
+  /**
+   * 落地后自己开打的关。1-1 每次都是；1-2 只在头一回（没打完过），阵型沿用 1-1。
+   * 结算页和布阵页是新人走得最多的两个口子，布阵留到 1-3 三婶要拖上路时再教
+   */
+  private _autoStartFor(stageId: number): number {
+    if (stageId === 1) return 0.45;
+    if (stageId === 2 && this._mem.stageStars[2] === undefined) return 1.1;
+    return 0;
+  }
+
+  /** 一只怪真倒在画面上那一刻。连杀从 3 起报数，一招扫倒一片另给一下重的 */
+  private _onKillLand(x: number, y: number, boss = false): void {
+    this._killN += 1;
+    if (boss || (this._killN >= DROP_FIRST && (this._killN - DROP_FIRST) % DROP_EVERY === 0)) {
+      this._spawnDrop(x, y);
+    }
+    this._comboN = this._comboLeft > 0 ? this._comboN + 1 : 1;
+    this._comboLeft = COMBO_GAP_S;
+    this._burstN = this._burstLeft > 0 ? this._burstN + 1 : 1;
+    this._burstLeft = BURST_GAP_S;
+    if (this._burstN === 3) {
+      this._fx.shake(9);
+      this._fx.floatText('一扫一片！', x, y - 40, 0xffe08a, 30);
+      playSfx('hit_smash', 0);
+      buzz('medium');
+    } else {
+      this._fx.shake(this._comboN >= 3 ? 3 : 1.5);
+    }
+    if (this._comboN < 3) return;
+    const t = this._comboText;
+    t.text = `连杀 ×${this._comboN}`;
+    t.anchor.set(0.5);
+    t.position.set(375, this._lay.spawnY + 84);
+    t.visible = true;
+    t.alpha = 1;
+    this._comboPunch = 1;
+    if (t.parent !== this.container) this.container.addChild(t);
+  }
+
+  private _spawnDrop(x: number, y: number): void {
+    if (this._state.phase !== 'fighting' || this._drops.length >= DROP_MAX) return;
+    const box = new PIXI.Container();
+    const g = new PIXI.Graphics();
+    g.beginFill(0xffe08a, 0.28).drawCircle(0, 0, 40).endFill();
+    g.beginFill(0x2a1a0c).drawRoundedRect(-17, -27, 34, 54, 7).endFill();
+    g.beginFill(0x7ad957).drawRoundedRect(-14, -24, 28, 48, 5).endFill();
+    g.beginFill(0x3a8a2a).drawRect(-14, 4, 28, 20).endFill();
+    g.beginFill(0x2a1a0c).drawRect(-7, -32, 14, 6).endFill();
+    g.beginFill(0xfff4c4)
+      .drawPolygon([3, -18, -8, 2, -1, 2, -4, 18, 8, -4, 1, -4, 5, -18])
+      .endFill();
+    box.addChild(g);
+    const tag = painted(20, 0x9be08a, '#1a1008', 4);
+    tag.anchor.set(0.5, 0);
+    tag.position.set(0, 34);
+    tag.text = '点我充能';
+    box.addChild(tag);
+    box.position.set(x, y);
+    this._arena.addChild(box);
+    this._drops.push({ x, y, life: DROP_LIFE_S, t: 0, box });
+    if (!PersistService.readRaw(GUIDE_DROP_KEY)) this._dropHintDue = true;
+  }
+
+  /** 第一招的引导还挂着时不抢话，等它收了、场上还有电池再说 */
+  private _sayDropHint(): void {
+    if (!this._dropHintDue || this._skillGuide !== 'off' || this._drops.length === 0) return;
+    this._dropHintDue = false;
+    this._say('外星人掉电池了！点一下，给底下绝活充能', 3);
+  }
+
+  private _tickDrops(dt: number): void {
+    if (this._drops.length === 0) return;
+    this._sayDropHint();
+    const live = this._state.phase === 'fighting';
+    this._drops = this._drops.filter((d) => {
+      d.life -= live ? dt : dt * 4;
+      d.t += dt;
+      if (d.life <= 0) {
+        d.box.destroy({ children: true });
+        return false;
+      }
+      const pop = Math.min(1, d.t / 0.18);
+      d.box.scale.set((0.4 + 0.6 * pop) * (1 + Math.sin(d.t * 6) * 0.06));
+      d.box.position.set(d.x, d.y - 18 * Math.sin(Math.min(1, d.t / 0.3) * Math.PI) + Math.sin(d.t * 3) * 3);
+      d.box.alpha = d.life < 1.5 ? (Math.sin(d.t * 18) > 0 ? 1 : 0.35) : 1;
+      return true;
+    });
+  }
+
+  /** 点到电池就收，返回有没有点中 */
+  private _tapDrop(p: { x: number; y: number }): boolean {
+    const i = this._drops.findIndex((d) => Math.hypot(p.x - d.x, p.y - d.y) <= DROP_HIT_R);
+    if (i < 0) return false;
+    const d = this._drops[i]!;
+    this._drops.splice(i, 1);
+    d.box.destroy({ children: true });
+    for (const f of this._state.team) {
+      if (f.alive) f.energy = Math.min(ENERGY_MAX, f.energy + ENERGY_MAX * DROP_ENERGY);
+    }
+    this._fx.floatText('全员绝活充能 +25%', d.x, d.y - 36, 0x9be08a, 24);
+    this._fx.shake(2);
+    playSfx('install_on', 0);
+    buzz('light');
+    if (!PersistService.readRaw(GUIDE_DROP_KEY)) {
+      PersistService.writeRaw(GUIDE_DROP_KEY, '1');
+      this._dropHintDue = false;
+      this._say('底下头像转满一圈就能放绝活，电池见一个点一个', 3);
+    }
+    return true;
+  }
+
+  /** 手指附近最近的一只活怪。点偏一点也算，别逼人钉在小立绘上 */
+  private _foeNear(p: { x: number; y: number }): Foe | null {
+    let best: { e: Foe; d: number } | null = null;
+    for (const e of this._state.foes) {
+      if (!e.alive) continue;
+      const at = this._foeAt(e, this._shownPos.get(e.id) ?? e.pos);
+      const d = Math.hypot(p.x - at.x, p.y - (at.feetY - at.h * 0.5));
+      if (d > Math.max(TAP_NEAR, at.h * 1.2)) continue;
+      if (!best || d < best.d) best = { e, d };
+    }
+    return best?.e ?? null;
+  }
+
+  /** 点外星人：从底下弹一发过去。点空了不吞，留给点人看射程 */
+  private _tapFoe(p: { x: number; y: number }): boolean {
+    if (this._state.phase !== 'fighting' || p.y < this._lay.top) return false;
+    const e = this._foeNear(p);
+    if (!e) return false;
+    if (this._tapCd > 0) return true;
+    this._tapCd = TAP_GAP_S;
+    this._state.events.length = 0;
+    if (playerShot(this._state, e.id)) {
+      this._consumeEvents();
+      if (!PersistService.readRaw(GUIDE_TAP_KEY)) {
+        PersistService.writeRaw(GUIDE_TAP_KEY, '1');
+        this._say('对，就这么点！外星人见一个点一个', 2.5);
+      }
+    }
+    this._state.events.length = 0;
+    return true;
+  }
+
+  /** 「点它！」挂在离底线最近的那只怪头上，跟着走 */
+  private _tickTapTip(dt: number): void {
+    const t = this._tapTip;
+    // 第一招的引导亮着时先让给它，一屏只叫玩家做一件事
+    const want = this._state.phase === 'fighting' && this._skillGuide !== 'on'
+      && !PersistService.readRaw(GUIDE_TAP_KEY);
+    let target: Foe | null = null;
+    if (want) {
+      for (const e of this._state.foes) {
+        if (e.alive && e.pos >= TAP_TIP_FROM && (!target || e.pos > target.pos)) target = e;
+      }
+    }
+    if (!target) {
+      t.visible = false;
+      return;
+    }
+    this._tapTipT += dt;
+    const at = this._foeAt(target, this._shownPos.get(target.id) ?? target.pos);
+    t.text = '点它！';
+    t.anchor.set(0.5, 1);
+    t.position.set(at.x, at.feetY - at.h - 18 - Math.abs(Math.sin(this._tapTipT * 5)) * 10);
+    t.visible = true;
+    if (t.parent !== this.container) this.container.addChild(t);
+  }
+
+  private _clearDrops(): void {
+    for (const d of this._drops) if (!d.box.destroyed) d.box.destroy({ children: true });
+    this._drops = [];
+    this._killN = 0;
+    this._dropHintDue = false;
+  }
+
+  private _tickCombo(dt: number): void {
+    if (this._burstLeft > 0) this._burstLeft = Math.max(0, this._burstLeft - dt);
+    if (this._comboLeft <= 0) return;
+    this._comboLeft = Math.max(0, this._comboLeft - dt);
+    this._comboPunch = Math.max(0, this._comboPunch - dt * 5);
+    const t = this._comboText;
+    t.scale.set(1 + this._comboPunch * 0.45);
+    t.alpha = Math.min(1, this._comboLeft / 0.4);
+    if (this._comboLeft === 0) {
+      t.visible = false;
+      this._comboN = 0;
+    }
+  }
+
+  /** 1-1 首通：不开结算页，横幅报完奖励直接进 1-2 */
+  private _flowOn(pellets: number, scrap: number): void {
+    const box = this._flowBanner;
+    box.removeChildren().forEach((c) => c.destroy());
+    const g = new PIXI.Graphics();
+    g.beginFill(0x1a1008, 0.82).drawRoundedRect(-300, -86, 600, 172, 22).endFill();
+    g.lineStyle(4, GOLD, 0.95).drawRoundedRect(-300, -86, 600, 172, 22);
+    box.addChild(g);
+    const title = label(54, 0xffd66b, true);
+    title.anchor.set(0.5);
+    title.text = '村口守住了！';
+    title.position.set(0, -26);
+    box.addChild(title);
+    const sub = label(28, 0xfff4c4, true);
+    sub.anchor.set(0.5);
+    sub.text = `弹子 +${pellets}   废铁 +${scrap}   下一关马上开打`;
+    sub.position.set(0, 46);
+    box.addChild(sub);
+    box.position.set(375, this._lay.height * 0.42);
+    box.scale.set(0.7);
+    box.visible = true;
+    this.container.addChild(box);
+    this._flowLeft = FLOW_HOLD_S;
+  }
+
   /** 第 1 章新人认不出那条长金条是按钮。场上有人就让它一直呼吸，后面的章不动 */
   private _pulseStartBtn(dt: number): void {
     const btn = this._startBtn;
@@ -2458,9 +2775,20 @@ export class BattleScene implements Scene {
       this._sayHeld(this._placeGuide.say);
       return;
     }
+    // 打过但没满三星的关：开打前就说清这一趟是来拿星开宝箱的
+    const best = this._mem.stageStars[this._state.stage.id] ?? 0;
+    if (best > 0 && best < 3) {
+      const need = nextChestNeed(chapterStars(this._mem.stageStars, chapter));
+      this._say(
+        `上回 ${'★'.repeat(best)}，三星要一个不漏、一个不倒、打得快${need !== undefined ? `\n本章再拿 ${need} 颗★开宝箱` : ''}`,
+        5,
+      );
+      return;
+    }
     if (chapter === 1 && index === 2) {
-      // 1-1 是自己开打的，到这关没人说就不知道要点。上一版写「想换位就拖一拖」，一半人拖了十几分钟没开打
-      this._sayHeld('人站好了，点下面「开打」');
+      // 头一回自己开打；输过再来才要自己点。上一版写「想换位就拖一拖」，一半人拖了十几分钟没开打
+      if (this._autoStartLeft > 0) this._sayHeld(`${pitch}，挡住！`);
+      else this._sayHeld('人站好了，点下面「开打」');
       return;
     }
     if (chapter === 1 && index === 5 && this._craftStep() === 'stall') {
@@ -2590,8 +2918,18 @@ export class BattleScene implements Scene {
     const s = this._state;
     const won = s.phase === 'won';
 
+    const starsBefore = chapterStars(loadMemory().stageStars, s.stage.chapter);
     const res = settleStage(s.stage.id, won, s.stars);
     this._mem = res.mem;
+    const chest: ChestView | undefined = won ? {
+      chapter: s.stage.chapter,
+      before: starsBefore,
+      after: chapterStars(res.mem.stageStars, s.stage.chapter),
+      opened: res.mem.starChests[s.stage.chapter] ?? 0,
+      ready: res.chestsReady,
+      fresh: res.chestsNew,
+      stageBest: res.mem.stageStars[s.stage.id] ?? 0,
+    } : undefined;
     this._settleGot = { pellets: res.pellets, scrap: res.scrap };
     const ch1 = s.stage.chapter === 1;
     const footer = won
@@ -2605,7 +2943,9 @@ export class BattleScene implements Scene {
       ? `${back}外星人身上拆下 ${res.parts} 个零件，够升一级手艺`
       : res.credits > 0
         ? `村口守住了，村委会记你 ${res.credits} 个工分\n回村去大喇叭，能喊一个人来`
-        : footer === 'call' ? '村里听见动静，有人想来帮忙' : (back.trim() || undefined);
+        : footer === 'call' ? '村里听见动静，有人想来帮忙'
+          : back.trim() || (won && s.stage.chapter <= 2 && signNewcomerTomorrow()
+            ? '明天再来签到，送一个新乡亲入村' : undefined);
 
     track('run_end', {
       stage_id: s.stage.id,
@@ -2617,6 +2957,11 @@ export class BattleScene implements Scene {
       play_ms: this._startedAt > 0 ? Date.now() - this._startedAt : 0,
     });
     playSfx(won ? 'win' : 'lose', 0);
+
+    if (won && s.stage.id === 1 && res.first) {
+      this._flowOn(res.pellets, res.scrap);
+      return;
+    }
 
     const next = won ? getStage(s.stage.id + 1) : undefined;
     // 赢了的翻倍开局就摆：1-1 结算是新人最愿意看的一条，看过的人往后走得不比没看的差。
@@ -2648,6 +2993,7 @@ export class BattleScene implements Scene {
       footer,
       guideHome: !won && ch1 && s.stage.index === 5 && this._craftStep() !== 'done',
       gift,
+      chest,
       pace: ch1 && s.stage.index <= 3 ? 0.55 : 1,
       // 有翻倍可看时多留两秒，3 秒刚够看清金额
       autoNextSec: won && res.first && ch1 && footer === 'push' ? (canDouble ? 5 : 3) : undefined,

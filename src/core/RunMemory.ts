@@ -27,7 +27,8 @@ import {
 import {
   CRAFT_MAX, DEFAULT_SQUAD, OPENING_LATE_ID, OPENING_SQUAD, STAR_MAX, VILLAGERS, VILLAGER_BY_ID,
 } from '@/balance/villagers';
-import { STAGE_COUNT, clampStage, getStage } from '@/balance/stages';
+import { CHAPTER_COUNT, STAGE_COUNT, clampStage, getStage } from '@/balance/stages';
+import { CHEST_COUNT, pendingChests, sumLoot, type ChestOpen } from '@/balance/starChest';
 import { CELL_COUNT, LANE_COUNT } from '@/balance/combat';
 import { OPENING_CALL_ID, needOpeningCall, openingCredits, openingParts } from '@/balance/opening';
 
@@ -80,6 +81,8 @@ export interface RunMemory {
   stageTop: number;
   /** 每关拿到过的最高星评 */
   stageStars: Record<number, number>;
+  /** 每章开过几个星星宝箱，见 balance/starChest */
+  starChests: Record<number, number>;
 
   /* ---- 布阵 ---- */
   /** 上一次的排法。开下一关时直接铺上 */
@@ -116,6 +119,7 @@ function empty(): RunMemory {
     stageId: 1,
     stageTop: 1,
     stageStars: {},
+    starChests: {},
     layout: [],
     callCount: 0,
     seenIds: [...OPENING_SQUAD],
@@ -201,6 +205,19 @@ export function loadMemory(): RunMemory {
             if (id >= 1 && id <= STAGE_COUNT) {
               out[id] = Math.max(0, Math.min(3, Math.floor(Number(v) || 0)));
             }
+          }
+        }
+        return out;
+      })(),
+      // 加宝箱之前的档没有这个字段，按一个没开算：星够的下一次结算补开
+      starChests: (() => {
+        const out: Record<number, number> = {};
+        const src = p.starChests;
+        if (src && typeof src === 'object') {
+          for (const [k, v] of Object.entries(src as Record<string, unknown>)) {
+            const ch = Number(k);
+            const n = Math.max(0, Math.min(CHEST_COUNT, Math.floor(Number(v) || 0)));
+            if (ch >= 1 && ch <= CHAPTER_COUNT && n > 0) out[ch] = n;
           }
         }
         return out;
@@ -464,6 +481,10 @@ export function settleStage(
   stars: number,
 ): {
   mem: RunMemory; pellets: number; scrap: number; parts: number; credits: number; first: boolean; joined?: string;
+  /** 星够了还没领的宝箱，一共几口。结算不开，留给路线图上自己点 */
+  chestsReady: number;
+  /** 其中这一局刚够数的几口 */
+  chestsNew: number;
 } {
   const prev = loadMemory();
   const id = clampStage(stageId);
@@ -480,6 +501,9 @@ export function settleStage(
 
   const stageTop = won ? Math.min(STAGE_COUNT, Math.max(prev.stageTop, id + 1)) : prev.stageTop;
   const best = Math.max(prev.stageStars[id] ?? 0, won ? stars : 0);
+  const stageStars = { ...prev.stageStars, [id]: best };
+  const chestsReady = pendingChests(stageStars, prev.starChests).length;
+  const chestsNew = chestsReady - pendingChests(prev.stageStars, prev.starChests).length;
 
   const mem = persist({
     ...prev,
@@ -489,13 +513,35 @@ export function settleStage(
     credits: prev.credits + credits,
     stageTop,
     stageId: won ? Math.min(stageTop, id + 1) : id,
-    stageStars: { ...prev.stageStars, [id]: best },
+    stageStars,
     ...(joined ? {
       roster: [...prev.roster, joined],
       seenIds: prev.seenIds.includes(joined) ? prev.seenIds : [...prev.seenIds, joined],
     } : {}),
   });
-  return { mem, pellets, scrap, parts, credits, first, joined };
+  return { mem, pellets, scrap, parts, credits, first, joined, chestsReady, chestsNew };
+}
+
+function openedAfter(prev: Readonly<Record<number, number>>, chests: readonly ChestOpen[]): Record<number, number> {
+  const out = { ...prev };
+  for (const c of chests) out[c.chapter] = Math.max(out[c.chapter] ?? 0, c.tier + 1);
+  return out;
+}
+
+/** 星够了还没开的宝箱一次全开。只有路线图上玩家自己点才走这里 */
+export function openStarChests(): { mem: RunMemory; chests: ChestOpen[] } {
+  const prev = loadMemory();
+  const chests = pendingChests(prev.stageStars, prev.starChests);
+  if (chests.length === 0) return { mem: prev, chests };
+  const box = sumLoot(chests);
+  const mem = persist({
+    ...prev,
+    scrap: prev.scrap + box.scrap,
+    parts: prev.parts + box.parts,
+    credits: prev.credits + box.credits,
+    starChests: openedAfter(prev.starChests, chests),
+  });
+  return { mem, chests };
 }
 
 /** 一共拿了多少颗星。图鉴和进度条用 */
@@ -566,7 +612,7 @@ export function nextGoal(mem: RunMemory): Goal {
   }
   const gap = starGap(mem);
   if (gap.length > 0) {
-    return { kind: 'stars', short: '打利索', text: `还有 ${gap.length} 关没打利索` };
+    return { kind: 'stars', short: '打利索', text: `还有 ${gap.length} 关没打利索，补满三星开宝箱` };
   }
   return { kind: 'done', short: '齐了', text: '齐了' };
 }

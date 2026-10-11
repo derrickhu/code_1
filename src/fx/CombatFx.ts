@@ -231,6 +231,8 @@ export class CombatFx {
       byPet?: boolean;
       enemyId?: number;
       heroId?: string;
+      /** 玩家亲手点的那一发，数字更大；crit 是每第五发的重一下 */
+      tap?: 'hit' | 'crit';
     },
   ): void {
     const color = pos.color ?? 0xffffff;
@@ -241,7 +243,7 @@ export class CombatFx {
       if (key) this._gate.begin(key);
       const landHit = (): void => {
         const at = this._foeAt(pos.enemyId) ?? { x: pos.ex!, y: pos.ey! };
-        this._impactHero(ev, at.x, at.y, color, pos.fx, pos.skin ? skinLook(pos.skin) : undefined);
+        this._impactHero(ev, at.x, at.y, color, pos.fx, pos.skin ? skinLook(pos.skin) : undefined, pos.tap);
         if (pos.slowed) this._spawnPlainFloat('减速', at.x, at.y + 10, 0x86efac, 16, 0.4);
         pos.onLand?.();
         this._finishLand(key);
@@ -1324,8 +1326,10 @@ export class CombatFx {
     _color: number,
     fx: AttackFx = 'bolt',
     lookArg?: FxLook,
+    tap?: 'hit' | 'crit',
   ): void {
-    this._spawnHitFloat(ev, x, y);
+    if (tap) this._spawnTapFloat(ev, x, y, tap === 'crit');
+    else this._spawnHitFloat(ev, x, y);
     // 会心下线了，强调改挂在「这一下打死了」上：收人头那一下最该被看见
     playSfx(ev.killed ? 'hit_counter' : `hit_${fx}`, ev.killed ? 50 : 80);
     const look = lookArg ?? attackLook(fx);
@@ -1374,7 +1378,7 @@ export class CombatFx {
   private _spawnHitFloat(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number): void {
     const first = this._firstHit;
     this._firstHit = false;
-    const size = first ? 28 : ev.killed ? 22 : 16;
+    const size = first ? 34 : ev.killed ? 28 : 22;
     const color = ev.killed || first ? 0xffe066 : 0xffb24a;
     this._spawnPlainFloat(
       String(Math.round(ev.damage)),
@@ -1385,6 +1389,16 @@ export class CombatFx {
       first ? 0.95 : ev.killed ? 0.78 : 0.62,
       ev.killed || first ? 1.22 : 1.06,
     );
+  }
+
+  private _spawnTapFloat(ev: Extract<BattleEvent, { kind: 'hit' }>, x: number, y: number, crit: boolean): void {
+    const n = String(Math.round(ev.damage));
+    if (crit) {
+      this._spawnPlainFloat(`暴击 ${n}`, x, y - 14, 0xff5a3a, 40, 0.9, 1.4);
+      this.shakePx = Math.max(this.shakePx, 6);
+      return;
+    }
+    this._spawnPlainFloat(n, x, y - 10, ev.killed ? 0xffe066 : 0xfff4c4, ev.killed ? 34 : 30, 0.7, 1.25);
   }
 
   private _hurtHero(damage: number, x: number, y: number): void {

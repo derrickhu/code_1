@@ -13,7 +13,11 @@ import {
 } from '@/core/TextureLoader';
 import { type WinFooter } from '@/balance/opening';
 import { SETTLE_AD_PELLETS } from '@/balance/stall';
+import {
+  CHEST_STARS, nextChestNeed,
+} from '@/balance/starChest';
 import { GOLD, fitSprite, label } from '@/ui/paint';
+import { CHEST_FULL, ChestBar, chestSprite, starCount, type ChestLook } from '@/ui/starChestUi';
 import { Ease, TweenManager } from '@/core/TweenManager';
 import { Platform } from '@/core/PlatformService';
 import { playSfx } from '@/core/SfxPlayer';
@@ -77,7 +81,26 @@ type SettleOpts = {
   pace?: number;
   /** 演完之后几秒自动点下一关。只认 push 底栏，碰了广告或回村就停 */
   autoNextSec?: number;
+  /** 这一章的星星宝箱进度。赢了才画 */
+  chest?: ChestView;
 };
+
+export interface ChestView {
+  chapter: number;
+  /** 这一局之前、之后这一章一共几颗星 */
+  before: number;
+  after: number;
+  /** 这一章已经领过几口 */
+  opened: number;
+  /** 星够了还没领的一共几口；结算只亮不开，留给路线图上自己点 */
+  ready: number;
+  /** 其中这一局刚够数的几口 */
+  fresh: number;
+  /** 这一关现在最高几星 */
+  stageBest: number;
+}
+
+const CHEST_STRIP = { w: 700, h: 128 } as const;
 
 type Slot = {
   h: number;
@@ -209,6 +232,10 @@ export class SettleOverlay extends PIXI.Container {
   private _tracked: object[] = [];
   private _poses: { node: PIXI.Container; x: number; y: number; sx: number; sy: number; a: number }[] = [];
   private _fxLayer: PIXI.Container | null = null;
+  /** 点空白跳过开场时，把还没演到的终态补上（宝箱该开的要开） */
+  private _finishers: (() => void)[] = [];
+  /** 能领的宝箱背后那圈金光 */
+  private _chestSpin: PIXI.Container[] = [];
 
   constructor(
     onReplay: () => void,
@@ -244,6 +271,8 @@ export class SettleOverlay extends PIXI.Container {
     this._intro = false;
     this._haltIntro();
     this._poses = [];
+    this._finishers = [];
+    this._chestSpin = [];
     this._nextPulse = [];
     this._autoNext = null;
     this._autoNextArmed = null;
@@ -302,7 +331,8 @@ export class SettleOverlay extends PIXI.Container {
     }
 
     const footer = opts.footer ?? 'next';
-    const loot = { w: 710, h: 210 };
+    // 宝箱条要占一行，进账牌压矮一点让给它
+    const loot = { w: 710, h: opts.chest ? 176 : 210 };
     const adBtn = fitted('ad_btn', 640, 146);
     const namePlate = fitted('settle_name', 168, 48);
     this._adPulse = [];
@@ -324,6 +354,21 @@ export class SettleOverlay extends PIXI.Container {
         this._pop(host, WIN.loot, WIN.pop);
       },
     });
+
+    if (opts.chest) {
+      const view = opts.chest;
+      slots.push({
+        h: CHEST_STRIP.h,
+        draw: (cy) => {
+          const host = new PIXI.Container();
+          host.eventMode = 'none';
+          host.position.set(375, cy);
+          this.addChild(host);
+          this._chestStrip(host, view);
+          this._pop(host, WIN.loot + 0.1, WIN.pop);
+        },
+      });
+    }
 
     slots.push({
       h: 26,
@@ -410,6 +455,9 @@ export class SettleOverlay extends PIXI.Container {
     const feetY = nameBottom - namePlate.h;
     const nameCy = nameBottom - namePlate.h / 2;
 
+    // 矮屏上下面多一条宝箱，人往上顶会盖住星。头顶不过星那一排，不够就把人缩小
+    const roof = plaqueY + plaque.h * 0.34;
+    const room = Math.max(110, feetY - roof);
     const xs = lineupXs(cast.length);
     cast.forEach((f, i) => {
       const x = xs[i] ?? 375;
@@ -417,7 +465,7 @@ export class SettleOverlay extends PIXI.Container {
       const body = new PIXI.Container();
       body.eventMode = 'none';
       body.position.set(x, feetY);
-      standSprite(body, heroTex(f.def.id, f.evoStage), 0, 0, mid ? 156 : 132, mid ? 184 : 156);
+      standSprite(body, heroTex(f.def.id, f.evoStage), 0, 0, mid ? 156 : 132, Math.min(mid ? 184 : 156, room));
       this._chip('settle_name', 0, nameCy - feetY, 168, 48, f.def.name, 17, CREAM, body);
       // 名牌下面写手艺和星。形态不写字 —— 立绘本身就是那句话（星解锁的那一身）
       const tag = stroke(15, 0xffe08a, '#1a1008', 3);
@@ -676,6 +724,7 @@ export class SettleOverlay extends PIXI.Container {
       p.node.scale.set(p.sx, p.sy);
       p.node.alpha = p.a;
     }
+    for (const fn of this._finishers) fn();
     const earned = this._held?.opts.earned;
     const pellets = this._held?.opts.pellets;
     if (this._earnTx && !this._earnTx.destroyed && earned !== undefined) {
@@ -992,6 +1041,7 @@ export class SettleOverlay extends PIXI.Container {
         if (now !== before) auto.tx.text = `${auto.base} · ${now}`;
       }
     }
+    for (const r of this._chestSpin) if (!r.destroyed) r.rotation += Game.ticker.deltaMS / 1000 * 0.6;
     if (this._intro) return;
     if (this._adPulse.length === 0 && this._nextPulse.length === 0) return;
     this._pulseT += Game.ticker.deltaMS / 1000;
@@ -999,6 +1049,125 @@ export class SettleOverlay extends PIXI.Container {
     for (const b of this._adPulse) if (!b.destroyed) b.scale.set(s);
     const n = 1 + Math.sin(this._pulseT * 2.6) * 0.04;
     for (const b of this._nextPulse) if (!b.destroyed) b.scale.set(n);
+  }
+
+  /**
+   * 星星宝箱条：左边一口箱子，右边这一章的星条，5 / 10 / 15 各一个刻度。
+   * 结算只把箱子点亮、不替玩家开 —— 开箱那一下留到路线图上亲手点。
+   * 这一局刚够数：星条涨过刻度，箱子蹦起来、背后亮一圈金光，写「回路线图亲手开」。
+   * 没够数就写清还差几颗、这一关还能多拿几颗 —— 让人知道回来重打有东西拿。
+   */
+  private _chestStrip(host: PIXI.Container, v: ChestView): void {
+    const { w, h } = CHEST_STRIP;
+    if (!fillSprite(host, uiTex('rust_panel'), 0, 0, w, h)) {
+      const bg = new PIXI.Graphics();
+      bg.beginFill(0x2a1c12, 0.94).drawRoundedRect(-w / 2, -h / 2, w, h, 14).endFill();
+      host.addChild(bg);
+    }
+
+    const allOpen = v.opened >= CHEST_STARS.length;
+    const glowOn = v.ready > 0 && v.fresh === 0;
+    const rays = new PIXI.Container();
+    rays.position.set(-w / 2 + 76, 4);
+    const ray = fitSprite(rays, uiTex('chest_rays'), 0, 0, 190, 190);
+    if (ray) ray.blendMode = PIXI.BLEND_MODES.ADD;
+    rays.visible = glowOn;
+    host.addChild(rays);
+    if (v.ready > 0) this._chestSpin.push(rays);
+
+    const chest = new PIXI.Container();
+    chest.position.set(-w / 2 + 76, 4);
+    host.addChild(chest);
+    const paintChest = (look: ChestLook): void => {
+      chest.removeChildren().forEach((c) => c.destroy());
+      chestSprite(chest, look, 118, 106);
+    };
+    const restLook = (): ChestLook => (allOpen ? 'open' : v.ready > 0 ? 'ready' : 'locked');
+    paintChest(v.fresh > 0 ? 'locked' : restLook());
+
+    const x0 = -w / 2 + 150;
+    const x1 = w / 2 - 28;
+    const topY = -h / 2 + 24;
+    const title = stroke(v.ready > 0 ? 28 : 25, v.ready > 0 ? 0xffe066 : CREAM, '#1a1008', 5);
+    title.anchor.set(0, 0.5);
+    title.position.set(x0, topY);
+    const readyTitle = v.ready > 1 ? `${v.ready} 个宝箱能开了！` : '宝箱能开了！';
+    title.text = v.ready > 0 && v.fresh === 0 ? readyTitle : `第 ${v.chapter} 章星星宝箱`;
+    host.addChild(title);
+    const count = starCount(host, v.after, 34);
+    count.position.set(x1 - 98, topY);
+
+    const barY = -6;
+    const bar = new ChestBar(x1 - x0, 38);
+    bar.position.set(x0, barY);
+    bar.set(v.before / CHEST_FULL);
+    host.addChild(bar);
+    const drawFill = (stars: number): void => bar.set(stars / CHEST_FULL);
+    CHEST_STARS.forEach((at, i) => {
+      const mx = x0 + bar.xAt(at);
+      const taken = i < v.opened;
+      const reached = v.after >= at;
+      const pin = stroke(17, taken ? 0x9a9488 : reached ? 0x9be08a : 0xd8c8a0, '#1a1008', 4);
+      pin.anchor.set(0.5, 0);
+      pin.position.set(mx, barY + 15);
+      pin.text = taken ? `${at}★ 已领` : reached ? `${at}★ 能开` : `${at}★`;
+      host.addChild(pin);
+    });
+
+    const need = nextChestNeed(v.after);
+    const more = 3 - v.stageBest;
+    const sub = stroke(20, v.ready > 0 ? 0x9be08a : 0xffe08a, '#1a1008', 4);
+    sub.anchor.set(0, 0.5);
+    sub.position.set(x0, h / 2 - 17);
+    sub.text = v.ready > 0
+      ? '回路线图，亲手点开它'
+      : need === undefined
+        ? '这一章的宝箱全开了'
+        : `再拿 ${need} 颗★开宝箱${more > 0 ? `　这关还能多拿 ${more} 颗` : ''}`;
+    host.addChild(sub);
+
+    let done = false;
+    const finish = (): void => {
+      if (done || host.destroyed) return;
+      done = true;
+      drawFill(v.after);
+      paintChest(restLook());
+      rays.visible = v.ready > 0;
+      title.text = v.ready > 0 ? readyTitle : title.text;
+    };
+    this._finishers.push(finish);
+
+    this._later(WIN.loot + 0.35, () => {
+      if (host.destroyed) return;
+      const proxy = { s: v.before };
+      this._track(proxy);
+      TweenManager.to({
+        target: proxy,
+        props: { s: v.after },
+        duration: this._d(0.5),
+        ease: Ease.easeOutCubic,
+        onUpdate: () => { if (!bar.destroyed) drawFill(proxy.s); },
+      });
+    });
+    if (v.fresh === 0) return;
+    // 星条刚涨过刻度：箱子亮起来蹦一下，背后的金光撑开。盖子不揭
+    this._later(WIN.loot + 0.95, () => {
+      if (chest.destroyed || done) return;
+      finish();
+      chest.scale.set(1.4);
+      this._track(chest.scale);
+      TweenManager.to({ target: chest.scale, props: { x: 1, y: 1 }, duration: 0.36, ease: Ease.easeOutBack });
+      rays.scale.set(0.3);
+      this._track(rays.scale);
+      TweenManager.to({ target: rays.scale, props: { x: 1, y: 1 }, duration: 0.42, ease: Ease.easeOutCubic });
+      this._punch(title);
+      this._punch(sub);
+      playSfx('install_on', 0);
+    });
+    this._later(WIN.loot + 1.45, () => {
+      if (chest.destroyed) return;
+      this._shake(chest, 0);
+    });
   }
 
   /** 进账牌画在 host 的本地坐标里，host 自己摆到屏幕上，方便整块弹出 */

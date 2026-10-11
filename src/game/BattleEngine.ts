@@ -186,7 +186,8 @@ export type BattleEvent =
   | { kind: 'waveStart'; wave: number }
   | { kind: 'skill'; uid: string; manual: boolean }
   | { kind: 'skillHit'; uid: string; foeId: number; damage: number; killed: boolean; stun: boolean; push: boolean; slow: boolean }
-  | { kind: 'bossIn'; foeId: number; lane: number };
+  | { kind: 'bossIn'; foeId: number; lane: number }
+  | { kind: 'tap'; foeId: number; damage: number; killed: boolean; crit: boolean };
 
 export type BattlePhase = 'placing' | 'fighting' | 'won' | 'lost';
 export type LoseReason = 'leak' | 'timeout' | 'wipe';
@@ -237,6 +238,9 @@ export interface BattleState {
   skillDmg: number;
   skillKills: number;
   castsBy: Record<string, number>;
+  /** 玩家亲手点了几发、打了多少血。模拟器不点，护栏测的是不点也能过 */
+  taps: number;
+  tapDmg: number;
 }
 
 export interface Candidate {
@@ -325,6 +329,8 @@ export function createBattle(
     skillDmg: 0,
     skillKills: 0,
     castsBy: {},
+    taps: 0,
+    tapDmg: 0,
   };
 }
 
@@ -939,6 +945,44 @@ export function castSkill(state: BattleState, uid: string): boolean {
   const f = state.team.find((t) => t.uid === uid);
   if (!f || !skillReady(f)) return false;
   fireSkill(state, f, true);
+  return true;
+}
+
+/**
+ * 亲手弹一发：按这关一只小灰的血折算，第 1 章三下打死一只小灰。
+ * 往后几章折得更低，点只是帮手，不能顶掉布阵和养成。
+ */
+const TAP_FRAC: readonly number[] = [0.36, 0.26, 0.2];
+const TAP_FRAC_MIN = 0.15;
+/** 每第几发是重的一下 */
+const TAP_CRIT_EVERY = 5;
+const TAP_CRIT_MUL = 2.5;
+/** 小怪挨一下往回退一点，大个子和稳的不退 */
+const TAP_PUSH = 0.04;
+
+export function tapRaw(stage: StageDef): number {
+  const frac = TAP_FRAC[stage.chapter - 1] ?? TAP_FRAC_MIN;
+  return getEnemy('grunt').hp * stage.hpMul * frac;
+}
+
+/** 玩家点外星人。不在打、怪已经倒了都不算 */
+export function playerShot(state: BattleState, foeId: number): boolean {
+  if (state.phase !== 'fighting') return false;
+  const e = state.foes.find((x) => x.id === foeId);
+  if (!e || !e.alive) return false;
+  state.taps += 1;
+  const crit = state.taps % TAP_CRIT_EVERY === 0;
+  const raw = tapRaw(state.stage) * (crit ? TAP_CRIT_MUL : 1);
+  const damage = foeTake(e, dmgOf(raw, e.armor, 1));
+  e.hp -= damage;
+  state.tapDmg += damage;
+  const killed = e.hp <= 0;
+  if (!killed && !e.boss && !e.def.steady) e.pos = Math.max(0, e.pos - TAP_PUSH);
+  state.events.push({ kind: 'tap', foeId: e.id, damage, killed, crit });
+  if (killed) {
+    e.alive = false;
+    state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
+  }
   return true;
 }
 

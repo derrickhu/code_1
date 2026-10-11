@@ -714,9 +714,10 @@ function skillAtk(chapter: number): number {
  */
 const OPENING_WAVES: readonly Wave[] = [
   {
+    // 四只挤成一串：第一招（弹弓叔滑轮连射，整条路都挨）一下扫倒一串，开局几秒就有「爽」的那一下
     groups: [
-      { lane: 1, enemy: 'grunt', count: 3, gapMs: 500, atMs: 0 },
-      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 2000 },
+      { lane: 1, enemy: 'grunt', count: 4, gapMs: 300, atMs: 0 },
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 2400 },
     ],
   },
   {
@@ -726,9 +727,10 @@ const OPENING_WAVES: readonly Wave[] = [
     ],
   },
   {
+    // 收尾来一只大个子，第一关也有个要合力打倒的东西
     groups: [
-      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
-      { lane: 1, enemy: 'grunt', count: 2, gapMs: 400, atMs: 1200 },
+      { lane: 1, enemy: 'grunt', count: 1, gapMs: 0, atMs: 0 },
+      { lane: 1, enemy: 'grunt', count: 1, gapMs: 0, atMs: 1500, boss: true },
     ],
   },
 ];

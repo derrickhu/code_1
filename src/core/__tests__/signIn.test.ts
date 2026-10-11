@@ -13,7 +13,7 @@ vi.mock('@/core/PlatformService', () => ({
   },
 }));
 
-import { SIGN_GIFTS, signClaim, signState } from '@/core/SignIn';
+import { SIGN_GIFTS, signClaim, signNewcomerTomorrow, signState } from '@/core/SignIn';
 import { CALL_COST, CRAFT_COST } from '@/balance/village';
 import { grantLoot, loadMemory } from '@/core/RunMemory';
 import { adCanShow, adRecord, adRemaining } from '@/core/AdDay';
@@ -52,10 +52,19 @@ describe('村口每日礼包（签到）', () => {
     for (const g of SIGN_GIFTS.slice(0, -1)) expect(worth(g)).toBeLessThan(last);
   });
 
-  it('第 2 天够升一级手艺，第 7 天的工分够喊一次人', () => {
+  it('第 2 天够升一级手艺也够喊一次人，第 7 天的工分够喊一次人', () => {
     expect(SIGN_GIFTS[1]!.scrap).toBeGreaterThanOrEqual(CRAFT_COST[0]!.scrap);
     expect(SIGN_GIFTS[1]!.parts).toBeGreaterThanOrEqual(CRAFT_COST[0]!.parts);
+    expect(SIGN_GIFTS[1]!.credits).toBeGreaterThanOrEqual(CALL_COST);
     expect(SIGN_GIFTS[6]!.credits).toBeGreaterThanOrEqual(CALL_COST);
+  });
+
+  it('没领过或今天刚领第一天，明天那份就是新乡亲', () => {
+    expect(signNewcomerTomorrow()).toBe(true);
+    signClaim();
+    expect(signNewcomerTomorrow()).toBe(true);
+    vi.setSystemTime(new Date(2026, 9, 9, 10));
+    expect(signNewcomerTomorrow()).toBe(false);
   });
 
   it('grantLoot 几样一起加，负数不扣', () => {

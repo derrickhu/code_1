@@ -58,7 +58,8 @@ const BATTLE_CHROME = [
   'title_plaque', 'play_plate', 'iron_bar', 'iron_dock', 'scrap_pile',
   'settle_stamp', 'settle_name', 'settle_btn', 'settle_chip', 'ad_btn',
   'rust_btn', 'rust_plank', 'rust_tile', 'dirt_pad', 'fight_btn', 'sandbag',
-  'battle_lintel', 'rust_stamp',
+  'battle_lintel', 'rust_stamp', 'star_chest', 'star_chest_open', 'chest_rays',
+  'rust_panel', 'bar_track', 'bar_fill', 'star_on',
   'paint_shangchang', 'paint_lai', 'paint_zhi', 'paint_bo',
   'paint_di', 'paint_lou', 'paint_changshang', 'paint_menlu',
   ...PAINT_DIGITS,
@@ -75,7 +76,9 @@ const STALL_CHROME = [
 
 const ROAD_CHROME = [
   'rust_plank', 'rust_btn', 'rust_tile', 'dirt_pad', 'rust_stamp',
-  'road_nodes', 'fight_btn',
+  'road_nodes', 'fight_btn', 'star_chest', 'star_chest_open', 'chest_rays',
+  'rust_panel', 'bar_track', 'bar_fill', 'star_on', 'title_plaque', 'settle_chip',
+  'icon_parts', 'icon_credits', 'icon_scrap',
 ] as const;
 
 const FOLKS_CHROME = [

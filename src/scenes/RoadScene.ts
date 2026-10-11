@@ -18,11 +18,13 @@ import { Game } from '@/core/Game';
 import { Platform } from '@/core/PlatformService';
 import { SceneManager, type Scene } from '@/core/SceneManager';
 import {
-  loadMemory, progressOf, setStageId, type RunMemory,
+  loadMemory, openStarChests, progressOf, setStageId, type RunMemory,
 } from '@/core/RunMemory';
+import { CHEST_STARS, chapterStars, chestsReached, nextChestNeed } from '@/balance/starChest';
 import {
   fillCover, roadBgTex, roadNodeTex, uiTex, villageHomeBgTex, watchArt,
 } from '@/core/TextureLoader';
+import { track } from '@/core/Analytics';
 import { EventBus } from '@/core/EventBus';
 import { GMManager } from '@/core/GMManager';
 import { RoadLayoutStore } from '@/core/roadLayoutStore';
@@ -31,6 +33,9 @@ import { UnitActor } from '@/fx/UnitActor';
 import { bindPointerTap } from '@/minigame';
 import { attachRoadMapEditor } from '@/scenes/roadMapEditor';
 import { GOLD, fillSprite, fitSprite, goldBtn, ironSlab, label, painted } from '@/ui/paint';
+import {
+  CHEST_FULL, ChestBar, chestSprite, mountChestOpen, starCount, type ChestLook,
+} from '@/ui/starChestUi';
 
 const CREAM = 0xfff4c4;
 const MUTED = 0x8a8a92;
@@ -48,6 +53,9 @@ export class RoadScene implements Scene {
   private _pendingEnter = 0;
   private _pick = 1;
   private _nodes: PIXI.Container[] = [];
+  /** 够数没开的宝箱，跳着等人点 */
+  private _chestBob: PIXI.Container[] = [];
+  private _bobT = 0;
   private _editorTeardown: (() => void) | null = null;
   private readonly _onRoadEdit = (): void => {
     if (SceneManager.current?.name !== 'road' || this._busy) return;
@@ -103,6 +111,15 @@ export class RoadScene implements Scene {
 
   update(dt: number): void {
     for (const a of this._actors) a.update(dt);
+    if (this._chestBob.length === 0) return;
+    this._bobT += dt;
+    const s = 1 + Math.max(0, Math.sin(this._bobT * 5)) * 0.14;
+    const r = Math.sin(this._bobT * 16) * 0.08 * Math.max(0, Math.sin(this._bobT * 2.5));
+    for (const c of this._chestBob) {
+      if (c.destroyed) continue;
+      c.scale.set(s);
+      c.rotation = r;
+    }
   }
 
   private _height(): number {
@@ -250,6 +267,13 @@ export class RoadScene implements Scene {
       sub.position.set(0, size * 0.38);
       sub.text = `${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}`;
       box.addChild(sub);
+      if (stars < 3) {
+        const more = painted(15, 0xffa04a, '#1a1008', 4);
+        more.anchor.set(0.5, 0);
+        more.position.set(0, size * 0.38 + 20);
+        more.text = `再战 +${3 - stars}★`;
+        box.addChild(more);
+      }
     }
 
     if (!this._busy && !editing) {
@@ -305,10 +329,92 @@ export class RoadScene implements Scene {
     t.text = roadChapterLine(this._pick);
     plate.addChild(t);
     this._layer.addChild(plate);
+    this._chestRail(top + 48, editing);
 
     const by = h - Game.safeBottom - 62;
     this._btn(168, by, 200, 72, '回村口', () => SceneManager.switchTo('village'), !this._busy && !editing);
     this._btn(500, by, 360, 84, '开打', () => this._startFight(), !this._busy && !editing, 'fight_btn');
+  }
+
+  /**
+   * 这一章的星星宝箱条。三口箱子钉在 5 / 10 / 15 星上：
+   * 开过的敞着、够数没开的跳着等点、还差的灰着。底下一句写还差几颗。
+   */
+  private _chestRail(top: number, editing: boolean): void {
+    const mem = this._mem;
+    const ch = this._chapter;
+    const stars = chapterStars(mem.stageStars, ch);
+    const opened = mem.starChests[ch] ?? 0;
+    const reach = chestsReached(stars);
+    const w = 680;
+    const h = 160;
+    const box = new PIXI.Container();
+    box.position.set(375, top + h / 2);
+    if (!fillSprite(box, uiTex('rust_panel'), 0, 0, w, h)) {
+      const g = new PIXI.Graphics();
+      g.beginFill(0x2a1c12, 0.94).drawRoundedRect(-w / 2, -h / 2, w, h, 14).endFill();
+      box.addChild(g);
+    }
+
+    const title = painted(28, GOLD, '#1a1008', 5);
+    title.anchor.set(0, 0.5);
+    title.position.set(-w / 2 + 30, -h / 2 + 30);
+    title.text = '星星宝箱';
+    box.addChild(title);
+    const count = starCount(box, stars, 40);
+    count.position.set(w / 2 - 150, -h / 2 + 30);
+
+    const barW = w - 120;
+    const barY = 40;
+    const bar = new ChestBar(barW, 44);
+    bar.position.set(-barW / 2 - 10, barY);
+    bar.set(stars / CHEST_FULL);
+    box.addChild(bar);
+
+    this._chestBob = [];
+    CHEST_STARS.forEach((at, i) => {
+      const mx = bar.x + bar.xAt(at);
+      const look: ChestLook = i < opened ? 'open' : i < reach ? 'ready' : 'locked';
+      const c = chestSprite(box, look, 92, 82);
+      c.position.set(mx, barY - 24);
+      const tag = painted(20, look === 'ready' ? 0x9be08a : look === 'open' ? MUTED : CREAM, '#1a1008', 4);
+      tag.anchor.set(0.5, 0);
+      tag.position.set(mx, barY + 16);
+      tag.text = look === 'ready' ? '点开！' : look === 'open' ? '已开' : `${at}★`;
+      box.addChild(tag);
+      if (look === 'ready') {
+        this._chestBob.push(c);
+        if (!this._busy && !editing) {
+          c.eventMode = 'static';
+          c.hitArea = new PIXI.Circle(0, 0, 56);
+          bindPointerTap(c, () => this._openChests());
+        }
+      }
+    });
+
+    const need = nextChestNeed(stars);
+    const hint = painted(21, reach > opened ? 0x9be08a : 0xffe08a, '#1a1008', 4);
+    hint.anchor.set(0.5, 0.5);
+    hint.position.set(0, h / 2 + 22);
+    hint.text = reach > opened
+      ? '宝箱能开了！点一下'
+      : need === undefined
+        ? '这一章宝箱全开了'
+        : `再拿 ${need} 颗★开宝箱 · 没打满三星的关回去补`;
+    box.addChild(hint);
+    this._layer.addChild(box);
+  }
+
+  private _openChests(): void {
+    if (this._busy) return;
+    const res = openStarChests();
+    if (res.chests.length === 0) return;
+    this._mem = res.mem;
+    track('star_chest', {
+      chapter: this._chapter, n: res.chests.length, tiers: res.chests.map((c) => `${c.chapter}-${c.tier + 1}`).join(','),
+    });
+    this._paint();
+    mountChestOpen(this.container, this._height(), res.chests);
   }
 
   private _btn(

@@ -11,11 +11,12 @@ const KEY = scopedStorageKey('sign_in');
 
 /**
  * 前三天给得最厚：留人看的是第二天、第三天回不回来。
- * 第 2 天正好够升一级手艺（CRAFT_COST[0]），第 7 天的工分够喊一次人（CALL_COST）。
+ * 第 2 天够升一级手艺（CRAFT_COST[0]），还够喊一次人（CALL_COST）——前几次喊人保底出新人，
+ * 所以第二天回来必有一个新面孔。第 7 天的工分也够喊一次。
  */
 export const SIGN_GIFTS: readonly Required<Loot>[] = [
   { pellets: 10, scrap: 60, parts: 0, credits: 0 },
-  { pellets: 0, scrap: 40, parts: 2, credits: 0 },
+  { pellets: 0, scrap: 40, parts: 2, credits: 6 },
   { pellets: 8, scrap: 0, parts: 0, credits: 3 },
   { pellets: 0, scrap: 100, parts: 2, credits: 0 },
   { pellets: 12, scrap: 80, parts: 0, credits: 0 },
@@ -25,9 +26,15 @@ export const SIGN_GIFTS: readonly Required<Loot>[] = [
 
 /** 签到格上一行写不下的那句卖点 */
 export const SIGN_PITCH: Readonly<Record<number, string>> = {
-  1: '够升一级手艺',
+  1: '喊一个新乡亲来',
   6: '白送喊一次人',
 };
+
+/** 明天能领的是第 2 天那份（新乡亲）。结算页拿这个提前说一声 */
+export function signNewcomerTomorrow(): boolean {
+  const b = load();
+  return b.days === 0 || (b.days === 1 && b.last === signToday());
+}
 
 interface SignBook {
   /** 一共领过几天 */
