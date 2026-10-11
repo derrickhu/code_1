@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OPENING_CALL_ID, chapter1CraftStep, needOpeningCall, openingParts, villageGateOpen, winFooter,
+  OPENING_CALL_ID, OPENING_VILLAGE_LV, chapter1CraftStep, needOpeningCall, openingCredits, openingParts,
+  villageGateOpen, winFooter,
 } from '@/balance/opening';
+import { expectedPerPellet, pelletsForStage } from '@/balance/stall';
+import { CALL_COST, villageCumExp } from '@/balance/village';
 import { getStage, stageEnemyCount } from '@/balance/stages';
 import { DEFAULT_SQUAD, getVillager } from '@/balance/villagers';
 import { autoPlace, runBattle } from '@/game/BattleEngine';
@@ -16,11 +19,28 @@ describe('第 1 章这条路', () => {
   });
 
   it('1-5 没过、手艺还是 1，先攒零件再点人', () => {
-    expect(chapter1CraftStep(3, false, 1, 0)).toBe('done');
-    expect(chapter1CraftStep(5, false, 1, 0)).toBe('stall');
-    expect(chapter1CraftStep(5, false, 1, 2)).toBe('craft');
-    expect(chapter1CraftStep(5, false, 2, 0)).toBe('done');
-    expect(chapter1CraftStep(6, true, 1, 0)).toBe('done');
+    expect(chapter1CraftStep(3, false, 1, 0, 1)).toBe('done');
+    expect(chapter1CraftStep(5, false, 1, 0, 1)).toBe('stall');
+    expect(chapter1CraftStep(5, false, 1, 2, 1)).toBe('craft');
+    expect(chapter1CraftStep(6, true, 1, 0, 1)).toBe('done');
+  });
+
+  it('手艺升过、村子还是 1 级，去摊上打到 2 级', () => {
+    expect(chapter1CraftStep(4, false, 2, 0, 1)).toBe('grow');
+    expect(chapter1CraftStep(5, false, 2, 0, OPENING_VILLAGE_LV)).toBe('done');
+    expect(chapter1CraftStep(6, true, 2, 0, 1)).toBe('done');
+  });
+
+  it('1-3 打完手上的弹子够把村子打到 2 级', () => {
+    const pellets = 6 + pelletsForStage(1, true) + pelletsForStage(2, true) + pelletsForStage(3, true);
+    const need = villageCumExp(OPENING_VILLAGE_LV) / expectedPerPellet(1).exp;
+    expect(need).toBeLessThan(pellets * 0.7);
+  });
+
+  it('1-5 首通送一嗓子的工分', () => {
+    expect(openingCredits(5, true)).toBe(CALL_COST);
+    expect(openingCredits(5, false)).toBe(0);
+    expect(openingCredits(4, true)).toBe(0);
   });
 
   it('赢了的大按钮：往下推、回村、下一关', () => {

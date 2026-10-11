@@ -618,14 +618,16 @@ function laneGroups(
   seed: ChapterSeed, lane: number, count: number, w: number, l: number,
 ): SpawnGroup[] {
   const at = l * 900;
-  const lead = seed.mix[(w + l) % seed.mix.length]!;
+  // 第 1 章方块领头，原样轮转的话每关第一波都是两只方块慢慢走，6~7 秒才倒第一只。错一位让小灰先冲
+  const shift = seed === TUNED_CHAPTERS[0] ? 1 : 0;
+  const lead = seed.mix[(w + l + shift) % seed.mix.length]!;
   if (count < 3) return [{ lane, enemy: lead, count, gapMs: 700 + l * 120, atMs: at }];
   const head = Math.max(1, Math.round(count * 0.4));
   return [
     { lane, enemy: lead, count: head, gapMs: LEAD_GAP_MS, atMs: at },
     {
       lane,
-      enemy: seed.mix[(w + l + 1) % seed.mix.length]!,
+      enemy: seed.mix[(w + l + shift + 1) % seed.mix.length]!,
       count: count - head,
       gapMs: PACK_GAP_MS,
       atMs: at + head * LEAD_GAP_MS + PACK_PAUSE_MS,
@@ -731,6 +733,37 @@ const OPENING_WAVES: readonly Wave[] = [
   },
 ];
 
+/**
+ * 1-2 手写。生成版是方块领头、一波两三只，和 1-1 同一批人打同一种怪，还更慢：
+ * 6 秒才倒第一只，十几秒没一次击杀。这关叫「路上开始挤」，就让小灰先冲，
+ * 后两波是方块顶在前面、一窝小灰堵在它身后。
+ */
+const STAGE2_WAVES: readonly Wave[] = [
+  {
+    groups: [
+      { lane: 1, enemy: 'grunt', count: 3, gapMs: 450, atMs: 0 },
+    ],
+  },
+  {
+    groups: [
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
+      { lane: 1, enemy: 'grunt', count: 3, gapMs: 260, atMs: 1500 },
+    ],
+  },
+  {
+    groups: [
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
+      { lane: 1, enemy: 'grunt', count: 2, gapMs: 240, atMs: 1500 },
+    ],
+  },
+];
+
+/** 第 1 章手写的关。没写的走生成 */
+const HAND_WAVES: Readonly<Record<number, readonly Wave[]>> = {
+  1: OPENING_WAVES,
+  2: STAGE2_WAVES,
+};
+
 function buildStages(): StageDef[] {
   const allWaves = CHAPTERS.map((seed, c) =>
     [1, 2, 3, 4, 5].map((i) => buildWaves(seed, c + 1, i)));
@@ -751,7 +784,7 @@ function buildStages(): StageDef[] {
     const [lvFrom, lvTo] = seed.suggestLv;
     for (let i = 1; i <= 5; i += 1) {
       const ramp = IDX_RAMP[i - 1] ?? 1;
-      const waves = c === 0 && i === 1 ? OPENING_WAVES : allWaves[c]![i - 1]!;
+      const waves = (c === 0 ? HAND_WAVES[i] : undefined) ?? allWaves[c]![i - 1]!;
       const suggestLv = Math.round(lvFrom + ((lvTo - lvFrom) * (i - 1)) / 4);
       out.push({
         id,

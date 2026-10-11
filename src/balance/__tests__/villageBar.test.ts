@@ -9,7 +9,7 @@ describe('村子经验条', () => {
   it('villageExp 是本级剩余，不能再减累计', () => {
     const need = nextVillageCost(6)!;
     expect(need).toBe(150);
-    expect(villageCumExp(6)).toBe(633);
+    expect(villageCumExp(6)).toBe(577);
 
     const bar = villageBar(6, 64);
     expect(bar.into).toBe(64);
@@ -17,9 +17,9 @@ describe('村子经验条', () => {
     expect(bar.ratio).toBeCloseTo(64 / 150);
     expect(bar.maxed).toBe(false);
 
-    // 旧门楣：into = 64 - 633，再 719 点，金条永远是空的
+    // 旧门楣：into = 64 - 577，再 663 点，金条永远是空的
     const oldLeft = need - (64 - villageCumExp(6));
-    expect(oldLeft).toBe(719);
+    expect(oldLeft).toBe(663);
     expect(bar.left).not.toBe(oldLeft);
   });
 

@@ -4,10 +4,13 @@
  *   1-1 看人打怪，第一招由玩家自己点。两个人都在场上
  *   1-2 还是这两个人直接打，打完喊来第一个乡亲（喊人）
  *   1-3 新来的人还在底下，拖上路才能开打；打完带着零件回村升手艺（养成）
+ *       升完去摊上把村子打到 2 级，1-4 四个人一起上（摊子）
+ *   1-5 打完送一嗓子的工分，回村自己去大喇叭喊人（喊人第二次，这回是自己点）
  *
  * stageTop 从 1 起，赢下第 3 关变成 4。摊、喊人、手艺在这之前点不开。
- * 1-4、1-5 打不过可以回来打弹子、升手艺，不必卡在三个人手艺 1 上。
  */
+
+import { CALL_COST } from './village';
 
 export type WinFooter = 'push' | 'home' | 'next' | 'call' | 'craft';
 
@@ -34,21 +37,35 @@ export function openingParts(stageId: number, first: boolean): number {
   return stageId === 3 && first ? OPENING_PARTS : 0;
 }
 
-export type CraftStep = 'stall' | 'craft' | 'done';
+/** 'grow' 是手艺升过了、村子还在 1 级：去摊上把村子打到 2 级，1-4 就能四个人一起上 */
+export type CraftStep = 'stall' | 'craft' | 'grow' | 'done';
+
+/** 第 1 章要把村子带到几级。2 级多一个上场位，正好装下 1-3 回来的大锤 */
+export const OPENING_VILLAGE_LV = 2;
 
 /**
- * 1-5 还没过、人都是手艺 1 时，下一手去哪。
+ * 1-5 还没过时，下一手去哪。
  * 第一档手艺要 2 个零件，零件从摊上的破电视来（1-3 首通先送一笔）。
+ * 手艺升过之后再去摊上打村子经验。1-3 打完手上约 27 发，2 级要 15 发上下。
  */
 export function chapter1CraftStep(
   stageTop: number,
   stage5Cleared: boolean,
   maxCraft: number,
   parts: number,
+  villageLv: number,
   partsNeed = 2,
 ): CraftStep {
-  if (!villageGateOpen(stageTop) || stage5Cleared || maxCraft > 1) return 'done';
-  return parts >= partsNeed ? 'craft' : 'stall';
+  if (!villageGateOpen(stageTop) || stage5Cleared) return 'done';
+  if (maxCraft <= 1) return parts >= partsNeed ? 'craft' : 'stall';
+  return villageLv < OPENING_VILLAGE_LV ? 'grow' : 'done';
+}
+
+/** 1-5 首通送的工分，正好喊一嗓子。第 1 章打完回村，第一次自己去大喇叭喊人 */
+export const OPENING_CREDITS = CALL_COST;
+
+export function openingCredits(stageId: number, first: boolean): number {
+  return stageId === 5 && first ? OPENING_CREDITS : 0;
 }
 
 /**

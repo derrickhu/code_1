@@ -208,6 +208,8 @@ export class BattleScene implements Scene {
   private _guideHold = false;
   /** 1-1 落地后自动开打的倒计时，0 表示不在等 */
   private _autoStartLeft = 0;
+  /** 第 1 章布阵时开打键的呼吸相位 */
+  private _startPulseT = 0;
   /** 1-1 开打时底线亮一下 */
   private _lineFlash = 0;
   /** PULSE_SECS 报到第几个了 */
@@ -822,6 +824,10 @@ export class BattleScene implements Scene {
       this._placeGuide = null;
       PersistService.writeRaw(guide.key, '1');
       this._say('站好了，点开打', 3);
+    } else if (this._state.placed.length === 0) {
+      this._sayHeld('人都拖下来了，拖回路上才能开打');
+    } else if (!guide && this._state.stage.chapter === 1) {
+      this._sayHeld('站好了就点下面「开打」');
     }
     this._renderBench();
     this._drawField();
@@ -937,6 +943,7 @@ export class BattleScene implements Scene {
         this._beginFight();
       }
     }
+    this._pulseStartBtn(realDt);
     const pulseAt = PULSE_SECS[this._pulseIdx];
     if (
       this._state.phase === 'fighting'
@@ -1984,6 +1991,21 @@ export class BattleScene implements Scene {
     this._applyHudLayout();
   }
 
+  /** 第 1 章新人认不出那条长金条是按钮。场上有人就让它一直呼吸，后面的章不动 */
+  private _pulseStartBtn(dt: number): void {
+    const btn = this._startBtn;
+    if (!btn || btn.destroyed) return;
+    const on = btn.visible && this._placing() && this._state.stage.chapter === 1
+      && this._state.placed.length > 0;
+    if (!on) {
+      if (btn.scale.x !== 1) btn.scale.set(1);
+      this._startPulseT = 0;
+      return;
+    }
+    this._startPulseT += dt;
+    btn.scale.set(1 + Math.max(0, Math.sin(this._startPulseT * 4)) * 0.07);
+  }
+
   private _rebuildStripBtns(): void {
     this._startBtn?.destroy({ children: true });
     this._backBtn?.destroy({ children: true });
@@ -2437,7 +2459,8 @@ export class BattleScene implements Scene {
       return;
     }
     if (chapter === 1 && index === 2) {
-      this._say('想换位就拖一拖', 4);
+      // 1-1 是自己开打的，到这关没人说就不知道要点。上一版写「想换位就拖一拖」，一半人拖了十几分钟没开打
+      this._sayHeld('人站好了，点下面「开打」');
       return;
     }
     if (chapter === 1 && index === 5 && this._craftStep() === 'stall') {
@@ -2446,6 +2469,10 @@ export class BattleScene implements Scene {
     }
     if (chapter === 1 && index === 5 && this._craftStep() === 'craft') {
       this._sayHeld('这关要先升手艺。回村点人，升一级');
+      return;
+    }
+    if (chapter === 1 && index >= 4 && this._craftStep() === 'grow' && this._mem.roster.length > this._state.cap) {
+      this._say('回村打几发弹子，村子 2 级能多带一个人', 4);
       return;
     }
     if (chapter === 1 && index >= 4 && this._craftStillGreen() && villageGateOpen(this._mem.stageTop)) {
@@ -2576,7 +2603,9 @@ export class BattleScene implements Scene {
     const back = res.joined ? `${getVillager(res.joined).name}听说村口守住了，回来了\n` : '';
     const gift = res.parts > 0
       ? `${back}外星人身上拆下 ${res.parts} 个零件，够升一级手艺`
-      : footer === 'call' ? '村里听见动静，有人想来帮忙' : (back.trim() || undefined);
+      : res.credits > 0
+        ? `村口守住了，村委会记你 ${res.credits} 个工分\n回村去大喇叭，能喊一个人来`
+        : footer === 'call' ? '村里听见动静，有人想来帮忙' : (back.trim() || undefined);
 
     track('run_end', {
       stage_id: s.stage.id,
@@ -2590,11 +2619,12 @@ export class BattleScene implements Scene {
     playSfx(won ? 'win' : 'lose', 0);
 
     const next = won ? getStage(s.stage.id + 1) : undefined;
-    // 开局三关不摆广告：新人点进去看完视频，多半就不回来了
+    // 赢了的翻倍开局就摆：1-1 结算是新人最愿意看的一条，看过的人往后走得不比没看的差。
+    // 开局三关输了不推补给，刚输就要看视频太像逼
     const opening = ch1 && s.stage.index <= 3;
     const placement = won ? 'settleDouble' : 'loseBonus';
     const canDouble = won
-      ? !(opening && res.first) && adCanShow('settleDouble')
+      ? adCanShow('settleDouble')
       : !opening && adCanShow('loseBonus');
     const k = yieldMul(this._mem.villageLv);
     this._settleAd = won
@@ -2619,7 +2649,8 @@ export class BattleScene implements Scene {
       guideHome: !won && ch1 && s.stage.index === 5 && this._craftStep() !== 'done',
       gift,
       pace: ch1 && s.stage.index <= 3 ? 0.55 : 1,
-      autoNextSec: won && res.first && ch1 && footer === 'push' ? 3 : undefined,
+      // 有翻倍可看时多留两秒，3 秒刚够看清金额
+      autoNextSec: won && res.first && ch1 && footer === 'push' ? (canDouble ? 5 : 3) : undefined,
     });
   }
 
@@ -2679,6 +2710,7 @@ export class BattleScene implements Scene {
       (this._mem.stageStars[5] ?? 0) > 0,
       maxCraft,
       this._mem.parts,
+      this._mem.villageLv,
     );
   }
 
@@ -2690,8 +2722,12 @@ export class BattleScene implements Scene {
    */
   private _loseHint(): string {
     const s = this._state;
-    if (s.stage.chapter === 1 && s.stage.index === 5 && this._craftStep() !== 'done') {
-      return this._craftStep() === 'craft'
+    const step = this._craftStep();
+    if (s.stage.chapter === 1 && s.stage.index === 5 && step === 'grow') {
+      return '三个人顶不住\n回村打弹子，村子 2 级多带一个人';
+    }
+    if (s.stage.chapter === 1 && s.stage.index === 5 && step !== 'done') {
+      return step === 'craft'
         ? '这关手艺 1 打不过\n回村点人，升一级再来'
         : '这关手艺 1 打不过\n回村打摊，破电视拿零件';
     }

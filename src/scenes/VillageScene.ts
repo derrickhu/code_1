@@ -926,8 +926,13 @@ export class VillageScene implements Scene {
    * 按 nextGoal 的排序先说练，因为练是立刻看得见的那件。
    */
   private _homeGoal(layer: PIXI.Container, lay: HomeLay): void {
-    const goal = nextGoal(this._mem);
-    const at = goal.kind === 'craft'
+    const raw = nextGoal(this._mem);
+    const step = this._craftStep();
+    const grow = step === 'grow' && raw.kind !== 'craft' && this._mem.pellets > 0;
+    const goal = grow ? { ...raw, text: '打几发，村子 2 级多带一个人' } : raw;
+    const at = grow
+      ? { x: lay.stall.cx, y: lay.stall.cy - lay.stall.h / 2 - 12 }
+      : goal.kind === 'craft'
       ? { x: lay.atlas.x + lay.atlas.w / 2, y: lay.atlas.y - 16 }
       : goal.kind === 'call'
         ? { x: lay.horn.cx, y: lay.horn.cy - lay.horn.h / 2 - 12 }
@@ -1081,6 +1086,8 @@ export class VillageScene implements Scene {
     const step = this._craftStep();
     if (step === 'stall') return '先去弹弓摊，打中破电视拿零件';
     if (step === 'craft') return '零件够了，点开一个人升手艺';
+    if (step === 'grow') return '去弹弓摊打几发，村子 2 级多带一个人';
+    if (this._mem.stageTop <= 6 && this._mem.credits >= CALL_COST) return '工分够了，去大喇叭喊一个人';
     if (this._mem.stageTop <= 6) return '出村接着打';
     return villageNeedHint(lv, this._mem.villageExp);
   }
@@ -1092,6 +1099,7 @@ export class VillageScene implements Scene {
       (this._mem.stageStars[5] ?? 0) > 0,
       maxCraft,
       this._mem.parts,
+      this._mem.villageLv,
     );
   }
 
@@ -1216,7 +1224,9 @@ export class VillageScene implements Scene {
       ? '打中破电视，就出零件'
       : step === 'craft'
         ? '零件够了，回村点人升手艺'
-        : this._mem.pellets >= cap
+        : step === 'grow'
+          ? villageNeedHint(this._mem.villageLv, this._mem.villageExp)
+          : this._mem.pellets >= cap
           ? `满了 · ${wait}`
           : `${pelletRegenMin(this._mem.villageLv)} 分钟回一发 · ${wait}`;
     layer.addChild(pity);

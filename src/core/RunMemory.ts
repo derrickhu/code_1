@@ -29,7 +29,7 @@ import {
 } from '@/balance/villagers';
 import { STAGE_COUNT, clampStage, getStage } from '@/balance/stages';
 import { CELL_COUNT, LANE_COUNT } from '@/balance/combat';
-import { OPENING_CALL_ID, needOpeningCall, openingParts } from '@/balance/opening';
+import { OPENING_CALL_ID, needOpeningCall, openingCredits, openingParts } from '@/balance/opening';
 
 const KEY = SAVE_KEY;
 
@@ -462,7 +462,9 @@ export function settleStage(
   stageId: number,
   won: boolean,
   stars: number,
-): { mem: RunMemory; pellets: number; scrap: number; parts: number; first: boolean; joined?: string } {
+): {
+  mem: RunMemory; pellets: number; scrap: number; parts: number; credits: number; first: boolean; joined?: string;
+} {
   const prev = loadMemory();
   const id = clampStage(stageId);
   const first = won && !prev.stageStars[id];
@@ -474,6 +476,7 @@ export function settleStage(
   const base = first ? SETTLE_SCRAP : SETTLE_SCRAP_REPLAY;
   const scrap = won ? Math.round(base * yieldMul(prev.villageLv)) : 0;
   const parts = openingParts(id, first);
+  const credits = openingCredits(id, first);
 
   const stageTop = won ? Math.min(STAGE_COUNT, Math.max(prev.stageTop, id + 1)) : prev.stageTop;
   const best = Math.max(prev.stageStars[id] ?? 0, won ? stars : 0);
@@ -483,6 +486,7 @@ export function settleStage(
     pellets: prev.pellets + pellets,
     scrap: prev.scrap + scrap,
     parts: prev.parts + parts,
+    credits: prev.credits + credits,
     stageTop,
     stageId: won ? Math.min(stageTop, id + 1) : id,
     stageStars: { ...prev.stageStars, [id]: best },
@@ -491,7 +495,7 @@ export function settleStage(
       seenIds: prev.seenIds.includes(joined) ? prev.seenIds : [...prev.seenIds, joined],
     } : {}),
   });
-  return { mem, pellets, scrap, parts, first, joined };
+  return { mem, pellets, scrap, parts, credits, first, joined };
 }
 
 /** 一共拿了多少颗星。图鉴和进度条用 */
