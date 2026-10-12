@@ -170,6 +170,17 @@ const CRAFT_LATE_RATE = 1.091;
 const CRAFT_LATE_BASE = { scrap: 196, parts: 14 } as const;
 
 /**
+ * ★5 那一段（手艺 32 起）改成多吃零件、少吃废铁。
+ * 长线模拟（180 天、卡关会回刷）里过了第 60 天摊子越摆越多，零件涨得比废铁快：
+ * D180 废铁见底、零件压着一两万没处花，卡关全卡在废铁上。
+ * 后段 20 个人一档一档铺，一轮就是几万废铁，哪样料不够都只差零点几档 ——
+ * 要紧的是两样轮流见底、别一样常年压着。1.06/1.16 倒过来压了十几万废铁，1.075/1.125 两样交替见底。
+ * 32 档以前一分没动，60 天护栏量的那段够不着这里。
+ */
+const CRAFT_TILT_FROM = 32;
+const CRAFT_TILT_RATE = { scrap: 1.075, parts: 1.125 } as const;
+
+/**
  * 下标 0 = 手艺 1→2。合计约 1050 废铁 + 59 零件。
  *
  * **前 9 档计价比从 ~20:1 滑到 ~14:1。第 10 档起钉在 14:1，见 CRAFT_LATE_BASE。**
@@ -316,10 +327,11 @@ export function nextCraftCost(craft: number): { scrap: number; parts: number } |
   const tuned = CRAFT_COST[c - 1];
   if (tuned) return tuned;
   // craft 10→11 是跑道段第一档，正好落在基准上
-  const n = c - CRAFT_COST.length - 1;
+  const n = Math.min(c, CRAFT_TILT_FROM) - CRAFT_COST.length - 1;
+  const k = Math.max(0, c - CRAFT_TILT_FROM);
   return {
-    scrap: Math.round(CRAFT_LATE_BASE.scrap * Math.pow(CRAFT_LATE_RATE, n)),
-    parts: Math.round(CRAFT_LATE_BASE.parts * Math.pow(CRAFT_LATE_RATE, n)),
+    scrap: Math.round(CRAFT_LATE_BASE.scrap * Math.pow(CRAFT_LATE_RATE, n) * Math.pow(CRAFT_TILT_RATE.scrap, k)),
+    parts: Math.round(CRAFT_LATE_BASE.parts * Math.pow(CRAFT_LATE_RATE, n) * Math.pow(CRAFT_TILT_RATE.parts, k)),
   };
 }
 

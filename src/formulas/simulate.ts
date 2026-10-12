@@ -27,6 +27,7 @@ import {
 import {
   CHAPTER_COUNT, STAGES, STAGE_COUNT, getStage, type StageDef,
 } from '@/balance/stages';
+import { LEAK_ALLOW } from '@/balance/combat';
 import {
   DAILY_PELLETS, PELLET_AD, PELLET_AD_DAILY, PELLET_LOSE, PELLET_OFFLINE_CAP,
   SETTLE_SCRAP, SETTLE_SCRAP_REPLAY, expectedPerPellet, mulberry32, pelletsForStage,
@@ -213,6 +214,13 @@ export interface SimOptions {
   place?: 'smart' | 'dumb';
   /** 看不看摊子的激励广告 */
   watchAds?: boolean;
+  /** 局内层（三选一、增援、焊一下）开不开。默认开，关掉只用来量它值多少 */
+  boosts?: boolean;
+  /**
+   * 卡住以后拿剩下的次数回头刷上一关换废铁。默认关：手校曲线是贴着「卡住就收手」校的，
+   * 护栏照旧走保守口径；长线报表开它看真人那条线
+   */
+  replayWhenStuck?: boolean;
 }
 
 export interface SimResult {
@@ -262,12 +270,39 @@ function placeFor(l: Live, stage: StageDef, mode: 'smart' | 'dumb', day: number)
     : dumbPlace(pool, cap, day);
 }
 
+/** 没站上去的人坐板凳，开打后托管拿电池把他们送上去 */
+export function reserveOf(pool: readonly Candidate[], place: readonly Placement[]): Candidate[] {
+  const on = new Set(place.map((p) => p.villager.id));
+  return pool.filter((c) => !on.has(c.villager.id));
+}
+
+/**
+ * 打一关。护栏跑的是「全托管」：三选一拿推荐、电池自己飞进来、焊和增援都等兜底时间。
+ * 真人只会比它多点几下，所以它过得去，真人一定过得去。
+ */
+export function fightWith(
+  stage: StageDef,
+  pool: readonly Candidate[],
+  place: readonly Placement[],
+  mul: number,
+  autoSkill = true,
+  boosts = true,
+  policy: 'smart' | 'dumb' = 'smart',
+): BattleResult {
+  return runBattle(stage, place, mul, autoSkill, { reserve: reserveOf(pool, place), boosts, policy });
+}
+
+function fight(l: Live, stage: StageDef, mode: 'smart' | 'dumb', day: number, boosts: boolean): BattleResult {
+  return fightWith(stage, poolOf(l), placeFor(l, stage, mode, day), villageMul(l.villageLv), true, boosts, mode);
+}
+
 /** 跑一趟长线。默认 60 天 */
 export function simulate(opts: SimOptions = {}): SimResult {
   const days = opts.days ?? 60;
   const attempts = opts.attemptsPerDay ?? 6;
   const mode = opts.place ?? 'smart';
   const watchAds = opts.watchAds ?? true;
+  const boosts = opts.boosts ?? true;
   const rng = mulberry32(opts.seed ?? 20260904);
 
   const l = freshLive();
@@ -300,7 +335,7 @@ export function simulate(opts: SimOptions = {}): SimResult {
          * 重打按 SETTLE_SCRAP_REPLAY 计价，弹子照给。
          */
         const last = getStage(STAGE_COUNT);
-        const res = runBattle(last, placeFor(l, last, mode, day + a), villageMul(l.villageLv));
+        const res = fight(l, last, mode, day + a, boosts);
         if (!res.won) break;
         l.scrap += SETTLE_SCRAP_REPLAY * yieldMul(l.villageLv);
         stagePellets += pelletsForStage(STAGE_COUNT, false);
@@ -309,7 +344,7 @@ export function simulate(opts: SimOptions = {}): SimResult {
       }
       const stage = getStage(nextId);
       if (!attemptSnap.has(nextId)) attemptSnap.set(nextId, cloneLive(l));
-      const res = runBattle(stage, placeFor(l, stage, mode, day + a), villageMul(l.villageLv));
+      const res = fight(l, stage, mode, day + a, boosts);
       if (res.won) {
         l.cleared.add(nextId);
         l.scrap += SETTLE_SCRAP * yieldMul(l.villageLv);
@@ -331,6 +366,14 @@ export function simulate(opts: SimOptions = {}): SimResult {
          * 也就是说：**补这条活水不是改模型，是在改难度。** 手校了一个月的关卡曲线
          * 全是贴着这个保守口径校出来的，要动得连着 hpMul 一起重校，不能单改一边。
          */
+        if (opts.replayWhenStuck && nextId > 1) {
+          const back = getStage(nextId - 1);
+          for (let r = a + 1; r < attempts; r += 1) {
+            if (!fight(l, back, mode, day + r, boosts).won) break;
+            l.scrap += SETTLE_SCRAP_REPLAY * yieldMul(l.villageLv);
+            stagePellets += pelletsForStage(back.id, false);
+          }
+        }
         break;
       }
     }
@@ -415,7 +458,7 @@ export interface StageProbe {
  * 于是「运气差、手里没有克制这一章的门路」这种真实处境永远测不到，
  * 而那恰好是反目标第三条要防的东西。
  */
-export function sweepStages(sim: SimResult): StageProbe[] {
+export function sweepStages(sim: SimResult, boosts = true): StageProbe[] {
   const out: StageProbe[] = [];
 
   for (const stage of STAGES) {
@@ -440,8 +483,8 @@ export function sweepStages(sim: SimResult): StageProbe[] {
       cap,
       roster: snap.roster.length,
       capped: false,
-      smart: runBattle(stage, autoPlace(pool, stage, cap), mul),
-      dumb: runBattle(stage, dumbPlace(pool, cap, stage.id), mul),
+      smart: fightWith(stage, pool, autoPlace(pool, stage, cap), mul, true, boosts),
+      dumb: fightWith(stage, pool, dumbPlace(pool, cap, stage.id), mul, true, boosts, 'dumb'),
     });
   }
   return out;
@@ -480,6 +523,14 @@ export interface SweepStats {
   killsPerCast: number;
   /** 每招每上场一次放几次，按村民 id */
   perSkill: Record<string, number>;
+  /** 压迫感，按章（下标 0 是第 1 章）：场上平均几只、平均最多几只、最少用到几条路 */
+  aliveByChapter: number[];
+  peakByChapter: number[];
+  lanesByChapter: number[];
+  /** 空场时间占比，百分数 */
+  emptyPct: number;
+  /** 胜局里「险」的比例：拖拉机发动过、漏到只差一只、或有人掉到三成血以下 */
+  closeWinPct: number;
 }
 
 export function sweepStats(probes: readonly StageProbe[]): SweepStats {
@@ -518,11 +569,21 @@ export function sweepStats(probes: readonly StageProbe[]): SweepStats {
     .reduce((b, [, k]) => b + k, 0), 0);
 
   const byChapter: number[] = [];
+  const aliveByChapter: number[] = [];
+  const peakByChapter: number[] = [];
+  const lanesByChapter: number[] = [];
+  const mean = (xs: readonly number[]): number => Math.round(
+    (xs.reduce((a, x) => a + x, 0) / Math.max(1, xs.length)) * 10,
+  ) / 10;
   for (let c = 1; c <= CHAPTER_COUNT; c += 1) {
     const inCh = probes.filter((p) => p.stage.chapter === c);
     const won = inCh.filter((p) => p.smart.won).length;
     byChapter.push(Math.round((won / Math.max(1, inCh.length)) * 1000) / 10);
+    aliveByChapter.push(mean(inCh.map((p) => p.smart.avgAlive)));
+    peakByChapter.push(mean(inCh.map((p) => p.smart.peakAlive)));
+    lanesByChapter.push(inCh.length > 0 ? Math.min(...inCh.map((p) => p.smart.lanes)) : 0);
   }
+  const close = (r: BattleResult): boolean => r.lastLines > 0 || r.leaked >= LEAK_ALLOW - 1 || r.lowHpFrac < 0.3;
 
   return {
     n,
@@ -555,6 +616,11 @@ export function sweepStats(probes: readonly StageProbe[]): SweepStats {
       (probes.reduce((a, p) => a + p.smart.skillKills, 0) / Math.max(1, dmgCasts)) * 100,
     ) / 100,
     perSkill,
+    aliveByChapter,
+    peakByChapter,
+    lanesByChapter,
+    emptyPct: avgPct(probes.map((p) => p.smart.emptyFrac)),
+    closeWinPct: avgPct(smartWins.map((p) => (close(p.smart) ? 1 : 0))),
   };
 }
 

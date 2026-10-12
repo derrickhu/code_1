@@ -16,7 +16,9 @@
  *
  * 章内把墙放在第 4、5 关，对应 §8「卡关点稳定落在每章的第 4–5 关」。
  */
-import { ARMOR_K, BOSS_HP_MUL, PAR_GRACE_MS, WAVE_GAP_MS } from './combat';
+import {
+  ARMOR_K, BOSS_HP_MUL, ELITE_HP_MUL, PAR_GRACE_MS, SWARM_K, WAVE_GAP_MS,
+} from './combat';
 import type { Lane } from './villagers';
 
 /**
@@ -190,10 +192,22 @@ export interface SpawnGroup {
   atMs: number;
   /** 首领「大个子」，见 combat.BOSS_* */
   boss?: boolean;
+  /** swarm：一窝，每只按 SWARM_K 摊薄；elite：小头目，见 combat.ELITE_* */
+  kind?: 'swarm' | 'elite';
 }
 
 export interface Wave {
   groups: readonly SpawnGroup[];
+  /** 一大波：进度条上插旗，来之前横幅喊出来 */
+  surge?: boolean;
+}
+
+/** 一只占几份预算（按血量算）。一窝里的一只不到半份，小头目、大个子顶好几份 */
+export function unitWeight(g: Pick<SpawnGroup, 'boss' | 'kind'>): number {
+  if (g.boss) return BOSS_HP_MUL;
+  if (g.kind === 'elite') return ELITE_HP_MUL;
+  if (g.kind === 'swarm') return SWARM_K;
+  return 1;
 }
 
 export interface StageDef {
@@ -486,19 +500,30 @@ const IDX_WAVES = [3, 3, 4, 4, 5] as const;
  *
  * 第三路开在第 5 章而不是第 4 章：第 4 章上场才 5 个人，
  * 摊到三路就是一路一到两个，又回到「没纵深」那个死结（实测通关掉到 D47~D60）。
+ *
+ * 那张表把前四章做成了「永远一条线」，现在不平均铺，改成主攻路 + 偷袭路：
+ * 主攻路拿七成、偷袭路三成，偷袭的是一窝快而脆的。人少照样守得住，靠三样当时没有的东西 ——
+ * 打位罩得到三路（`@/game/reach`）、板凳上的人花电池随时补上、每路底线一台拖拉机兜一次。
+ *
+ * 第 1 章主攻永远是中路，边路左右轮流偷袭，1-3 起最后一波两边一起来；
+ * 第 2 章起主攻路每波换，最后一波三路一起压。头一波只走一路，让人先看清来的是什么。
  */
-function chapterLaneBudget(chapter: number): number {
-  if (chapter <= 1) return 1;
-  if (chapter <= 4) return 2;
-  return 3;
+function waveLanes(chapter: number, index: number, w: number, waveCount: number): { lane: number; share: number }[] {
+  const last = w === waveCount - 1;
+  if (w === 0) return [{ lane: 1, share: 1 }];
+  if (chapter <= 1) {
+    if (last && index >= 3) return [{ lane: 1, share: 0.6 }, { lane: 0, share: 0.2 }, { lane: 2, share: 0.2 }];
+    return [{ lane: 1, share: 0.7 }, { lane: w % 2 === 1 ? 0 : 2, share: 0.3 }];
+  }
+  const main = [1, 0, 2][w % 3]!;
+  if (last) {
+    return [
+      { lane: main, share: 0.5 },
+      ...[0, 1, 2].filter((l) => l !== main).map((lane) => ({ lane, share: 0.25 })),
+    ];
+  }
+  return [{ lane: main, share: 0.7 }, { lane: (main + 1 + (w % 2)) % 3, share: 0.3 }];
 }
-
-/** 用几条路时用哪几条。一路走中间，两路走左中 */
-const LANE_SET: Readonly<Record<number, readonly number[]>> = {
-  1: [1],
-  2: [0, 1],
-  3: [0, 1, 2],
-};
 
 /**
  * 一关总共放多少只：第 1 章 12 只 → 第 80 章 48 只，章内再 ×1.28。
@@ -544,7 +569,7 @@ function wavesEhp(waves: readonly Wave[]): number {
   let sum = 0;
   for (const w of waves) {
     for (const g of w.groups) {
-      const k = g.boss ? BOSS_HP_MUL : 1;
+      const k = unitWeight(g);
       n += g.count * k;
       sum += g.count * k * unitEhp(g.enemy);
     }
@@ -593,8 +618,16 @@ function rushBudget(chapter: number, index: number): number {
  * 只数回到预算：1-3 起大个子是额外的，小怪不会比前两关少，1-5 也不会堆成墙。
  */
 function crowdTotal(chapter: number, index: number): number {
-  return rushBudget(chapter, index);
+  return rushBudget(chapter, index) * (CROWD_CH[chapter - 1] ?? 1);
 }
+
+/**
+ * 前 4 章多放的只数（第 1 章只管生成的 1-3、1-4，其余三关手写）。
+ * 预算按 12 只起步，再被小头目扣掉 2.5 份，第 2、3 章一波只剩三只、同屏两三只。
+ * 这几章模拟里本来就几乎全胜，多放的只数不补血，压力就落在这儿。
+ * 第 5 章只补一成：卡牌分档后打得快，同屏掉到 3.5 只以下；再多，像样的排法和乱排的差距就掉到 20 个点以下了。
+ */
+const CROWD_CH = [1.45, 1.5, 1.5, 1.3, 1.1] as const;
 
 /**
  * 只数打八折、每只的血补回来。总量不变，但一只能多活一会儿，走得到人跟前。
@@ -609,85 +642,97 @@ const BOSS_FROM_IDX = 3;
 const LEAD_GAP_MS = 1000;
 const PACK_GAP_MS = 280;
 const PACK_PAUSE_MS = 1500;
+/** 一窝贴着走。再松就又排成一串传送带 */
+const SWARM_GAP_MS = 200;
+/** 偷袭路比主攻路晚到这么久：先把人的注意力拽到主攻路，再从边上冒出来 */
+const FLANK_AT_MS = 2400;
 
 /**
- * 一路的怪拆成「先来几只探路 + 后面一窝冲上来」，后面那窝换成配方里下一种。
- * 均匀一串是传送带，一窝压上来才有「要崩了」的时候。
+ * 一关的形状：两次高压、两次喘气（向僵尸开炮、植物大战僵尸都是这个节奏）。
+ * share 是这一波占这一关预算的几成；surge 是一大波，进度条上插旗；
+ * 第一次高压带一只小头目，打掉了送大礼包，接着就是喘口气割草。
+ *
+ * 原来每波按 1 + 0.15w 平着涨，一关打下来没有一个明显的高峰。
  */
-function laneGroups(
-  seed: ChapterSeed, lane: number, count: number, w: number, l: number,
-): SpawnGroup[] {
-  const at = l * 900;
+interface Beat { share: number; surge?: true; elite?: true }
+const WAVE_SHAPE: Readonly<Record<number, readonly Beat[]>> = {
+  3: [{ share: 0.26 }, { share: 0.34, surge: true, elite: true }, { share: 0.4, surge: true }],
+  4: [{ share: 0.17 }, { share: 0.31, surge: true, elite: true }, { share: 0.17 }, { share: 0.35, surge: true }],
+  5: [
+    { share: 0.13 }, { share: 0.25, surge: true, elite: true }, { share: 0.12 }, { share: 0.17 },
+    { share: 0.33, surge: true },
+  ],
+};
+
+/** 能拆成一窝的：不带光环、不下蛋、不破壳、不跳、不飞、不钻地。带规则的怪拆开了等于规则翻几倍 */
+function swarmable(id: string): boolean {
+  const e = getEnemy(id);
+  return !e.aura && !e.spawn && !e.crack && !e.leap && !e.flying && !e.burrow;
+}
+
+/** 偷袭的那一窝：配方里最快的能拆的；都慢就派小灰 */
+function flankEnemy(seed: ChapterSeed): string {
+  const fast = seed.mix.filter(swarmable).sort((a, b) => getEnemy(b).spd - getEnemy(a).spd)[0];
+  return fast && getEnemy(fast).spd >= 0.6 ? fast : 'grunt';
+}
+
+function swarmOf(lane: number, enemy: string, units: number, atMs: number, gapMs = SWARM_GAP_MS): SpawnGroup {
+  return { lane, enemy, count: Math.max(2, Math.round(units / SWARM_K)), gapMs, atMs, kind: 'swarm' };
+}
+
+/**
+ * 主攻路：先来几只整的探路，后面一窝涌上来，换成配方里下一种。
+ * 那一种带规则拆不开，就一半整的、一半换成一窝小灰。
+ */
+function mainGroups(seed: ChapterSeed, lane: number, units: number, w: number): SpawnGroup[] {
   // 第 1 章方块领头，原样轮转的话每关第一波都是两只方块慢慢走，6~7 秒才倒第一只。错一位让小灰先冲
   const shift = seed === TUNED_CHAPTERS[0] ? 1 : 0;
-  const lead = seed.mix[(w + l + shift) % seed.mix.length]!;
-  if (count < 3) return [{ lane, enemy: lead, count, gapMs: 700 + l * 120, atMs: at }];
-  const head = Math.max(1, Math.round(count * 0.4));
-  return [
-    { lane, enemy: lead, count: head, gapMs: LEAD_GAP_MS, atMs: at },
-    {
-      lane,
-      enemy: seed.mix[(w + l + shift + 1) % seed.mix.length]!,
-      count: count - head,
-      gapMs: PACK_GAP_MS,
-      atMs: at + head * LEAD_GAP_MS + PACK_PAUSE_MS,
-    },
-  ];
+  const lead = seed.mix[(w + shift) % seed.mix.length]!;
+  const pack = seed.mix[(w + shift + 1) % seed.mix.length]!;
+  const head = Math.max(1, Math.round(units * 0.3));
+  const rest = units - head;
+  const out: SpawnGroup[] = [{ lane, enemy: lead, count: head, gapMs: LEAD_GAP_MS, atMs: 0 }];
+  if (rest <= 0.2) return out;
+  const at = head * LEAD_GAP_MS + PACK_PAUSE_MS;
+  if (swarmable(pack)) {
+    out.push(swarmOf(lane, pack, rest, at));
+    return out;
+  }
+  const whole = Math.max(1, Math.round(rest / 2));
+  out.push({ lane, enemy: pack, count: whole, gapMs: PACK_GAP_MS, atMs: at });
+  if (rest - whole > 0.2) out.push(swarmOf(lane, 'grunt', rest - whole, at + whole * PACK_GAP_MS + 600));
+  return out;
 }
 
 function buildWaves(seed: ChapterSeed, chapter: number, index: number): Wave[] {
   const waveCount = IDX_WAVES[index - 1] ?? 3;
+  const shape = WAVE_SHAPE[waveCount] ?? WAVE_SHAPE[3]!;
   const boss = index >= BOSS_FROM_IDX;
   const total = crowdTotal(chapter, index);
+  // 小头目从这一关的预算里扣，不额外加肉
+  const pool = total - (shape.some((b) => b.elite) ? ELITE_HP_MUL : 0);
 
-  // 后面的波比前面的密一点，压力是递增的而不是平的
-  const weights = Array.from({ length: waveCount }, (_, w) => 1 + w * 0.15);
-  const wSum = weights.reduce((a, b) => a + b, 0);
-
-  const waves: Wave[] = [];
-  let left = total;
-  for (let w = 0; w < waveCount; w += 1) {
-    const last = w === waveCount - 1;
-    const want = last
-      ? Math.max(1, left)
-      : Math.max(1, Math.round((total * weights[w]!) / wSum));
-    left -= want;
-
-    /*
-     * 头一波先少开一路当预告，之后铺满这一章的路数预算。
-     *
-     * 试过让第一波也铺满：早期上场才 4~5 人，第一波就要同时挡两路，
-     * 前排没纵深，漏怪从 2.7% 涨到 5.6%、第 8 章整章变墙。
-     * 「第一波窄」确实会让玩家以为这关只有一路，但解法在别处
-     * （让跨列支援真能够着，见 `@/game/reach`），不是把预告砍掉。
-     */
-    const budget = chapterLaneBudget(chapter);
-    const set = LANE_SET[budget] ?? LANE_SET[3]!;
-    const laneCount = w === 0 ? Math.max(1, budget - 1) : budget;
-    const per = Math.floor(want / laneCount);
-    const extra = want % laneCount;
-
+  return shape.map((beat, w) => {
+    const units = pool * beat.share;
     const groups: SpawnGroup[] = [];
-    for (let l = 0; l < laneCount; l += 1) {
-      const count = per + (l < extra ? 1 : 0);
-      if (count <= 0) continue;
-      // 只在这一章的路数预算里轮转，不许把没预算的第三路也用上
-      groups.push(...laneGroups(seed, set[(w + l) % set.length]!, count, w, l));
+    const lanes = waveLanes(chapter, index, w, waveCount);
+    lanes.forEach((l, k) => {
+      const u = units * l.share;
+      if (k === 0) groups.push(...mainGroups(seed, l.lane, u, w));
+      else groups.push(swarmOf(l.lane, flankEnemy(seed), u, FLANK_AT_MS + (k - 1) * 900, 260));
+    });
+    const main = lanes[0]!.lane;
+    if (beat.elite) {
+      // 小头目领着那一窝冲，走在一窝前面一点
+      const lead = groups.find((g) => g.lane === main && g.kind === 'swarm') ?? groups[0]!;
+      groups.push({ lane: main, enemy: seed.mix[0]!, count: 1, gapMs: 0, atMs: Math.max(0, lead.atMs - 400), kind: 'elite' });
     }
-    if (last && boss) {
-      // 大个子是这一章领头那只放大，走中路（两路的章走当波轮到的那一路）
-      groups.push({
-        lane: budget === 2 ? set[w % 2]! : set[Math.floor(set.length / 2)]!,
-        enemy: seed.mix[0]!,
-        count: 1,
-        gapMs: 0,
-        atMs: 3500,
-        boss: true,
-      });
+    if (w === waveCount - 1 && boss) {
+      // 大个子是这一章领头那只放大，走这一波的主攻路
+      groups.push({ lane: main, enemy: seed.mix[0]!, count: 1, gapMs: 0, atMs: 3500, boss: true });
     }
-    waves.push({ groups });
-  }
-  return waves;
+    return beat.surge ? { groups, surge: true } : { groups };
+  });
 }
 
 /** 绝活上线后全队多出来的输出，敌人血量跟着补这么多 */
@@ -703,34 +748,69 @@ function skillComp(_chapter: number): number {
   return SKILL_HP_COMP;
 }
 
-function skillAtk(chapter: number): number {
-  return chapter <= CH_TUNED ? 1 : SKILL_ATK_TAIL;
+/**
+ * 局内层（三选一、增援、焊一下）上线后全托管多出来的那一截，敌人血量跟着补。
+ * 按「全托管」补：真人点了电池、挑了卡、掐了焊的时机，只会比这更好打。
+ * 第 1 章前四关不补，新人头几关就该打得爽。
+ * 1-5 是逼新人回村练手艺的墙：手艺全 1 守不住，升谁一级都过得去，铁柱升到 2 一只不漏。
+ * 这一关攻击的窗口很窄（×1.12 上下 0.02：再低升大锤过不去，再高升弹弓叔过不去），
+ * 血量窗口 1.6~1.7：卡牌按强弱推荐以后全托管会挑拖拉机、鞭炮，墙得比按种类推荐时厚两成。
+ * 动局内层、拖拉机、一窝的数值要连着 chapter1Squad、opening 一起看。
+ */
+const BOOST_HP_COMP = 1.12;
+const BOOST_HP_CH1 = 1;
+const BOOST_HP_WALL = 1.65;
+const WALL_ATK = 1.12;
+/**
+ * 五段节奏、一窝、拖拉机、急眼上线之后多出来的那一截。
+ * 偷袭路有拖拉机兜底、打残了下一波提前来，全托管赢面一下多了一成，血和攻击各补一截。
+ * 只补血会把输法推成「清不完」超时，攻击得一起补，输才落在「哪一路崩了」上。
+ */
+const SHAPE_HP = 1.4;
+const SHAPE_HP_CH1 = 1.3;
+const SHAPE_ATK = 1.2;
+
+function boostComp(chapter: number, idx: number): number {
+  if (chapter > 1) return BOOST_HP_COMP * SHAPE_HP;
+  return (idx === 5 ? BOOST_HP_WALL : BOOST_HP_CH1) * SHAPE_HP_CH1;
+}
+
+function skillAtk(chapter: number, idx = 1): number {
+  const wall = chapter === 1 && idx === 5 ? WALL_ATK : 1;
+  return (chapter <= CH_TUNED ? 1 : SKILL_ATK_TAIL) * SHAPE_ATK * wall;
 }
 
 /**
  * 1-1 手写。冷启动里一半人在开打后 5~15 秒走掉：生成的那一版头一只是慢吞吞的方块，
  * 7 秒才倒第一只。这里让快的小灰先冲，两三秒就有人倒、一窝接一窝。
- * 只数和生成版一样是 10，只换先后和种类。章内的血量折算仍按生成版算，不牵动后面的章。
+ * 章内的血量折算仍按生成版算，不牵动后面的章。
+ *
+ * 第 1 关就是两路：中路一窝小灰先冲，左路随后冒出一小窝 —— 增援教的就是「哪路来了往哪路送」，
+ * 不是「电池够了随便送」。一大波那一下左路快的大概率冲到底线，拖拉机头一回发动。
  */
 const OPENING_WAVES: readonly Wave[] = [
   {
-    // 四只挤成一串：第一招（弹弓叔滑轮连射，整条路都挨）一下扫倒一串，开局几秒就有「爽」的那一下
+    // 一窝挤成一串：第一招（弹弓叔滑轮连射，整条路都挨）一下扫倒一串，开局几秒就有「爽」的那一下
     groups: [
-      { lane: 1, enemy: 'grunt', count: 4, gapMs: 300, atMs: 0 },
-      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 2400 },
+      { lane: 1, enemy: 'grunt', count: 6, gapMs: 260, atMs: 0, kind: 'swarm' },
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 2600 },
+      { lane: 0, enemy: 'grunt', count: 3, gapMs: 500, atMs: 6000, kind: 'swarm' },
     ],
   },
   {
     groups: [
-      { lane: 1, enemy: 'grunt', count: 2, gapMs: 450, atMs: 0 },
-      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 1300 },
+      { lane: 1, enemy: 'grunt', count: 4, gapMs: 240, atMs: 0, kind: 'swarm' },
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 1800 },
+      { lane: 0, enemy: 'grunt', count: 3, gapMs: 400, atMs: 2500, kind: 'swarm' },
     ],
   },
   {
-    // 收尾来一只大个子，第一关也有个要合力打倒的东西
+    // 一大波：两路一起压，收尾一只大个子，第一关也有个要合力打倒的东西
+    surge: true,
     groups: [
-      { lane: 1, enemy: 'grunt', count: 1, gapMs: 0, atMs: 0 },
-      { lane: 1, enemy: 'grunt', count: 1, gapMs: 0, atMs: 1500, boss: true },
+      { lane: 1, enemy: 'grunt', count: 7, gapMs: 200, atMs: 0, kind: 'swarm' },
+      { lane: 0, enemy: 'grunt', count: 3, gapMs: 300, atMs: 1200, kind: 'swarm' },
+      { lane: 1, enemy: 'grunt', count: 1, gapMs: 0, atMs: 3500, boss: true },
     ],
   },
 ];
@@ -738,24 +818,73 @@ const OPENING_WAVES: readonly Wave[] = [
 /**
  * 1-2 手写。生成版是方块领头、一波两三只，和 1-1 同一批人打同一种怪，还更慢：
  * 6 秒才倒第一只，十几秒没一次击杀。这关叫「路上开始挤」，就让小灰先冲，
- * 后两波是方块顶在前面、一窝小灰堵在它身后。
+ * 后两波是方块顶在前面、一窝小灰堵在它身后。偷袭换到右路，两边都得看。
  */
 const STAGE2_WAVES: readonly Wave[] = [
   {
     groups: [
-      { lane: 1, enemy: 'grunt', count: 3, gapMs: 450, atMs: 0 },
+      { lane: 1, enemy: 'grunt', count: 6, gapMs: 260, atMs: 0, kind: 'swarm' },
+      { lane: 2, enemy: 'grunt', count: 3, gapMs: 450, atMs: 3500, kind: 'swarm' },
+    ],
+  },
+  {
+    surge: true,
+    groups: [
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
+      { lane: 1, enemy: 'grunt', count: 7, gapMs: 220, atMs: 1500, kind: 'swarm' },
+      { lane: 0, enemy: 'grunt', count: 3, gapMs: 350, atMs: 2500, kind: 'swarm' },
+    ],
+  },
+  {
+    surge: true,
+    groups: [
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
+      { lane: 1, enemy: 'grunt', count: 6, gapMs: 220, atMs: 1500, kind: 'swarm' },
+      { lane: 2, enemy: 'grunt', count: 4, gapMs: 300, atMs: 2200, kind: 'swarm' },
+    ],
+  },
+];
+
+/**
+ * 1-5 手写。这关是逼新人回村练手艺的墙，墙得落在「中路那个挨的扛不扛得住」上：
+ * 生成版把小头目、方块、大个子全堆在中路，手艺 2 的铁柱也撑不到大个子进门，
+ * 中路拖拉机一过，大个子空着一条路走进村 —— 升谁都一样，墙就成了运气。
+ * 这里小头目来得早、两边轮着偷袭，大个子进门时中路的人还站着，赢输看他接不接得住。
+ */
+const STAGE5_WAVES: readonly Wave[] = [
+  {
+    groups: [
+      { lane: 1, enemy: 'grunt', count: 5, gapMs: 240, atMs: 0, kind: 'swarm' },
+      { lane: 2, enemy: 'grunt', count: 3, gapMs: 300, atMs: 3000, kind: 'swarm' },
+    ],
+  },
+  {
+    surge: true,
+    groups: [
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0, kind: 'elite' },
+      { lane: 1, enemy: 'grunt', count: 4, gapMs: 220, atMs: 900, kind: 'swarm' },
+      { lane: 0, enemy: 'grunt', count: 3, gapMs: 300, atMs: 2600, kind: 'swarm' },
     ],
   },
   {
     groups: [
-      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
-      { lane: 1, enemy: 'grunt', count: 3, gapMs: 260, atMs: 1500 },
+      { lane: 0, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
+      { lane: 0, enemy: 'grunt', count: 3, gapMs: 260, atMs: 1600, kind: 'swarm' },
     ],
   },
   {
     groups: [
-      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
-      { lane: 1, enemy: 'grunt', count: 2, gapMs: 240, atMs: 1500 },
+      { lane: 2, enemy: 'cube', count: 1, gapMs: 0, atMs: 0 },
+      { lane: 1, enemy: 'grunt', count: 3, gapMs: 260, atMs: 1500, kind: 'swarm' },
+    ],
+  },
+  {
+    surge: true,
+    groups: [
+      { lane: 1, enemy: 'grunt', count: 5, gapMs: 200, atMs: 0, kind: 'swarm' },
+      { lane: 0, enemy: 'grunt', count: 3, gapMs: 300, atMs: 1200, kind: 'swarm' },
+      { lane: 2, enemy: 'grunt', count: 3, gapMs: 300, atMs: 1800, kind: 'swarm' },
+      { lane: 1, enemy: 'cube', count: 1, gapMs: 0, atMs: 3500, boss: true },
     ],
   },
 ];
@@ -764,6 +893,7 @@ const STAGE2_WAVES: readonly Wave[] = [
 const HAND_WAVES: Readonly<Record<number, readonly Wave[]>> = {
   1: OPENING_WAVES,
   2: STAGE2_WAVES,
+  5: STAGE5_WAVES,
 };
 
 function buildStages(): StageDef[] {
@@ -795,8 +925,8 @@ function buildStages(): StageDef[] {
         label: `${c + 1}-${i}`,
         name: seed.name,
         pitch: seed.pitches[i - 1] ?? '',
-        hpMul: round2(chHp * ramp * bodyMul(c + 1) * comp * skillComp(c + 1) / RUSH_COUNT_MUL),
-        atkMul: round2(chAtk * atkRamp(ramp) * skillAtk(c + 1)),
+        hpMul: round2(chHp * ramp * bodyMul(c + 1) * comp * skillComp(c + 1) * boostComp(c + 1, i) / RUSH_COUNT_MUL),
+        atkMul: round2(chAtk * atkRamp(ramp) * skillAtk(c + 1, i)),
         waves,
         // 3 波 86s、5 波 120s，都在 §5 的 1~2 分钟里。
         // 超时只兜「打不动的死局」，正常打不过应该是**漏怪**判负 —— 那个看得懂

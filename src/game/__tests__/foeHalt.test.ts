@@ -97,6 +97,7 @@ describe('地面怪走到自己射程才停，空格不挡', () => {
       [{ villager: v, lane: 0, cell: 0, evoStage: 1, stars: 1 }],
     );
     startFight(state);
+    state.lastLine.fill(false);
     freezeTeam(state);
     const e = spawnFoe(state, 'grunt', 1);
     expect(foeHaltPos(e, state.team)).toBeUndefined();

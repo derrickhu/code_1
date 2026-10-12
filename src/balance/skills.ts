@@ -161,15 +161,18 @@ export const SKILLS: Readonly<Record<string, SkillDef>> = {
   },
 };
 
-/** 形态给的威力。一阶就有绝活，二阶、三阶更猛，三阶另加 evo3 */
-export const SKILL_EVO_POW = [1, 1.25, 1.6] as const;
+/**
+ * 形态给的威力。一阶就有绝活，二阶、三阶更猛，三阶另加 evo3。
+ * 三阶不能再高：后半程人都进了三阶，绝活占比比前半程高出 12 个点以上，普攻就成了摆设
+ */
+export const SKILL_EVO_POW = [1, 1.25, 1.5] as const;
 /** 每颗星加多少威力 */
 export const SKILL_STAR_POW = 0.06;
 /**
  * 所有招整体的威力倍率。节奏改稀之后单招要够重，
  * 同时把绝活占总伤害压在三成上下，不让普攻变成摆设。
  */
-export const SKILL_POW_MUL = 1.05;
+export const SKILL_POW_MUL = 1.0;
 
 /**
  * 绝活打完还剩不到这么多血的，直接带走（首领不算）。
@@ -192,6 +195,11 @@ export const ENERGY_HIT = 2.5;
 export const ENERGY_STAR = 0.04;
 /** 开打时先给的劲头：第一招大约 10–12 秒 */
 export const ENERGY_START = 45;
+/**
+ * 增援送上来的人憋着劲：五六秒就能放第一招。
+ * 往快崩的那一路送人，要的就是送上去立刻顶一下；按开局的 45 起步，半关打完了才放得出来
+ */
+export const DEPLOY_ENERGY = 75;
 /** 满了憋这么久还没放，打得着什么就放什么 */
 export const SKILL_WAIT_MS = 6000;
 

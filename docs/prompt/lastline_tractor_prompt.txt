@@ -1,0 +1,9 @@
+Single game sprite of the SAME old rusty red Chinese village walking tractor / small farm tractor as the reference image (same paint, rust, black exhaust pipe, big ribbed rear tyres with red rims, steering wheel, hand-painted gritty illustration style, thick dark outlines, soft top-left light).
+
+Camera: seen from BEHIND and slightly ABOVE (high rear three-quarter view, about 35 degrees down), as if the viewer stands on a dirt road behind the tractor and the tractor is about to drive straight away from the viewer up the road. Show the two big rear tyres prominently at the bottom, the seat and steering wheel in the middle, the hood and front wheels smaller at the top (perspective foreshortening). Exhaust pipe on top puffing a tiny bit of dark smoke. Front of the tractor points straight UP the image.
+
+Isolated object centered on a plain flat light grey background (#d0d0d0), no ground, no shadow on background, no road, no scenery, no driver.
+
+Portrait composition, object fills about 80% of the height.
+
+NO TEXT, no labels, no captions, no writing, no numbers anywhere in the image.

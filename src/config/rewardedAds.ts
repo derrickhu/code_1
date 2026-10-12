@@ -17,10 +17,20 @@ export const WX_REWARDED_AD = {
   loseBonus: 'adunit-3e808f8ac0bd9209',
   /** 升手艺零件差一点时，看一段拿零件 */
   craftParts: 'adunit-c5587bc19363af50',
+  /**
+   * 三选一底下「看一段，白拿压箱底」。流量主后台还没建，空着时入口不出：
+   * 空串在真机上走开发桩，等于不看广告白给
+   */
+  boostGold: '',
 } as const;
 
 export type RewardedSlot = keyof typeof WX_REWARDED_AD;
 
 export function rewardedAdUnitId(slot: RewardedSlot, platform: string): string {
   return platform === 'wechat' ? WX_REWARDED_AD[slot] : '';
+}
+
+/** 这个位在微信上填了广告位。没填的新入口不该露出来 */
+export function rewardedSlotOpen(slot: RewardedSlot, platform: string): boolean {
+  return rewardedAdUnitId(slot, platform) !== '';
 }

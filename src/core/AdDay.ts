@@ -10,7 +10,8 @@ const KEY = scopedStorageKey('ad_day');
 const LEGACY_KEY = 'code1_ad_day';
 
 export type AdPlacement =
-  | 'revive' | 'settleDouble' | 'loseBonus' | 'craftParts' | 'dailyGift' | 'junkyard' | 'pileFill';
+  | 'revive' | 'settleDouble' | 'loseBonus' | 'craftParts' | 'dailyGift' | 'junkyard' | 'pileFill'
+  | 'boostGold';
 
 const LIMIT: Readonly<Record<AdPlacement, number>> = {
   revive: 2,
@@ -23,6 +24,9 @@ const LIMIT: Readonly<Record<AdPlacement, number>> = {
   // 村里那堆废品一键涨满。纯局外，不挡开场，一天一次 ——
   // 它买的是次日回访那一下的即时满足，多给就变成挂机替代打一局了
   pileFill: 1,
+  // 三选一底下白拿一张压箱底。一局最多一次，一天三次：
+  // 再多，压箱底就成了「看视频才有」的东西，不看的人觉得自己在玩阉割版
+  boostGold: 3,
 };
 
 const PLACEMENTS = Object.keys(LIMIT) as AdPlacement[];

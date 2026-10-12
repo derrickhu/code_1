@@ -1,0 +1,22 @@
+Game item icon sheet for a rustic Chinese village tower-defense mobile game ("villagers vs aliens", junkyard / rusty iron / hand-painted style).
+Match the reference image exactly in rendering style: chunky hand-painted game icons, warm worn colors, rust, chipped paint, soft top-left light, thick readable silhouettes, slight 3/4 view, each object casts a small soft contact shadow.
+
+Layout: a strict grid of 4 columns x 3 rows, 12 equal square cells, one object centered in each cell with generous padding, nothing crossing cell borders.
+Background: one flat uniform plain dark brown color (#2a1e16) everywhere, no gradients, no patterns, no frames, no cell borders drawn.
+
+Cells, left-to-right, top-to-bottom:
+1. A long string of red Chinese firecrackers (a coiled hanging strand of many small red paper firecrackers with a lit fuse spark).
+2. An old rusty tin loudspeaker horn (village broadcast trumpet loudspeaker) with a short pole clamp.
+3. A battered boxy portable square-dance speaker on wheels with a handle, red plastic with a big round speaker cone and a few colorful light dots.
+4. A small old red walking tractor (Chinese hand tractor) with a big front engine and cart, chunky toy-like proportions, puff of exhaust.
+5. An improvised electric blower fan made from a rusty desk fan with a funnel duct welded on, showing a gust of wind lines.
+6. A big double-bang firecracker (Chinese "er ti jiao"): thick red paper tube with gold band and fuse, with a small blast puff.
+7. An old car battery, black and dented with red and green terminals and a crude cable, a small yellow electric spark.
+8. A round iron wok lid used as a shield, dented dark metal with a wooden knob handle, a couple of welded rivets.
+9. A traditional Chinese steelyard weight (cheng tuo), heavy cast-iron bell-shaped counterweight hanging from a short rope.
+10. A farmer's bundle: a straw hat resting on a cloth bundle tied with a knot, warm and friendly, signals a passing villager.
+11. A woven bamboo market basket filled with several green AA batteries.
+12. A single chunky glowing green battery cell with a lightning bolt symbol embossed (no letters), bright and collectible, slight glow.
+
+Consistent scale across all 12 objects, all objects fully visible.
+NO TEXT, no labels, no captions, no letters, no numbers, no writing anywhere in the image.

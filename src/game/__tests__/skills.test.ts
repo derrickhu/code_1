@@ -179,6 +179,7 @@ describe('绝活', () => {
 describe('首领和节奏', () => {
   it('首领漏过去算两个', () => {
     const state = fieldWith('guogai');
+    state.lastLine.fill(false);
     put(state, 0, GOAL_POS - 0.01, { boss: true, spd: 5 });
     for (let i = 0; i < 3; i += 1) tick(state);
     expect(state.leaked).toBe(2);

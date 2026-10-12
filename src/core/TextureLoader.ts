@@ -256,6 +256,21 @@ export const UI_FILES = [
   'paint_lou',
   'paint_changshang',
   'paint_menlu',
+  'boost_card',
+  'boost_cell',
+  'boost_cracker',
+  'boost_horn',
+  'boost_dance',
+  'boost_tractor',
+  /** 底线上停着的那台，背对镜头，车头朝路上 */
+  'lastline_tractor',
+  'boost_blower',
+  'boost_kicker',
+  'boost_battery',
+  'boost_wok',
+  'boost_weight',
+  'boost_guest',
+  'boost_market',
 ] as const;
 
 export function bgTex(): PIXI.Texture | null {

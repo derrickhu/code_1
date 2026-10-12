@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { WX_REWARDED_AD, rewardedAdUnitId } from '@/config/rewardedAds';
+import { WX_REWARDED_AD, rewardedAdUnitId, rewardedSlotOpen } from '@/config/rewardedAds';
 
 describe('微信激励视频广告位', () => {
   it('六个入口各有一个已开启的广告位，互不共用', () => {
-    const ids = Object.values(WX_REWARDED_AD);
+    const ids = Object.values(WX_REWARDED_AD).filter((id) => id !== '');
     expect(ids).toEqual([
       'adunit-39a3bb98a95fc55c',
       'adunit-fe7a8a11e1ea7ee9',
@@ -19,5 +19,11 @@ describe('微信激励视频广告位', () => {
     expect(rewardedAdUnitId('revive', 'wechat')).toBe(WX_REWARDED_AD.revive);
     expect(rewardedAdUnitId('revive', 'douyin')).toBe('');
     expect(rewardedAdUnitId('stallPellets', 'unknown')).toBe('');
+  });
+
+  it('还没建广告位的入口不算开着：空串在真机走桩，等于白给', () => {
+    expect(rewardedSlotOpen('revive', 'wechat')).toBe(true);
+    expect(rewardedSlotOpen('boostGold', 'wechat')).toBe(WX_REWARDED_AD.boostGold !== '');
+    expect(rewardedSlotOpen('revive', 'douyin')).toBe(false);
   });
 });

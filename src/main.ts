@@ -7,6 +7,7 @@ import '@/core/pixiUnsafeEvalPatch';
 import { analytics, initAnalytics, setAnalyticsUserId } from '@/analytics';
 import { MAIN_PRELOAD_IMAGES, VILLAGE_HOME_SHELL, openingBattleImages } from '@/config/assetPreload';
 import { evoOf } from '@/balance/village';
+import { villageGateOpen } from '@/balance/opening';
 import { warmupCdnAssets } from '@/config/CdnWarmup';
 import { SAVE_KEY } from '@/config/CloudConfig';
 import { BASE_GAME_KEY } from '@/config/gameKeyScope';
@@ -113,9 +114,9 @@ async function main(): Promise<void> {
   await CdnAssetService.fetchManifest().catch(() => false);
   loading.setProgress(0.28);
 
-  // 赢下 1-3 之前直接进战斗，村口壳改后台拉，不挡开打。
+  // 村口没开之前直接进战斗，村口壳改后台拉，不挡开打。
   const bootMem = loadMemory();
-  const opening = bootMem.stageTop <= 3;
+  const opening = !villageGateOpen(bootMem.stageTop);
   if (opening) {
     const prog = progressOf(bootMem);
     const heroes = bootMem.roster.map((id) => ({ id, evo: evoOf(prog, id) }));
@@ -146,7 +147,7 @@ async function main(): Promise<void> {
   SceneManager.register(new RoadScene());
   SceneManager.register(new BattleScene());
   const mem = loadMemory();
-  if (mem.stageTop <= 3) {
+  if (!villageGateOpen(mem.stageTop)) {
     SceneManager.switchTo('battle', { stageId: mem.stageId });
   } else {
     SceneManager.switchTo('village');
@@ -183,15 +184,22 @@ async function main(): Promise<void> {
   });
 
   let lastHideAt = 0;
+  // 一次在前台待了多久、这次启动累计在前台多久。首日时长只能靠这两个数拼
+  let fgSince = Date.now();
+  let fgTotalMs = 0;
   Platform.onHide(() => {
     notifyBattleHide();
     BgmPlayer.pause();
     void CloudSyncManager.flushNow('app-hide');
-    analytics.trackSessionEnd('app-hide');
-    lastHideAt = Date.now();
+    const now = Date.now();
+    const stint = Math.max(0, now - fgSince);
+    fgTotalMs += stint;
+    analytics.trackSessionEnd({ reason: 'app-hide', duration_ms: stint, total_fg_ms: fgTotalMs });
+    lastHideAt = now;
   });
   Platform.onShow(() => {
     BgmPlayer.resume();
+    fgSince = Date.now();
     if (lastHideAt > 0) {
       analytics.trackAppShow({
         background_ms: Date.now() - lastHideAt,

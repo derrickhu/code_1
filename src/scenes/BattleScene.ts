@@ -46,6 +46,8 @@ import { CallReveal } from '@/ui/CallReveal';
 import { CombatFx, type SkillMark } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
 import { motionForSkin, UnitActor } from '@/fx/UnitActor';
+import { LastLineTractors } from '@/fx/LastLineTractors';
+import { waveBarView } from '@/ui/waveBar';
 import {
   BATTLE_FX_IMAGES, battleFaceImages, battlePreloadImages, heroStillArt, type HeroArtNeed,
 } from '@/config/assetPreload';
@@ -60,7 +62,7 @@ import {
 } from '@/core/RunMemory';
 import { craftOf, evoOf, starsOf, villageMul, yieldMul } from '@/balance/village';
 import { Platform } from '@/core/PlatformService';
-import { rewardedAdUnitId } from '@/config/rewardedAds';
+import { rewardedAdUnitId, rewardedSlotOpen } from '@/config/rewardedAds';
 import {
   adCanShow, adMarkRunStart, adRecord, adRemaining,
 } from '@/core/AdDay';
@@ -74,8 +76,15 @@ import {
   autoPlace, battleClockMs, castSkill, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin, laneLoad,
   bumpFor, placeAt, placedOf, playerShot, removeAt, skillAllies, skillReady, skillTargets,
   countedLeaks, reviveAfterLeak, reviveCanContinue, startFight, tick,
-  type BattleState, type Candidate, type Fighter, type Foe, type Placement,
+  canWeld, cellFree, deploy, deployables, freeCellFor, gateWarnings, grabCell, pickBoost, rerollOffer, seatsFree,
+  takeBonus, useGadget, weld, weldOpen,
+  type BattleEvent, type BattleState, type BoostOffer, type Candidate, type Fighter, type Foe, type OfferCard,
+  type Placement,
 } from '@/game/BattleEngine';
+import {
+  GADGET_TIER, GUEST_EVO, OPENING_GUEST, TIER_NAME, WELD_MAX, boostDef, guestEvo, weldCostOf,
+} from '@/balance/boosts';
+import { BoostOfferPanel, BoostRail, RAIL_HEADS_MAX, TIER_GLOW, type RailHit, type RailView } from '@/ui/boostUi';
 import { marchLerp, marchStep } from '@/game/march';
 import { canReach, reachOriginY, reachScreenPoly } from '@/game/reach';
 import { ENERGY_MAX, skillAt, skillOf, type SkillDef } from '@/balance/skills';
@@ -99,15 +108,15 @@ const FLOW_HOLD_S = 1.6;
 const COMBO_GAP_S = 1.8;
 /** 这么短里倒下 3 只以上算「一扫一片」 */
 const BURST_GAP_S = 0.45;
-/** 第 2 只起每 3 只掉一节电池，大个子必掉；场上最多同时躺 3 节 */
-const DROP_FIRST = 2;
-const DROP_EVERY = 3;
-const DROP_MAX = 3;
-const DROP_LIFE_S = 5;
+/** 地上的电池手指离多远还算点中。掉不掉、几时自己飞进来由引擎定 */
 const DROP_HIT_R = 60;
-/** 点一节电池，场上每个人加这么多劲头（占满格的比例） */
-const DROP_ENERGY = 0.25;
 const GUIDE_DROP_KEY = 'guide_drop';
+/** 1-1 头一回只上铁柱，弹弓叔坐板凳，攒够电池教他送上去 */
+const GUIDE_DEPLOY_KEY = 'guide_deploy';
+const GUIDE_DEPLOY_ID = 'laoyanqiang';
+const GUIDE_WELD_KEY = 'guide_weld';
+/** 教增援、教焊一下各等多久没点就松手交给托管 */
+const BOOST_GUIDE_WAIT_S = 8;
 /** 亲手点怪：连点最短间隔、手指离怪多远还算点中、怪走出来多远才挂「点它！」 */
 const TAP_GAP_S = 0.09;
 const TAP_NEAR = 110;
@@ -123,6 +132,12 @@ const SKILL_GUIDE_FROM_MS = 1500;
 const SKILL_GUIDE_CROWD = 3;
 /** 等到这会儿还凑不齐，打得着一只也叫 */
 const SKILL_GUIDE_LATE_MS = 4000;
+/** 「一大波」「急眼了」横幅停多久，真实秒 */
+const BANNER_S = 1.6;
+/** 急眼那一下慢放多久、慢到几成。看清劲头全满，又不拖节奏 */
+const RALLY_SLOW_S = 1.1;
+const RALLY_SLOW_MUL = 0.35;
+const LANE_SIDE = ['左', '中', '右'] as const;
 /** 开打后第几秒报一次还在不在。冷启动要看清人是在哪一秒走的 */
 const PULSE_SECS = [5, 10, 15, 20, 30] as const;
 
@@ -243,10 +258,33 @@ export class BattleScene implements Scene {
   private _burstN = 0;
   private _burstLeft = 0;
   private readonly _comboText = painted(40, GOLD, '#1a1008', 6);
-  /** 外星人掉的电池。点一下全员攒劲，没点到就散了，不扣东西 */
-  private _drops: { x: number; y: number; life: number; t: number; box: PIXI.Container }[] = [];
-  private _killN = 0;
+  /** 底线上一路一台拖拉机 */
+  private readonly _tractors = new LastLineTractors();
+  private readonly _surgeBanner = painted(54, 0xff7a5a, '#1a1008', 8);
+  private readonly _rallyBanner = painted(54, 0xffd66b, '#1a1008', 8);
+  private _banner: PIXI.Text | null = null;
+  private _bannerT = 0;
+  /** 急眼慢放还剩多久，真实秒 */
+  private _slowMo = 0;
+  /** 地上的电池（引擎 dropId → 画面）。点了马上飞进电池栏，不点过一会儿自己飞 */
+  private readonly _cells = new Map<number, { x: number; y: number; t: number; box: PIXI.Container }>();
+  /** 正往电池栏飞的 */
+  private _cellFly: { box: PIXI.Container; fx: number; fy: number; t: number; dur: number }[] = [];
   private _dropHintDue = false;
+  /** 局内层：三选一卡、两边竖栏 */
+  private readonly _offer = new BoostOfferPanel();
+  private readonly _rail = new BoostRail();
+  private _offerSig = '';
+  /** 正在看「白拿压箱底」那段广告 */
+  private _bonusBusy = false;
+  /** 点了板凳上谁，等玩家点空格 */
+  private _deployId: string | null = null;
+  /** 点了焊一下，等玩家点人 */
+  private _weldArmed = false;
+  /** 1-1 教增援、头一回教焊一下：wait 等电池够，on 等玩家点 */
+  private _deployGuide: 'off' | 'wait' | 'on' = 'off';
+  private _weldGuide: 'off' | 'wait' | 'on' = 'off';
+  private _boostGuideLeft = 0;
   /** 亲手点怪的连点间隔，按真实时间走 */
   private _tapCd = 0;
   /** 头一回挂在怪头上的「点它！」，点中过一次就不再挂 */
@@ -324,6 +362,7 @@ export class BattleScene implements Scene {
 
   constructor() {
     this.container.addChild(this._field);
+    this._arena.addChild(this._tractors.layer);
     this._arena.addChild(this._unitLayer);
     this._arena.addChild(this._nameLayer);
     this._arena.addChild(this._fx.layer);
@@ -331,7 +370,14 @@ export class BattleScene implements Scene {
     this._arena.mask = this._arenaMask;
     this.container.addChild(this._arena);
     this.container.addChild(this._hud);
+    for (const b of [this._surgeBanner, this._rallyBanner]) {
+      b.anchor.set(0.5);
+      b.visible = false;
+      this.container.addChild(b);
+    }
     this._computeLayout();
+    this._rail.visible = false;
+    this.container.addChild(this._rail);
     this._tray.visible = false;
     this.container.addChild(this._tray);
     this.container.addChild(this._bench);
@@ -339,6 +385,7 @@ export class BattleScene implements Scene {
     this._ghost.visible = false;
     this.container.addChild(this._ghost);
     this.container.addChild(this._cutIn);
+    this.container.addChild(this._offer);
     this.container.addChild(this._revive);
     this.container.addChild(this._settle);
     this.container.addChild(this._reveal);
@@ -372,6 +419,9 @@ export class BattleScene implements Scene {
     }
     this._rebindFieldArt();
     for (const e of this._state.foes) this._foeActors.get(e.id)?.bindEnemy(e.def.id);
+    // 路过的立绘、栏里的头像可能刚到
+    this._offerSig = '';
+    this._rail.place(this._lay.top + 8);
   }
 
   /* ---------------- 生命周期 ---------------- */
@@ -444,6 +494,9 @@ export class BattleScene implements Scene {
     this._burstN = 0;
     this._burstLeft = 0;
     this._comboText.visible = false;
+    this._tractors.reset();
+    this._hideBanner();
+    this._slowMo = 0;
     this._clearDrops();
     this._lineFlash = 0;
     this._pulseIdx = 0;
@@ -466,6 +519,15 @@ export class BattleScene implements Scene {
     this._castSeen.clear();
     this._skillFreeze = 0;
     this._state.autoSkill = this._auto;
+    this._offer.hide();
+    this._offerSig = '';
+    this._deployId = null;
+    this._weldArmed = false;
+    this._deployGuide = 'off';
+    this._weldGuide = 'off';
+    this._boostGuideLeft = 0;
+    this._rail.visible = false;
+    this._rail.place(this._lay.top + 8);
 
     this._renderBench();
     this._syncPhaseUi();
@@ -543,7 +605,18 @@ export class BattleScene implements Scene {
     stage: ReturnType<typeof getStage>,
     cap: number,
   ): Placement[] {
-    return this._presetBase(mem, bench, stage, cap);
+    const base = this._presetBase(mem, bench, stage, cap);
+    if (!this._deployLesson(stage.id, base)) return base;
+    // 1-1 头一回：弹弓叔先坐板凳，开打后攒够电池让玩家亲手把他送上去
+    return base.filter((p) => p.villager.id !== GUIDE_DEPLOY_ID);
+  }
+
+  /** 这一局要不要教增援：1-1、没教过、弹弓叔在名单上、场上不止他一个 */
+  private _deployLesson(stageId: number, place: readonly Placement[]): boolean {
+    return stageId === 1
+      && !PersistService.readRaw(GUIDE_DEPLOY_KEY)
+      && place.length > 1
+      && place.some((p) => p.villager.id === GUIDE_DEPLOY_ID);
   }
 
   private _presetBase(
@@ -913,8 +986,14 @@ export class BattleScene implements Scene {
       playSfx('ui_tap', 0);
       return;
     }
-    // 记下这一次的排法。下一关直接铺上，玩家不用每关从零摆
-    saveLayout(this._state.placed.map((p): Slot => ({
+    const lesson = this._state.stage.id === 1
+      && !PersistService.readRaw(GUIDE_DEPLOY_KEY)
+      && this._state.bench.some((c) => c.villager.id === GUIDE_DEPLOY_ID)
+      && !placedOf(this._state, GUIDE_DEPLOY_ID);
+    // 记下这一次的排法。下一关直接铺上，玩家不用每关从零摆。
+    // 教增援那局弹弓叔是开打后才上的，记两个人都在的那套，1-2 一落地就是齐的
+    const keep = lesson ? autoPlace(this._state.bench, this._state.stage, this._state.cap) : this._state.placed;
+    saveLayout(keep.map((p): Slot => ({
       id: p.villager.id, lane: p.lane, cell: p.cell,
     })));
     try {
@@ -927,7 +1006,25 @@ export class BattleScene implements Scene {
     this._placeGuide = null;
     this._inspectUid = null;
     this._startedAt = Date.now();
-    if (this._state.stage.id === 1 && !PersistService.readRaw(GUIDE_SKILL_KEY)) {
+    const b = this._state.boost;
+    if (b && lesson) {
+      this._deployGuide = 'wait';
+      b.hold.deploy = true;
+    }
+    if (b && !PersistService.readRaw(GUIDE_WELD_KEY)) this._weldGuide = 'wait';
+    // 焊一下会换成下一阶立绘，板凳上的人也可能被送上来，图先拉
+    const need: HeroArtNeed[] = [];
+    for (const f of this._state.team) {
+      if (f.evoStage < 3) need.push({ id: f.def.id, evo: f.evoStage + 1, lane: f.def.lane });
+    }
+    for (const c of b?.reserve ?? []) need.push({ id: c.villager.id, evo: c.evoStage, lane: c.villager.lane });
+    if (this._state.stage.id === 1) {
+      const g = getVillager(OPENING_GUEST);
+      need.push({ id: OPENING_GUEST, evo: GUEST_EVO, lane: g.lane });
+    }
+    if (need.length > 0) void ensureAssets(battleFaceImages(need)).catch(() => { /* 缺图退回色块 */ });
+    // 第一招留到 1-2 教：1-1 已经在教点怪、电池、增援和三选一了，一屏只叫玩家做一件事
+    if (this._state.stage.id === 2 && !PersistService.readRaw(GUIDE_SKILL_KEY)) {
       const who = this._state.team.find((f) => f.def.id === GUIDE_SKILL_ID) ?? this._state.team[0];
       if (who) {
         who.energy = ENERGY_MAX;
@@ -972,6 +1069,12 @@ export class BattleScene implements Scene {
     if (!placing) this._closeCard();
     const fighting = this._state.phase === 'fighting';
     this._tray.visible = fighting;
+    this._rail.visible = fighting && !!this._state.boost;
+    if (!fighting) {
+      this._offer.hide();
+      this._deployId = null;
+      this._weldArmed = false;
+    }
     if (this._speedBtn) this._speedBtn.visible = fighting;
     if (this._autoBtn) this._autoBtn.visible = fighting;
     if (this._startBtn) {
@@ -1027,11 +1130,16 @@ export class BattleScene implements Scene {
       return;
     }
     this._tickSkillGuide(realDt);
+    this._tickBoostUi(realDt);
     if (this._tapCd > 0) this._tapCd = Math.max(0, this._tapCd - realDt);
     this._tickTapTip(realDt);
     // 倍速只快战斗本身。横切条、提示按真实时间走，快进时照样念得完
-    const dt = this._state.phase === 'fighting' ? realDt * this._speed : realDt;
+    const slow = this._slowMo > 0 ? RALLY_SLOW_MUL : 1;
+    this._slowMo = Math.max(0, this._slowMo - realDt);
+    const dt = this._state.phase === 'fighting' ? realDt * this._speed * slow : realDt;
     this._pulseT += realDt;
+    this._tickBanner(realDt);
+    this._tractors.update(realDt);
 
     // 顿帧只给受击那一下留残影，不许冻整条行军。
     // 分路塔防里每秒十几下，冻世界就是「走下来一会停顿一下」。
@@ -1041,9 +1149,13 @@ export class BattleScene implements Scene {
 
     const frozen = this._skillFreeze > 0;
     this._skillFreeze = Math.max(0, this._skillFreeze - realDt);
-    if (this._state.phase === 'fighting' && !frozen) {
+    // 三选一挂着整局停住，引擎那边也不走钟
+    if (this._state.phase === 'fighting' && !frozen && !this._state.boost?.offer) {
       this._accMs += dt * 1000;
-      while (this._accMs >= TICK_MS && this._state.phase === 'fighting' && this._skillFreeze <= 0) {
+      while (
+        this._accMs >= TICK_MS && this._state.phase === 'fighting' && this._skillFreeze <= 0
+        && !this._state.boost?.offer
+      ) {
         this._accMs -= TICK_MS;
         for (const e of this._state.foes) {
           if (e.alive) this._prevPos.set(e.id, e.pos);
@@ -1057,7 +1169,7 @@ export class BattleScene implements Scene {
     if (!frozen) this._walkGhosts(dt);
     this._fx.update(dt);
     this._tickCombo(dt);
-    this._tickDrops(dt);
+    this._tickDrops(dt, realDt);
     const sh = this._fx.shakePx;
     this._arena.position.set(sh > 0 ? (Math.random() - 0.5) * 2 * sh : 0, sh > 0 ? (Math.random() - 0.5) * 2 * sh : 0);
     this._tickFlash(dt);
@@ -1066,6 +1178,8 @@ export class BattleScene implements Scene {
     if (this._tray.visible) this._tray.sync(this._state.team, 0.5 + 0.5 * Math.sin(this._pulseT * 7));
     this._drawField();
     this._drawUnits(this._accMs / TICK_MS);
+    this._drawGateTags();
+    this._tractors.sync(this._state.lastLine, this._lay.goalY, this._unitH, true);
     this._updateHud();
 
     for (const a of this._villagerActors.values()) a.update(dt);
@@ -1136,6 +1250,505 @@ export class BattleScene implements Scene {
     PersistService.writeRaw(GUIDE_SKILL_KEY, '1');
     this._state.autoSkill = this._auto;
     this._say(byHand ? '打得好！以后攒满了会自己放' : '攒满了会自己放，也能点头像抢先放', 3);
+  }
+
+  /* ---------------- 局内层：三选一 / 增援 / 焊一下 / 家伙事 ---------------- */
+
+  private _offerSigOf(o: BoostOffer, bonus: boolean): string {
+    const key = (c: OfferCard): string => `${c.id}:${c.tier}:${c.uid ?? ''}:${c.guest ?? ''}`;
+    const cards = o.cards.map(key).join(',');
+    const slab = bonus && o.bonus ? key(o.bonus) : '';
+    return `${o.wave}|${o.left}|${o.rerolled ? 1 : 0}|${o.best}|${cards}|${slab}`;
+  }
+
+  /**
+   * 底下那条压箱底挂不挂：引擎给了、今天还没看满、这个位真有广告。
+   * 微信上位还没建时不挂 —— 空串在真机走桩，等于白给。开发者工具和浏览器照常挂，方便联调
+   */
+  private _bonusAdOk(o: BoostOffer): boolean {
+    if (!o.bonus || !adCanShow('boostGold')) return false;
+    return Platform.isDevtools || !Platform.isMinigame || rewardedSlotOpen('boostGold', Platform.name);
+  }
+
+  private _tickBoostUi(realDt: number): void {
+    const s = this._state;
+    const b = s.boost;
+    if (!b || s.phase !== 'fighting') return;
+    const o = b.offer;
+    if (o) {
+      const bonus = this._bonusAdOk(o);
+      const sig = this._offerSigOf(o, bonus);
+      if (sig !== this._offerSig) {
+        const fresh = !this._offer.visible;
+        this._offerSig = sig;
+        this._cancelPick();
+        this._offer.show(s, o, this._lay.height, fresh, bonus);
+        this.container.addChild(this._offer);
+        this.container.addChild(this._leaveAsk);
+        if (fresh) this._onOfferOpen(o, bonus);
+      }
+      if (this._offer.update(realDt)) this._pickOffer(o.best, true);
+    } else if (this._offer.visible) {
+      this._offer.hide();
+      this._offerSig = '';
+    }
+    if (this._deployId && !deployables(s).some((p) => p.id === this._deployId)) this._cancelPick();
+    this._tickBoostGuides(realDt);
+    this._rail.sync(this._railView());
+    this._rail.update(realDt);
+  }
+
+  private _onOfferOpen(o: BoostOffer, bonus: boolean): void {
+    const s = this._state;
+    track('boost_offer', {
+      stage_id: s.stage.id,
+      wave: o.wave,
+      big: o.big,
+      cards: o.cards.map((c) => c.id),
+      tiers: o.cards.map((c) => c.tier),
+      best: o.cards[o.best]?.id ?? '',
+      why: o.why,
+      bonus: bonus ? o.bonus?.id ?? '' : '',
+      cells: s.boost?.cells ?? 0,
+    });
+    // 翻出压箱底要有一声。和升手艺同一声「叮」，玩家已经认得这是好事
+    playSfx(o.cards.some((c) => c.tier === 2) ? 'craft_up' : 'wave_in', 0);
+    if (bonus) {
+      track('ad_offer', { placement: 'boostGold', stage_id: s.stage.id, id: o.bonus?.id ?? '' });
+      Platform.preloadRewardedVideo(rewardedAdUnitId('boostGold', Platform.name));
+    }
+    const shown = bonus && o.bonus ? [...o.cards, o.bonus] : o.cards;
+    const guests: HeroArtNeed[] = shown
+      .filter((c) => c.guest)
+      .map((c) => ({ id: c.guest!, evo: guestEvo(c.tier), lane: getVillager(c.guest!).lane }));
+    if (guests.length > 0) {
+      const paths = [...battleFaceImages(guests), ...guests.flatMap((g) => heroStillArt(g))];
+      void ensureAssets(paths).catch(() => { /* 卡面退回小图 */ });
+    }
+  }
+
+  private _pickOffer(i: number, auto: boolean): void {
+    const s = this._state;
+    const o = s.boost?.offer;
+    const c = o?.cards[i];
+    if (!o || !c) return;
+    const meta = { wave: o.wave, big: o.big, rerolled: o.rerolled, best: i === o.best };
+    s.events.length = 0;
+    if (!pickBoost(s, i)) return;
+    track('boost_pick', {
+      stage_id: s.stage.id,
+      id: c.id,
+      tier: c.tier,
+      ...meta,
+      auto,
+      bonus: false,
+      cells: s.boost!.cells,
+    });
+    playSfx(c.tier === 2 ? 'craft_up' : 'install_on', 0);
+    this._consumeEvents();
+    s.events.length = 0;
+    if (!s.boost!.offer) {
+      this._offer.hide();
+      this._offerSig = '';
+    }
+  }
+
+  /** 底下那条：看完白拿压箱底，三选一照样挂着。看的时候倒计时停住 */
+  private async _takeBonusAd(): Promise<void> {
+    const s = this._state;
+    const o = s.boost?.offer;
+    const c = o?.bonus;
+    if (this._bonusBusy || !o || !c || !this._bonusAdOk(o)) return;
+    this._bonusBusy = true;
+    this._offer.setPaused(true);
+    const ok = await this._watchAd('boostGold');
+    this._bonusBusy = false;
+    this._offer.setPaused(false);
+    if (!ok) {
+      if (Platform.lastAdResult === 'closed') Platform.showToast('看完才能白拿');
+      return;
+    }
+    // 广告回来那一刻局可能已经不在了（退出、切后台被收），白看也不能白记
+    if (this._state !== s || s.phase !== 'fighting' || s.boost?.offer !== o) return;
+    adRecord('boostGold');
+    s.events.length = 0;
+    if (!takeBonus(s)) return;
+    track('boost_pick', {
+      stage_id: s.stage.id,
+      id: c.id,
+      tier: c.tier,
+      wave: o.wave,
+      big: o.big,
+      rerolled: o.rerolled,
+      best: false,
+      auto: false,
+      bonus: true,
+      cells: s.boost!.cells,
+    });
+    playSfx('craft_up', 0);
+    this._consumeEvents();
+    s.events.length = 0;
+    if (!s.boost!.offer) {
+      this._offer.hide();
+      this._offerSig = '';
+    }
+  }
+
+  private _reroll(): void {
+    const s = this._state;
+    s.events.length = 0;
+    if (rerollOffer(s)) playSfx('ui_tap', 0);
+    s.events.length = 0;
+  }
+
+  private _railView(): RailView {
+    const s = this._state;
+    const b = s.boost!;
+    const free = seatsFree(s) > 0;
+    const heads = deployables(s).slice(0, RAIL_HEADS_MAX).map((p) => ({
+      id: p.id, def: p.def, evo: p.evo, cost: p.cost, again: p.again, ok: free && b.cells >= p.cost,
+    }));
+    const open = weldOpen(s) && b.welds < WELD_MAX;
+    const cands = open ? s.team.filter((f) => f.alive && !f.welded) : [];
+    const cost = cands.length > 0 ? Math.min(...cands.map((f) => weldCostOf(f.evoStage))) : 0;
+    return {
+      cells: b.cells,
+      heads,
+      pickId: this._deployId,
+      weld: { show: cands.length > 0, ok: cands.some((f) => canWeld(s, f)), cost, armed: this._weldArmed },
+      gadgets: b.gadgets,
+      gadgetTiers: b.gadgetTier,
+    };
+  }
+
+  /** 教学等着、玩家手上拎着的时候，托管别抢 */
+  private _syncHolds(): void {
+    const b = this._state.boost;
+    if (!b) return;
+    b.hold.deploy = this._deployGuide !== 'off' || this._deployId !== null;
+    b.hold.weld = this._weldGuide !== 'off' || this._weldArmed;
+  }
+
+  private _cancelPick(): void {
+    this._deployId = null;
+    this._weldArmed = false;
+    this._syncHolds();
+  }
+
+  private _onRail(r: RailHit): void {
+    const s = this._state;
+    const b = s.boost!;
+    if (r.kind === 'gadget') {
+      this._cancelPick();
+      s.events.length = 0;
+      if (useGadget(s, r.i)) this._consumeEvents();
+      s.events.length = 0;
+      return;
+    }
+    playSfx('ui_tap', 0);
+    if (r.kind === 'weld') {
+      const v = this._railView().weld;
+      if (!v.ok) {
+        this._say(`电池不够，焊一下要 ${v.cost} 节`);
+        return;
+      }
+      this._deployId = null;
+      this._weldArmed = !this._weldArmed;
+      this._syncHolds();
+      if (this._weldArmed) this._sayHeld('点一个人，给他焊上去！');
+      else this._say('先不焊', 1.5);
+      return;
+    }
+    if (this._deployId === r.id) {
+      this._cancelPick();
+      this._say('先不喊', 1.5);
+      return;
+    }
+    const p = deployables(s).find((x) => x.id === r.id);
+    if (!p) return;
+    if (seatsFree(s) <= 0) {
+      this._say('场上站满了，等有人倒下再喊');
+      return;
+    }
+    if (b.cells < p.cost) {
+      this._say(`${p.def.name}上阵要 ${p.cost} 节电池，还差 ${p.cost - b.cells} 节`);
+      return;
+    }
+    this._weldArmed = false;
+    this._deployId = r.id;
+    this._syncHolds();
+    this._sayHeld(`点路上亮着的空位，把${p.def.name}送上去`);
+  }
+
+  /** 送人上去只认空格。教学那局只亮推荐的那一格，但点别的空格也认 */
+  private _deployCells(): { lane: number; cell: number }[] {
+    const s = this._state;
+    const id = this._deployId;
+    if (!id) return [];
+    if (this._deployGuide === 'on') {
+      const p = deployables(s).find((x) => x.id === id);
+      const at = p ? freeCellFor(s, p.def.role) : undefined;
+      if (at) return [at];
+    }
+    const out: { lane: number; cell: number }[] = [];
+    for (let lane = 0; lane < LANE_COUNT; lane += 1) {
+      for (let cell = 0; cell < CELL_COUNT; cell += 1) if (cellFree(s, lane, cell)) out.push({ lane, cell });
+    }
+    return out;
+  }
+
+  private _tapDeploy(p: { x: number; y: number }): void {
+    const s = this._state;
+    const id = this._deployId!;
+    const at = hitDeployCell(p.x, p.y, this._lay.spawnY, this._lay.goalY);
+    if (!at) {
+      this._cancelPick();
+      this._say('先不喊', 1.5);
+      return;
+    }
+    if (!cellFree(s, at.lane, at.cell)) {
+      this._say('这格有人了，点个空的');
+      return;
+    }
+    s.events.length = 0;
+    const ok = deploy(s, id, at.lane, at.cell);
+    if (ok) this._consumeEvents();
+    s.events.length = 0;
+    this._deployId = null;
+    if (ok && this._deployGuide !== 'off') this._endDeployGuide(true);
+    this._syncHolds();
+  }
+
+  private _tapWeld(p: { x: number; y: number }): void {
+    const s = this._state;
+    const f = this._hitFighter(p.x, p.y);
+    if (!f) {
+      this._cancelPick();
+      this._say('先不焊', 1.5);
+      return;
+    }
+    if (!canWeld(s, f)) {
+      this._say(f.welded ? `${f.def.name}这关已经焊过了` : '电池不够了');
+      return;
+    }
+    s.events.length = 0;
+    const ok = weld(s, f.uid);
+    if (ok) this._consumeEvents();
+    s.events.length = 0;
+    this._weldArmed = false;
+    if (ok && this._weldGuide !== 'off') this._endWeldGuide(true);
+    this._syncHolds();
+  }
+
+  /** 1-1 教增援、头一回教焊一下。一屏只叫玩家做一件事：第一招、三选一亮着时先不开口 */
+  private _tickBoostGuides(realDt: number): void {
+    const s = this._state;
+    const b = s.boost!;
+    const quiet = this._skillGuide === 'on' || !!b.offer;
+    if (this._deployGuide === 'wait') {
+      const list = deployables(s);
+      const p = list.find((x) => x.id === GUIDE_DEPLOY_ID) ?? list[0];
+      if (!p) this._endDeployGuide(false);
+      else if (!quiet && b.cells >= p.cost && seatsFree(s) > 0) {
+        this._deployGuide = 'on';
+        this._boostGuideLeft = BOOST_GUIDE_WAIT_S;
+        // 增援教的就是「哪路来了往哪路送」，点名那一路
+        const at = freeCellFor(s, p.def.role);
+        const side = at ? LANE_SIDE[at.lane] : undefined;
+        this._sayHeld(side
+          ? `电池够了！${side}路吃紧，点左边${p.def.name}，送到${side}路亮着的那格`
+          : `电池够了！点左边${p.def.name}，再点路上亮着的那格`);
+        playSfx('ui_tap', 0);
+      }
+    } else if (this._deployGuide === 'on' && !quiet) {
+      this._boostGuideLeft -= realDt;
+      if (this._boostGuideLeft <= 0) this._endDeployGuide(false);
+    }
+    if (this._weldGuide === 'wait') {
+      if (!quiet && this._deployGuide !== 'on' && s.team.some((f) => canWeld(s, f)) && weldOpen(s)) {
+        this._weldGuide = 'on';
+        this._boostGuideLeft = BOOST_GUIDE_WAIT_S;
+        this._sayHeld('电池够焊一下了！点右边「焊一下」，再点一个人');
+        playSfx('ui_tap', 0);
+      }
+    } else if (this._weldGuide === 'on' && !quiet && !this._weldArmed) {
+      this._boostGuideLeft -= realDt;
+      if (this._boostGuideLeft <= 0) this._endWeldGuide(false);
+    }
+    this._syncHolds();
+  }
+
+  private _endDeployGuide(byHand: boolean): void {
+    if (this._deployGuide === 'off') return;
+    this._deployGuide = 'off';
+    PersistService.writeRaw(GUIDE_DEPLOY_KEY, '1');
+    this._say(byHand ? '上阵了！电池攒着，哪路吃紧往哪路补人' : '电池够了会自己喊人上，你点更快', 3);
+    this._syncHolds();
+  }
+
+  private _endWeldGuide(byHand: boolean): void {
+    if (this._weldGuide === 'off') return;
+    this._weldGuide = 'off';
+    PersistService.writeRaw(GUIDE_WELD_KEY, '1');
+    this._say(byHand ? '焊上去了！一关只焊一个，挑最要紧的那个' : '没点也会替你焊，自己挑人更准', 3);
+    this._syncHolds();
+  }
+
+  /* ---------------- 局内层：画面反馈 ---------------- */
+
+  private _cellXY(lane: number, pos: number, id: number): { x: number; y: number } {
+    return {
+      x: laneScreenX(lane) + (((id * 53) % 7) - 3) * 9,
+      y: posScreenY(pos, this._lay.spawnY, this._lay.goalY) - this._unitH * 0.35,
+    };
+  }
+
+  private _spawnCell(dropId: number, lane: number, pos: number, n: number): void {
+    const at = this._cellXY(lane, pos, dropId);
+    const box = new PIXI.Container();
+    const g = new PIXI.Graphics();
+    g.beginFill(0xb8f08a, 0.22).drawCircle(0, 0, 38).endFill();
+    box.addChild(g);
+    const h = n > 1 ? 64 : 50;
+    if (!fitSprite(box, uiTex('boost_cell'), 0, 0, h * 0.6, h)) {
+      const c = new PIXI.Graphics();
+      c.beginFill(0x2a1a0c).drawRoundedRect(-15, -24, 30, 48, 6).endFill();
+      c.beginFill(0x7ad957).drawRoundedRect(-12, -21, 24, 42, 4).endFill();
+      box.addChild(c);
+    }
+    if (n > 1) {
+      const t = painted(22, 0xb8f08a, '#1a1008', 4);
+      t.anchor.set(0.5, 0);
+      t.position.set(0, h / 2 + 2);
+      t.text = `×${n}`;
+      box.addChild(t);
+    }
+    box.position.set(at.x, at.y);
+    box.scale.set(0.4);
+    this._arena.addChild(box);
+    this._cells.set(dropId, { x: at.x, y: at.y, t: 0, box });
+    if (!PersistService.readRaw(GUIDE_DROP_KEY)) this._dropHintDue = true;
+  }
+
+  private _collectCell(dropId: number, n: number, tapped: boolean): void {
+    const d = this._cells.get(dropId);
+    this._cells.delete(dropId);
+    if (!d) return;
+    // 飞的那一段挂到场景顶层，不被战场的遮罩切掉
+    const g = d.box.getGlobalPosition();
+    const local = this.container.toLocal(g);
+    this.container.addChild(d.box);
+    d.box.position.copyFrom(local);
+    this._cellFly.push({ box: d.box, fx: local.x, fy: local.y, t: 0, dur: tapped ? 0.32 : 0.55 });
+    if (tapped) {
+      this._fx.floatText(`+${n}`, d.x, d.y - 30, 0xb8f08a, 24);
+      playSfx('install_on', 0);
+      buzz('light');
+      if (!PersistService.readRaw(GUIDE_DROP_KEY)) {
+        PersistService.writeRaw(GUIDE_DROP_KEY, '1');
+        this._dropHintDue = false;
+        this._say('电池攒在左上角：喊人上阵、焊一下都靠它', 3);
+      }
+    }
+  }
+
+  private _onBoostFx(ev: Extract<BattleEvent, { kind: 'boost' }>): void {
+    const def = boostDef(ev.id);
+    const f = ev.uid ? this._state.team.find((x) => x.uid === ev.uid) : undefined;
+    const tag = ev.tier > 0 ? `${TIER_NAME[ev.tier]}` : '';
+    const ink = ev.tier === 2 ? TIER_GLOW[2] : ev.tier === 1 ? TIER_GLOW[1] : 0xffe08a;
+    if (ev.tier === 2) this._fx.shake(6);
+    if (def.kind === 'mod' && f) {
+      const p = this._villagerXY(f);
+      this._actorFor(f).flash(ev.tier === 2 ? 480 : 280);
+      this._fx.floatText(`${f.def.name}焊上${tag}${def.name}！`, p.x, p.y - p.h - 30, ink, ev.tier === 2 ? 32 : 26);
+      this._fx.shake(3);
+    } else if (def.kind === 'gadget') {
+      const n = GADGET_TIER[ev.tier]?.n ?? 1;
+      this._say(`收了${n > 1 ? `${n} 件` : '一件'}${tag}${def.name}，右边点它就用`, 2.6);
+    } else if (ev.id === 'r_market') {
+      const a = this._rail.cellAnchor();
+      this._fx.floatText('赶集换来电池！', a.x + 90, a.y + 40, 0xb8f08a, 24);
+      this._rail.bump();
+    } else if (ev.id === 'r_feast') {
+      this._fx.floatText('开饭了！全村吃饱', 375, this._lay.goalY - 140, 0xffe08a, 34);
+      this._fx.shake(4);
+    }
+  }
+
+  private _onDeployFx(ev: Extract<BattleEvent, { kind: 'deploy' }>): void {
+    const s = this._state;
+    const f = s.team.find((x) => x.uid === ev.uid);
+    if (!f) return;
+    const a = this._actorFor(f);
+    if (ev.again) a.setDead(false);
+    a.bindHero(f.def.id, f.def.lane, f.evoStage);
+    a.flash(260);
+    this._vitals.seed(f.uid, f.hp, 0, true);
+    const p = this._villagerXY(f);
+    const say = ev.guest ? `${f.def.name}路过，搭把手！` : ev.again ? `${f.def.name}又上来了！` : `${f.def.name}上！`;
+    this._fx.floatText(say, p.x, p.y - p.h - 24, 0xffe08a, 26);
+    this._fx.shake(4);
+    playSfx(ev.guest ? 'shout' : 'hero_land', 0);
+    track('deploy', {
+      stage_id: s.stage.id,
+      id: f.def.id,
+      evo: f.evoStage,
+      again: ev.again,
+      guest: ev.guest,
+      auto: ev.auto,
+      wave: s.wave,
+      cells: s.boost?.cells ?? 0,
+    });
+  }
+
+  private _onWeldFx(ev: Extract<BattleEvent, { kind: 'weld' }>): void {
+    const s = this._state;
+    const f = s.team.find((x) => x.uid === ev.uid);
+    if (!f) return;
+    const a = this._actorFor(f);
+    a.bindHero(f.def.id, f.def.lane, f.evoStage);
+    a.flash(420);
+    this._vitals.seed(f.uid, f.hp, 0, true);
+    const p = this._villagerXY(f);
+    this._fx.floatText(`${f.def.name}焊上去了！`, p.x, p.y - p.h - 40, 0xffe08a, 38);
+    this._fx.floatText(`${f.evoStage} 阶 · 血满`, p.x, p.y - p.h - 4, 0xfff4c4, 22);
+    this._fx.shake(12);
+    // 顿一下当慢镜头：只停战斗推进，演出照走
+    this._skillFreeze = Math.max(this._skillFreeze, 0.35);
+    playSfx('hit_smash', 0);
+    buzz('heavy');
+    track('weld', {
+      stage_id: s.stage.id,
+      id: f.def.id,
+      evo: f.evoStage,
+      auto: ev.auto,
+      boss: s.foes.some((e) => e.alive && e.boss),
+      wave: s.wave,
+    });
+  }
+
+  private _onGadgetFx(ev: Extract<BattleEvent, { kind: 'gadget' }>): void {
+    const s = this._state;
+    const x = ev.lane >= 0 ? laneScreenX(ev.lane) : 375;
+    const y = (this._lay.spawnY + this._lay.goalY) / 2;
+    const line: Record<string, string> = {
+      g_cracker: '噼里啪啦！',
+      g_horn: '都给我站住！',
+      g_dance: '音乐响起来！',
+      g_tractor: '突突突——',
+    };
+    this._fx.floatText(line[ev.id] ?? boostDef(ev.id).name, x, y, 0xffe08a, 40);
+    if (ev.lane >= 0) {
+      this._dangerLane.delete(ev.lane);
+      this._fx.shake(ev.id === 'g_tractor' ? 10 : 8);
+      playSfx('hit_smash', 0);
+    } else {
+      this._fx.shake(5);
+      playSfx(ev.id === 'g_horn' ? 'shout' : 'skill', 0);
+    }
+    buzz('medium');
+    track('gadget_use', { stage_id: s.stage.id, id: ev.id, auto: ev.auto, wave: s.wave, foes: foesAlive(s) });
   }
 
   /** 没人拦、又快走到底线的怪：那一路底线闪红，隔几秒念一句 */
@@ -1294,13 +1907,15 @@ export class BattleScene implements Scene {
       if (ev.kind === 'foeDown') {
         const p = this._lastFoeXY.get(ev.foeId);
         if (!p) continue;
-        const boss = !!this._state.foes.find((x) => x.id === ev.foeId)?.boss;
+        const foe = this._state.foes.find((x) => x.id === ev.foeId);
+        const boss = !!foe?.boss;
+        const elite = !!foe?.elite;
         // 倒下等最后一发落地。现在就淡出 / 抽血条，石子会打在空位上。
         this._fx.consume(ev, {
           ex: p.x, ey: p.y - p.h * 0.5, enemyId: ev.foeId,
           onLand: () => {
             this._foeActors.get(ev.foeId)?.killOff();
-            this._onKillLand(p.x, p.y - p.h * 0.5, boss);
+            this._onKillLand(p.x, p.y - p.h * 0.5, boss, elite);
           },
         });
         continue;
@@ -1385,10 +2000,90 @@ export class BattleScene implements Scene {
         continue;
       }
 
+      if (ev.kind === 'cellDrop') {
+        this._spawnCell(ev.dropId, ev.lane, ev.pos, ev.n);
+        continue;
+      }
+      if (ev.kind === 'cellGet') {
+        this._collectCell(ev.dropId, ev.n, ev.tapped);
+        continue;
+      }
+      if (ev.kind === 'clean') {
+        const a = this._rail.cellAnchor();
+        this._fx.floatText(`一个没漏！电池 +${ev.n}`, a.x + 110, a.y + 8, 0xb8f08a, 24);
+        this._rail.bump();
+        continue;
+      }
+      if (ev.kind === 'boost') {
+        this._onBoostFx(ev);
+        continue;
+      }
+      if (ev.kind === 'deploy') {
+        this._onDeployFx(ev);
+        continue;
+      }
+      if (ev.kind === 'weld') {
+        this._onWeldFx(ev);
+        continue;
+      }
+      if (ev.kind === 'gadget') {
+        this._onGadgetFx(ev);
+        continue;
+      }
+      if (ev.kind === 'blast') {
+        const e = this._state.foes.find((x) => x.id === ev.foeId);
+        if (e) this._foeXY(e);
+        this._vitals.seed(`e${ev.foeId}`, e?.maxHp ?? ev.damage, 0);
+        this._vitals.landEnemy(`e${ev.foeId}`, ev.damage);
+        this._foeActors.get(ev.foeId)?.flash(180);
+        continue;
+      }
+
       if (ev.kind === 'bossIn') {
         this._say(`大个子来了！${'左中右'[ev.lane] ?? '中'}路顶住`);
         this._fx.floatText('大个子来了！', laneScreenX(ev.lane), this._lay.spawnY + 40, 0xff7a5a, 30);
         playSfx('enemy_beam', 0);
+        continue;
+      }
+
+      if (ev.kind === 'eliteIn') {
+        const side = LANE_SIDE[ev.lane] ?? '中';
+        this._say(`小头目来了！${side}路，打倒它多挑一样`);
+        this._fx.floatText('小头目！', laneScreenX(ev.lane), this._lay.spawnY + 40, 0xffb347, 28);
+        playSfx('enemy_beam', 0);
+        continue;
+      }
+
+      if (ev.kind === 'surge') {
+        this._showBanner(this._surgeBanner, '一大波外星人来了！');
+        this._fx.shake(5);
+        playSfx('wave_in', 0);
+        buzz('medium');
+        continue;
+      }
+
+      if (ev.kind === 'lastLine') {
+        const side = LANE_SIDE[ev.lane] ?? '中';
+        this._tractors.fire(ev.lane, this._lay.goalY, this._lay.spawnY, this._unitH);
+        this._dangerLane.delete(ev.lane);
+        this._fx.floatText(
+          '突突突——', laneScreenX(ev.lane), (this._lay.spawnY + this._lay.goalY) * 0.5, 0xffe08a, 40,
+        );
+        this._fx.shake(10);
+        playSfx('hit_smash', 0);
+        buzz('heavy');
+        this._say(`${side}路拖拉机开上去了！这一路就这一台`, 2.8);
+        continue;
+      }
+
+      if (ev.kind === 'rally') {
+        this._showBanner(this._rallyBanner, '乡亲们急眼了！');
+        this._slowMo = RALLY_SLOW_S;
+        for (const f of this._state.team) if (f.alive) this._actorFor(f).flash(320);
+        this._fx.shake(6);
+        playSfx('shout', 0);
+        buzz('heavy');
+        this._say('再漏一个就输了！劲头全满，点头像放招', 3.2);
         continue;
       }
 
@@ -1477,8 +2172,9 @@ export class BattleScene implements Scene {
     const y = posScreenY(pos, this._lay.spawnY, this._lay.goalY);
     // 同一路上的怪按 id 微微错开，不然一队铁罐会叠成一个
     const x = laneScreenX(e.lane) + (((e.id * 37) % 5) - 2) * 8;
-    const h = fieldEnemyH(e.def.id, this._unitH) * (e.boss ? 1.6 : 1);
-    const p = { x: e.boss ? laneScreenX(e.lane) : x, y, feetY: y, h };
+    // 一窝里的小灰血薄，个头也小一号，一眼看出是来凑数的
+    const h = fieldEnemyH(e.def.id, this._unitH) * (e.boss ? 1.6 : e.elite ? 1.25 : e.swarm ? 0.85 : 1);
+    const p = { x: e.boss || e.elite ? laneScreenX(e.lane) : x, y, feetY: y, h };
     this._lastFoeXY.set(e.id, p);
     return p;
   }
@@ -1545,6 +2241,30 @@ export class BattleScene implements Scene {
         g.beginFill(0xff3a2a, blink).drawRect(x0 + 6, goalY - 5, LANE_W - 12, 10).endFill();
         g.beginFill(0xff3a2a, blink * 0.25).drawRect(x0 + 6, goalY - 60, LANE_W - 12, 55).endFill();
       }
+      // 门口预告：哪一路马上要来、带不带头目。箭头往下指，越近越亮
+      for (const w of gateWarnings(this._state)) {
+        const x = laneScreenX(w.lane);
+        const c = w.boss ? 0xff5a3a : w.elite ? 0xffb347 : 0xffe08a;
+        const near = 1 - Math.min(1, w.inMs / 2500);
+        const a = (0.45 + 0.35 * near) * (0.75 + 0.25 * Math.sin(this._pulseT * 10));
+        for (let k = 0; k < 2; k += 1) {
+          const y = spawnY - 46 + k * 15 + Math.sin(this._pulseT * 6) * 3;
+          g.beginFill(c, a * (1 - k * 0.3)).drawPolygon([x - 20, y, x + 20, y, x, y + 14]).endFill();
+        }
+      }
+      const pulse = 0.5 + 0.5 * Math.sin(this._pulseT * 8);
+      for (const at of this._deployCells()) {
+        const feetY = reachOriginY(cellPos(at.cell), spawnY, goalY);
+        this._dropRing(g, laneScreenX(at.lane), feetY, pulse > 0.5);
+      }
+      if (this._weldArmed) {
+        for (const f of this._state.team) {
+          if (!canWeld(this._state, f)) continue;
+          const p = this._villagerXY(f);
+          g.lineStyle(4, 0xffe08a, 0.5 + 0.5 * pulse)
+            .drawEllipse(p.x, p.y + 4, p.h * 0.42, p.h * 0.16).lineStyle(0);
+        }
+      }
     }
     this._drawInspect(g);
     this._drawThreshold(g, goalY, this._lay.height, placing);
@@ -1557,6 +2277,13 @@ export class BattleScene implements Scene {
   private _onFightTap(e: Event): void {
     const p = this._fingerOf(e);
     if (!p) return;
+    if (this._offer.visible) {
+      const h = this._offer.hit(p.x, p.y);
+      if (h?.kind === 'card') this._pickOffer(h.i, false);
+      else if (h?.kind === 'reroll') this._reroll();
+      else if (h?.kind === 'bonus') void this._takeBonusAd();
+      return;
+    }
     if (this._inRect(p, this._leaveRect())) {
       this._askLeave();
       return;
@@ -1579,6 +2306,19 @@ export class BattleScene implements Scene {
           this._state.events.length = 0;
         }
       }
+      return;
+    }
+    const rail = this._rail.visible ? this._rail.hit(p.x, p.y) : null;
+    if (rail) {
+      this._onRail(rail);
+      return;
+    }
+    if (this._weldArmed) {
+      this._tapWeld(p);
+      return;
+    }
+    if (this._deployId) {
+      this._tapDeploy(p);
       return;
     }
     if (this._tapDrop(p)) return;
@@ -2021,14 +2761,19 @@ export class BattleScene implements Scene {
       ]).endFill();
     }
     this._nameLayer.addChild(g);
+    // 焊上去的家伙挂在血条左边，场上一眼认得出谁身上有什么
+    (f.mods ?? []).forEach((m, k) => {
+      fitSprite(this._nameLayer, uiTex(boostDef(m).icon), x - barW / 2 - 14 - k * 24, feetY - h - 8, 24, 24);
+    });
     if (f.guardMs > 0) this._pin('护住', x, feetY - h - 28, 0x9ecbff);
     if (f.hasteMs > 0) this._pin('手快', x + (f.guardMs > 0 ? 36 : 0), feetY - h - (f.guardMs > 0 ? 46 : 28), 0xffe08a);
-    const t = label(13, f.alive ? 0xfff4c4 : 0x8a8a92, true);
+    const t = label(13, !f.alive ? 0x8a8a92 : f.welded ? 0xffe08a : 0xfff4c4, true);
     t.anchor.set(0.5);
     t.position.set(x, feetY + 6);
+    const name = f.guest ? `${f.def.name}·路过` : f.def.name;
     t.text = this._inspectUid === f.uid
-      ? this._reachTag(f.def.name, f.range)
-      : f.def.name;
+      ? this._reachTag(name, f.range)
+      : name;
     this._nameLayer.addChild(t);
   }
 
@@ -2041,11 +2786,54 @@ export class BattleScene implements Scene {
     this._nameLayer.addChild(t);
   }
 
+  /** 门口箭头旁边写来几只、带没带头目。字跟着名牌层每帧重搭 */
+  private _drawGateTags(): void {
+    if (this._placing()) return;
+    for (const w of gateWarnings(this._state)) {
+      const text = w.boss ? '大个子' : w.elite ? '小头目' : `×${w.n}`;
+      const fill = w.boss ? 0xff7a5a : w.elite ? 0xffb347 : 0xffe08a;
+      this._pin(text, laneScreenX(w.lane) + 46, this._lay.spawnY - 18, fill);
+    }
+  }
+
+  private _showBanner(b: PIXI.Text, text: string): void {
+    this._hideBanner();
+    b.text = text;
+    b.position.set(375, this._lay.spawnY + (this._lay.goalY - this._lay.spawnY) * 0.3);
+    b.visible = true;
+    this._banner = b;
+    this._bannerT = 0;
+  }
+
+  private _hideBanner(): void {
+    this._surgeBanner.visible = false;
+    this._rallyBanner.visible = false;
+    this._banner = null;
+  }
+
+  /** 横幅砸下来一下，停住，最后淡出。按真实时间走，倍速也念得完 */
+  private _tickBanner(realDt: number): void {
+    const b = this._banner;
+    if (!b) return;
+    this._bannerT += realDt;
+    const t = this._bannerT;
+    const k = Math.min(1, t / 0.2);
+    b.scale.set(1.5 - 0.5 * k + Math.sin(k * Math.PI) * 0.08);
+    b.alpha = Math.min(1, t / 0.12, Math.max(0, (BANNER_S - t) / 0.3));
+    if (t >= BANNER_S) this._hideBanner();
+  }
+
   private _foeHp(e: Foe, x: number, feetY: number, h: number): void {
     const g = new PIXI.Graphics();
     const shown = this._vitals.shown(`e${e.id}`, { hp: e.alive ? e.maxHp : 0, extra: 0 });
-    const w = e.boss ? Math.max(96, Math.round(h * 0.8)) : Math.max(32, Math.round(h * 0.5));
-    hpBar(g, x, feetY - h - 8, w, shown.hp / e.maxHp, e.boss ? 0xff5a3a : 0xff8a6a, e.boss ? 8 : 4);
+    const big = e.boss || e.elite;
+    const w = e.boss ? Math.max(96, Math.round(h * 0.8))
+      : e.elite ? Math.max(64, Math.round(h * 0.65)) : Math.max(32, Math.round(h * 0.5));
+    const tint = e.boss ? 0xff5a3a : e.elite ? 0xffb347 : 0xff8a6a;
+    hpBar(g, x, feetY - h - 8, w, shown.hp / e.maxHp, tint, e.boss ? 8 : e.elite ? 6 : 4);
+    if (e.elite && e.alive) {
+      g.lineStyle(3, 0xffb347, 0.75).drawEllipse(x, feetY + 2, h * 0.42, 9).lineStyle(0);
+    }
     if (e.alive && e.stunMs > 0) {
       g.lineStyle(4, 0xffe08a, 0.95).drawEllipse(x, feetY + 2, h * 0.46, 8).lineStyle(0);
       g.lineStyle(2, 0xfff6d0, 0.7).drawEllipse(x, feetY + 2, h * 0.28, 4).lineStyle(0);
@@ -2053,13 +2841,13 @@ export class BattleScene implements Scene {
       g.lineStyle(3, 0x86efac, 0.9).drawEllipse(x, feetY + 2, h * 0.4, 6).lineStyle(0);
     }
     this._nameLayer.addChild(g);
-    if (e.alive && e.stunMs > 0) this._pin('钉住', x, feetY - h - (e.boss ? 40 : 28), 0xffe08a);
-    else if (e.alive && e.slowMs > 0) this._pin('减速', x, feetY - h - (e.boss ? 40 : 28), 0x86efac);
-    if (e.boss && e.alive) {
-      const t = painted(16, 0xffb09a, '#1a1008', 3);
+    if (e.alive && e.stunMs > 0) this._pin('钉住', x, feetY - h - (big ? 40 : 28), 0xffe08a);
+    else if (e.alive && e.slowMs > 0) this._pin('减速', x, feetY - h - (big ? 40 : 28), 0x86efac);
+    if (big && e.alive) {
+      const t = painted(16, e.boss ? 0xffb09a : 0xffd08a, '#1a1008', 3);
       t.anchor.set(0.5, 1);
       t.position.set(x, feetY - h - 14);
-      t.text = '大个子';
+      t.text = e.boss ? '大个子' : '小头目';
       this._nameLayer.addChild(t);
     }
   }
@@ -2105,10 +2893,9 @@ export class BattleScene implements Scene {
   }
 
   /** 一只怪真倒在画面上那一刻。连杀从 3 起报数，一招扫倒一片另给一下重的 */
-  private _onKillLand(x: number, y: number, boss = false): void {
-    this._killN += 1;
-    if (boss || (this._killN >= DROP_FIRST && (this._killN - DROP_FIRST) % DROP_EVERY === 0)) {
-      this._spawnDrop(x, y);
+  private _onKillLand(x: number, y: number, boss = false, elite = false): void {
+    if ((boss || elite) && this._state.boost?.bigNext) {
+      this._fx.floatText(`${boss ? '大个子' : '小头目'}倒了！下回连挑两样`, x, y - 70, 0xffe08a, 28);
     }
     this._comboN = this._comboLeft > 0 ? this._comboN + 1 : 1;
     this._comboLeft = COMBO_GAP_S;
@@ -2122,7 +2909,7 @@ export class BattleScene implements Scene {
     } else {
       this._fx.shake(this._comboN >= 3 ? 3 : 1.5);
     }
-    if (this._comboN < 3) return;
+    if (this._comboN < 3 || this._settled) return;
     const t = this._comboText;
     t.text = `连杀 ×${this._comboN}`;
     t.anchor.set(0.5);
@@ -2130,78 +2917,64 @@ export class BattleScene implements Scene {
     t.visible = true;
     t.alpha = 1;
     this._comboPunch = 1;
-    if (t.parent !== this.container) this.container.addChild(t);
+    // 挂在门楣层上。结算牌是后加的整屏，连杀就不会压到评星上
+    if (t.parent !== this._hud) this._hud.addChild(t);
   }
 
-  private _spawnDrop(x: number, y: number): void {
-    if (this._state.phase !== 'fighting' || this._drops.length >= DROP_MAX) return;
-    const box = new PIXI.Container();
-    const g = new PIXI.Graphics();
-    g.beginFill(0xffe08a, 0.28).drawCircle(0, 0, 40).endFill();
-    g.beginFill(0x2a1a0c).drawRoundedRect(-17, -27, 34, 54, 7).endFill();
-    g.beginFill(0x7ad957).drawRoundedRect(-14, -24, 28, 48, 5).endFill();
-    g.beginFill(0x3a8a2a).drawRect(-14, 4, 28, 20).endFill();
-    g.beginFill(0x2a1a0c).drawRect(-7, -32, 14, 6).endFill();
-    g.beginFill(0xfff4c4)
-      .drawPolygon([3, -18, -8, 2, -1, 2, -4, 18, 8, -4, 1, -4, 5, -18])
-      .endFill();
-    box.addChild(g);
-    const tag = painted(20, 0x9be08a, '#1a1008', 4);
-    tag.anchor.set(0.5, 0);
-    tag.position.set(0, 34);
-    tag.text = '点我充能';
-    box.addChild(tag);
-    box.position.set(x, y);
-    this._arena.addChild(box);
-    this._drops.push({ x, y, life: DROP_LIFE_S, t: 0, box });
-    if (!PersistService.readRaw(GUIDE_DROP_KEY)) this._dropHintDue = true;
+  /** 结算一出来连杀就收。它停的位置正好是牌子上那排星 */
+  private _hideCombo(): void {
+    this._comboText.visible = false;
+    this._comboLeft = 0;
+    this._comboPunch = 0;
   }
 
-  /** 第一招的引导还挂着时不抢话，等它收了、场上还有电池再说 */
+  /** 别的引导还挂着时不抢话，等它收了、地上还有电池再说 */
   private _sayDropHint(): void {
-    if (!this._dropHintDue || this._skillGuide !== 'off' || this._drops.length === 0) return;
+    if (!this._dropHintDue || this._cells.size === 0) return;
+    if (this._skillGuide === 'on' || this._deployGuide === 'on' || this._weldGuide === 'on' || this._offer.visible) return;
     this._dropHintDue = false;
-    this._say('外星人掉电池了！点一下，给底下绝活充能', 3);
+    this._say('外星人掉电池了！点一下收', 3);
   }
 
-  private _tickDrops(dt: number): void {
-    if (this._drops.length === 0) return;
+  /** 地上的跳着等人点；收了的往左上角电池栏飞。飞按真实时间，快进也看得清 */
+  private _tickDrops(dt: number, realDt: number): void {
     this._sayDropHint();
-    const live = this._state.phase === 'fighting';
-    this._drops = this._drops.filter((d) => {
-      d.life -= live ? dt : dt * 4;
+    for (const d of this._cells.values()) {
       d.t += dt;
-      if (d.life <= 0) {
-        d.box.destroy({ children: true });
-        return false;
-      }
       const pop = Math.min(1, d.t / 0.18);
       d.box.scale.set((0.4 + 0.6 * pop) * (1 + Math.sin(d.t * 6) * 0.06));
       d.box.position.set(d.x, d.y - 18 * Math.sin(Math.min(1, d.t / 0.3) * Math.PI) + Math.sin(d.t * 3) * 3);
-      d.box.alpha = d.life < 1.5 ? (Math.sin(d.t * 18) > 0 ? 1 : 0.35) : 1;
-      return true;
+    }
+    if (this._cellFly.length === 0) return;
+    const to = this._rail.cellAnchor();
+    this._cellFly = this._cellFly.filter((f) => {
+      f.t += realDt;
+      const k = Math.min(1, f.t / f.dur);
+      const e = k * k * (3 - 2 * k);
+      f.box.position.set(f.fx + (to.x - f.fx) * e, f.fy + (to.y - f.fy) * e - Math.sin(k * Math.PI) * 60);
+      f.box.scale.set(1 - 0.5 * e);
+      if (k < 1) return true;
+      f.box.destroy({ children: true });
+      this._rail.bump();
+      return false;
     });
   }
 
-  /** 点到电池就收，返回有没有点中 */
+  /** 点到地上的电池就收，返回有没有点中 */
   private _tapDrop(p: { x: number; y: number }): boolean {
-    const i = this._drops.findIndex((d) => Math.hypot(p.x - d.x, p.y - d.y) <= DROP_HIT_R);
-    if (i < 0) return false;
-    const d = this._drops[i]!;
-    this._drops.splice(i, 1);
-    d.box.destroy({ children: true });
-    for (const f of this._state.team) {
-      if (f.alive) f.energy = Math.min(ENERGY_MAX, f.energy + ENERGY_MAX * DROP_ENERGY);
+    let hit = -1;
+    let best = DROP_HIT_R;
+    for (const [id, d] of this._cells) {
+      const dist = Math.hypot(p.x - d.box.x, p.y - d.box.y);
+      if (dist <= best) {
+        best = dist;
+        hit = id;
+      }
     }
-    this._fx.floatText('全员绝活充能 +25%', d.x, d.y - 36, 0x9be08a, 24);
-    this._fx.shake(2);
-    playSfx('install_on', 0);
-    buzz('light');
-    if (!PersistService.readRaw(GUIDE_DROP_KEY)) {
-      PersistService.writeRaw(GUIDE_DROP_KEY, '1');
-      this._dropHintDue = false;
-      this._say('底下头像转满一圈就能放绝活，电池见一个点一个', 3);
-    }
+    if (hit < 0) return false;
+    this._state.events.length = 0;
+    if (grabCell(this._state, hit)) this._consumeEvents();
+    this._state.events.length = 0;
     return true;
   }
 
@@ -2242,6 +3015,7 @@ export class BattleScene implements Scene {
     const t = this._tapTip;
     // 第一招的引导亮着时先让给它，一屏只叫玩家做一件事
     const want = this._state.phase === 'fighting' && this._skillGuide !== 'on'
+      && this._deployGuide !== 'on' && this._weldGuide !== 'on' && !this._offer.visible
       && !PersistService.readRaw(GUIDE_TAP_KEY);
     let target: Foe | null = null;
     if (want) {
@@ -2263,9 +3037,10 @@ export class BattleScene implements Scene {
   }
 
   private _clearDrops(): void {
-    for (const d of this._drops) if (!d.box.destroyed) d.box.destroy({ children: true });
-    this._drops = [];
-    this._killN = 0;
+    for (const d of this._cells.values()) if (!d.box.destroyed) d.box.destroy({ children: true });
+    this._cells.clear();
+    for (const f of this._cellFly) if (!f.box.destroyed) f.box.destroy({ children: true });
+    this._cellFly = [];
     this._dropHintDue = false;
   }
 
@@ -2448,6 +3223,7 @@ export class BattleScene implements Scene {
     if (!this._leaveBtn) return;
     const show = !this._placing()
       && this._state.phase === 'fighting'
+      && !this._offer.visible
       && !this._settle.visible
       && !this._revive.visible
       && !this._leaveAsk.visible
@@ -2534,6 +3310,7 @@ export class BattleScene implements Scene {
       this.container.addChild(this._leaveBtn);
     }
     this._tray.place(this._trayTop());
+    this._rail.place(this._lay.top + 8);
     this._rebuildTrayBtns();
     this._syncLeaveBtn();
     this._updateHud();
@@ -2732,14 +3509,24 @@ export class BattleScene implements Scene {
     }
 
     this._hintText.visible = false;
-    // 超时只是兜底，细线贴在顶板下沿，不占一块经验槽
-    const frac = Math.min(1, battleClockMs(s) / s.stage.timeLimitMs);
-    this._timeBar.clear();
-    const y = chrome.barBottom - 8;
-    this._timeBar.beginFill(0x000000, 0.35)
-      .drawRoundedRect(90, y, 570, 4, 2).endFill();
-    this._timeBar.beginFill(frac > 0.85 ? 0xff7a5a : GOLD, 0.9)
-      .drawRoundedRect(90, y, 570 * (1 - frac), 4, 2).endFill();
+    // 出怪进度贴在顶板下沿：走到旗子就是一大波。超时只是兜底，快到点了条变红
+    const late = battleClockMs(s) / s.stage.timeLimitMs > 0.85;
+    const bar = waveBarView(s);
+    const g = this._timeBar;
+    const x0 = 90;
+    const bw = 570;
+    const y = chrome.barBottom - 9;
+    g.clear();
+    g.beginFill(0x000000, 0.4).drawRoundedRect(x0, y, bw, 6, 3).endFill();
+    if (bar.frac > 0) {
+      g.beginFill(late ? 0xff7a5a : GOLD, 0.92).drawRoundedRect(x0, y, Math.max(6, bw * bar.frac), 6, 3).endFill();
+    }
+    for (const f of bar.flags) {
+      const fx = x0 + bw * f.at;
+      g.beginFill(0x2a1810, 0.95).drawRect(fx - 1.5, y - 15, 3, 21).endFill();
+      g.beginFill(f.reached ? 0xff5a3a : 0x9a8070, 0.95)
+        .drawPolygon([fx + 1.5, y - 15, fx + 17, y - 10.5, fx + 1.5, y - 6]).endFill();
+    }
   }
 
   private _say(msg: string, life = 2.4): void {
@@ -2861,7 +3648,7 @@ export class BattleScene implements Scene {
     this._openSettle();
   }
 
-  private async _watchAd(placement: 'revive' | 'settleDouble' | 'loseBonus'): Promise<boolean> {
+  private async _watchAd(placement: 'revive' | 'settleDouble' | 'loseBonus' | 'boostGold'): Promise<boolean> {
     track('ad_show', { placement, stage_id: this._state.stage.id });
     const ok = await Platform.showRewardedVideo(rewardedAdUnitId(placement, Platform.name));
     track('ad_close', {
@@ -2913,6 +3700,7 @@ export class BattleScene implements Scene {
   private _openSettle(): void {
     if (this._settled) return;
     this._settled = true;
+    this._hideCombo();
     this._leaveAsk.hide();
     this._syncLeaveBtn();
     const s = this._state;
@@ -2955,6 +3743,19 @@ export class BattleScene implements Scene {
       lose_reason: s.loseReason ?? '',
       elapsed_ms: s.elapsedMs,
       play_ms: this._startedAt > 0 ? Date.now() - this._startedAt : 0,
+      // 局内层：玩家在局里到底动没动手
+      picks: s.boost?.picks.length ?? 0,
+      pick_ids: s.boost?.picks ?? [],
+      deploys: s.boost?.deploys ?? 0,
+      welds: s.boost?.welds ?? 0,
+      gadgets: s.boost?.gadgetUses ?? 0,
+      cells_got: s.boost?.cellsGot ?? 0,
+      cells_tap: s.boost?.cellsTapped ?? 0,
+      taps: s.taps,
+      last_lines: s.lastLineUsed,
+      rallied: s.rallied,
+      avg_alive: s.aliveTicks > 0 ? Math.round((s.aliveSum / s.aliveTicks) * 10) / 10 : 0,
+      peak_alive: s.peakAlive,
     });
     playSfx(won ? 'win' : 'lose', 0);
 

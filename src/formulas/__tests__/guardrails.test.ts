@@ -16,11 +16,11 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ARMOR_K, BOSS_HP_MUL, CELL_COUNT, LANE_COUNT, LEAK_ALLOW, cellPos } from '@/balance/combat';
+import { ARMOR_K, CELL_COUNT, LANE_COUNT, LEAK_ALLOW, cellPos } from '@/balance/combat';
 import { autoPlace, dumbPlace, runBattle } from '@/game/BattleEngine';
-import { simulate, clearDay, poolOf, sweepStages, sweepStats } from '../simulate';
+import { simulate, clearDay, fightWith, poolOf, sweepStages, sweepStats } from '../simulate';
 import {
-  STAGES, STAGE_COUNT, findStage, getEnemy, getStage, rateStars,
+  STAGES, STAGE_COUNT, findStage, getEnemy, getStage, rateStars, unitWeight,
 } from '@/balance/stages';
 import { assertWeights, expectedPerDay } from '@/balance/stall';
 import {
@@ -294,10 +294,10 @@ describe('护栏 3：曲线形状', () => {
         const own = (e.hp * (e.def + ARMOR_K)) / ARMOR_K;
         return e.spawn ? own + e.spawn.times * ehp(e.spawn.enemy) : own;
       };
-      // 大个子一只顶 BOSS_HP_MUL 只的血，按一只算会把带首领的第 5 关算轻
+      // 大个子、小头目按一只顶几只算，一窝里的按摊薄的算；全按一只算会把带首领的第 5 关算轻
       const load = (s: typeof first): number =>
         s.hpMul * s.waves.reduce((a, w) => a + w.groups.reduce(
-          (b, g) => b + g.count * ehp(g.enemy) * (g.boss ? BOSS_HP_MUL : 1), 0), 0);
+          (b, g) => b + g.count * ehp(g.enemy) * unitWeight(g), 0), 0);
       expect(load(first), `${c}-1 比 ${c - 1}-5 还重`).toBeLessThan(load(prevLast));
     }
   });
@@ -414,10 +414,29 @@ describe('护栏 4：局内有压力', () => {
     const on = probes.filter((p) => p.smart.won).length;
     const off = probes.filter((p) => {
       const snap = runs[0]!.smart.attemptSnap.get(p.stage.id)!;
-      const place = autoPlace(poolOf(snap), p.stage, squadCap(snap.villageLv));
-      return runBattle(p.stage, place, villageMul(snap.villageLv), false).won;
+      const pool = poolOf(snap);
+      const place = autoPlace(pool, p.stage, squadCap(snap.villageLv));
+      return fightWith(p.stage, pool, place, villageMul(snap.villageLv), false).won;
     }).length;
     expect(on - off, `放绝活 ${on} 关、不放 ${off} 关`).toBeGreaterThanOrEqual(probes.length * 0.2);
+  });
+
+  /**
+   * 局内层（三选一、电池、增援、焊一下）要值钱：同一套存档关掉它明显更难。
+   * 否则就是加了几个按钮，局内还是看戏。也不能离了它就寸步难行 —— 那是逼人点，不是让人爽。
+   */
+  it('局内层值钱：关掉三选一和电池，通关率明显更低，但不是寸步难行', () => {
+    const probes = sweepStages(runs[0]!.smart);
+    const on = probes.filter((p) => p.smart.won).length;
+    const off = probes.filter((p) => {
+      const snap = runs[0]!.smart.attemptSnap.get(p.stage.id)!;
+      const pool = poolOf(snap);
+      const place = autoPlace(pool, p.stage, squadCap(snap.villageLv));
+      return fightWith(p.stage, pool, place, villageMul(snap.villageLv), true, false).won;
+    }).length;
+    const msg = `开着 ${on} 关、关掉 ${off} 关，共 ${probes.length}`;
+    expect(on - off, msg).toBeGreaterThanOrEqual(probes.length * 0.15);
+    expect(off, msg).toBeGreaterThanOrEqual(probes.length * 0.3);
   });
 });
 
@@ -458,6 +477,38 @@ describe('护栏 5：绝活稀而重', () => {
   it('伤害招放一次平均带走半只以上', () => {
     for (const s of sweeps) {
       expect(s.stats.killsPerCast, `种子 ${s.seed}`).toBeGreaterThanOrEqual(0.45);
+    }
+  });
+});
+
+/**
+ * 压迫感和翻盘：场上得挤、得多路来、赢的局里得有几回「差点没守住」。
+ * 原来前几关一路出怪、同屏两三只，两成时间是空场，赢的局几乎都是平推。
+ */
+describe('护栏 6：挤、多路、险中守住', () => {
+  it('场上不冷清：第 1 章平均同屏 3 只以上，往后 3.5 只以上，空场不到 5%', () => {
+    for (const s of sweeps) {
+      const [ch1, ...rest] = s.stats.aliveByChapter.slice(0, 8);
+      expect(ch1, `种子 ${s.seed} 第 1 章同屏 ${ch1}`).toBeGreaterThanOrEqual(3);
+      rest.forEach((n, i) => expect(n, `种子 ${s.seed} 第 ${i + 2} 章同屏 ${n}`).toBeGreaterThanOrEqual(3.5));
+      expect(s.stats.emptyPct, `种子 ${s.seed}`).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('第 1 章每关至少两路来怪，第 2 章起每关三路都来', () => {
+    for (const s of sweeps) {
+      const lanes = s.stats.lanesByChapter;
+      expect(lanes[0], `种子 ${s.seed} 第 1 章`).toBeGreaterThanOrEqual(2);
+      lanes.slice(1).forEach((n, i) => {
+        if (n > 0) expect(n, `种子 ${s.seed} 第 ${i + 2} 章`).toBe(LANE_COUNT);
+      });
+    }
+  });
+
+  it('赢的局里有险局：拖拉机发动、漏到只差一只、或有人快倒，但不是每局都悬', () => {
+    for (const s of sweeps) {
+      expect(s.stats.closeWinPct, `种子 ${s.seed}`).toBeGreaterThanOrEqual(30);
+      expect(s.stats.closeWinPct, `种子 ${s.seed}`).toBeLessThanOrEqual(88);
     }
   });
 });

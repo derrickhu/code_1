@@ -5,21 +5,22 @@ import {
 } from '@/balance/opening';
 import { expectedPerPellet, pelletsForStage } from '@/balance/stall';
 import { CALL_COST, villageCumExp } from '@/balance/village';
-import { getStage, stageEnemyCount } from '@/balance/stages';
+import { getStage, stageEnemyCount, unitWeight } from '@/balance/stages';
 import { DEFAULT_SQUAD, getVillager } from '@/balance/villagers';
 import { autoPlace, runBattle } from '@/game/BattleEngine';
 import { runEndDurationMs, runEndForward } from '@/analytics/runEnd';
 
 describe('第 1 章这条路', () => {
-  it('赢下 1-3 之后村口才开放', () => {
+  it('赢下 1-2 之后村口就开放，弹弓摊提前到这儿', () => {
     expect(villageGateOpen(1)).toBe(false);
-    expect(villageGateOpen(3)).toBe(false);
-    expect(villageGateOpen(4)).toBe(true);
+    expect(villageGateOpen(2)).toBe(false);
+    expect(villageGateOpen(3)).toBe(true);
     expect(villageGateOpen(6)).toBe(true);
   });
 
   it('1-5 没过、手艺还是 1，先攒零件再点人', () => {
-    expect(chapter1CraftStep(3, false, 1, 0, 1)).toBe('done');
+    expect(chapter1CraftStep(2, false, 1, 0, 1)).toBe('done');
+    expect(chapter1CraftStep(3, false, 1, 0, 1)).toBe('stall');
     expect(chapter1CraftStep(5, false, 1, 0, 1)).toBe('stall');
     expect(chapter1CraftStep(5, false, 1, 2, 1)).toBe('craft');
     expect(chapter1CraftStep(6, true, 1, 0, 1)).toBe('done');
@@ -72,12 +73,15 @@ describe('第 1 章这条路', () => {
 describe('开局三人带新来的乡亲', () => {
   const cand = (id: string, craft = 1) => ({ villager: getVillager(id), evoStage: 1, stars: 0, craft });
 
-  it('1-1 头几秒就有人倒：先来的是小灰，只数还是 10', () => {
+  it('1-1 头几秒就有人倒：先来的是一窝小灰，只数多、每只薄', () => {
     const s = getStage(1);
     const first = s.waves[0]!.groups[0]!;
     expect(first.enemy).toBe('grunt');
+    expect(first.kind).toBe('swarm');
     expect(first.atMs).toBe(0);
-    expect(stageEnemyCount(s)).toBe(10);
+    expect(stageEnemyCount(s)).toBeGreaterThanOrEqual(24);
+    const weight = s.waves.reduce((a, w) => a + w.groups.reduce((b, g) => b + (g.boss ? 0 : g.count * unitWeight(g)), 0), 0);
+    expect(weight).toBeLessThanOrEqual(14);
   });
 
   it('三婶顶掉谁上去，1-3 都守得住', () => {

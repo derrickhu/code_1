@@ -22,24 +22,36 @@
  * 随机会把信号埋进噪声里。变化量交给布阵和养成，不交给骰子。
  */
 import {
-  ARMOR_K, BOSS_ATK_MUL, BOSS_HP_MUL, BOSS_LEAK, BOSS_SPD_MUL, CELL_COUNT,
-  EARLY_CALL_MS, FOE_ATK_MUL, FOE_SPD_MUL, GOAL_POS, HARD_FOE_CC, HEAL_ATK_CUT, HEAL_MUL,
-  LANE_COUNT, LEAK_ALLOW, RAGE_BONUS, SKILL_NEAR, SKILL_NEAR_SIDE, SLOW_MS, SLOW_MUL, TICK_MS,
-  WAVE_GAP_MS,
-  cellPos,
+  ARMOR_K, BOSS_ATK_MUL, BOSS_LEAK, BOSS_SPD_MUL, CELL_COUNT,
+  EARLY_CALL_MS, EARLY_WEAK, ELITE_ATK_MUL, ELITE_SPD_MUL, FOE_ATK_MUL, FOE_CAP, FOE_SPD_MUL,
+  GATE_WARN_MS, GOAL_POS, HARD_FOE_CC, HEAL_ATK_CUT, HEAL_MUL,
+  LANE_COUNT, LAST_LINE_BOSS_CUT, LAST_LINE_PUSH, LEAK_ALLOW, RAGE_BONUS, SKILL_NEAR, SKILL_NEAR_SIDE,
+  SLOW_MS, SLOW_MUL, SURGE_WARN_MS, SWARM_K, TICK_MS, VIS_ENGAGE_POS, WAVE_GAP_MS,
+  cellPos, posFromVisualGap,
 } from '@/balance/combat';
 import {
-  ENERGY_ACT_PER_S, ENERGY_HIT, ENERGY_MAX, ENERGY_PER_S, ENERGY_START, SKILL_EXECUTE, SKILL_WAIT_MS,
+  DEPLOY_ENERGY, ENERGY_ACT_PER_S, ENERGY_HIT, ENERGY_MAX, ENERGY_PER_S, ENERGY_START, SKILL_EXECUTE, SKILL_WAIT_MS,
   chargeMul, skillAt, skillPow, skillPower, type SkillDef,
 } from '@/balance/skills';
 import {
-  getEnemy, rateStars,
-  type EnemyDef, type StageDef, type Stars,
+  getEnemy, rateStars, unitWeight,
+  type EnemyDef, type SpawnGroup, type StageDef, type Stars,
 } from '@/balance/stages';
 import {
-  evoKindOf, evoPowOf, laneMul, statsOf,
+  EVO_MAX, VILLAGERS, evoKindOf, evoPowOf, laneMul, statsOf,
   type EvoKind, type Role, type VillagerDef,
 } from '@/balance/villagers';
+import {
+  AD_GOLD_FROM_STAGE, AUTO_DEPLOY_MS, AUTO_GADGET_MS, AUTO_WELD_MS, BATTERY_INTERVAL, BIG_GOLD_MUL,
+  BLOWER_PIERCE, BOOSTS,
+  CELL_BOSS, CELL_CLEAN, CELL_ELITE, CELL_EVERY, CELL_TTL_MS, CRACKER_GRUNTS, DANCE_HASTE, DANCE_MS,
+  EXTRA_SEATS, FEAST_TIER, GADGET_MAX, GADGET_TIER, GOLD_FROM_STAGE, GOLD_PITY_STEP, GUEST_MAX, GUEST_TIER, HORN_STUN_MS,
+  KICKER_N, KICKER_R, KICKER_SPLASH, MARKET_TIER, OPENING_GUEST, OPENING_MOD_TARGET, OPENING_OFFER, OPENING_TIERS,
+  REDEPLOY_FROM_STAGE, REROLL_COST, TIER_GOLD, TIER_POW, TIER_RARE, TIER_SCORE,
+  TRACTOR_GRUNTS, TRACTOR_PUSH, WELD_MAX, WELD_MUL, WEIGHT_ATK, WOK_DEF, WOK_HP,
+  boostDef, deployCost, modCap, weldCostOf,
+  type BoostId, type GadgetId, type ModId, type Tier,
+} from '@/balance/boosts';
 import { foeCanSwing, foeHaltPos, foeTarget } from '@/game/foeEngage';
 import { marchStep } from '@/game/march';
 import { canReach } from '@/game/reach';
@@ -80,7 +92,7 @@ const HATCH_BACK = 0.3;
 
 /* ---------------- 状态 ---------------- */
 
-/** 一个村民在战场上的位置与形态。布阵阶段由玩家摆，开打后锁死 */
+/** 一个村民在战场上的位置与形态。布阵阶段由玩家摆；开打后站着的人不挪，只能往空格增援 */
 export interface Placement {
   villager: VillagerDef;
   /** 第几路 0..2 */
@@ -130,6 +142,16 @@ export interface Fighter {
   /** 绝活给的出手间隔倍率和剩余时间 */
   hasteMul: number;
   hasteMs: number;
+  /** 这一局焊上去的家伙。只在本局有效 */
+  mods?: ModId[];
+  /** 焊件的劲儿，按卡的档次（boosts.TIER_POW）。没记就是普通 */
+  modPow?: Partial<Record<ModId, number>>;
+  /** 「乡亲路过」来帮这一关的，不算自己村里的人：倒了不扣星 */
+  guest?: boolean;
+  /** 倒下后又被送上去过一次 */
+  again?: boolean;
+  /** 这一局焊过一下了 */
+  welded?: boolean;
 }
 
 /** 场上的外星人 */
@@ -164,6 +186,12 @@ export interface Foe {
   stunMs: number;
   /** 首领「大个子」 */
   boss: boolean;
+  /** 小头目 */
+  elite: boolean;
+  /** 一窝里的一只，血和攻击都摊薄了 */
+  swarm: boolean;
+  /** 占几份预算（按血量）。数「这一路压了多少」、掉电池都按它，不按只数 */
+  w: number;
   /** 砍中过村民没有。手感统计用 */
   swung: boolean;
 }
@@ -187,7 +215,121 @@ export type BattleEvent =
   | { kind: 'skill'; uid: string; manual: boolean }
   | { kind: 'skillHit'; uid: string; foeId: number; damage: number; killed: boolean; stun: boolean; push: boolean; slow: boolean }
   | { kind: 'bossIn'; foeId: number; lane: number }
-  | { kind: 'tap'; foeId: number; damage: number; killed: boolean; crit: boolean };
+  | { kind: 'eliteIn'; foeId: number; lane: number }
+  /** 一大波 SURGE_WARN_MS 后到 */
+  | { kind: 'surge'; wave: number }
+  /** 这一路底线的拖拉机发动了。trigger 是冲到底线的那一只 */
+  | { kind: 'lastLine'; lane: number; trigger: number }
+  /** 再漏一只就输：全村急眼，劲头一下充满 */
+  | { kind: 'rally' }
+  | { kind: 'tap'; foeId: number; damage: number; killed: boolean; crit: boolean }
+  | { kind: 'cellDrop'; dropId: number; lane: number; pos: number; n: number }
+  | { kind: 'cellGet'; dropId: number; n: number; tapped: boolean }
+  | { kind: 'clean'; n: number }
+  | { kind: 'offer'; wave: number; big: boolean }
+  | { kind: 'boost'; id: BoostId; uid?: string; tier: Tier; bonus: boolean }
+  /** auto：托管替玩家做的 */
+  | { kind: 'deploy'; uid: string; again: boolean; guest: boolean; auto: boolean }
+  | { kind: 'weld'; uid: string; evo: number; auto: boolean }
+  | { kind: 'gadget'; id: GadgetId; lane: number; auto: boolean; tier: Tier }
+  | { kind: 'blast'; id: GadgetId; foeId: number; damage: number; killed: boolean };
+
+/* ---------------- 局内层 ---------------- */
+
+/** 地上的一节（一把）电池。没人点也会自己飞进来，只是慢一点 */
+export interface CellDrop {
+  id: number;
+  lane: number;
+  pos: number;
+  n: number;
+  ttlMs: number;
+}
+
+/** 三选一里的一张。焊件写着给谁，路过写着是谁 */
+export interface OfferCard {
+  id: BoostId;
+  /** 普通 / 好货 / 压箱底 */
+  tier: Tier;
+  uid?: string;
+  guest?: string;
+}
+
+export interface BoostOffer {
+  cards: OfferCard[];
+  /** 推荐第几张。托管、超时都按它选 */
+  best: number;
+  /** 推荐它的那句理由，挂在「推荐」底下 */
+  why: string;
+  /** 看一段白拿的那张压箱底。拿了或者这关不卖就是 undefined */
+  bonus?: OfferCard;
+  /** 还能拿几张。大礼包是 2 */
+  left: number;
+  big: boolean;
+  rerolled: boolean;
+  wave: number;
+}
+
+/**
+ * 一局里的局内层：电池、三选一、增援、焊一下、家伙事。
+ * 只活在这一局，不进存档。
+ */
+export interface RunBoost {
+  /** 托管：没人动手时过一会儿替玩家做。动了手就是他自己的 */
+  assist: boolean;
+  /**
+   * 托管怎么补人、怎么挑卡。真机永远是 smart。
+   * dumb 只给护栏的负样本用：乱排的人开打后也不看路，按固定顺序往空格塞、闭眼拿第一张卡。
+   * 不这么配，负样本就成了「开局乱排、开打后补得比谁都准」，量不出布阵值多少。
+   */
+  policy: 'smart' | 'dumb';
+  /** 新手引导等玩家亲手做那一下时，先别替他做 */
+  hold: { weld: boolean; deploy: boolean; gadget: boolean };
+  cells: number;
+  cellsGot: number;
+  cellsTapped: number;
+  drops: CellDrop[];
+  nextDropId: number;
+  kills: number;
+  /** 按预算份数累计的击杀。一窝里的一只不到半份，掉电池按它数，拆窝不白送电池 */
+  killW: number;
+  /** 板凳上没上场的人 */
+  reserve: Candidate[];
+  /** 开打后最多站几个自己人（路过的不算） */
+  seats: number;
+  offer: BoostOffer | null;
+  offerWave: number;
+  offers: number;
+  /** 大个子倒了，下一回三选一连拿两张 */
+  bigNext: boolean;
+  /** 上一波开始时漏了几个，用来认「这一波一个没漏」 */
+  leakMark: number;
+  picks: BoostId[];
+  /** 拿到的每张卡什么档，和 picks 一一对应 */
+  pickTiers: Tier[];
+  gadgets: GadgetId[];
+  /** 每件家伙事的劲儿，和 gadgets 一一对应 */
+  gadgetPow: number[];
+  /** 家伙事的档次，和 gadgets 一一对应。竖栏按它描边 */
+  gadgetTier: Tier[];
+  /** 连着几回三选一没见着压箱底，保底按它涨 */
+  goldDry: number;
+  /** 看一段白拿过几张 */
+  bonusTaken: number;
+  danceMs: number;
+  deploys: number;
+  welds: number;
+  gadgetUses: number;
+  rerolls: number;
+  guests: number;
+  /** 家伙事打的血，不算进平砍和绝活 */
+  dmg: number;
+  rng: number;
+  waitWeld: number;
+  waitDeploy: number;
+  waitGadget: number;
+  /** 托管正在替玩家动手。只在 assistTick 里为真，事件靠它分清是谁做的 */
+  byAssist: boolean;
+}
 
 export type BattlePhase = 'placing' | 'fighting' | 'won' | 'lost';
 export type LoseReason = 'leak' | 'timeout' | 'wipe';
@@ -241,6 +383,23 @@ export interface BattleState {
   /** 玩家亲手点了几发、打了多少血。模拟器不点，护栏测的是不点也能过 */
   taps: number;
   tapDmg: number;
+  /** 局内层。关掉（单测纯机制时）就是 undefined */
+  boost?: RunBoost;
+  /** 每路底线那台拖拉机还在不在。一路一台、一关一次；关掉底线时全是 false */
+  lastLine: boolean[];
+  lastLineUsed: number;
+  /** 「乡亲们急眼了」用过没。一关一次 */
+  rallied: boolean;
+  /** 每一波放出来的总血量，认「这一波打残了」 */
+  waveHp: number[];
+  /** 一大波喊到第几波了 */
+  surgeTold: number;
+  /** 压迫感统计：每 tick 场上几只的累计、空场 tick 数、最多同时几只、出过怪的路 */
+  aliveSum: number;
+  aliveTicks: number;
+  emptyTicks: number;
+  peakAlive: number;
+  lanesHit: number;
 }
 
 export interface Candidate {
@@ -256,6 +415,7 @@ interface Spawn {
   enemy: string;
   wave: number;
   boss: boolean;
+  kind?: SpawnGroup['kind'];
 }
 
 /* ---------------- 建局 ---------------- */
@@ -272,6 +432,7 @@ function buildSchedule(stage: StageDef): Spawn[] {
           enemy: g.enemy,
           wave: w + 1,
           boss: g.boss === true,
+          kind: g.kind,
         });
       }
     }
@@ -279,11 +440,29 @@ function buildSchedule(stage: StageDef): Spawn[] {
   return out.sort((a, b) => a.atMs - b.atMs);
 }
 
-/** 每条路总共要来多少只。场上的出怪口玩家看得见，这不是偷看 */
+/** 一只进场时多少血。出怪、认「这一波打残了」都按这一条算 */
+function spawnHp(stage: StageDef, enemyId: string, s: Pick<Spawn, 'boss' | 'kind'>): number {
+  return Math.round(getEnemy(enemyId).hp * stage.hpMul * unitWeight(s));
+}
+
+function waveHpOf(stage: StageDef, schedule: readonly Spawn[]): number[] {
+  const out = new Array<number>(stage.waves.length).fill(0);
+  for (const s of schedule) out[s.wave - 1]! += spawnHp(stage, s.enemy, s);
+  return out;
+}
+
+/** 一窝里的一只按份数算，小头目、大个子顶三只封顶 —— 别让一个首领把全队都吸过去 */
+function loadOf(boss: boolean, kind: SpawnGroup['kind']): number {
+  if (boss) return 3;
+  if (kind === 'elite') return 2;
+  return kind === 'swarm' ? SWARM_K : 1;
+}
+
+/** 每条路总共要挡多少（按份数，不按只数）。场上的出怪口玩家看得见，这不是偷看 */
 export function laneLoad(stage: StageDef): number[] {
   const load = new Array<number>(LANE_COUNT).fill(0);
   for (const w of stage.waves) {
-    for (const g of w.groups) load[g.lane % LANE_COUNT]! += g.count;
+    for (const g of w.groups) load[g.lane % LANE_COUNT]! += g.count * (g.kind === 'swarm' ? SWARM_K : 1);
   }
   return load;
 }
@@ -294,14 +473,77 @@ export function laneLoad(stage: StageDef): number[] {
  * 布阵不给默认空阵：第一关必须预置一套能过的阵型，
  * 否则新手第一眼看到的是十二个空格子和一句「请布阵」，撞「十秒可懂」。
  */
+export interface BattleOpts {
+  /** 关掉局内层。只给单测纯机制用，真机和护栏都开着 */
+  boosts?: boolean;
+  /** 托管的补人挑卡策略，见 RunBoost.policy */
+  policy?: 'smart' | 'dumb';
+  /** 关掉底线拖拉机。只给单测纯机制（漏怪、续命）用 */
+  lastLine?: boolean;
+}
+
+function newRunBoost(stage: StageDef, policy: 'smart' | 'dumb'): RunBoost {
+  return {
+    assist: true,
+    policy,
+    hold: { weld: false, deploy: false, gadget: false },
+    cells: 0,
+    cellsGot: 0,
+    cellsTapped: 0,
+    drops: [],
+    nextDropId: 1,
+    kills: 0,
+    killW: 0,
+    reserve: [],
+    seats: 0,
+    offer: null,
+    offerWave: 1,
+    offers: 0,
+    bigNext: false,
+    leakMark: 0,
+    picks: [],
+    pickTiers: [],
+    gadgets: [],
+    gadgetPow: [],
+    gadgetTier: [],
+    goldDry: 0,
+    bonusTaken: 0,
+    danceMs: 0,
+    deploys: 0,
+    welds: 0,
+    gadgetUses: 0,
+    rerolls: 0,
+    guests: 0,
+    dmg: 0,
+    rng: (stage.id * 7919 + 17) | 0,
+    waitWeld: 0,
+    waitDeploy: 0,
+    waitGadget: 0,
+    byAssist: false,
+  };
+}
+
 export function createBattle(
   stage: StageDef,
   bench: readonly Candidate[],
   cap: number,
   villageMul = 1,
   preset?: readonly Placement[],
+  opts: BattleOpts = {},
 ): BattleState {
+  const schedule = buildSchedule(stage);
   return {
+    boost: opts.boosts === false ? undefined : newRunBoost(stage, opts.policy ?? 'smart'),
+    lastLine: new Array<boolean>(LANE_COUNT).fill(opts.lastLine !== false),
+    lastLineUsed: 0,
+    rallied: false,
+    waveHp: waveHpOf(stage, schedule),
+    surgeTold: 0,
+    aliveSum: 0,
+    aliveTicks: 0,
+    emptyTicks: 0,
+    peakAlive: 0,
+    lanesHit: 0,
     stage,
     phase: 'placing',
     villageMul,
@@ -310,7 +552,7 @@ export function createBattle(
     placed: preset ? [...preset] : autoPlace(bench, stage, cap),
     team: [],
     foes: [],
-    schedule: buildSchedule(stage),
+    schedule,
     spawnIdx: 0,
     wave: 0,
     leaked: 0,
@@ -407,6 +649,12 @@ export function startFight(state: BattleState): void {
   for (const f of state.team) {
     const pow = hastePow.get(f.lane);
     if (pow) f.interval = Math.round(f.interval * (1 - (1 - HASTE_MUL) * pow));
+  }
+  const b = state.boost;
+  if (b) {
+    const on = new Set(state.placed.map((p) => p.villager.id));
+    b.reserve = state.bench.filter((c) => !on.has(c.villager.id));
+    b.seats = state.cap + EXTRA_SEATS;
   }
   state.phase = 'fighting';
 }
@@ -559,17 +807,43 @@ function pickFoes(f: Fighter, foes: readonly Foe[], kind: EvoKind): { foe: Foe; 
   const list = foesInRange(f, foes);
   if (list.length === 0) return [];
   const pow = f.evoPow ?? 1;
+  let out: { foe: Foe; mul: number }[];
   if (kind === 'pierce') {
     const a = list[0]!;
     const b = list[1];
-    return b ? [{ foe: a, mul: 1 }, { foe: b, mul: PIERCE_MUL * pow }] : [{ foe: a, mul: 1 }];
-  }
-  if (kind === 'cleave') {
-    return list.slice(0, CLEAVE_MAX).map((foe, i) => ({
+    out = b ? [{ foe: a, mul: 1 }, { foe: b, mul: PIERCE_MUL * pow }] : [{ foe: a, mul: 1 }];
+  } else if (kind === 'cleave') {
+    out = list.slice(0, CLEAVE_MAX).map((foe, i) => ({
       foe, mul: i === 0 ? 1 : CLEAVE_MUL * pow,
     }));
+  } else {
+    out = [{ foe: list[0]!, mul: 1 }];
   }
-  return [{ foe: list[0]!, mul: 1 }];
+  // 鼓风机：一下打穿，后面那只也挨。本来就穿的取大的那一份，不叠两次。压箱底穿两只
+  if (f.mods?.includes('m_blower') && list.length > 1) {
+    const pow = f.modPow?.m_blower ?? 1;
+    const mul = Math.min(1, BLOWER_PIERCE * pow);
+    const deep = pow >= TIER_POW[2] ? 2 : 1;
+    for (let k = 1; k <= deep && k < list.length; k += 1) {
+      const at = out.findIndex((m) => m.foe === list[k]);
+      if (at < 0) out.push({ foe: list[k]!, mul });
+      else out[at]!.mul = Math.max(out[at]!.mul, mul);
+    }
+  }
+  return out;
+}
+
+/** 二踢脚：打中的那只旁边再炸两只，只炸同一路 */
+function kickerSplash(state: BattleState, f: Fighter, marks: readonly { foe: Foe }[], kind: EvoKind): void {
+  const main = marks[0]?.foe;
+  if (!main || !f.mods?.includes('m_kicker')) return;
+  const hit = new Set(marks.map((m) => m.foe.id));
+  const near = state.foes
+    .filter((e) => e.alive && !hit.has(e.id) && e.lane === main.lane && Math.abs(e.pos - main.pos) <= KICKER_R)
+    .sort((a, b) => Math.abs(a.pos - main.pos) - Math.abs(b.pos - main.pos))
+    .slice(0, KICKER_N);
+  const mul = Math.min(1, KICKER_SPLASH * (f.modPow?.m_kicker ?? 1));
+  for (const e of near) strike(state, f, e, mul, kind);
 }
 
 function tickRegen(state: BattleState, f: Fighter, kind: EvoKind): void {
@@ -612,8 +886,7 @@ function strike(state: BattleState, f: Fighter, foe: Foe, mul: number, kind: Evo
   const killed = foe.hp <= 0;
   state.events.push({ kind: 'hit', uid: f.uid, foeId: foe.id, damage, killed });
   if (killed) {
-    foe.alive = false;
-    state.events.push({ kind: 'foeDown', foeId: foe.id, lane: foe.lane });
+    downFoe(state, foe);
   } else if (kind === 'slowHard' && !foe.def.steady) {
     // 只有「钉死」这一阶才减速。拦位普攻再叠 hitstun，看起来像挨一下停一下
     foe.slowMs = Math.max(foe.slowMs, SLOW_MS * SLOW_HARD_MUL * (f.evoPow ?? 1));
@@ -635,10 +908,7 @@ function fireBurst(state: BattleState, f: Fighter): void {
     e.hp -= damage;
     const killed = e.hp <= 0;
     state.events.push({ kind: 'hit', uid: f.uid, foeId: e.id, damage, killed });
-    if (killed) {
-      e.alive = false;
-      state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
-    }
+    if (killed) downFoe(state, e);
   }
 }
 
@@ -660,10 +930,7 @@ function hurtVillager(state: BattleState, target: Fighter, e: Foe, raw: number):
   if (kind === 'reflect' && e.alive) {
     const back = foeTake(e, damage * REFLECT_MUL * (target.evoPow ?? 1));
     e.hp -= back;
-    if (e.hp <= 0) {
-      e.alive = false;
-      state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
-    }
+    if (e.hp <= 0) downFoe(state, e);
   }
   if (kind === 'burst' && !target.burstUsed && target.hp / target.maxHp <= BURST_HP) {
     target.burstUsed = true;
@@ -761,6 +1028,9 @@ export function foeOf(def: EnemyDef, id: number, lane: number, pos = 0): Foe {
     atkPct: 0,
     stunMs: 0,
     boss: false,
+    elite: false,
+    swarm: false,
+    w: 1,
     swung: false,
   };
 }
@@ -769,15 +1039,22 @@ export function foeOf(def: EnemyDef, id: number, lane: number, pos = 0): Foe {
  * 造一只进场的外星人。出怪时间轴和孵化器下的蛋走同一条，
  * 否则「蛋没吃到关卡倍率」这种 bug 要到第 30 章才看得出来。
  */
-function newFoe(state: BattleState, enemyId: string, lane: number, pos = 0, boss = false): Foe {
+function newFoe(
+  state: BattleState, enemyId: string, lane: number, pos = 0, boss = false, kind?: SpawnGroup['kind'],
+): Foe {
   const def = getEnemy(enemyId);
   const foe = foeOf(def, state.nextFoeId, lane, pos);
-  const hpMul = boss ? BOSS_HP_MUL : 1;
-  foe.hp = Math.round(def.hp * state.stage.hpMul * hpMul);
+  const elite = !boss && kind === 'elite';
+  const swarm = !boss && kind === 'swarm';
+  foe.hp = spawnHp(state.stage, enemyId, { boss, kind });
   foe.maxHp = foe.hp;
-  foe.atk = def.atk * state.stage.atkMul * FOE_ATK_MUL * (boss ? BOSS_ATK_MUL : 1);
-  foe.spd = def.spd * FOE_SPD_MUL * (boss ? BOSS_SPD_MUL : 1);
+  const atkK = boss ? BOSS_ATK_MUL : elite ? ELITE_ATK_MUL : swarm ? SWARM_K : 1;
+  foe.atk = def.atk * state.stage.atkMul * FOE_ATK_MUL * atkK;
+  foe.spd = def.spd * FOE_SPD_MUL * (boss ? BOSS_SPD_MUL : elite ? ELITE_SPD_MUL : 1);
   foe.boss = boss;
+  foe.elite = elite;
+  foe.swarm = swarm;
+  foe.w = unitWeight({ boss, kind });
   state.nextFoeId += 1;
   state.spawned += 1;
   return foe;
@@ -797,6 +1074,15 @@ function foeClose(state: BattleState, e: Foe): boolean {
   if (e.pos >= CONTACT_POS) return true;
   const halt = foeHaltPos(e, state.team);
   return halt !== undefined && e.pos + 0.05 >= halt;
+}
+
+/**
+ * 往回顶几格，按视觉格算，和行军同一把尺。
+ * 门口那段空场一格轴距画出来是六格，按轴顶的话停在前排脚前的大个子一招就被顶回门外，
+ * 只剩射程最远的够得着，再爬十几秒才回来 —— 一关的最后一只能拖到超时。
+ */
+function pushBack(e: Foe, cells: number): void {
+  e.pos = Math.max(0, posFromVisualGap(e.pos, cells));
 }
 
 function hasFoeEffect(sk: SkillDef): boolean {
@@ -837,8 +1123,10 @@ export function skillAllies(state: BattleState, f: Fighter, sk: SkillDef): Fight
  */
 function skillWanted(state: BattleState, f: Fighter, sk: SkillDef): boolean {
   const foes = skillFoes(state, f, sk);
-  // 定身、击退留到怪贴上来再用。半路上定住只会拖时间
+  // 定身、击退留到怪贴上来再用。半路上定住只会拖时间。
+  // 整路的网和鸡例外：一窝挤在路上就是撒网的时候，等它们一只只贴上来早被前排打散了
   if ((sk.stunMs || sk.push) && foes.some((e) => foeClose(state, e))) return true;
+  if ((sk.stunMs || sk.push) && sk.scope === 'lane' && foes.length >= 3) return true;
   // 伤害招等怪贴上来、或者够得着的攒成一堆再砸：一招砸一片才看得出是绝活
   if ((sk.dmg || sk.slowMs) && !(sk.stunMs || sk.push)
     && (foes.some((e) => foeClose(state, e)) || foes.length >= 3)) return true;
@@ -873,12 +1161,11 @@ function fireSkill(state: BattleState, f: Fighter, manual: boolean): void {
       if (!e.boss && e.hp > 0 && e.hp < e.maxHp * SKILL_EXECUTE) e.hp = 0;
       killed = e.hp <= 0;
       if (killed) {
-        e.alive = false;
         state.skillKills += 1;
         state.events.push({
           kind: 'skillHit', uid: f.uid, foeId: e.id, damage, killed, stun: false, push: false, slow: false,
         });
-        state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
+        downFoe(state, e);
         continue;
       }
     }
@@ -897,7 +1184,7 @@ function fireSkill(state: BattleState, f: Fighter, manual: boolean): void {
         stun = true;
       }
       if (sk.push) {
-        e.pos = Math.max(0, e.pos - sk.push * pow * cc);
+        pushBack(e, sk.push * pow * cc);
         push = true;
       }
     }
@@ -979,10 +1266,7 @@ export function playerShot(state: BattleState, foeId: number): boolean {
   const killed = e.hp <= 0;
   if (!killed && !e.boss && !e.def.steady) e.pos = Math.max(0, e.pos - TAP_PUSH);
   state.events.push({ kind: 'tap', foeId: e.id, damage, killed, crit });
-  if (killed) {
-    e.alive = false;
-    state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
-  }
+  if (killed) downFoe(state, e);
   return true;
 }
 
@@ -991,21 +1275,808 @@ export function battleClockMs(state: Pick<BattleState, 'elapsedMs' | 'skippedMs'
   return state.elapsedMs + state.skippedMs;
 }
 
+/* ---------------- 局内层：电池 ---------------- */
+
+/** 外星人倒下都走这一条，电池才不会漏掉哪一种死法 */
+function downFoe(state: BattleState, e: Foe): void {
+  e.alive = false;
+  state.events.push({ kind: 'foeDown', foeId: e.id, lane: e.lane });
+  const b = state.boost;
+  if (!b) return;
+  b.kills += 1;
+  if (e.boss || e.elite) {
+    b.bigNext = true;
+    dropCell(state, e, e.boss ? CELL_BOSS : CELL_ELITE);
+    return;
+  }
+  const before = Math.floor(b.killW / CELL_EVERY);
+  b.killW += Math.min(1, e.w);
+  if (b.kills === 1 || Math.floor(b.killW / CELL_EVERY) > before) dropCell(state, e, 1);
+}
+
+function dropCell(state: BattleState, e: Foe, n: number): void {
+  const b = state.boost!;
+  const d: CellDrop = { id: b.nextDropId, lane: e.lane, pos: e.pos, n, ttlMs: CELL_TTL_MS };
+  b.nextDropId += 1;
+  b.drops.push(d);
+  state.events.push({ kind: 'cellDrop', dropId: d.id, lane: d.lane, pos: d.pos, n });
+}
+
+function takeCell(state: BattleState, i: number, tapped: boolean): void {
+  const b = state.boost!;
+  const d = b.drops[i]!;
+  b.drops.splice(i, 1);
+  b.cells += d.n;
+  b.cellsGot += d.n;
+  if (tapped) b.cellsTapped += d.n;
+  state.events.push({ kind: 'cellGet', dropId: d.id, n: d.n, tapped });
+}
+
+function tickDrops(state: BattleState): void {
+  const b = state.boost!;
+  for (let i = b.drops.length - 1; i >= 0; i -= 1) {
+    const d = b.drops[i]!;
+    d.ttlMs -= TICK_MS;
+    if (d.ttlMs <= 0) takeCell(state, i, false);
+  }
+}
+
+/** 玩家点到地上的电池：马上到手 */
+export function grabCell(state: BattleState, dropId: number): boolean {
+  const b = state.boost;
+  if (!b || state.phase !== 'fighting') return false;
+  const i = b.drops.findIndex((d) => d.id === dropId);
+  if (i < 0) return false;
+  takeCell(state, i, true);
+  return true;
+}
+
+/* ---------------- 局内层：三选一 ---------------- */
+
+function boostRand(b: RunBoost): number {
+  b.rng = (b.rng + 0x6d2b79f5) | 0;
+  let t = b.rng;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+/** 每路还要挡多少：场上的加上时间轴里还没出来的 */
+function lanePressure(state: BattleState): number[] {
+  const out = new Array<number>(LANE_COUNT).fill(0);
+  for (const e of state.foes) if (e.alive) out[e.lane]! += foeLoad(e);
+  for (let i = state.spawnIdx; i < state.schedule.length; i += 1) {
+    const s = state.schedule[i]!;
+    out[s.lane]! += loadOf(s.boss, s.kind);
+  }
+  return out;
+}
+
+function foeLoad(e: Foe): number {
+  return loadOf(e.boss, e.elite ? 'elite' : e.swarm ? 'swarm' : undefined);
+}
+
+export function cellFree(state: BattleState, lane: number, cell: number): boolean {
+  return !state.team.some((f) => f.alive && f.lane === lane && f.cell === cell);
+}
+
+/** 这个定位该往哪一格补：哪一路人均要挡的最多去哪一路，路里挑最贴定位的空格 */
+export function freeCellFor(state: BattleState, role: Role): { lane: number; cell: number } | undefined {
+  const load = lanePressure(state);
+  const men = new Array<number>(LANE_COUNT).fill(0);
+  for (const f of state.team) if (f.alive) men[f.lane]! += 1;
+  const lanes = [0, 1, 2]
+    .sort((a, b) => (load[b]! / (men[b]! + 1)) - (load[a]! / (men[a]! + 1)) || load[b]! - load[a]!);
+  const want = ROLE_CELL_PREF[role];
+  const cells = [0, 1, 2, 3].sort((a, b) => Math.abs(a - want) - Math.abs(b - want) || a - b);
+  for (const lane of lanes) {
+    if (load[lane]! <= 0 && lanes.some((l) => load[l]! > 0)) continue;
+    for (const cell of cells) if (cellFree(state, lane, cell)) return { lane, cell };
+  }
+  for (const lane of lanes) {
+    for (const cell of cells) if (cellFree(state, lane, cell)) return { lane, cell };
+  }
+  return undefined;
+}
+
+const HIT_ORDER: Readonly<Record<Role, number>> = { dps: 0, block: 1, tank: 2, heal: 3 };
+const FRONT_ORDER: Readonly<Record<Role, number>> = { tank: 0, block: 1, dps: 2, heal: 3 };
+
+function modTarget(state: BattleState, id: ModId): Fighter | undefined {
+  const def = boostDef(id);
+  const free = state.team.filter((f) => f.alive && !(f.mods ?? []).includes(id));
+  if (free.length === 0) return undefined;
+  if (def.wants === 'front') {
+    return [...free].sort((a, b) => FRONT_ORDER[a.def.role] - FRONT_ORDER[b.def.role]
+      || a.cell - b.cell || b.maxHp - a.maxHp)[0];
+  }
+  return [...free].sort((a, b) => HIT_ORDER[a.def.role] - HIT_ORDER[b.def.role] || b.atk - a.atk)[0];
+}
+
+/** 谁路过：队里缺挨的就来个挨的，不缺就来个打的。名单上没有的人才会路过 */
+function guestPick(state: BattleState): string | undefined {
+  const b = state.boost!;
+  const busy = new Set([...state.team.map((f) => f.def.id), ...b.reserve.map((c) => c.villager.id)]);
+  const pool = VILLAGERS.filter((v) => !busy.has(v.id));
+  if (pool.length === 0) return undefined;
+  const tanks = state.team.filter((f) => f.alive && f.def.role === 'tank').length;
+  const role: Role = tanks === 0 ? 'tank' : 'dps';
+  const fit = pool.filter((v) => v.role === role);
+  const list = fit.length > 0 ? fit : pool;
+  return list[Math.floor(boostRand(b) * list.length)]!.id;
+}
+
+function cardFor(state: BattleState, id: BoostId, tier: Tier = 0): OfferCard | undefined {
+  const b = state.boost!;
+  const def = boostDef(id);
+  if (def.kind === 'gadget') return b.gadgets.length < GADGET_MAX ? { id, tier } : undefined;
+  if (def.kind === 'mod') {
+    const own = state.team.filter((x) => !x.guest);
+    const fitted = own.reduce((a, x) => a + (x.mods?.length ?? 0), 0);
+    if (fitted >= modCap(own.length)) return undefined;
+    const f = modTarget(state, id as ModId);
+    return f ? { id, tier, uid: f.uid } : undefined;
+  }
+  if (def.kind === 'guest') {
+    if (b.guests >= GUEST_MAX || !freeCellFor(state, 'dps')) return undefined;
+    const who = guestPick(state);
+    return who ? { id, tier, guest: who } : undefined;
+  }
+  if (id === 'r_feast') {
+    return state.team.some((f) => !f.alive || f.hp < f.maxHp * 0.6) ? { id, tier } : undefined;
+  }
+  return { id, tier };
+}
+
+/** 这一回每张卡出压箱底的概率：底子 + 保底，大礼包翻倍。第 1 章不出 */
+function goldChance(state: BattleState, big: boolean): number {
+  if (state.stage.id < GOLD_FROM_STAGE) return 0;
+  const b = state.boost!;
+  return Math.min(0.6, (TIER_GOLD + b.goldDry * GOLD_PITY_STEP) * (big ? BIG_GOLD_MUL : 1));
+}
+
+function rollTier(state: BattleState, big: boolean): Tier {
+  const r = boostRand(state.boost!);
+  const gold = goldChance(state, big);
+  if (r < gold) return 2;
+  if (r < gold + TIER_RARE) return 1;
+  return 0;
+}
+
+function rollCards(state: BattleState, n: number, skip: readonly BoostId[], big = false): OfferCard[] {
+  const b = state.boost!;
+  const pool: { card: OfferCard; w: number }[] = [];
+  for (const def of BOOSTS) {
+    if (skip.includes(def.id)) continue;
+    const card = cardFor(state, def.id);
+    if (card) pool.push({ card, w: def.weight });
+  }
+  const out: OfferCard[] = [];
+  while (out.length < n && pool.length > 0) {
+    const sum = pool.reduce((a, p) => a + p.w, 0);
+    let r = boostRand(b) * sum;
+    let i = 0;
+    while (i < pool.length - 1 && r >= pool[i]!.w) {
+      r -= pool[i]!.w;
+      i += 1;
+    }
+    out.push({ ...pool[i]!.card, tier: rollTier(state, big) });
+    pool.splice(i, 1);
+  }
+  // 大礼包至少一张好货，不然「连挑两样」挑的全是普通货
+  if (big && out.length > 0 && out.every((c) => c.tier === 0)) {
+    out[Math.floor(boostRand(b) * out.length)]!.tier = 1;
+  }
+  return out;
+}
+
+/** 1-1 第一回写死。人不在场（还没增援上来）就换给场上合适的人 */
+function openingCards(state: BattleState): OfferCard[] {
+  const b = state.boost!;
+  const out: OfferCard[] = [];
+  OPENING_OFFER.forEach((id, k) => {
+    const tier = OPENING_TIERS[k] ?? 0;
+    if (id === 'v_guest') {
+      const busy = state.team.some((f) => f.def.id === OPENING_GUEST)
+        || b.reserve.some((c) => c.villager.id === OPENING_GUEST);
+      const card = cardFor(state, id, tier);
+      if (card) out.push(busy ? card : { id, tier, guest: OPENING_GUEST });
+      return;
+    }
+    if (boostDef(id).kind === 'mod') {
+      const f = state.team.find((x) => x.alive && x.def.id === OPENING_MOD_TARGET);
+      const card = f ? { id, tier, uid: f.uid } : cardFor(state, id, tier);
+      if (card) out.push(card);
+      return;
+    }
+    const card = cardFor(state, id, tier);
+    if (card) out.push(card);
+  });
+  if (out.length < 3) out.push(...rollCards(state, 3 - out.length, out.map((c) => c.id)));
+  return out;
+}
+
+/**
+ * 推荐哪张、为什么。卡本身值多少（boosts.value，拿模拟器强拿每张量出来的）× 档次，
+ * 再看场上缺什么：有路没人守先来人，倒了人先吃饭。
+ *
+ * 上一版按种类排（来人 > 吃饭 > 焊件 > 家伙事 > 电池），实测推荐那张还不如闭眼拿第一张 ——
+ * 焊件被排在家伙事前面，可强拿下来鞭炮串、拖拉机都比焊件顶用。
+ */
+const GADGET_HELD_CUT = 0.35;
+
+function cardPick(state: BattleState, c: OfferCard): { score: number; why: string } {
+  const def = boostDef(c.id);
+  let base = def.value;
+  let why = '';
+  if (def.kind === 'guest') {
+    const load = lanePressure(state);
+    const empty = [0, 1, 2].some((l) => load[l]! > 0 && !state.team.some((f) => f.alive && f.lane === l));
+    if (empty) {
+      base = 8;
+      why = '有一路没人守';
+    }
+  } else if (c.id === 'r_feast' && state.team.some((f) => !f.alive)) {
+    base = 7;
+    why = '有人倒了';
+  } else if (c.id === 'm_wok') {
+    const f = state.team.find((x) => x.uid === c.uid);
+    if (f && f.hp < f.maxHp * 0.6) {
+      base = 5.6;
+      why = `${f.def.name}快顶不住了`;
+    }
+  } else if (def.kind === 'gadget') {
+    // 手里攒着没扔的家伙越多，再来一件越不急，该给人添劲了
+    const held = state.boost!.gadgets.length;
+    base -= GADGET_HELD_CUT * held;
+  }
+  if (!why) why = c.tier === 2 ? '压箱底，最顶用' : c.tier === 1 ? '好货，劲儿大' : '眼下最顶用';
+  return { score: base * TIER_SCORE[c.tier], why };
+}
+
+function bestCard(state: BattleState, cards: readonly OfferCard[]): number {
+  let best = 0;
+  for (let i = 1; i < cards.length; i += 1) {
+    if (cardPick(state, cards[i]!).score > cardPick(state, cards[best]!).score) best = i;
+  }
+  return best;
+}
+
+function setBest(state: BattleState, o: BoostOffer): void {
+  o.best = bestCard(state, o.cards);
+  const c = o.cards[o.best];
+  o.why = c ? cardPick(state, c).why : '';
+}
+
+/** 看一段白拿的那张：三张以外再抽一张，直接给压箱底 */
+function bonusCard(state: BattleState, cards: readonly OfferCard[]): OfferCard | undefined {
+  const b = state.boost!;
+  if (state.stage.id < AD_GOLD_FROM_STAGE || b.bonusTaken > 0) return undefined;
+  const c = rollCards(state, 1, cards.map((x) => x.id))[0];
+  return c ? { ...c, tier: 2 } : undefined;
+}
+
+function openOffer(state: BattleState, wave: number): void {
+  const b = state.boost!;
+  b.offerWave = wave;
+  if (state.leaked <= b.leakMark) {
+    b.cells += CELL_CLEAN;
+    b.cellsGot += CELL_CLEAN;
+    state.events.push({ kind: 'clean', n: CELL_CLEAN });
+  }
+  b.leakMark = state.leaked;
+  const big = b.bigNext;
+  b.bigNext = false;
+  const cards = state.stage.id === 1 && b.offers === 0 ? openingCards(state) : rollCards(state, 3, [], big);
+  b.offers += 1;
+  if (cards.length === 0) return;
+  if (state.stage.id >= GOLD_FROM_STAGE) b.goldDry = cards.some((c) => c.tier === 2) ? 0 : b.goldDry + 1;
+  const o: BoostOffer = {
+    cards, best: 0, why: '', left: big ? Math.min(2, cards.length) : 1, big, rerolled: false, wave,
+    bonus: bonusCard(state, cards),
+  };
+  setBest(state, o);
+  b.offer = o;
+  state.events.push({ kind: 'offer', wave, big });
+}
+
+function applyMod(f: Fighter, id: ModId, tier: Tier): void {
+  const pow = TIER_POW[tier];
+  f.mods = [...(f.mods ?? []), id];
+  f.modPow = { ...f.modPow, [id]: pow };
+  // 档位叠在出手速度上：压箱底按间隔乘会快到两倍多，攒气跟着翻倍，绝活一下就喧宾夺主了
+  if (id === 'm_battery') f.interval = Math.round(f.interval / (1 + (1 / BATTERY_INTERVAL - 1) * pow));
+  else if (id === 'm_weight') f.atk *= 1 + (WEIGHT_ATK - 1) * pow;
+  else if (id === 'm_wok') {
+    const add = Math.round(f.maxHp * (WOK_HP - 1) * pow);
+    f.maxHp += add;
+    f.hp += add;
+    f.armor *= 1 + (WOK_DEF - 1) * pow;
+  }
+}
+
+function teamCraft(state: BattleState): number {
+  const xs = state.team.map((f) => f.craft ?? 1);
+  return Math.max(1, Math.round(xs.reduce((a, x) => a + x, 0) / Math.max(1, xs.length)));
+}
+
+function spawnGuest(state: BattleState, id: string, tier: Tier = 0): Fighter | undefined {
+  const def = VILLAGERS.find((v) => v.id === id);
+  if (!def) return undefined;
+  const at = freeCellFor(state, def.role);
+  if (!at) return undefined;
+  const g = GUEST_TIER[tier]!;
+  const f = fighterOf({
+    villager: def, lane: at.lane, cell: at.cell, evoStage: g.evo, stars: 0, craft: teamCraft(state) + g.craft,
+  }, state.villageMul, state.team.length);
+  f.guest = true;
+  state.team.push(f);
+  state.boost!.guests += 1;
+  state.events.push({ kind: 'deploy', uid: f.uid, again: false, guest: true, auto: false });
+  return f;
+}
+
+function applyCard(state: BattleState, c: OfferCard, bonus = false): void {
+  const b = state.boost!;
+  const def = boostDef(c.id);
+  let uid = c.uid;
+  if (def.kind === 'gadget') {
+    const g = GADGET_TIER[c.tier]!;
+    for (let k = 0; k < g.n && b.gadgets.length < GADGET_MAX; k += 1) {
+      b.gadgets.push(c.id as GadgetId);
+      b.gadgetPow.push(g.pow);
+      b.gadgetTier.push(c.tier);
+    }
+  } else if (def.kind === 'mod') {
+    let f = state.team.find((x) => x.uid === c.uid && x.alive);
+    if (!f || (f.mods ?? []).includes(c.id as ModId)) f = modTarget(state, c.id as ModId);
+    if (f) applyMod(f, c.id as ModId, c.tier);
+    uid = f?.uid;
+  } else if (def.kind === 'guest') {
+    uid = spawnGuest(state, c.guest ?? guestPick(state) ?? '', c.tier)?.uid;
+  } else if (c.id === 'r_market') {
+    b.cells += MARKET_TIER[c.tier];
+    b.cellsGot += MARKET_TIER[c.tier];
+  } else if (c.id === 'r_feast') {
+    for (const f of state.team) {
+      if (f.alive) {
+        const amount = f.maxHp - f.hp;
+        f.hp = f.maxHp;
+        if (amount > 0) state.events.push({ kind: 'heal', uid: f.uid, targetUid: f.uid, amount });
+      } else {
+        f.alive = true;
+        f.hp = Math.max(1, Math.round(f.maxHp * FEAST_TIER[c.tier]));
+        state.events.push({ kind: 'villagerUp', uid: f.uid });
+      }
+      if (c.tier === 2 && f.alive) f.energy = ENERGY_MAX;
+    }
+  }
+  b.picks.push(c.id);
+  b.pickTiers.push(c.tier);
+  state.events.push({ kind: 'boost', id: c.id, uid, tier: c.tier, bonus });
+}
+
+/** 换人、换格之后重新认一遍这张卡给谁，档次不变 */
+function refreshCard(state: BattleState, c: OfferCard): OfferCard | undefined {
+  const fresh = cardFor(state, c.id, c.tier);
+  if (!fresh) return undefined;
+  const kind = boostDef(c.id).kind;
+  return kind === 'mod' || kind === 'guest' ? fresh : c;
+}
+
+/** 选第几张。大礼包选完第一张还挂着，剩下的接着选 */
+export function pickBoost(state: BattleState, i: number): boolean {
+  const b = state.boost;
+  const o = b?.offer;
+  if (!b || !o || state.phase !== 'fighting') return false;
+  const card = o.cards[i];
+  if (!card) return false;
+  applyCard(state, card);
+  o.left -= 1;
+  o.cards.splice(i, 1);
+  const rest = o.cards.map((c) => refreshCard(state, c)).filter((c): c is OfferCard => !!c);
+  if (o.left <= 0 || rest.length === 0) {
+    b.offer = null;
+    return true;
+  }
+  o.cards = rest;
+  if (o.bonus) o.bonus = refreshCard(state, o.bonus);
+  setBest(state, o);
+  return true;
+}
+
+/**
+ * 看完一段，白拿底下那张压箱底。三选一照样挂着，还能再挑一张。
+ * 广告看没看完是场景的事，引擎只管给。一局只有一张
+ */
+export function takeBonus(state: BattleState): boolean {
+  const b = state.boost;
+  const o = b?.offer;
+  if (!b || !o?.bonus || state.phase !== 'fighting') return false;
+  const card = refreshCard(state, o.bonus);
+  o.bonus = undefined;
+  if (!card) return false;
+  applyCard(state, card, true);
+  b.bonusTaken += 1;
+  const rest = o.cards.map((c) => refreshCard(state, c)).filter((c): c is OfferCard => !!c);
+  if (rest.length === 0) {
+    b.offer = null;
+    return true;
+  }
+  o.cards = rest;
+  setBest(state, o);
+  return true;
+}
+
+/** 花电池换一批。一回三选一只能换一次。换出来的档次重新抽，保底照算 */
+export function rerollOffer(state: BattleState): boolean {
+  const b = state.boost;
+  const o = b?.offer;
+  if (!b || !o || o.rerolled || b.cells < REROLL_COST) return false;
+  const fresh = rollCards(state, o.cards.length, o.cards.map((c) => c.id), o.big);
+  if (fresh.length === 0) return false;
+  b.cells -= REROLL_COST;
+  b.rerolls += 1;
+  o.cards = fresh;
+  o.rerolled = true;
+  if (o.bonus && fresh.some((c) => c.id === o.bonus!.id)) o.bonus = bonusCard(state, fresh);
+  setBest(state, o);
+  return true;
+}
+
+/* ---------------- 局内层：增援 ---------------- */
+
+export interface DeployPick {
+  id: string;
+  def: VillagerDef;
+  evo: number;
+  cost: number;
+  /** 倒下的人再上 */
+  again: boolean;
+}
+
+/** 能送上去的人：板凳上的、倒下还没再上过的（第 1 章不行）。路过的倒了就走了 */
+export function deployables(state: BattleState): DeployPick[] {
+  const b = state.boost;
+  if (!b) return [];
+  const on = new Set(state.team.map((f) => f.def.id));
+  const out: DeployPick[] = b.reserve
+    .filter((c) => !on.has(c.villager.id))
+    .map((c) => ({
+      id: c.villager.id, def: c.villager, evo: c.evoStage, cost: deployCost(c.evoStage, false), again: false,
+    }));
+  if (state.stage.id < REDEPLOY_FROM_STAGE) return out;
+  for (const f of state.team) {
+    if (f.alive || f.guest || f.again) continue;
+    out.push({ id: f.def.id, def: f.def, evo: f.evoStage, cost: deployCost(f.evoStage, true), again: true });
+  }
+  return out;
+}
+
+export function seatsFree(state: BattleState): number {
+  const b = state.boost;
+  if (!b) return 0;
+  return b.seats - state.team.filter((f) => f.alive && !f.guest).length;
+}
+
+/** 把一个人送上空格。只能往空格送，已经站着的人不挪 */
+export function deploy(state: BattleState, villagerId: string, lane: number, cell: number): boolean {
+  const b = state.boost;
+  if (!b || b.offer || state.phase !== 'fighting') return false;
+  if (lane < 0 || lane >= LANE_COUNT || cell < 0 || cell >= CELL_COUNT) return false;
+  if (!cellFree(state, lane, cell) || seatsFree(state) <= 0) return false;
+  const pick = deployables(state).find((p) => p.id === villagerId);
+  if (!pick || b.cells < pick.cost) return false;
+  b.cells -= pick.cost;
+  b.deploys += 1;
+  b.waitDeploy = 0;
+  if (pick.again) {
+    const f = state.team.find((x) => !x.alive && x.def.id === villagerId && !x.guest)!;
+    f.alive = true;
+    f.again = true;
+    f.hp = f.maxHp;
+    f.lane = lane;
+    f.cell = cell;
+    f.pos = cellPos(cell);
+    f.cd = 0;
+    f.energy = Math.max(f.energy, ENERGY_START);
+    state.events.push({ kind: 'deploy', uid: f.uid, again: true, guest: false, auto: b.byAssist });
+    return true;
+  }
+  const c = b.reserve.find((x) => x.villager.id === villagerId)!;
+  const f = fighterOf({
+    villager: c.villager, lane, cell, evoStage: c.evoStage, stars: c.stars, craft: c.craft,
+  }, state.villageMul, state.team.length);
+  f.energy = DEPLOY_ENERGY;
+  state.team.push(f);
+  state.events.push({ kind: 'deploy', uid: f.uid, again: false, guest: false, auto: b.byAssist });
+  return true;
+}
+
+/* ---------------- 局内层：焊一下 ---------------- */
+
+/** 最后一波、或者大个子在场，才能焊 */
+export function weldOpen(state: BattleState): boolean {
+  if (!state.boost || state.phase !== 'fighting') return false;
+  return state.wave >= state.stage.waves.length || state.foes.some((e) => e.alive && e.boss);
+}
+
+export function canWeld(state: BattleState, f: Fighter): boolean {
+  const b = state.boost;
+  return !!b && f.alive && !f.welded && b.welds < WELD_MAX && b.cells >= weldCostOf(f.evoStage);
+}
+
+/** 焊谁最值：大个子那一路的先，打的先于挨的 */
+export function weldPick(state: BattleState): Fighter | undefined {
+  if (!weldOpen(state)) return undefined;
+  const bossLanes = new Set(state.foes.filter((e) => e.alive && e.boss).map((e) => e.lane));
+  const list = state.team.filter((f) => canWeld(state, f));
+  return list.sort((a, b) => (bossLanes.has(b.lane) ? 1 : 0) - (bossLanes.has(a.lane) ? 1 : 0)
+    || HIT_ORDER[a.def.role] - HIT_ORDER[b.def.role]
+    || b.atk - a.atk)[0];
+}
+
+/** 本关让这个人直接变下一阶：换立绘、换打法、血补满 */
+export function weld(state: BattleState, uid: string): boolean {
+  const b = state.boost;
+  if (!b || b.offer || !weldOpen(state)) return false;
+  const f = state.team.find((x) => x.uid === uid);
+  if (!f || !canWeld(state, f)) return false;
+  b.cells -= weldCostOf(f.evoStage);
+  b.welds += 1;
+  b.waitWeld = 0;
+  f.welded = true;
+  if (f.evoStage < EVO_MAX) {
+    f.evoStage += 1;
+    f.evoPow = evoPowOf(f.def, f.evoStage);
+  }
+  f.atk *= WELD_MUL;
+  f.maxHp = Math.round(f.maxHp * WELD_MUL);
+  f.hp = f.maxHp;
+  state.events.push({ kind: 'weld', uid: f.uid, evo: f.evoStage, auto: b.byAssist });
+  return true;
+}
+
+/* ---------------- 局内层：家伙事 ---------------- */
+
+/** 怪最多的那一路。一样多就挑走得最近的 */
+function busiestLane(state: BattleState): number {
+  const n = new Array<number>(LANE_COUNT).fill(0);
+  const near = new Array<number>(LANE_COUNT).fill(-1);
+  for (const e of state.foes) {
+    if (!e.alive) continue;
+    n[e.lane]! += foeLoad(e);
+    near[e.lane] = Math.max(near[e.lane]!, e.pos);
+  }
+  let best = 0;
+  for (let l = 1; l < LANE_COUNT; l += 1) {
+    if (n[l]! > n[best]! || (n[l] === n[best] && near[l]! > near[best]!)) best = l;
+  }
+  return best;
+}
+
+function gruntRaw(state: BattleState): number {
+  return getEnemy('grunt').hp * state.stage.hpMul;
+}
+
+function blastFoe(state: BattleState, e: Foe, raw: number, id: GadgetId): void {
+  const damage = foeTake(e, dmgOf(raw, e.armor, 1));
+  e.hp -= damage;
+  state.boost!.dmg += damage;
+  const killed = e.hp <= 0;
+  state.events.push({ kind: 'blast', id, foeId: e.id, damage, killed });
+  if (killed) downFoe(state, e);
+}
+
+export function useGadget(state: BattleState, i: number): boolean {
+  const b = state.boost;
+  if (!b || b.offer || state.phase !== 'fighting') return false;
+  const id = b.gadgets[i];
+  if (!id) return false;
+  const pow = b.gadgetPow[i] ?? 1;
+  const tier = b.gadgetTier[i] ?? 0;
+  b.gadgets.splice(i, 1);
+  b.gadgetPow.splice(i, 1);
+  b.gadgetTier.splice(i, 1);
+  b.gadgetUses += 1;
+  b.waitGadget = 0;
+  const lane = id === 'g_cracker' || id === 'g_tractor' ? busiestLane(state) : -1;
+  state.events.push({ kind: 'gadget', id, lane, auto: b.byAssist, tier });
+  const raw = gruntRaw(state);
+  const foes = state.foes.filter((e) => e.alive && (lane < 0 || e.lane === lane));
+  if (id === 'g_cracker') {
+    for (const e of foes) blastFoe(state, e, raw * CRACKER_GRUNTS * pow, id);
+  } else if (id === 'g_horn') {
+    for (const e of foes) {
+      const cc = e.boss || e.def.steady ? HARD_FOE_CC : 1;
+      e.stunMs = Math.max(e.stunMs, HORN_STUN_MS * cc * pow);
+    }
+  } else if (id === 'g_dance') {
+    b.danceMs = Math.max(b.danceMs, DANCE_MS * pow);
+  } else {
+    for (const e of foes) {
+      const cc = e.boss || e.def.steady ? HARD_FOE_CC : 1;
+      pushBack(e, TRACTOR_PUSH * cc * Math.sqrt(pow));
+      blastFoe(state, e, raw * TRACTOR_GRUNTS * pow, id);
+    }
+  }
+  return true;
+}
+
+/* ---------------- 局内层：托管 ---------------- */
+
+function gadgetMoment(state: BattleState, id: GadgetId): boolean {
+  const alive = state.foes.filter((e) => e.alive);
+  if (alive.length === 0) return false;
+  if (alive.some((e) => e.boss && foeClose(state, e))) return true;
+  if (state.spawnIdx >= state.schedule.length) return true;
+  const load = (xs: readonly Foe[]): number => xs.reduce((a, e) => a + foeLoad(e), 0);
+  if (id === 'g_horn') return load(alive.filter((e) => foeClose(state, e))) >= 3;
+  if (id === 'g_dance') return load(alive) >= 4;
+  const lane = busiestLane(state);
+  return load(alive.filter((e) => e.lane === lane)) >= 3;
+}
+
+/** 负样本补人：和 dumbPlace 同一套格序，只往左两列塞 */
+function dumbFreeCell(state: BattleState): { lane: number; cell: number } | undefined {
+  for (let i = 0; i < LANE_COUNT * CELL_COUNT; i += 1) {
+    const lane = i % 2;
+    const cell = Math.floor(i / 2) % CELL_COUNT;
+    if (cellFree(state, lane, cell)) return { lane, cell };
+  }
+  return undefined;
+}
+
+/** 托管送谁上、送哪：先补没人守的路，再按阶和手艺挑 */
+function deployPlan(state: BattleState): { id: string; lane: number; cell: number; urgent: boolean } | undefined {
+  const b = state.boost!;
+  if (seatsFree(state) <= 0) return undefined;
+  const list = deployables(state).filter((p) => p.cost <= b.cells);
+  if (list.length === 0) return undefined;
+  const score = (p: DeployPick): number => {
+    const c = b.reserve.find((x) => x.villager.id === p.id);
+    return p.evo * 10 + (c?.craft ?? 1) + (c?.stars ?? 0) - (p.again ? 0.5 : 0);
+  };
+  const pick = [...list].sort((a, c) => score(c) - score(a))[0]!;
+  const at = b.policy === 'dumb' ? dumbFreeCell(state) : freeCellFor(state, pick.def.role);
+  if (!at) return undefined;
+  const load = lanePressure(state);
+  const urgent = [0, 1, 2].some((l) => load[l]! > 0
+    && state.foes.some((e) => e.alive && e.lane === l)
+    && !state.team.some((f) => f.alive && f.lane === l));
+  return { id: pick.id, lane: at.lane, cell: at.cell, urgent };
+}
+
+function assistTick(state: BattleState): void {
+  const b = state.boost;
+  if (!b || !b.assist || b.offer) return;
+  b.byAssist = true;
+  try {
+    assistActs(state, b);
+  } finally {
+    b.byAssist = false;
+  }
+}
+
+function assistActs(state: BattleState, b: RunBoost): void {
+  if (b.gadgets.length > 0 && !b.hold.gadget) {
+    b.waitGadget += TICK_MS;
+    if (b.waitGadget >= AUTO_GADGET_MS && gadgetMoment(state, b.gadgets[0]!)) useGadget(state, 0);
+  } else {
+    b.waitGadget = 0;
+  }
+  const w = b.hold.weld ? undefined : weldPick(state);
+  if (w) {
+    b.waitWeld += TICK_MS;
+    if (b.waitWeld >= AUTO_WELD_MS) weld(state, w.uid);
+  } else {
+    b.waitWeld = 0;
+  }
+  const d = b.hold.deploy ? undefined : deployPlan(state);
+  if (d) {
+    b.waitDeploy += TICK_MS;
+    if (b.waitDeploy >= AUTO_DEPLOY_MS || d.urgent) deploy(state, d.id, d.lane, d.cell);
+  } else {
+    b.waitDeploy = 0;
+  }
+}
+
 function tickBuffs(f: Fighter): void {
   if (f.guardMs > 0) f.guardMs = Math.max(0, f.guardMs - TICK_MS);
   if (f.hasteMs > 0) f.hasteMs = Math.max(0, f.hasteMs - TICK_MS);
 }
 
-/** 场上清空了，下一波别让人干等满 10 秒 */
+/**
+ * 这一波打残了（场上剩的血不到这一波的三成），下一波别让人干等满 10 秒。
+ * 植物大战僵尸的做法：打得快，下一波就提前压上来，场上不会有空档。
+ * 原来要等场上一只不剩才提前，前两关有两成的时间是空场。
+ */
 function callEarly(state: BattleState): void {
   const next = state.schedule[state.spawnIdx];
   if (!next || state.wave === 0 || next.wave <= state.wave) return;
-  if (state.foes.some((e) => e.alive)) return;
   const wait = next.atMs - state.elapsedMs;
   if (wait <= EARLY_CALL_MS) return;
+  const left = state.foes.reduce((a, e) => a + (e.alive ? e.hp : 0), 0);
+  if (left > (state.waveHp[state.wave - 1] ?? 0) * EARLY_WEAK) return;
   const cut = wait - EARLY_CALL_MS;
   for (let i = state.spawnIdx; i < state.schedule.length; i += 1) state.schedule[i]!.atMs -= cut;
   state.skippedMs += cut;
+}
+
+/** 一大波快到了就喊一声。三选一会在那一波开头弹出来，所以要抢在它前头 */
+function warnSurge(state: BattleState): void {
+  const next = state.schedule[state.spawnIdx];
+  if (!next || next.wave <= state.surgeTold || !state.stage.waves[next.wave - 1]?.surge) return;
+  if (next.atMs - state.elapsedMs > SURGE_WARN_MS) return;
+  state.surgeTold = next.wave;
+  state.events.push({ kind: 'surge', wave: next.wave });
+}
+
+/**
+ * 底线拖拉机：第一只冲到底线的怪把它发动，从底线一直撞到门口。这一只不算漏。
+ * 一路一台、一关一次 —— 救得了一次危机，救不了一直排错的阵。
+ * 大个子撞不死，只掉一截血、被顶回去一段。
+ * 门外还在走的不撞：整条路连门外一起清，排错的阵靠拖拉机也能混过去，排法就不值钱了。
+ */
+function fireLastLine(state: BattleState, lane: number, trigger: Foe): void {
+  state.lastLine[lane] = false;
+  state.lastLineUsed += 1;
+  state.events.push({ kind: 'lastLine', lane, trigger: trigger.id });
+  for (const e of state.foes) {
+    if (!e.alive || e.lane !== lane || e.pos < VIS_ENGAGE_POS) continue;
+    if (e.boss) {
+      e.hp -= Math.round(e.maxHp * LAST_LINE_BOSS_CUT);
+      e.pos = Math.min(e.pos, GOAL_POS);
+      pushBack(e, LAST_LINE_PUSH);
+      if (e.hp <= 0) downFoe(state, e);
+      continue;
+    }
+    e.hp = 0;
+    downFoe(state, e);
+  }
+}
+
+/** 再漏一只就输了：全村急眼，劲头一下充满。一关一次，托管也会接着放 */
+function checkRally(state: BattleState): void {
+  if (state.rallied || state.leaked !== LEAK_ALLOW - 1) return;
+  state.rallied = true;
+  for (const f of state.team) if (f.alive) f.energy = ENERGY_MAX;
+  state.events.push({ kind: 'rally' });
+}
+
+/** 门口要来的：这一路接下来 GATE_WARN_MS 里出几只、是什么。玩家开打前看得见出怪口，这不是偷看 */
+export interface GateWarn {
+  lane: number;
+  enemy: string;
+  n: number;
+  inMs: number;
+  boss: boolean;
+  elite: boolean;
+}
+
+/**
+ * 只报「这一路现在没怪、马上要来」的，和带头目的。
+ * 一窝接一窝压着的路不用再喊，喊了等于整局门口常亮，反倒看不出哪一路是新来的。
+ */
+export function gateWarnings(state: BattleState, aheadMs = GATE_WARN_MS): GateWarn[] {
+  const out = new Map<number, GateWarn>();
+  for (let i = state.spawnIdx; i < state.schedule.length; i += 1) {
+    const s = state.schedule[i]!;
+    const inMs = s.atMs - state.elapsedMs;
+    if (inMs > aheadMs) break;
+    const w = out.get(s.lane);
+    if (w) {
+      w.n += 1;
+      w.boss ||= s.boss;
+      w.elite ||= s.kind === 'elite';
+      continue;
+    }
+    out.set(s.lane, {
+      lane: s.lane, enemy: s.enemy, n: 1, inMs: Math.max(0, inMs), boss: s.boss, elite: s.kind === 'elite',
+    });
+  }
+  return [...out.values()].filter((w) => w.boss || w.elite
+    || !state.foes.some((e) => e.alive && e.lane === w.lane));
 }
 
 /**
@@ -1017,22 +2088,41 @@ function callEarly(state: BattleState): void {
  */
 export function tick(state: BattleState): void {
   if (state.phase !== 'fighting') return;
+  const b = state.boost;
+  // 三选一挂着就整局停住：怪不走、钟不走，选完才接着打
+  if (b?.offer) return;
 
   const { stage } = state;
 
   callEarly(state);
+  warnSurge(state);
 
-  // 出怪
+  if (b) {
+    const next = state.schedule[state.spawnIdx];
+    if (next && next.atMs <= state.elapsedMs && next.wave > state.wave && state.wave >= 1
+      && b.offerWave < next.wave) {
+      openOffer(state, next.wave);
+      if (b.offer) return;
+    }
+    tickDrops(state);
+    if (b.danceMs > 0) b.danceMs = Math.max(0, b.danceMs - TICK_MS);
+  }
+
+  // 出怪。同屏满了的排在门外，腾出位置再进
+  let onField = state.foes.reduce((a, e) => a + (e.alive ? 1 : 0), 0);
   while (state.spawnIdx < state.schedule.length
-    && state.schedule[state.spawnIdx]!.atMs <= state.elapsedMs) {
+    && state.schedule[state.spawnIdx]!.atMs <= state.elapsedMs && onField < FOE_CAP) {
     const s = state.schedule[state.spawnIdx]!;
     if (s.wave > state.wave) {
       state.wave = s.wave;
       state.events.push({ kind: 'waveStart', wave: s.wave });
     }
-    const foe = newFoe(state, s.enemy, s.lane, 0, s.boss);
+    const foe = newFoe(state, s.enemy, s.lane, 0, s.boss, s.kind);
     state.foes.push(foe);
+    state.lanesHit |= 1 << foe.lane;
+    onField += 1;
     if (s.boss) state.events.push({ kind: 'bossIn', foeId: foe.id, lane: foe.lane });
+    else if (foe.elite) state.events.push({ kind: 'eliteIn', foeId: foe.id, lane: foe.lane });
     state.spawnIdx += 1;
   }
 
@@ -1084,9 +2174,14 @@ export function tick(state: BattleState): void {
       e.pos = marchStep(e.pos, e.spd, TICK_MS / 1000, e.slowMs > 0 ? SLOW_MUL : 1);
       if (haltAt !== undefined && e.pos > haltAt) e.pos = haltAt;
       if (e.pos > GOAL_POS) {
+        if (state.lastLine[e.lane]) {
+          fireLastLine(state, e.lane, e);
+          continue;
+        }
         e.alive = false;
         state.leaked += e.boss ? BOSS_LEAK : 1;
         state.events.push({ kind: 'leak', foeId: e.id, lane: e.lane });
+        checkRally(state);
         continue;
       }
     }
@@ -1127,7 +2222,8 @@ export function tick(state: BattleState): void {
     if (state.autoSkill && skillReady(f) && skillWanted(state, f, skillAt(f.def, f.evoStage))) {
       fireSkill(state, f, false);
     }
-    f.cd -= f.hasteMs > 0 ? TICK_MS / f.hasteMul : TICK_MS;
+    const rate = (f.hasteMs > 0 ? 1 / f.hasteMul : 1) * (b && b.danceMs > 0 ? 1 / DANCE_HASTE : 1);
+    f.cd -= TICK_MS * rate;
     if (f.cd > 0) continue;
 
     const cdMul = dimmed.has(f.uid) ? 1 + dim[f.lane]! : 1;
@@ -1145,13 +2241,20 @@ export function tick(state: BattleState): void {
     f.cd = f.interval * cdMul;
     gainEnergy(f, actEnergy(f));
     for (const m of marks) strike(state, f, m.foe, m.mul, kind);
+    kickerSplash(state, f, marks, kind);
   }
+
+  assistTick(state);
 
   for (const f of state.team) {
     state.lowHpFrac = Math.min(state.lowHpFrac, f.alive ? f.hp / f.maxHp : 0);
   }
 
   const alive = state.foes.filter((e) => e.alive).length;
+  state.aliveSum += alive;
+  state.aliveTicks += 1;
+  if (alive === 0) state.emptyTicks += 1;
+  state.peakAlive = Math.max(state.peakAlive, alive);
 
   if (state.leaked >= LEAK_ALLOW) {
     lose(state, 'leak');
@@ -1167,7 +2270,7 @@ export function tick(state: BattleState): void {
     state.phase = 'won';
     state.stars = rateStars(
       countedLeaks(state),
-      state.team.filter((f) => !f.alive).length,
+      fallenCount(state),
       true,
       battleClockMs(state),
       stage.parMs,
@@ -1184,9 +2287,9 @@ export function foesAlive(state: BattleState): number {
   return state.foes.filter((e) => e.alive).length;
 }
 
-/** 倒了几个人 */
+/** 倒了几个自己人。路过帮忙的倒了不算 */
 export function fallenCount(state: BattleState): number {
-  return state.team.filter((f) => !f.alive).length;
+  return state.team.filter((f) => !f.alive && !f.guest).length;
 }
 
 /** 把死掉的清出数组。渲染层放完死亡动画后调，省得数组无限长 */
@@ -1223,6 +2326,7 @@ export function reviveAfterLeak(state: BattleState): boolean {
   if (!reviveCanContinue(state)) return false;
   state.keptLeaks += state.leaked;
   state.leaked = 0;
+  if (state.boost) state.boost.leakMark = 0;
   state.loseReason = undefined;
   const cutN = Math.floor(foesAlive(state) / 2);
   let cut = 0;
@@ -1272,8 +2376,28 @@ export interface BattleResult {
   skillKills: number;
   /** 每个村民放了几次，按村民 id */
   castsBy: Record<string, number>;
-  /** 上场的村民 id */
+  /** 上过场的村民 id，含增援和路过的 */
   squad: string[];
+  /** 局内层：家伙事打的血、选了哪些卡、增援 / 焊 / 家伙事各几次、一共收了几节电池 */
+  boostDmg: number;
+  picks: BoostId[];
+  deploys: number;
+  welds: number;
+  gadgetUses: number;
+  cellsGot: number;
+  /** 压迫感：场上平均几只、最多几只、空场占几成（0..1）、出过怪的路有几条 */
+  avgAlive: number;
+  peakAlive: number;
+  emptyFrac: number;
+  lanes: number;
+  /** 底线拖拉机发动了几台、急眼用过没 */
+  lastLines: number;
+  rallied: boolean;
+}
+
+export interface RunOpts extends BattleOpts {
+  /** 板凳上的人。开打后能用电池送上去 */
+  reserve?: readonly Candidate[];
 }
 
 /**
@@ -1287,16 +2411,26 @@ export function runBattle(
   place: readonly Placement[],
   villageMul = 1,
   autoSkill = true,
+  opts: RunOpts = {},
 ): BattleResult {
-  const state = createBattle(stage, [], place.length || 1, villageMul, place);
+  const state = createBattle(stage, opts.reserve ?? [], place.length || 1, villageMul, place, opts);
   state.autoSkill = autoSkill;
   startFight(state);
 
+  // 三选一停住时不走钟，硬上限只数真正走了的 tick
   const guard = Math.ceil(stage.timeLimitMs / TICK_MS) + 64;
-  for (let i = 0; i < guard && state.phase === 'fighting'; i += 1) {
+  let ticks = 0;
+  for (let i = 0; i < guard * 2 && ticks < guard && state.phase === 'fighting'; i += 1) {
     state.events.length = 0;
+    const o = state.boost?.offer;
+    if (o) {
+      pickBoost(state, state.boost!.policy === 'dumb' ? 0 : o.best);
+      continue;
+    }
     tick(state);
+    ticks += 1;
   }
+  const b = state.boost;
 
   return {
     won: state.phase === 'won',
@@ -1316,6 +2450,18 @@ export function runBattle(
     skillKills: state.skillKills,
     castsBy: state.castsBy,
     squad: state.team.map((f) => f.def.id),
+    boostDmg: b?.dmg ?? 0,
+    picks: b?.picks ?? [],
+    deploys: b?.deploys ?? 0,
+    welds: b?.welds ?? 0,
+    gadgetUses: b?.gadgetUses ?? 0,
+    cellsGot: b?.cellsGot ?? 0,
+    avgAlive: state.aliveTicks > 0 ? state.aliveSum / state.aliveTicks : 0,
+    peakAlive: state.peakAlive,
+    emptyFrac: state.aliveTicks > 0 ? state.emptyTicks / state.aliveTicks : 0,
+    lanes: [0, 1, 2].filter((l) => (state.lanesHit >> l) & 1).length,
+    lastLines: state.lastLineUsed,
+    rallied: state.rallied,
   };
 }
 

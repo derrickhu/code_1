@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getStage } from '@/balance/stages';
+import { getEnemy, getStage } from '@/balance/stages';
 import { getVillager } from '@/balance/villagers';
 import { createBattle, playerShot, startFight, tick, type BattleState } from '@/game/BattleEngine';
 
@@ -20,9 +20,19 @@ function fight(stageId: number): BattleState {
 }
 
 describe('亲手弹外星人', () => {
-  it('1-1 的小灰点三下就倒，倒了再点不算', () => {
+  it('一窝里的小灰薄，点两下就倒', () => {
     const state = fight(1);
     const e = state.foes.find((x) => x.def.id === 'grunt' && x.alive)!;
+    expect(playerShot(state, e.id)).toBe(true);
+    expect(e.alive).toBe(true);
+    expect(playerShot(state, e.id)).toBe(true);
+    expect(e.alive).toBe(false);
+  });
+
+  it('1-1 整只的小灰点三下就倒，倒了再点不算', () => {
+    const state = fight(1);
+    const e = state.foes.find((x) => x.def.id === 'grunt' && x.alive)!;
+    e.hp = e.maxHp = Math.round(getEnemy('grunt').hp * state.stage.hpMul);
     expect(playerShot(state, e.id)).toBe(true);
     expect(playerShot(state, e.id)).toBe(true);
     expect(e.alive).toBe(true);

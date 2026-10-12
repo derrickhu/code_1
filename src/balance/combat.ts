@@ -88,6 +88,29 @@ export const BOSS_LEAK = 2;
  * 首领不占杂兵名额。血量另乘 BOSS_HP_MUL。
  * 以前按 5 只从只数里扣，每章第 3 关杂兵比前两关少，再摊进多出来的那一波，路上看着空。
  */
+
+/**
+ * 「一窝」：同样一份预算拆成两只多，每只的血和攻击只剩这么多。
+ * 一关要啃的总血量不变，场上的只数翻一倍多 —— 压迫感靠挤，不靠单只更疼。
+ * 拆到三只（0.34）时一招扫一串太值，绝活占全队输出冲到四成，按到 0.45。
+ */
+export const SWARM_K = 0.45;
+/** 小头目：第一次高压带一只。占这一关预算的 ELITE_HP_MUL 份，打掉了送大礼包 */
+export const ELITE_HP_MUL = 2.5;
+export const ELITE_ATK_MUL = 1.3;
+export const ELITE_SPD_MUL = 0.9;
+/** 同屏最多几只。再多「哪一路要崩」就看不出来了，后面的排在门外等 */
+export const FOE_CAP = 18;
+/** 这一波剩的血不到这么多，下一波就提前来（只等 EARLY_CALL_MS） */
+export const EARLY_WEAK = 0.5;
+/** 一大波来之前多久喊出来 */
+export const SURGE_WARN_MS = 3000;
+/** 门口提前多久亮出「这一路要来几只」 */
+export const GATE_WARN_MS = 2500;
+/** 底线拖拉机撞到大个子：只撞掉这么多血、往回顶这么远，不一下撞死 */
+export const LAST_LINE_BOSS_CUT = 0.3;
+export const LAST_LINE_PUSH = 2.5;
+
 /** 定身和击退打在首领、水泥墩身上只剩这么多 */
 export const HARD_FOE_CC = 0.5;
 /**

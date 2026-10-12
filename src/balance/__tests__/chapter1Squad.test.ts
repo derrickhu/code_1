@@ -28,12 +28,12 @@ describe('开局三人打第 1 章', () => {
     }
   });
 
-  it('1-5 手艺全是 1 倒光不算过，铁柱升到 2 就不漏', () => {
+  it('1-5 手艺全是 1 守不住，拖拉机救一回也不够；铁柱升到 2 就不漏', () => {
     const green = fight(5, 1);
     expect(green.won, `reason=${green.reason} fallen=${green.fallen} leaked=${green.leaked}`).toBe(false);
-    expect(green.reason).toBe('wipe');
-    expect(green.fallen).toBe(3);
     expect(green.stars).toBe(0);
+    expect(green.fallen).toBeGreaterThanOrEqual(2);
+    expect(green.lastLines).toBeGreaterThanOrEqual(1);
 
     const fed = fight(5, { tiezhu: 2 });
     expect(fed.won).toBe(true);
@@ -55,6 +55,17 @@ describe('新档两人开局', () => {
       expect(r.won, `${id} leaked=${r.leaked}`).toBe(true);
       expect(r.fallen).toBe(0);
     }
+  });
+
+  it('1-1 头一回只上铁柱、弹弓叔攒够电池再上，照样不倒人、不漏', () => {
+    const stage = getStage(1);
+    const full = autoPlace(OPENING_SQUAD.map(cand), stage, OPENING_SQUAD.length);
+    const solo = full.filter((p) => p.villager.id === 'tiezhu');
+    const r = runBattle(stage, solo, 1, true, { reserve: [cand('laoyanqiang')] });
+    expect(r.won, `fallen=${r.fallen} leaked=${r.leaked}`).toBe(true);
+    expect(r.deploys).toBeGreaterThanOrEqual(1);
+    expect(r.fallen).toBe(0);
+    expect(r.leaked).toBe(0);
   });
 
   it('1-2 喊来的人补上第三格，1-3 三个人过得去', () => {

@@ -138,6 +138,7 @@ describe('弹簧腿：一局跳一次', () => {
 
   it('只跳一次：整条路就一个人，跳完就通天了', () => {
     const state = fieldWith([['tiezhu', 0]]);
+    state.lastLine.fill(false);
     freeze(state);
     const e = put(state, 'spring');
     settle(state, e);

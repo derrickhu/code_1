@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
@@ -102,9 +103,25 @@ function assemblePlatformsPlugin(): Plugin {
   };
 }
 
+/**
+ * 经分按 app_version 分版本看数。只用 package.json 的版本号时每次构建都是 0.1.0，
+ * 哪一版改动起了作用分不出来，所以带上构建日期和提交号。
+ */
+function buildVersion(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const day = `${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  let sha = 'nogit';
+  try {
+    sha = execSync('git rev-parse --short HEAD', { cwd: rootDir, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim() || sha;
+  } catch { /* 没有 git 也照常构建 */ }
+  return `${pkg.version}-${day}.${sha}`;
+}
+
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(buildVersion()),
   },
   resolve: {
     alias: {

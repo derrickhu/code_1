@@ -63,6 +63,10 @@ const BATTLE_CHROME = [
   'paint_shangchang', 'paint_lai', 'paint_zhi', 'paint_bo',
   'paint_di', 'paint_lou', 'paint_changshang', 'paint_menlu',
   ...PAINT_DIGITS,
+  'boost_card', 'boost_cell', 'boost_cracker', 'boost_horn', 'boost_dance',
+  'boost_tractor', 'lastline_tractor', 'boost_blower', 'boost_kicker', 'boost_battery', 'boost_wok',
+  'boost_weight', 'boost_guest', 'boost_market', 'growth_breath', 'growth_reroll',
+  'growth_starter',
 ] as const;
 
 const STALL_CHROME = [
