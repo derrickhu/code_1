@@ -42,7 +42,7 @@ export interface FxLook {
   swing?: boolean;
   plates: readonly { name: string; tint?: number; s0: number; s1: number; life: number; vr?: number; sy0?: number; sy1?: number }[];
   ring?: boolean;
-  spray: { n: number; kind: 'glow' | 'spark' | 'streak'; speed: number; tint?: number; gy?: number; spread?: number };
+  spray: { n: number; kind: 'glow' | 'spark' | 'streak' | 'dust'; speed: number; tint?: number; gy?: number; spread?: number };
   hitStop: readonly [number, number];
   buzz?: 'medium' | 'heavy';
 }
@@ -156,7 +156,7 @@ const ATTACK: Readonly<Record<AttackFx, FxLook>> = {
     dry: true,
     body: 'none',
     plates: [{ name: 'flash', tint: 0xe8d4b0, s0: 0.1, s1: 0.2, life: 0.07 }],
-    spray: { n: 5, kind: 'glow', speed: 55, tint: 0xc4b59a, gy: 90 },
+    spray: { n: 5, kind: 'dust', speed: 55, tint: 0xc4b59a, gy: 90 },
     hitStop: [0.018, 0.04],
   },
 };
@@ -194,7 +194,7 @@ const ENEMY: Readonly<Record<EnemyFx, FxLook>> = {
     speed: 480,
     beam: true,
     body: 'bolt',
-    plates: [{ name: 'beam', tint: 0xa078c8, s0: 0.14, s1: 0.2, life: 0.1 }],
+    plates: [{ name: 'core', tint: 0xc4a0e0, s0: 0.14, s1: 0.22, life: 0.12 }],
     spray: { n: 3, kind: 'glow', speed: 70, tint: 0xc4a0e0 },
     hitStop: [0.028, 0.04],
   },
@@ -264,7 +264,7 @@ export function playMuzzle(kit: VfxKit, look: FxLook, x: number, y: number, ang:
     kit.spray(x, y, {
       n: look.swing ? 3 : 3,
       tint: look.swing ? 0xb4553f : look.tint,
-      kind: look.swing ? 'spark' : 'glow',
+      kind: look.swing ? 'spark' : 'dust',
       speed: 40,
       life: 0.1,
       gy: 30,
@@ -322,7 +322,7 @@ export function playImpact(kit: VfxKit, look: FxLook, x: number, y: number, crit
     if (look.spray.n > 0) {
       kit.spray(x, y, {
         n: look.spray.n,
-        kind: 'glow',
+        kind: 'dust',
         speed: look.spray.speed,
         tint: look.spray.tint ?? look.tint,
         gy: look.spray.gy,
@@ -340,7 +340,7 @@ export function playImpact(kit: VfxKit, look: FxLook, x: number, y: number, crit
   } else if (!hasFlip) {
     kit.burst(x, y, look.tint, 0.55 * scale);
   } else {
-    kit.plate('flash', x, y, { tint: look.tint, s0: 0.1 * scale, s1: 0.16 * scale, life: 0.06, a0: 0.65, add: false });
+    kit.plate('core', x, y, { tint: look.tint, s0: 0.1 * scale, s1: 0.18 * scale, life: 0.08, a0: 0.7 });
   }
   for (const p of look.plates) {
     const flip = vfxHasFlip(p.name);
@@ -367,7 +367,7 @@ export function playImpact(kit: VfxKit, look: FxLook, x: number, y: number, crit
     scale: 0.1,
   });
   if (crit && !look.dry) {
-    kit.plate('flash', x, y, { tint: 0xffe066, s0: 0.16, s1: 0.24, life: 0.08, add: false });
+    kit.plate('core', x, y, { tint: 0xffe066, s0: 0.2, s1: 0.34, life: 0.1, rot: 0.4 });
     kit.spray(x, y, { n: 4, tint: 0xffe066, kind: 'spark', speed: 160, life: 0.14, scale: 0.1 });
   }
   return look.hitStop[crit ? 1 : 0];

@@ -1,0 +1,12 @@
+A character sheet of 3 BOSS monsters in one row, 3 equal panels side by side, for a 2D mobile tower-defense game "village vs aliens" (comedic Chinese countryside village fighting goofy alien invaders). NO TEXT, no labels, no captions, no writing, no numbers anywhere in the image.
+
+Use the reference images: the first image is a previous boss sheet from this same game — match its art style, rendering, lighting, outline color and grey background EXACTLY. The other images are the existing small enemies these bosses are based on (keg, hatch, pier in that order).
+
+ART STYLE: identical to the reference boss sheet (painted cel shading with 3 value steps plus soft gradient form shading, warm orange sunset rim light from upper back, cool purple-blue bounce light in shadows, scratched painted metal, rust, dirt near feet, thick dark brown-purple outline #2b1a24, front 3/4 top-down view facing the viewer, whole body visible, centered, about 80% of panel height, generous empty space between the three bosses so they never touch). Background: SOLID FLAT neutral mid grey (#8a8a8a), uniform, no floor, no cast shadow.
+
+PANELS (left to right):
+1. FURNACE KEG TITAN (boss of the maroon iron keg robot): a massive squat cast-iron furnace-barrel robot, dark maroon riveted iron with glowing orange-hot cracks, a big furnace door belly with molten glow inside, a smokestack chimney on top puffing dark smoke, huge iron gauntlet fists raised, small angry slit eyes, chains wrapped around its waist.
+2. BROOD HATCH MOTHER (boss of the teal box hatch robot): a big teal metal incubator walker, a large round glass dome on its back full of small glowing green alien eggs, a hatch door in the chest half open with tiny alien eyes peeking out, six short mechanical legs, antenna with a blinking red bulb, worried-angry big screen eyes.
+3. BEDROCK PIER COLOSSUS (boss of the cracked concrete block): a towering stack of heavy concrete blocks forming a hulking golem, deep cracks glowing cyan energy, rebar sticking out, a small square monitor face with stern eyes in the top block, two giant concrete slab fists, broken chunks floating around its shoulders.
+
+NO TEXT anywhere.

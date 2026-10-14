@@ -84,6 +84,7 @@ export function collectUsedAssetPaths() {
   for (const m of loader.matchAll(/^\s*([a-z0-9_]+):\s*'([a-z0-9_]+)',?\s*$/gm)) {
     artMap[m[1]] = m[2];
   }
+  const foeAtkIds = new Set(constStringArray(loader, 'FOE_ATK_IDS'));
   const uiFiles = constStringArray(loader, 'UI_FILES');
   const vfxFiles = constStringArray(loader, 'VFX_FILES');
   const projFiles = constStringArray(loader, 'PROJ_FILES');
@@ -108,14 +109,12 @@ export function collectUsedAssetPaths() {
   }
   for (const id of enemyIds) {
     const art = artMap[id] ?? id;
-    add(`images/enemy/${art}.png`);
-    for (let i = 0; i < 4; i += 1) {
-      add(`images/anim/${art}_walk_${i}.png`);
-      add(`images/anim/${art}_atk_${i}.png`);
-    }
-    add(`images/anim/${art}_idle_0.png`);
-    add(`images/anim/${art}_idle_1.png`);
+    add(`images/foe/${art}.png`);
+    if (!foeAtkIds.has(art)) continue;
+    for (let i = 0; i < 4; i += 1) add(`images/foe/${art}_atk_${i}.png`);
   }
+  // 大个子专属立绘：bossArtId 里写死的 'boss_xxx'
+  for (const m of loader.matchAll(/'(boss_[a-z0-9_]+)'/g)) add(`images/foe/${m[1]}.png`);
 
   for (const n of uiFiles) {
     if (homeArt.has(n)) add(`${homeArtRoot}/images/ui/${n}.png`);

@@ -1,0 +1,13 @@
+A 2x2 grid character sheet, 4 panels, each panel one BOSS monster for a 2D mobile tower-defense game "village vs aliens" (comedic Chinese countryside village fighting goofy alien invaders). NO TEXT, no labels, no captions, no writing, no numbers anywhere in the image.
+
+Use the reference images: the first image is a previous boss sheet from this same game — match its art style, rendering, lighting, outline color and grey background EXACTLY. The other images are the existing small enemies these bosses are based on.
+
+ART STYLE: identical to the reference boss sheet (painted cel shading with 3 value steps plus soft gradient form shading, warm orange sunset rim light from upper back, cool purple-blue bounce light in shadows, scratched painted metal, rust, dirt near feet, thick dark brown-purple outline #2b1a24, front 3/4 top-down view facing the viewer, whole body visible, centered, about 80% of panel height). Each panel background: SOLID FLAT neutral mid grey (#8a8a8a), uniform, no floor, no cast shadow.
+
+PANELS (left-to-right, top-to-bottom):
+1. GREY GENERAL (boss of the little grey aliens, chapter 5): a hulking muscular four-armed mint-grey alien in a green military jacket with a peaked cap and a row of shiny medals, a bandolier of glowing batteries, one hand pointing forward commanding the charge, on stubby spring-coil boots.
+2. SEARCHLIGHT COLOSSUS (night chapter boss): a tall dark-steel armored mech whose head is one giant round searchlight lens glowing warm yellow, heavy shoulder plates, lantern bulbs on the shoulders, thick legs, an old street lamp post welded to its back.
+3. DRILL BEHEMOTH (hard-fight boss): a squat heavy dark armored mech with two enormous spinning drill arms, orange hazard paint, dirt and broken concrete chunks on its feet, small red visor eyes, exhaust pipes puffing smoke.
+4. ALIEN OVERLORD (final boss): a huge regal grey alien with a tall cranium and glowing purple eyes, a crystal crown, a long purple cape, sitting on a floating mechanical throne-walker with four short spider legs, a glowing purple energy core in the chest of the throne, scepter in hand.
+
+NO TEXT anywhere.

@@ -19,11 +19,44 @@ const MAX_SHOTS = 40;
 type ShotKind = AttackFx | EnemyFx;
 
 interface FloatBit {
-  text: PIXI.Text;
+  text: PIXI.Text | PIXI.BitmapText;
   life: number;
   max: number;
+  vx: number;
   vy: number;
   pop: number;
+  /** 伤害数字：砸出来一下再往上飘，越飘越慢 */
+  num: boolean;
+}
+
+const NUM_FONT = 'fxNum';
+let numFontOk: boolean | null = null;
+
+/** 伤害数字的位图字：白到浅灰的渐变 + 厚描边 + 下投影，染色出黄 / 绿 / 红。整局只烤一次 */
+function numFont(): boolean {
+  if (numFontOk !== null) return numFontOk;
+  try {
+    PIXI.BitmapFont.from(NUM_FONT, {
+      fontFamily: 'sans-serif',
+      fontSize: 48,
+      fontWeight: '900',
+      fill: ['#ffffff', '#ffffff', '#c8c8c8'],
+      fillGradientStops: [0, 0.45, 1],
+      stroke: '#1a0c08',
+      strokeThickness: 8,
+      lineJoin: 'round',
+      dropShadow: true,
+      dropShadowColor: '#000000',
+      dropShadowAlpha: 0.5,
+      dropShadowAngle: Math.PI / 2,
+      dropShadowDistance: 3,
+      dropShadowBlur: 0,
+    }, { chars: '0123456789+-', resolution: 1, padding: 6 });
+    numFontOk = true;
+  } catch {
+    numFontOk = false;
+  }
+  return numFontOk;
 }
 
 interface ShotBit {
@@ -291,7 +324,8 @@ export class CombatFx {
     }
 
     if (ev.kind === 'heal' && pos.tx !== undefined && pos.ty !== undefined) {
-      this._kit.plate('heal', pos.tx, pos.ty, { tint: 0x86efac, s0: 0.28, s1: 0.55, life: 0.32, add: false });
+      this._kit.plate('sk_heal', pos.tx, pos.ty + 10, { s0: 0.16, s1: 0.24, sy0: 0.2, sy1: 0.34, life: 0.42, add: false });
+      this._kit.plate('glow', pos.tx, pos.ty - 10, { tint: 0x86efac, s0: 0.2, s1: 0.4, life: 0.3, a0: 0.7 });
       this._kit.spray(pos.tx, pos.ty, { n: 7, tint: 0x86efac, kind: 'glow', speed: 80, gy: -40 });
       if (ev.amount > 0) {
         this._spawnPlainFloat(`+${Math.round(ev.amount)}`, pos.tx, pos.ty - 24, 0x86efac, 24, 0.5);
@@ -300,7 +334,8 @@ export class CombatFx {
     }
 
     if (ev.kind === 'villagerUp' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._kit.plate('heal', pos.hx, pos.hy, { tint: 0xfde68a, s0: 0.32, s1: 0.62, life: 0.4, add: false });
+      this._kit.plate('core', pos.hx, pos.hy - 20, { tint: 0xfde68a, s0: 0.2, s1: 0.42, life: 0.36 });
+      this._kit.ring(pos.hx, pos.hy, 0xfde68a, 0.4);
       this._kit.spray(pos.hx, pos.hy, { n: 10, tint: 0xfde68a, kind: 'glow', speed: 90, gy: -30 });
       this._spawnPlainFloat('爬起来', pos.hx, pos.hy - 20, 0xfde68a, 22, 0.55);
       playSfx('get_up', 80);
@@ -319,7 +354,8 @@ export class CombatFx {
      * 所以这里要靠一次红闪 + 一行字把它砸出来。少了它失败就变成莫名其妙。
      */
     if (ev.kind === 'leak' && pos.hx !== undefined && pos.hy !== undefined) {
-      this._kit.plate('flash', pos.hx, pos.hy, { tint: 0xff5a5a, s0: 0.36, s1: 0.7, life: 0.4, add: false });
+      this._kit.plate('core', pos.hx, pos.hy, { tint: 0xff5a5a, s0: 0.3, s1: 0.6, life: 0.36 });
+      this._kit.shockwave(pos.hx, pos.hy, 0xff5a5a, 1.2, 0.5);
       this._kit.ring(pos.hx, pos.hy, 0xff5a5a, 0.6);
       this._kit.spray(pos.hx, pos.hy, { n: 14, tint: 0xff7a7a, kind: 'spark', speed: 200, life: 0.4 });
       this._spawnFlash('漏了一个', pos.hx, pos.hy - 40);
@@ -343,7 +379,8 @@ export class CombatFx {
   ): void {
     const cast = skillCast(id);
     playSfx(cast.sfx, 60);
-    this._kit.plate('flash', fromX, fromY, { tint: cast.color, s0: 0.55, s1: 1.15, life: 0.26, add: false });
+    this._kit.plate('core', fromX, fromY, { tint: cast.color, s0: 0.3, s1: 0.62, life: 0.26 });
+    this._kit.ring(fromX, fromY, cast.color, 0.3);
     const ordered = [...hits].sort((a, b) => b.y - a.y);
     this._travel(cast, fromX, fromY, ordered);
     this._aidShow(cast, fromX, fromY, aids, ordered.length === 0);
@@ -475,7 +512,8 @@ export class CombatFx {
 
   private _aidLand(a: { x: number; y: number; guard: boolean; haste: boolean; heal: boolean }): void {
     if (a.guard) {
-      this._kit.plate('shield', a.x, a.y - 40, { tint: 0x9ecbff, s0: 0.95, s1: 1.4, life: 0.7, add: false });
+      this._kit.plate('bubble', a.x, a.y - 40, { tint: 0x9ecbff, s0: 0.5, s1: 0.62, life: 0.5, a0: 0.95 });
+      this._kit.ring(a.x, a.y - 40, 0xcfe6ff, 0.36);
       this._spawnPlainFloat('护住', a.x, a.y - 68, 0x9ecbff, 28, 0.9, 1.15);
     }
     if (a.haste) {
@@ -483,7 +521,8 @@ export class CombatFx {
       this._spawnPlainFloat('手快', a.x + (a.guard ? 42 : 0), a.y - 30, 0xffe08a, 28, 0.9, 1.15);
     }
     if (a.heal) {
-      this._kit.plate('heal', a.x, a.y, { tint: 0x86efac, s0: 0.5, s1: 1.05, life: 0.48, add: false });
+      this._kit.plate('sk_heal', a.x, a.y + 10, { s0: 0.18, s1: 0.26, sy0: 0.22, sy1: 0.38, life: 0.48, add: false });
+      this._kit.spray(a.x, a.y - 10, { n: 8, tint: 0x86efac, kind: 'glow', speed: 70, gy: -60, scale: 0.1 });
     }
   }
 
@@ -531,7 +570,7 @@ export class CombatFx {
   /** 钢珠落地。第一颗才报伤害，后面的只砸一下，连射才数得清 */
   private _pebbleHit(h: SkillMark, x: number, y: number, show: boolean): void {
     this._kit.plate('flash', x, y, { tint: 0xe8d4b0, s0: 0.22, s1: 0.42, life: 0.1, add: false });
-    this._kit.spray(x, y, { n: show ? 6 : 3, tint: 0xc4b59a, kind: 'glow', speed: 80, gy: 90 });
+    this._kit.spray(x, y, { n: show ? 6 : 3, tint: 0xc4b59a, kind: 'dust', speed: 80, gy: 90, scale: 0.12 });
     if (!show) return;
     this._sync(h);
     h.land?.();
@@ -549,7 +588,7 @@ export class CombatFx {
     h.land?.();
     const feet = h.y + 34;
     if (look === 'smash') {
-      this._kit.ring(h.x, feet, 0xffe08a, 0.42);
+      this._kit.shockwave(h.x, feet, 0xffe08a, 1, 0.42);
       this._kit.plate('sk_shock', h.x, feet, { s0: 0.7, s1: 1.2, life: 0.4, add: false });
     } else if (look === 'blast') {
       this._kit.ring(h.x, h.y, 0xff8a3a, 0.36);
@@ -563,7 +602,12 @@ export class CombatFx {
     if (h.damage > 0) {
       this._spawnPlainFloat(`-${Math.round(h.damage)}`, h.x, h.y - 18, 0xffe066, h.killed ? 34 : 30, 0.85, 1.3);
     }
-    if (h.stun) this._spawnPlainFloat('钉住', h.x, h.y - 52, 0xffe08a, 28, 0.9, 1.2);
+    if (h.stun) {
+      this._kit.plate('core', h.x, h.y - 30, { tint: 0xffd84a, s0: 0.18, s1: 0.38, life: 0.22 });
+      this._kit.shockwave(h.x, feet, 0xffd84a, 0.8, 0.32);
+      this._kit.spray(h.x, h.y - 40, { n: 5, kind: 'star', speed: 150, gy: 260, life: 0.5, dir: -Math.PI / 2, spread: 2.2, scale: 0.16 });
+      this._spawnPlainFloat('钉住', h.x, h.y - 52, 0xffe08a, 28, 0.9, 1.2);
+    }
     if (h.push) {
       this._kit.beam(h.x, feet, h.x, feet - 56, 0xffd66b, 0.22);
       this._spawnPlainFloat('击退', h.x + 34, h.y - 16, 0xffd66b, 26, 0.8, 1.1);
@@ -901,10 +945,18 @@ export class CombatFx {
   markLand(x?: number, y?: number): void {
     this.landPulse = 0.28;
     if (x !== undefined && y !== undefined) {
-      this._kit.ring(x, y, 0xffd66b, 0.5);
-      this._kit.plate('flash', x, y, { tint: 0xffe08a, s0: 0.28, s1: 0.58, life: 0.34, add: false });
+      this._kit.shockwave(x, y, 0xffd66b, 0.9, 0.4);
+      this._kit.plate('core', x, y - 20, { tint: 0xffe08a, s0: 0.2, s1: 0.4, life: 0.26 });
     }
     playSfx('hero_land', 0);
+  }
+
+  /** 大个子砸到地上：冲击波 + 两侧扬尘 */
+  bossLand(x: number, y: number): void {
+    this._kit.plate('sk_shock', x, y + 14, { s0: 0.45, s1: 1.05, life: 0.4, add: false });
+    this._kit.shockwave(x, y, 0xffb070, 2.2, 0.55);
+    for (const dx of [-70, -36, 36, 70]) this._kit.puff(x + dx, y - 4, 0xb8a58a, 0.75);
+    this.shake(13);
   }
 
   update(dt: number): void {
@@ -946,11 +998,25 @@ export class CombatFx {
       const f = this._floats[i];
       if (!f) continue;
       f.life -= dt;
-      f.text.y += f.vy * dt;
       const t = 1 - Math.max(0, f.life) / f.max;
-      const pop = t < 0.18 ? f.pop * (1.35 - t / 0.18 * 0.35) : f.pop;
-      f.text.scale.set(pop);
-      f.text.alpha = t > 0.72 ? Math.max(0, (1 - t) / 0.28) : 1;
+      if (f.num) {
+        // 前一小段几乎不动，砸在怪身上；之后往上飘、慢下来
+        const hold = t < 0.14 ? 0.15 : 1;
+        f.text.x += f.vx * dt * hold;
+        f.text.y += f.vy * dt * hold;
+        f.vy *= Math.exp(-dt * 2.6);
+        f.vx *= Math.exp(-dt * 3);
+        const k = Math.min(1, t / 0.14);
+        const back = 1 + 2.2 * (k - 1) ** 3 + 1.2 * (k - 1) ** 2;
+        const pop = f.pop * (t < 0.14 ? 1.9 - 0.9 * back : 1);
+        f.text.scale.set(pop);
+        f.text.alpha = t > 0.7 ? Math.max(0, (1 - t) / 0.3) : 1;
+      } else {
+        f.text.y += f.vy * dt;
+        const pop = t < 0.18 ? f.pop * (1.35 - t / 0.18 * 0.35) : f.pop;
+        f.text.scale.set(pop);
+        f.text.alpha = t > 0.72 ? Math.max(0, (1 - t) / 0.28) : 1;
+      }
       if (f.life <= 0) {
         f.text.destroy();
         this._floats.splice(i, 1);
@@ -1418,6 +1484,18 @@ export class CombatFx {
       const old = this._floats.shift();
       old?.text.destroy();
     }
+    if (/^[-+]\d+$/.test(msg) && numFont()) {
+      const num = new PIXI.BitmapText(msg, { fontName: NUM_FONT, fontSize: Math.round(size * 1.1), align: 'center' });
+      num.anchor.set(0.5);
+      num.tint = color;
+      num.position.set(x + (Math.random() - 0.5) * 18, y - 18);
+      this.layer.addChild(num);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      this._floats.push({
+        text: num, life: life + 0.15, max: life + 0.15, vx: side * (20 + Math.random() * 30), vy: -150, pop, num: true,
+      });
+      return;
+    }
     const text = new PIXI.Text(msg, {
       fontFamily: 'sans-serif',
       fontSize: size,
@@ -1429,7 +1507,7 @@ export class CombatFx {
     text.anchor.set(0.5);
     text.position.set(x + (Math.random() - 0.5) * 22, y - 22);
     this.layer.addChild(text);
-    this._floats.push({ text, life, max: life, vy: -130, pop });
+    this._floats.push({ text, life, max: life, vx: 0, vy: -130, pop, num: false });
   }
 
   private _spawnInstallFloat(msg: string, x: number, y: number): void {
@@ -1448,7 +1526,7 @@ export class CombatFx {
     text.anchor.set(0.5);
     text.position.set(x, y);
     this.layer.addChild(text);
-    this._floats.push({ text, life: 0.7, max: 0.7, vy: -90, pop: 1.12 });
+    this._floats.push({ text, life: 0.7, max: 0.7, vx: 0, vy: -90, pop: 1.12, num: false });
   }
 
   private _spawnFlash(name: string, x: number, y: number, size = 22, life = 0.4): void {

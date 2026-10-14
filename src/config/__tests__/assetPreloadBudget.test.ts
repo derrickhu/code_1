@@ -50,7 +50,7 @@ describe('首屏预加载预算', () => {
 
   it('延后集只补村口壳，不含全村民动画', () => {
     const leaked = DEFERRED_PRELOAD_IMAGES.filter((p) =>
-      p.startsWith('images/hero/') || p.startsWith('images/anim/') || p.startsWith('images/enemy/'),
+      p.startsWith('images/hero/') || p.startsWith('images/anim/') || p.startsWith('images/foe/'),
     );
     expect(leaked).toEqual([]);
     expect(DEFERRED_PRELOAD_IMAGES.every((p) => p.startsWith('subpackages/pkg-home'))).toBe(true);
@@ -89,7 +89,7 @@ describe('首屏预加载预算', () => {
     const neededArt = new Set(stageEnemyIds(stage).map(enemyArtId));
     for (const e of ENEMIES) {
       const art = enemyArtId(e.id);
-      const present = battle.some((p) => p === `images/enemy/${art}.png` || p.includes(`/anim/${art}_`));
+      const present = battle.some((p) => p === `images/foe/${art}.png` || p.startsWith(`images/foe/${art}_`));
       expect(present, e.id).toBe(neededArt.has(art));
     }
 

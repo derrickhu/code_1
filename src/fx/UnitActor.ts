@@ -3,7 +3,8 @@
  */
 import * as PIXI from 'pixi.js';
 import type { AttackFx } from '@/balance/fx';
-import { animPath, enemyArtId, enemyTex, heroTex, tex } from '@/core/TextureLoader';
+import { animPath, enemyArtId, enemyTex, foeAtkPath, hasFoeAtk, heroTex, tex } from '@/core/TextureLoader';
+import { primTex } from '@/fx/fxPrims';
 import { barePlantY, portraitFit } from '@/fx/portraitFit';
 import { battleBodyH, heroBattleLook } from '@/fx/spriteBody';
 
@@ -66,6 +67,16 @@ function frames(id: string, clip: string, n: number): PIXI.Texture[] {
   return out;
 }
 
+function foeFrames(artId: string): PIXI.Texture[] {
+  const out: PIXI.Texture[] = [];
+  if (!hasFoeAtk(artId)) return out;
+  for (let i = 0; i < 4; i += 1) {
+    const t = tex(foeAtkPath(artId, i));
+    if (t) out.push(t);
+  }
+  return out;
+}
+
 function sameFrames(a: readonly PIXI.Texture[], b: readonly PIXI.Texture[]): boolean {
   return a.length === b.length && a.every((t, i) => t === b[i]);
 }
@@ -97,9 +108,30 @@ function atkFrame(u: number, n: number, crush: boolean): number {
   return Math.min(3, n - 1);
 }
 
+/** 飘着走的，不蹦，影子留在地上 */
+const HOVER = new Set(['saucer', 'boss_saucer']);
+/** 怪物统一压一点夕阳暖色，跟背景同一束光 */
+const FOE_LIGHT = 0xfff1e4;
+const KILL_LIFE = 0.32;
+const STUN_TINT = 0xffd84a;
+const SLOW_TINT = 0x7cf0b0;
+const ELITE_TINT = 0xffa040;
+/** 状态环贴图宽，按这个换算身宽 */
+const RING_PX = 128;
+const STAR_PX = 56;
+
 export class UnitActor {
   readonly view = new PIXI.Container();
   private readonly _anim: PIXI.AnimatedSprite;
+  private readonly _shadow = new PIXI.Graphics();
+  /** 同一张图叠一层 ADD：亮的地方冲白，黑描边不动，就是受击白闪 */
+  private readonly _glow = new PIXI.Sprite();
+  private _flashMax = 0.12;
+  private _knock = 0;
+  private _stepT = Math.random() * Math.PI * 2;
+  private _dropT = 0;
+  private _dropLife = 0;
+  private _landed = false;
   private _id = '';
   private _evo = 1;
   private _kind: 'hero' | 'enemy' = 'hero';
@@ -131,8 +163,20 @@ export class UnitActor {
   /** 出手也在画立绘（没有攻击切片） */
   private _atkPortrait = false;
   walkBob = false;
-  /** 被钉住 / 打晕：原地左右晃，一看就知道是被定住了 */
+  /** 被钉住 / 打晕：原地左右晃，头顶转星星，脚下一圈金光往里收 */
   dazed = false;
+  /** 钉住还剩几秒。快到了星星先淡，玩家看得出要醒了 */
+  dazedLeft = 0;
+  /** 减速：脚下绿圈一圈圈往外荡 */
+  slowed = false;
+  /** 小头目：脚下常亮一圈橙光 */
+  elite = false;
+  private _ring: PIXI.Sprite | null = null;
+  private _ring2: PIXI.Sprite | null = null;
+  private _stars: PIXI.Sprite[] = [];
+  private _halo: PIXI.Sprite | null = null;
+  private _starA = 0;
+  private _statusT = Math.random() * 4;
   /** 村里点中「要换掉」的人，呼吸放大，让玩家一眼看见换的是谁 */
   holdPulse = false;
 
@@ -141,7 +185,12 @@ export class UnitActor {
     this._anim.anchor.set(0.5, 1);
     this._anim.animationSpeed = 0.1;
     this._anim.visible = false;
-    this.view.addChild(this._anim);
+    this._shadow.beginFill(0x1a0f08, 0.3).drawEllipse(0, 0, 1, 1).endFill();
+    this._shadow.beginFill(0x1a0f08, 0.22).drawEllipse(0, 0, 0.62, 0.62).endFill();
+    this._glow.anchor.set(0.5, 1);
+    this._glow.blendMode = PIXI.BLEND_MODES.ADD;
+    this._glow.visible = false;
+    this.view.addChild(this._shadow, this._anim, this._glow);
   }
 
   bindHero(id: string, _lane: string, evoStage = 1, inBattle = true): void {
@@ -206,12 +255,34 @@ export class UnitActor {
     this._anim.gotoAndStop(0);
   }
 
+  /** 怪物：挨打白闪 + 往后一挫；村民：放技能 / 吃加成的暖光 */
   flash(ms = 120): void {
     this._flash = ms / 1000;
+    this._flashMax = this._flash;
+    if (this._kind === 'enemy' && !this._dead) this._knock = 1;
+  }
+
+  /** 从天上砸下来，越落越快；着地那下压扁一挫 */
+  dropIn(sec: number): void {
+    this._dropT = sec;
+    this._dropLife = sec;
+    this._landed = false;
+  }
+
+  /** 刚着地的那一帧返回 true，只报一次 */
+  takeLanding(): boolean {
+    const l = this._landed;
+    this._landed = false;
+    return l;
   }
 
   get dead(): boolean {
     return this._dead;
+  }
+
+  /** 被打穿的那几帧还在播，别急着回收 */
+  get dying(): boolean {
+    return this._off && this._killFade > 0;
   }
 
   setDead(dead: boolean): void {
@@ -229,24 +300,31 @@ export class UnitActor {
     if (this._off) return;
     this._dead = true;
     this._off = true;
-    this._killFade = 0.22;
+    this._killFade = KILL_LIFE;
+    this._flash = 0.1;
+    this._flashMax = 0.1;
     this._atkT = -1;
     this._anim.stop();
   }
 
   update(dt: number): void {
     if (this._flash > 0) this._flash = Math.max(0, this._flash - dt);
+    if (this._knock > 0) this._knock = Math.max(0, this._knock - dt / 0.14);
     this._breath += dt * (this.holdPulse ? 3.6 : 2.1);
     let ox = 0;
     let oy = 0;
     let rot = 0;
+    let stepX = 1;
+    let stepY = 1;
+    /** 离地多高（蹦起来 / 飘着），影子跟着缩 */
+    let lift = 0;
+    const hover = this._kind === 'enemy' && HOVER.has(enemyArtId(this._id));
 
     if (this._dead && this._off) {
       this._killFade = Math.max(0, this._killFade - dt);
-      const u = this._killFade / 0.22;
-      rot = 1.05 * (1 - u);
-      this._anim.alpha = u;
-      this._anim.tint = 0x6b7394;
+      const u = this._killFade / KILL_LIFE;
+      this._anim.alpha = Math.min(1, u * 2.2);
+      this._anim.tint = 0x8a7a8e;
     } else if (this._dead) {
       rot = 0.32;
       this._anim.alpha = 0.45;
@@ -264,6 +342,23 @@ export class UnitActor {
       }
     } else if (this.walkBob && this._walk.length > 1) {
       if (this._clip !== 'walk') this._play('walk', true);
+    } else if (this.walkBob && this._kind === 'enemy') {
+      // 只有一张立绘的怪：左右脚轮流落地的颠步，落地一压、腾空一拉
+      this._holdRest();
+      // 大个子步子慢、晃得小、落地压得狠，看着有分量
+      const heavy = this._id.startsWith('boss_');
+      this._stepT += dt * (hover ? 3.2 : heavy ? 5.5 : 9.5);
+      if (hover) {
+        lift = this._h * (0.05 + Math.sin(this._stepT) * 0.025);
+        rot = Math.sin(this._stepT * 0.5) * 0.06;
+      } else {
+        const s = Math.abs(Math.sin(this._stepT));
+        lift = this._h * (heavy ? 0.025 : 0.045) * s;
+        rot = Math.cos(this._stepT) * (heavy ? 0.04 : 0.075);
+        const land = (1 - s) ** (heavy ? 3 : 1);
+        stepX = 1 + land * (heavy ? 0.08 : 0.06);
+        stepY = 1 - land * (heavy ? 0.09 : 0.07) + s * 0.03;
+      }
     } else {
       this._holdRest();
       rot = this._kind === 'hero' ? this._tilt * 0.35 : 0;
@@ -271,19 +366,44 @@ export class UnitActor {
         rot = Math.sin(this._breath * 5) * 0.1;
         ox = Math.sin(this._breath * 5) * 3;
       }
+      if (hover) lift = this._h * (0.05 + Math.sin(this._breath * 1.6) * 0.02);
     }
+    if (this._dropT > 0) {
+      this._dropT = Math.max(0, this._dropT - dt);
+      const u = this._dropT / this._dropLife;
+      const fall = this._h * 2.6 * u * u;
+      lift += fall;
+      if (this._dropT === 0) {
+        this._landed = true;
+        this._knock = 1;
+      }
+    }
+    oy -= lift;
 
-    const breath = !this._dead && this._atkT < 0 && this._clip === 'idle'
+    const breath = !this._dead && this._atkT < 0 && this._clip === 'idle' && !this.walkBob
       ? Math.sin(this._breath)
       : 0;
-    const amp = this.holdPulse ? 0.07 : 0.018;
-    const killU = this._off ? this._killFade / 0.22 : 0;
-    const sx = this._off
-      ? 1 + (1 - killU) * 0.08
-      : this._dead ? 1.12 : 1 - breath * (this.holdPulse ? 0.035 : 0.01);
-    const sy = this._off
-      ? 1 - (1 - killU) * 0.28
-      : this._dead ? 0.55 : 1 + breath * amp;
+    const amp = this.holdPulse ? 0.07 : this._kind === 'enemy' ? 0.035 : 0.018;
+    // 被打穿：先拍扁，再往上一弹散掉
+    const killP = this._off ? 1 - this._killFade / KILL_LIFE : 0;
+    const flatP = Math.min(1, killP / 0.35);
+    const popP = Math.max(0, (killP - 0.35) / 0.65);
+    if (this._off) {
+      lift += popP * this._h * 0.12;
+      oy -= popP * this._h * 0.12;
+    }
+    const knock = this._knock * this._knock;
+    if (knock > 0) oy -= knock * this._h * 0.06;
+    let sx = this._off
+      ? 1 + flatP * 0.3 - popP * 0.45
+      : this._dead ? 1.12 : (1 - breath * (this.holdPulse ? 0.035 : 0.012)) * stepX;
+    let sy = this._off
+      ? 1 - flatP * 0.42 + popP * 0.1
+      : this._dead ? 0.55 : (1 + breath * amp) * stepY;
+    if (knock > 0) {
+      sx *= 1 + knock * 0.14;
+      sy *= 1 - knock * 0.12;
+    }
     if (this._id && (this._idle.length === 0 || readyTexH(this._anim.texture.height) === null)) {
       this._reload();
     }
@@ -293,9 +413,11 @@ export class UnitActor {
     this.view.position.set(this._feetX + ox, this._feetY + oy + bob);
     if (texH === null) {
       this._anim.visible = false;
+      this._shadow.visible = false;
+      this._glow.visible = false;
       return;
     }
-    this._anim.visible = !this._dead;
+    this._anim.visible = !this._dead || this._off;
     const clipId = this._kind === 'enemy' ? enemyArtId(this._id) : this._id;
     const portrait = this._kind === 'hero' && (
       this._bare || (bodyClip === 'atk' ? this._atkPortrait : this._idlePortrait)
@@ -315,11 +437,163 @@ export class UnitActor {
       this._anim.y = 0;
     }
     const fit = this._h / Math.max(1, bodyH);
-    this._anim.scale.set(fit * sx * this._face, fit * sy);
+    // 怪的攻击切片画的是朝左出手
+    const dir = this._kind === 'enemy' && bodyClip === 'atk' && this._atk.length > 1 ? -this._face : this._face;
+    this._anim.scale.set(fit * sx * dir, fit * sy);
     this._anim.rotation = rot;
+    this._placeShadow(fit, lift - bob);
+    this._placeGlow();
+    this._placeStatus(dt, lift - bob);
     if (this._dead) return;
-    this._anim.alpha = this._flash > 0 ? 0.72 + Math.sin(this._flash * 40) * 0.22 : 1;
-    this._anim.tint = this.holdPulse ? 0xffe6a8 : 0xffffff;
+    this._anim.alpha = 1;
+    this._anim.tint = this.holdPulse ? 0xffe6a8 : this._kind === 'enemy' ? FOE_LIGHT : 0xffffff;
+  }
+
+  /** 脚下接触影：宽度跟身形走，离地越高越小越淡；死了跟着散 */
+  private _placeShadow(fit: number, lift: number): void {
+    const s = this._shadow;
+    const texW = this._anim.texture.width;
+    if ((this._dead && !this._off) || texW <= 8) {
+      s.visible = false;
+      return;
+    }
+    s.visible = true;
+    const w = Math.min(texW * fit * 0.36, this._h * 0.5);
+    const up = clamp(lift / Math.max(1, this._h * 0.12), 0, 1);
+    const shrink = 1 - up * 0.3;
+    s.position.set(0, lift + this._h * 0.01);
+    s.scale.set(w * shrink, w * 0.26 * shrink);
+    const killA = this._off ? this._killFade / KILL_LIFE : 1;
+    s.alpha = (1 - up * 0.35) * killA;
+  }
+
+  /** 脚下状态环 + 头顶星星。用到才建，平时一个精灵都不多 */
+  private _placeStatus(dt: number, lift: number): void {
+    this._statusT += dt;
+    const alive = !this._dead;
+    const stun = alive && this.dazed;
+    const slow = alive && !stun && this.slowed;
+    const elite = alive && this.elite;
+    const want = stun || slow || elite;
+    if (want && !this._ring) {
+      const t = primTex('shock');
+      if (t) {
+        this._ring = new PIXI.Sprite(t);
+        this._ring2 = new PIXI.Sprite(t);
+        for (const r of [this._ring, this._ring2]) {
+          r.anchor.set(0.5);
+          r.blendMode = PIXI.BLEND_MODES.ADD;
+          r.visible = false;
+        }
+        this.view.addChildAt(this._ring2, 1);
+        this.view.addChildAt(this._ring, 1);
+      }
+    }
+    const r1 = this._ring;
+    const r2 = this._ring2;
+    if (r1 && r2) {
+      r1.visible = want;
+      r2.visible = stun || slow;
+      if (want) {
+        const w = this._h * (this._id.startsWith('boss_') ? 0.8 : 0.95);
+        const base = w / RING_PX;
+        const y = lift + this._h * 0.01;
+        r1.position.set(0, y);
+        r2.position.set(0, y);
+        const t = this._statusT;
+        if (stun) {
+          // 金圈往脚底收，像被钉在这儿
+          const u = (t * 1.6) % 1;
+          r1.tint = STUN_TINT;
+          r1.alpha = 0.55 + Math.sin(t * 8) * 0.15;
+          r1.scale.set(base, base * 0.34);
+          r2.tint = 0xfff2b0;
+          r2.alpha = 0.9 * u;
+          r2.scale.set(base * (1.5 - 0.7 * u), base * 0.34 * (1.5 - 0.7 * u));
+        } else if (slow) {
+          const u = (t * 0.9) % 1;
+          r1.tint = SLOW_TINT;
+          r1.alpha = 0.45;
+          r1.scale.set(base * 0.9, base * 0.3);
+          r2.tint = SLOW_TINT;
+          r2.alpha = 0.7 * (1 - u);
+          r2.scale.set(base * (0.7 + 0.7 * u), base * 0.3 * (0.7 + 0.7 * u));
+        } else {
+          r1.tint = ELITE_TINT;
+          r1.alpha = 0.5 + Math.sin(t * 3) * 0.12;
+          r1.scale.set(base, base * 0.32);
+        }
+      }
+    }
+
+    const fadeOut = this.dazedLeft > 0 && this.dazedLeft < 0.3 ? this.dazedLeft / 0.3 : 1;
+    this._starA = stun
+      ? Math.min(fadeOut, this._starA + dt / 0.12)
+      : Math.max(0, this._starA - dt / 0.15);
+    if (this._starA > 0 && this._stars.length === 0) {
+      const t = primTex('star');
+      const ht = primTex('ring');
+      if (ht) {
+        this._halo = new PIXI.Sprite(ht);
+        this._halo.anchor.set(0.5);
+        this._halo.blendMode = PIXI.BLEND_MODES.ADD;
+        this._halo.tint = STUN_TINT;
+        this.view.addChild(this._halo);
+      }
+      if (t) {
+        for (let i = 0; i < 3; i += 1) {
+          const s = new PIXI.Sprite(t);
+          s.anchor.set(0.5);
+          this.view.addChild(s);
+          this._stars.push(s);
+        }
+      }
+    }
+    if (this._stars.length === 0) return;
+    const show = this._starA > 0;
+    const size = Math.max(24, Math.min(40, this._h * 0.3)) / STAR_PX;
+    const rx = this._h * 0.36;
+    const ry = this._h * 0.11;
+    const cy = lift - this._h * 0.96;
+    if (this._halo) {
+      this._halo.visible = show;
+      this._halo.position.set(0, cy);
+      this._halo.scale.set((rx * 2.3) / RING_PX, (ry * 2.6) / RING_PX);
+      this._halo.alpha = this._starA * (0.5 + Math.sin(this._statusT * 6) * 0.12);
+    }
+    for (let i = 0; i < this._stars.length; i += 1) {
+      const s = this._stars[i]!;
+      s.visible = show;
+      if (!show) continue;
+      const a = this._statusT * 4.2 + (i * Math.PI * 2) / this._stars.length;
+      const front = Math.sin(a);
+      s.position.set(Math.cos(a) * rx, cy + front * ry);
+      const k = size * (0.82 + front * 0.22) * (0.6 + 0.4 * this._starA);
+      s.scale.set(k);
+      s.rotation = this._statusT * 3 + i;
+      s.alpha = this._starA * (0.62 + front * 0.38);
+    }
+  }
+
+  private _placeGlow(): void {
+    const g = this._glow;
+    const k = this._flashMax > 0 ? this._flash / this._flashMax : 0;
+    if (k <= 0.01 || (this._dead && !this._off)) {
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
+    g.texture = this._anim.texture;
+    g.position.copyFrom(this._anim.position);
+    g.scale.copyFrom(this._anim.scale);
+    g.rotation = this._anim.rotation;
+    if (this._kind === 'enemy') {
+      g.tint = 0xffffff;
+      g.alpha = Math.min(1, k * 1.25) * this._anim.alpha;
+    } else {
+      g.tint = 0xffd27a;
+      g.alpha = Math.sin(Math.min(1, k) * Math.PI) * 0.55;
+    }
   }
 
   destroy(): void {
@@ -443,10 +717,9 @@ export class UnitActor {
       this._atkPortrait = false;
       const art = enemyArtId(this._id);
       const portrait = enemyTex(this._id);
-      this._idle = portrait ? [portrait] : frames(art, 'idle', 1);
-      this._walk = frames(art, 'walk', 4);
-      this._atk = frames(art, 'atk', 4);
-      if (this._walk.length === 0) this._walk = this._idle;
+      this._idle = portrait ? [portrait] : [];
+      this._walk = this._idle;
+      this._atk = foeFrames(art);
     }
     // 别的图到了也会叫一遍重载。正在放的这段没变就接着放，不然走路帧天天被拉回第 0 帧
     if (was && this._clip && sameFrames(was, this._listOf(this._clip))) return;

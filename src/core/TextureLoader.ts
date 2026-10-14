@@ -88,8 +88,50 @@ export function enemyArtId(id: string): string {
   return ENEMY_ART_ID[id] ?? id;
 }
 
+/** 装甲当头的章节轮着换，6/7/8 章正好各是一只 */
+const ARMOR_BOSSES = ['boss_lamp', 'boss_drill', 'boss_overlord'] as const;
+
+/**
+ * 大个子单独一张图，不再是领头那只放大。跟着原型怪走：打法是它的，长相也得认得出是它老大。
+ * 没配图的返回 null，照旧用放大。
+ */
+export function bossArtId(enemyId: string, chapter: number): string | null {
+  switch (enemyId) {
+    case 'cube': return 'boss_cube';
+    case 'grunt': return chapter < 5 ? 'boss_grey' : 'boss_general';
+    case 'canister': return 'boss_canister';
+    case 'saucer': return 'boss_saucer';
+    case 'lamp': return 'boss_lamp';
+    case 'drill': return 'boss_drill';
+    case 'armor': return ARMOR_BOSSES[chapter % 3]!;
+    case 'keg': return 'boss_keg';
+    case 'hatch': return 'boss_hatch';
+    case 'pier': return 'boss_pier';
+    default: return null;
+  }
+}
+
+/**
+ * 怪的图在 images/foe/（第二版画风）。旧的 images/enemy/、images/anim/ 怪物帧留在 CDN 给老包，
+ * 新包不许再引用：尺寸表 CLIP_BODY 跟的是这一套。
+ */
 export function enemyArtPath(id: string): string {
-  return `images/enemy/${enemyArtId(id)}.png`;
+  return `images/foe/${enemyArtId(id)}.png`;
+}
+
+/** 画了攻击切片的怪（大个子没有，出手是立绘扑一下） */
+export const FOE_ATK_IDS = [
+  'grey', 'cube', 'rusher', 'armor', 'canister', 'saucer', 'lamp',
+  'drill', 'wire', 'mast', 'pier', 'keg', 'spring', 'hatch',
+];
+
+export function hasFoeAtk(artId: string): boolean {
+  return FOE_ATK_IDS.includes(artId);
+}
+
+/** 怪只有攻击切片；走路用立绘颠步 */
+export function foeAtkPath(artId: string, i: number): string {
+  return `images/foe/${artId}_atk_${i}.png`;
 }
 
 export function enemyTex(id: string): PIXI.Texture | null {
@@ -97,9 +139,9 @@ export function enemyTex(id: string): PIXI.Texture | null {
 }
 
 export const VFX_FILES = [
-  'glow', 'streak', 'spark', 'ring', 'bolt', 'orb', 'fire',
+  'glow', 'spark', 'bolt', 'orb', 'fire',
   'slash', 'saw', 'smash', 'poke', 'blast', 'wind', 'pierce', 'flash',
-  'claw', 'beam', 'shield', 'heal',
+  'claw',
   'sk_lane', 'sk_shock', 'sk_burst', 'sk_stun', 'sk_heal',
 ] as const;
 

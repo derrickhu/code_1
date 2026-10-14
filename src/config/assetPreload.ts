@@ -22,8 +22,11 @@ import {
   VILLAGE_HOME_BG,
   YARD_BG,
   animPath,
+  bossArtId,
   enemyArtId,
   enemyArtPath,
+  foeAtkPath,
+  hasFoeAtk,
   heroEvoPath,
   heroStillPath,
   projPath,
@@ -175,11 +178,7 @@ export function heroBattleArt(need: HeroArtNeed): string[] {
 export function enemyBattleArt(id: string): string[] {
   const art = enemyArtId(id);
   const paths = [enemyArtPath(id)];
-  for (let i = 0; i < 4; i += 1) {
-    paths.push(animPath(art, 'walk', i));
-    paths.push(animPath(art, 'atk', i));
-  }
-  paths.push(animPath(art, 'idle', 0), animPath(art, 'idle', 1));
+  if (hasFoeAtk(art)) for (let i = 0; i < 4; i += 1) paths.push(foeAtkPath(art, i));
   return paths;
 }
 
@@ -199,6 +198,18 @@ export function stageEnemyIds(stage: StageDef): string[] {
   };
   for (const wave of stage.waves) {
     for (const g of wave.groups) add(g.enemy);
+  }
+  return [...ids];
+}
+
+/** 这一关大个子用的专属图（最后一波才上，排在开场要用的图后面） */
+export function stageBossArt(stage: StageDef): string[] {
+  const ids = new Set<string>();
+  for (const wave of stage.waves) {
+    for (const g of wave.groups) {
+      const art = g.boss ? bossArtId(g.enemy, stage.chapter) : null;
+      if (art) ids.add(art);
+    }
   }
   return [...ids];
 }
@@ -270,6 +281,7 @@ export function battlePreloadImages(
   // 怪一开打就上场，走路帧排在村民出手图前面；晚到了第一只会顶着站姿滑下来
   const foes: string[] = [];
   for (const id of stageEnemyIds(stage)) foes.push(...enemyBattleArt(id));
+  for (const id of stageBossArt(stage)) rest.unshift(enemyArtPath(id));
   return unique([...faces, ...foes, ...rest]);
 }
 
@@ -290,6 +302,12 @@ export function animLabImages(): string[] {
     }
   }
   for (const e of ENEMIES) paths.push(...enemyBattleArt(e.id));
+  for (const e of ENEMIES) {
+    for (const ch of [1, 5, 6, 7, 8]) {
+      const art = bossArtId(e.id, ch);
+      if (art) paths.push(enemyArtPath(art));
+    }
+  }
   return unique(paths);
 }
 

@@ -5,6 +5,7 @@
 import * as PIXI from 'pixi.js';
 import { vfxFlipFrames, vfxSparkFrame, vfxTex } from '@/core/TextureLoader';
 import { VFX_FLIP, flipLife, flipFrameIndex } from '@/fx/Flipbook';
+import { primScale, primTex } from '@/fx/fxPrims';
 
 const MAX_P = 96;
 const MAX_PLATE = 36;
@@ -124,8 +125,10 @@ export class VfxKit {
   ): void {
     const frames = vfxFlipFrames(name);
     const spec = VFX_FLIP[name];
-    const tex = frames?.[0] ?? vfxTex(name) ?? vfxTex('glow');
+    const prim = frames?.[0] ? null : primTex(name);
+    const tex = frames?.[0] ?? prim ?? vfxTex(name) ?? primTex('glow');
     if (!tex) return;
+    const k = prim ? primScale(name, prim) : 1;
     if (this._plates.length >= MAX_PLATE) {
       const old = this._plates.shift();
       if (old) this._recycle(old.spr);
@@ -148,10 +151,10 @@ export class VfxKit {
       sy0 = (opts.sy0 ?? mid) * 0.78;
       sy1 = (opts.sy1 ?? mid) * 0.84;
     } else {
-      s0 *= 0.66;
-      s1 *= 0.66;
-      sy0 *= 0.66;
-      sy1 *= 0.66;
+      s0 *= 0.66 * k;
+      s1 *= 0.66 * k;
+      sy0 *= 0.66 * k;
+      sy1 *= 0.66 * k;
     }
     spr.scale.set(s0, sy0);
     spr.alpha = opts.a0 ?? 1;
@@ -177,7 +180,8 @@ export class VfxKit {
     opts: {
       n?: number;
       tint?: number;
-      kind?: 'glow' | 'spark' | 'streak';
+      /** dust：扬起来的土，正常叠，往下落 */
+      kind?: 'glow' | 'spark' | 'streak' | 'dust' | 'star';
       speed?: number;
       life?: number;
       gy?: number;
@@ -193,23 +197,40 @@ export class VfxKit {
     const life = opts.life ?? 0.28;
     const spread = opts.spread ?? Math.PI * 2;
     const base = opts.dir ?? 0;
-    const stretch = kind !== 'glow';
+    const stretch = kind === 'spark' || kind === 'streak';
+    const dust = kind === 'dust';
+    const star = kind === 'star';
+    const prim = primTex(kind);
+    const tex = prim ?? (kind === 'spark' ? vfxSparkFrame() : vfxTex(kind)) ?? vfxTex('glow');
+    if (!tex) return;
+    const k = prim ? primScale(kind, prim) : 1;
     for (let i = 0; i < n; i += 1) {
       if (this._ps.length >= MAX_P) {
         const old = this._ps.shift();
         if (old) this._recycle(old.spr);
       }
-      const tex = (kind === 'spark' ? vfxSparkFrame() : vfxTex(kind)) ?? vfxTex('glow');
-      if (!tex) continue;
       const a = base + (Math.random() - 0.5) * spread;
       const v = speed * (0.45 + Math.random() * 0.7);
-      const spr = this._take(tex, opts.add !== false);
+      const spr = this._take(tex, !dust && !star && opts.add !== false);
       spr.position.set(x, y);
       spr.rotation = a;
-      spr.tint = opts.tint ?? 0xfff1c2;
+      spr.tint = opts.tint ?? (star ? 0xffffff : 0xfff1c2);
       const s = (opts.scale ?? 0.16) * (0.55 + Math.random() * 0.5);
-      const along = stretch ? s * (1.25 + Math.min(1.5, v / 240)) : s;
-      const across = stretch ? s * 0.32 : s;
+      let along = s * k;
+      let across = s * k;
+      if (prim && kind === 'spark') {
+        along = s * 5.5 * (0.8 + Math.min(1, v / 260) * 0.6);
+        across = s * 3.4;
+      } else if (prim && kind === 'streak') {
+        along = s * k * (1 + Math.min(1, v / 240) * 0.6);
+        across = s * k * 0.6;
+      } else if (star) {
+        along = s * 2.6;
+        across = along;
+      } else if (stretch) {
+        along = s * (1.25 + Math.min(1.5, v / 240));
+        across = s * 0.32;
+      }
       spr.scale.set(along, across);
       this._ps.push({
         spr,
@@ -217,26 +238,36 @@ export class VfxKit {
         max: life,
         vx: Math.cos(a) * v,
         vy: Math.sin(a) * v,
-        vr: stretch ? 0 : (Math.random() - 0.5) * 8,
-        drag: 2.4,
+        vr: stretch ? 0 : (Math.random() - 0.5) * (dust ? 2 : star ? 10 : 8),
+        drag: dust ? 4 : 2.4,
         gy: opts.gy ?? 80,
         sx0: along,
-        sx1: along * 0.35,
+        sx1: dust ? along * 1.7 : star ? along * 0.6 : along * 0.35,
         sy0: across,
-        sy1: across * 0.2,
-        a0: 0.95,
+        sy1: dust ? across * 1.5 : star ? across * 0.6 : across * 0.2,
+        a0: dust ? 0.7 : 0.95,
         a1: 0,
         faceVel: stretch,
       });
     }
   }
 
+  /** 一团扬尘，正常叠，散开变淡 */
   puff(x: number, y: number, tint: number, scale = 0.7): void {
-    this.plate('glow', x, y, { tint, s0: scale * 0.22, s1: scale * 0.7, life: 0.12, a0: 0.75, a1: 0 });
+    this.plate('dust', x, y, {
+      tint, s0: scale * 0.3, s1: scale * 0.85, life: 0.32, a0: 0.8, a1: 0, vr: (Math.random() - 0.5) * 1.5, add: false,
+    });
   }
 
   ring(x: number, y: number, tint: number, life = 0.2): void {
-    this.plate('ring', x, y, { tint, s0: 0.1, s1: 0.36, life, a0: 0.8, a1: 0 });
+    this.plate('ring', x, y, { tint, s0: 0.1, s1: 0.36, life, a0: 0.9, a1: 0 });
+  }
+
+  /** 贴地冲击波：压扁的光环往外推 */
+  shockwave(x: number, y: number, tint: number, size = 1, life = 0.36): void {
+    this.plate('shock', x, y, {
+      tint, s0: 0.12 * size, s1: 0.5 * size, sy0: 0.05 * size, sy1: 0.2 * size, life, a0: 0.95, a1: 0,
+    });
   }
 
   /** 出手拖尾：头亮尾淡，飞出去的那条带子 */
@@ -290,8 +321,8 @@ export class VfxKit {
 
   /** 落点：星爆核 + 火星。不用软光圈当底，那种圆太假 */
   burst(x: number, y: number, tint: number, scale = 1): void {
-    this.plate('flash', x, y, { tint, s0: 0.16 * scale, s1: 0.36 * scale, life: 0.1, a0: 0.85 });
-    this.plate('glow', x, y, { tint, s0: 0.1 * scale, s1: 0.26 * scale, life: 0.08, a0: 0.55 });
+    this.plate('core', x, y, { tint, s0: 0.16 * scale, s1: 0.36 * scale, life: 0.12, a0: 0.95, rot: Math.random() * 0.8 });
+    this.plate('glow', x, y, { tint, s0: 0.14 * scale, s1: 0.32 * scale, life: 0.14, a0: 0.6 });
     this.spray(x, y, { n: Math.max(3, Math.round(6 * scale)), tint, kind: 'spark', speed: 140 * scale, life: 0.16, scale: 0.18 });
   }
 

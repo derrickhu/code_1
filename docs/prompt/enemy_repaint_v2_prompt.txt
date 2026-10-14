@@ -1,0 +1,13 @@
+REPAINT of the 14 regular enemies, same rendering spec as enemy_boss_chapters_v1 (the boss sheet is always passed as the first reference image = style lock; the next images are the old enemy stills = design lock).
+
+COMMON BLOCK (prepended to every sheet):
+A 2x2 grid character sheet (or 1x2 for the last sheet), each panel one small regular enemy for a 2D mobile tower-defense game "village vs aliens" (comedic Chinese countryside village vs goofy alien invaders). NO TEXT, no labels, no captions, no writing, no numbers anywhere.
+STYLE LOCK: match the FIRST reference image (boss sheet) exactly: painted cel shading with 3 value steps plus soft gradient form shading, ambient occlusion, warm orange sunset rim light from upper back, cool purple-blue bounce light in shadows, scratched paint, light rust and grime, thick dark brown-purple outline (#2b1a24, not pure black), thinner interior lines.
+DESIGN LOCK: each panel is a REPAINT of one of the other reference images: keep the same character, silhouette, proportions, colors, face and key parts, only upgrade the rendering quality to the boss sheet level. Small regular enemies: simpler and less ornate than the bosses, cute-menacing, readable at small size.
+Pose: standing front view slightly from above, facing the viewer, whole body with feet visible, centered, about 80% of panel height, feet on the same baseline.
+Background of every panel: SOLID FLAT neutral mid grey (#8a8a8a), uniform, no floor, no cast shadow, no dirt patch, no effects outside the body.
+
+SHEET A: grey (little bald mint-grey alien, smug scowl), rusher (thin pink alien runner with a yellow rocket pack), spring (grey robot torso on two big yellow coil-spring legs), wire (thin grey pole robot with purple insulator coil head crackling cyan sparks).
+SHEET B: cube (purple metal cube body with cyan CRT screen face, purple arms and legs), canister (blue riveted steel canister robot with a slot visor), keg (dark maroon heavy barrel robot with glowing orange lava cracks on top, slit visor), armor (black and gold heavy armored mech with small cyan visor).
+SHEET C: saucer (small silver flying saucer with teal stripe, glass dome, little grey alien waving inside), lamp (purple searchlight-head walker on thin grey tripod legs, yellow lens), drill (orange body with a big silver drill cone on top, spider legs, cute face screen), mast (teal tripod radar dish walker).
+SHEET D (1x2): hatch (teal capsule incubator robot with a glass window showing two big cartoon eyes, thin arms), pier (pale concrete block golem with cyan glowing cracks and a small square face).

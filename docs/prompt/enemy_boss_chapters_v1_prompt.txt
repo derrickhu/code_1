@@ -1,0 +1,20 @@
+A 2x2 grid character sheet, 4 panels, each panel one BOSS monster for a 2D mobile tower-defense game "village vs aliens" (comedic Chinese countryside village fighting goofy alien invaders). NO TEXT, no labels, no captions, no writing, no numbers anywhere in the image.
+
+Use the reference images: the small alien enemies show the existing character designs and color identity (each boss is the "big boss" version of one of them); the battle background shows the scene lighting the bosses must match. Do not copy the background into the panels.
+
+ART STYLE (must be identical for all 4 panels, and a clear step up from flat sticker art):
+- Stylized cartoon, chunky readable silhouette, premium mobile game quality (Kingdom Rush / Clash Royale level of rendering).
+- Painted cel shading with 3 value steps plus soft gradient form shading, ambient occlusion in joints and under overhangs.
+- Warm orange sunset rim light from upper back on edges, cool purple-blue bounce light in shadows, matching a dusk village street.
+- Material detail: scratched painted metal, rust streaks, dents, dirt and dust near the feet, small glowing alien lights.
+- Outline: thick DARK BROWN-PURPLE line (#2b1a24), not pure black; thinner interior lines.
+- Front view, slightly from above (3/4 top-down), the boss faces the viewer, marching toward the camera, whole body visible with feet, centered, filling about 80% of the panel height.
+- Each panel background: SOLID FLAT neutral mid grey (#8a8a8a), perfectly uniform, no gradient, no floor, no cast shadow, no vignette, no frame lines between panels other than the plain grey gap.
+
+PANELS (left-to-right, top-to-bottom):
+1. CUBE KING (boss of the purple cube robots): a massive purple metal cube body twice as wide as the small cube, a large cyan CRT screen face with a furious scowl, a crown made of bent antennae and blinking bulbs, huge stubby arms with riveted boxing-glove fists, short thick legs, cables hanging from the back.
+2. GREY BIG BOSS (boss of the little grey aliens): a big-headed mint-grey alien with smug sneer, wearing a cheap gold chain and tiny sunglasses pushed up on the forehead, riding a rickety three-legged walking chair made of scrap metal, holding a chunky toy-like ray gun.
+3. CANISTER TANK (boss of the steel canisters): a giant rusted steel canister turned into a tank, caterpillar treads, a short stubby cannon in front, a small grey alien peeking out of the top hatch, warning stripes, leaking steam.
+4. MOTHERSHIP (boss of the flying saucers): a large flying saucer twice as wide, glass dome with a grey alien commander wearing a captain hat, ring of glowing lights, a soft green tractor-beam cone shining down below it, several small antennae and dish, hovering (no legs).
+
+NO TEXT anywhere.

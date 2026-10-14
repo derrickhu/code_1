@@ -56,6 +56,7 @@ export const CDN_CONFIG: CdnConfig = {
     'images/hero/',
     'images/anim/',
     'images/enemy/',
+    'images/foe/',
     'images/vfx/',
     'images/proj/',
     'images/bg/',

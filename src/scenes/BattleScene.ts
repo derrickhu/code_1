@@ -46,13 +46,15 @@ import { CallReveal } from '@/ui/CallReveal';
 import { CombatFx, type SkillMark } from '@/fx/CombatFx';
 import { VisualVitals } from '@/fx/VisualVitals';
 import { motionForSkin, UnitActor } from '@/fx/UnitActor';
+import { HpBar, type BarKind } from '@/fx/HpBar';
+import { BossBar } from '@/ui/BossBar';
 import { LastLineTractors } from '@/fx/LastLineTractors';
 import { waveBarView } from '@/ui/waveBar';
 import {
   BATTLE_FX_IMAGES, battleFaceImages, battlePreloadImages, heroStillArt, type HeroArtNeed,
 } from '@/config/assetPreload';
 import { ensureAssets } from '@/core/ensureAssets';
-import { bgTex, fillCover, heroTex, uiTex, watchArt, type UiName } from '@/core/TextureLoader';
+import { bgTex, bossArtId, enemyTex, fillCover, heroTex, uiTex, watchArt, type UiName } from '@/core/TextureLoader';
 import { buzz, playSfx } from '@/core/SfxPlayer';
 import { signNewcomerTomorrow } from '@/core/SignIn';
 import { track } from '@/core/Analytics';
@@ -70,7 +72,7 @@ import { formationGrid, hitFormationCell } from '@/ui/fieldName';
 import { battleHudLay, type BattleHudLay } from '@/ui/lintel';
 import { numGlyphs, paintFrac, paintGlyphs } from '@/ui/glyphs';
 import {
-  GOLD, fillSprite, fitSprite, goldBtn, hpBar, ironSlab, label, painted, reachPoly,
+  GOLD, fillSprite, fitSprite, goldBtn, ironSlab, label, painted, reachPoly,
 } from '@/ui/paint';
 import {
   autoPlace, battleClockMs, castSkill, createBattle, fieldHeroBinds, foeHaltPos, foesAlive, gmWin, laneLoad,
@@ -134,6 +136,23 @@ const SKILL_GUIDE_CROWD = 3;
 const SKILL_GUIDE_LATE_MS = 4000;
 /** 「一大波」「急眼了」横幅停多久，真实秒 */
 const BANNER_S = 1.6;
+/** 大个子从天上落下来要多久、落地后地面压暗多久，真实秒 */
+const BOSS_DROP_S = 0.42;
+const BOSS_DIM_S = 1.9;
+const BOSS_DIM_A = 0.38;
+const BOSS_NAME: Record<string, string> = {
+  boss_grey: '小灰头头',
+  boss_general: '小灰大将军',
+  boss_cube: '方块大王',
+  boss_canister: '铁罐坦克',
+  boss_saucer: '飞碟母舰',
+  boss_lamp: '探照灯巨人',
+  boss_drill: '钻地巨兽',
+  boss_overlord: '外星霸主',
+  boss_keg: '熔炉铁桶王',
+  boss_hatch: '孵蛋妈妈',
+  boss_pier: '水泥巨像',
+};
 /** 急眼那一下慢放多久、慢到几成。看清劲头全满，又不拖节奏 */
 const RALLY_SLOW_S = 1.1;
 const RALLY_SLOW_MUL = 0.35;
@@ -262,6 +281,21 @@ export class BattleScene implements Scene {
   private readonly _tractors = new LastLineTractors();
   private readonly _surgeBanner = painted(54, 0xff7a5a, '#1a1008', 8);
   private readonly _rallyBanner = painted(54, 0xffd66b, '#1a1008', 8);
+  private readonly _bossBanner = painted(62, 0xff6a4a, '#1a1008', 9);
+  /** 大个子名字底下那条黑红带子 */
+  private readonly _bossStrip = new PIXI.Graphics();
+  /** 大个子落地时压暗地面，人和怪不压，像打了一束光 */
+  private readonly _dim = new PIXI.Graphics();
+  private _dimT = -1;
+  /** 刚登场、还没绑上演员的大个子：绑上就让它从天上砸下来 */
+  private readonly _bossDrop = new Set<number>();
+  /** 头顶血条常驻，按单位认领；名字、字条那层才每帧重搭 */
+  private readonly _barLayer = new PIXI.Container();
+  private readonly _bars = new Map<string, HpBar>();
+  private _barStamp = 0;
+  /** 这一帧给血条动画用的真实秒。非战斗刷新时为 0 */
+  private _unitDt = 0;
+  private readonly _bossBar = new BossBar();
   private _banner: PIXI.Text | null = null;
   private _bannerT = 0;
   /** 急眼慢放还剩多久，真实秒 */
@@ -362,15 +396,26 @@ export class BattleScene implements Scene {
 
   constructor() {
     this.container.addChild(this._field);
+    this._dim.beginFill(0x0a0612).drawRect(-40, -40, 830, 2400).endFill();
+    this._dim.eventMode = 'none';
+    this._dim.visible = false;
+    this._arena.addChild(this._dim);
     this._arena.addChild(this._tractors.layer);
     this._arena.addChild(this._unitLayer);
+    this._arena.addChild(this._barLayer);
     this._arena.addChild(this._nameLayer);
     this._arena.addChild(this._fx.layer);
     this._arena.addChild(this._arenaMask);
     this._arena.mask = this._arenaMask;
     this.container.addChild(this._arena);
     this.container.addChild(this._hud);
-    for (const b of [this._surgeBanner, this._rallyBanner]) {
+    this.container.addChild(this._bossBar.view);
+    this._bossStrip.beginFill(0x12060a, 0.78).drawRect(-420, -50, 840, 100).endFill();
+    this._bossStrip.beginFill(0xff5a3a).drawRect(-420, -54, 840, 5).drawRect(-420, 49, 840, 5).endFill();
+    this._bossStrip.eventMode = 'none';
+    this._bossStrip.visible = false;
+    this.container.addChild(this._bossStrip);
+    for (const b of [this._surgeBanner, this._rallyBanner, this._bossBanner]) {
       b.anchor.set(0.5);
       b.visible = false;
       this.container.addChild(b);
@@ -418,7 +463,7 @@ export class BattleScene implements Scene {
       this._raiseGhost();
     }
     this._rebindFieldArt();
-    for (const e of this._state.foes) this._foeActors.get(e.id)?.bindEnemy(e.def.id);
+    for (const e of this._state.foes) this._foeActors.get(e.id)?.bindEnemy(this._foeArt(e));
     // 路过的立绘、栏里的头像可能刚到
     this._offerSig = '';
     this._rail.place(this._lay.top + 8);
@@ -496,6 +541,10 @@ export class BattleScene implements Scene {
     this._comboText.visible = false;
     this._tractors.reset();
     this._hideBanner();
+    this._bossDrop.clear();
+    this._bossBar.reset();
+    this._dimT = -1;
+    this._dim.visible = false;
     this._slowMo = 0;
     this._clearDrops();
     this._lineFlash = 0;
@@ -1139,6 +1188,7 @@ export class BattleScene implements Scene {
     const dt = this._state.phase === 'fighting' ? realDt * this._speed * slow : realDt;
     this._pulseT += realDt;
     this._tickBanner(realDt);
+    this._tickDim(realDt);
     this._tractors.update(realDt);
 
     // 顿帧只给受击那一下留残影，不许冻整条行军。
@@ -1177,7 +1227,10 @@ export class BattleScene implements Scene {
     this._tickDanger(realDt);
     if (this._tray.visible) this._tray.sync(this._state.team, 0.5 + 0.5 * Math.sin(this._pulseT * 7));
     this._drawField();
+    this._unitDt = realDt;
     this._drawUnits(this._accMs / TICK_MS);
+    this._unitDt = 0;
+    this._tickBossBar(realDt);
     this._drawGateTags();
     this._tractors.sync(this._state.lastLine, this._lay.goalY, this._unitH, true);
     this._updateHud();
@@ -2041,7 +2094,8 @@ export class BattleScene implements Scene {
 
       if (ev.kind === 'bossIn') {
         this._say(`大个子来了！${'左中右'[ev.lane] ?? '中'}路顶住`);
-        this._fx.floatText('大个子来了！', laneScreenX(ev.lane), this._lay.spawnY + 40, 0xff7a5a, 30);
+        this._bossDrop.add(ev.foeId);
+        this._dimT = 0;
         playSfx('enemy_beam', 0);
         continue;
       }
@@ -2109,6 +2163,7 @@ export class BattleScene implements Scene {
       benchH: BENCH_H + START_STRIP,
     });
     this._lay = { top: chrome.barBottom, spawnY, goalY, height, chrome };
+    this._bossBar.view.position.set(375, chrome.barBottom + 34);
     // 只来一路的关，两边路是空的，人和怪放大了站，别缩在一片土里像棋子
     // 前后两格站人，身高加血条不能过一格，否则前一个的脚踩在后一个头上
     const oneLane = laneLoad(this._state.stage).filter((n) => n > 0).length <= 1;
@@ -2573,8 +2628,13 @@ export class BattleScene implements Scene {
     return a;
   }
 
+  private _foeArt(e: Foe): string {
+    return (e.boss ? bossArtId(e.def.id, this._state.stage.chapter) : null) ?? e.def.id;
+  }
+
   private _drawUnits(frac = 0): void {
     this._nameLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this._barStamp += 1;
 
     // 布阵阶段画的是 placed（还没变成 Fighter），开打后画 team
     if (this._placing()) {
@@ -2608,6 +2668,7 @@ export class BattleScene implements Scene {
         );
       }
       this._reapActors(new Set(this._state.placed.map((p) => `pre:${p.villager.id}`)));
+      this._reapBars();
       return;
     }
 
@@ -2630,9 +2691,10 @@ export class BattleScene implements Scene {
       let a = this._foeActors.get(e.id);
       if (!a) {
         a = new UnitActor();
-        a.bindEnemy(e.def.id);
+        a.bindEnemy(this._foeArt(e));
         this._unitLayer.addChild(a.view);
         this._foeActors.set(e.id, a);
+        if (this._bossDrop.delete(e.id)) a.dropIn(BOSS_DROP_S);
       }
       this._vitals.seed(`e${e.id}`, e.maxHp, 0);
       if (e.alive) {
@@ -2640,8 +2702,12 @@ export class BattleScene implements Scene {
         const haltAt = foeHaltPos(e, this._state.team);
         a.walkBob = e.stunMs <= 0 && (haltAt === undefined || e.pos < haltAt - 0.02);
         a.dazed = e.stunMs > 0;
+        a.dazedLeft = e.stunMs / 1000;
+        a.slowed = e.slowMs > 0;
+        a.elite = !!e.elite;
         a.place(p.x, p.feetY, p.h);
         this._foeHp(e, p.x, p.feetY, p.h);
+        if (a.takeLanding()) this._onBossLand(e, p.x, p.feetY);
       } else {
         const ghost = this._ghostPos.get(e.id);
         if (ghost !== undefined) {
@@ -2660,7 +2726,7 @@ export class BattleScene implements Scene {
     for (const [id, a] of [...this._foeActors]) {
       if (this._state.foes.some((e) => e.id === id && e.alive)) continue;
       // 还有弹体在飞向它就先留着摆在原地，否则「打到一个已经消失的东西」
-      if (this._fx.holdingEnemy(id)) {
+      if (this._fx.holdingEnemy(id) || a.dying) {
         const pose = this._lastFoeXY.get(id);
         if (pose) a.place(pose.x, pose.feetY, pose.h);
         continue;
@@ -2675,6 +2741,36 @@ export class BattleScene implements Scene {
 
     // 深度排序：靠底线的画在上面，前后关系才对
     this._unitLayer.children.sort((a, b) => a.y - b.y);
+    this._reapBars();
+  }
+
+  private _bar(key: string, kind: BarKind): HpBar {
+    let b = this._bars.get(key);
+    if (!b || b.kind !== kind) {
+      b?.destroy();
+      b = new HpBar(kind);
+      this._barLayer.addChild(b.view);
+      this._bars.set(key, b);
+    }
+    b.stamp = this._barStamp;
+    return b;
+  }
+
+  private _reapBars(): void {
+    for (const [key, b] of [...this._bars]) {
+      if (b.stamp === this._barStamp) continue;
+      b.destroy();
+      this._bars.delete(key);
+    }
+  }
+
+  private _tickBossBar(realDt: number): void {
+    const id = this._bossBar.foeId;
+    if (id === null) return;
+    const e = this._state.foes.find((x) => x.id === id);
+    const shown = e ? this._vitals.shown(`e${id}`, { hp: e.alive ? e.maxHp : 0, extra: 0 }) : { hp: 0 };
+    if (!e?.alive) this._bossBar.hide();
+    this._bossBar.update(e ? shown.hp / e.maxHp : 0, realDt);
   }
 
   /**
@@ -2731,21 +2827,24 @@ export class BattleScene implements Scene {
     const g = new PIXI.Graphics();
     // 条走观战层的血，不走引擎的血：弹体还在飞的时候不许先掉
     const shown = this._vitals.shown(f.uid, { hp: f.hp, extra: 0 });
-    const barW = Math.max(40, Math.round(h * 0.56));
-    hpBar(g, x, feetY - h - 10, barW, shown.hp / f.maxHp, 0x86efac, 4);
+    const barW = Math.max(44, Math.round(h * 0.6));
     // 劲头条贴在血条下面。满了变金、跳一跳，手动模式下就是「该点我了」
     const full = skillReady(f);
-    const ey = feetY - h - 4;
-    g.beginFill(0x000000, 0.55).drawRect(x - barW / 2, ey, barW, 3).endFill();
+    const bar = this._bar(f.uid, 'hero');
+    bar.layout(barW, 7, 4);
+    bar.view.position.set(x - barW / 2, feetY - h - 16);
+    bar.update(shown.hp / f.maxHp, this._unitDt);
+    bar.energy(f.energy / ENERGY_MAX, full);
     const glow = full ? 0.7 + 0.3 * Math.sin(this._pulseT * 9) : 0.9;
-    g.beginFill(full ? 0xffe08a : 0xd9a441, glow)
-      .drawRect(x - barW / 2, ey, barW * Math.min(1, f.energy / ENERGY_MAX), 3).endFill();
     if (full && !this._auto) {
       g.lineStyle(2, GOLD, glow).drawCircle(x, feetY - h - 26, 9).lineStyle(0);
       g.beginFill(GOLD, glow).drawCircle(x, feetY - h - 26, 4).endFill();
     }
     if (f.guardMs > 0) {
-      g.lineStyle(5, 0x9ecbff, 0.95).drawEllipse(x, feetY - h * 0.48, h * 0.42, h * 0.62).lineStyle(0);
+      const pulse = 0.75 + Math.sin(this._pulseT * 4) * 0.15;
+      g.beginFill(0x9ecbff, 0.1 * pulse).drawEllipse(x, feetY - h * 0.48, h * 0.42, h * 0.62).endFill();
+      g.lineStyle(6, 0x9ecbff, 0.28 * pulse).drawEllipse(x, feetY - h * 0.48, h * 0.44, h * 0.64);
+      g.lineStyle(2.5, 0xdcecff, 0.9 * pulse).drawEllipse(x, feetY - h * 0.48, h * 0.42, h * 0.62).lineStyle(0);
     }
     if (f.hasteMs > 0) {
       const bx = x + barW / 2 + 8;
@@ -2763,7 +2862,7 @@ export class BattleScene implements Scene {
     this._nameLayer.addChild(g);
     // 焊上去的家伙挂在血条左边，场上一眼认得出谁身上有什么
     (f.mods ?? []).forEach((m, k) => {
-      fitSprite(this._nameLayer, uiTex(boostDef(m).icon), x - barW / 2 - 14 - k * 24, feetY - h - 8, 24, 24);
+      fitSprite(this._nameLayer, uiTex(boostDef(m).icon), x - barW / 2 - 14 - k * 24, feetY - h - 10, 24, 24);
     });
     if (f.guardMs > 0) this._pin('护住', x, feetY - h - 28, 0x9ecbff);
     if (f.hasteMs > 0) this._pin('手快', x + (f.guardMs > 0 ? 36 : 0), feetY - h - (f.guardMs > 0 ? 46 : 28), 0xffe08a);
@@ -2808,7 +2907,37 @@ export class BattleScene implements Scene {
   private _hideBanner(): void {
     this._surgeBanner.visible = false;
     this._rallyBanner.visible = false;
+    this._bossBanner.visible = false;
+    this._bossStrip.visible = false;
     this._banner = null;
+  }
+
+  /** 大个子砸到地上：震屏、扬尘，名字条压下来 */
+  private _onBossLand(e: Foe, x: number, feetY: number): void {
+    this._fx.bossLand(x, feetY);
+    playSfx('hit_smash', 0);
+    buzz('heavy');
+    const art = this._foeArt(e);
+    const name = BOSS_NAME[art] ?? '大个子';
+    this._showBanner(this._bossBanner, `${name} 来了！`);
+    if (this._bossBar.foeId === null || !this._state.foes.some((x) => x.id === this._bossBar.foeId && x.alive)) {
+      this._bossBar.show(e.id, name, enemyTex(art));
+    }
+    this._bossStrip.position.copyFrom(this._bossBanner.position);
+    this._bossStrip.visible = true;
+  }
+
+  private _tickDim(realDt: number): void {
+    if (this._dimT < 0) return;
+    this._dimT += realDt;
+    const t = this._dimT;
+    if (t >= BOSS_DIM_S) {
+      this._dimT = -1;
+      this._dim.visible = false;
+      return;
+    }
+    this._dim.visible = true;
+    this._dim.alpha = BOSS_DIM_A * Math.min(1, t / 0.25, (BOSS_DIM_S - t) / 0.5);
   }
 
   /** 横幅砸下来一下，停住，最后淡出。按真实时间走，倍速也念得完 */
@@ -2820,36 +2949,26 @@ export class BattleScene implements Scene {
     const k = Math.min(1, t / 0.2);
     b.scale.set(1.5 - 0.5 * k + Math.sin(k * Math.PI) * 0.08);
     b.alpha = Math.min(1, t / 0.12, Math.max(0, (BANNER_S - t) / 0.3));
+    if (b === this._bossBanner) {
+      this._bossStrip.alpha = b.alpha;
+      this._bossStrip.scale.set(1, Math.min(1, t / 0.12));
+    }
     if (t >= BANNER_S) this._hideBanner();
   }
 
+  /** 怪的血条。钉住 / 减速 / 小头目的标记在演员脚下和头顶，这里只管条 */
   private _foeHp(e: Foe, x: number, feetY: number, h: number): void {
-    const g = new PIXI.Graphics();
+    // 弹还在飞的那只引擎里已经死了，条照观战层的血画，落了地才见底
     const shown = this._vitals.shown(`e${e.id}`, { hp: e.alive ? e.maxHp : 0, extra: 0 });
-    const big = e.boss || e.elite;
-    const w = e.boss ? Math.max(96, Math.round(h * 0.8))
-      : e.elite ? Math.max(64, Math.round(h * 0.65)) : Math.max(32, Math.round(h * 0.5));
-    const tint = e.boss ? 0xff5a3a : e.elite ? 0xffb347 : 0xff8a6a;
-    hpBar(g, x, feetY - h - 8, w, shown.hp / e.maxHp, tint, e.boss ? 8 : e.elite ? 6 : 4);
-    if (e.elite && e.alive) {
-      g.lineStyle(3, 0xffb347, 0.75).drawEllipse(x, feetY + 2, h * 0.42, 9).lineStyle(0);
-    }
-    if (e.alive && e.stunMs > 0) {
-      g.lineStyle(4, 0xffe08a, 0.95).drawEllipse(x, feetY + 2, h * 0.46, 8).lineStyle(0);
-      g.lineStyle(2, 0xfff6d0, 0.7).drawEllipse(x, feetY + 2, h * 0.28, 4).lineStyle(0);
-    } else if (e.alive && e.slowMs > 0) {
-      g.lineStyle(3, 0x86efac, 0.9).drawEllipse(x, feetY + 2, h * 0.4, 6).lineStyle(0);
-    }
-    this._nameLayer.addChild(g);
-    if (e.alive && e.stunMs > 0) this._pin('钉住', x, feetY - h - (big ? 40 : 28), 0xffe08a);
-    else if (e.alive && e.slowMs > 0) this._pin('减速', x, feetY - h - (big ? 40 : 28), 0x86efac);
-    if (big && e.alive) {
-      const t = painted(16, e.boss ? 0xffb09a : 0xffd08a, '#1a1008', 3);
-      t.anchor.set(0.5, 1);
-      t.position.set(x, feetY - h - 14);
-      t.text = e.boss ? '大个子' : '小头目';
-      this._nameLayer.addChild(t);
-    }
+    const kind: BarKind = e.boss ? 'boss' : e.elite ? 'elite' : 'foe';
+    const w = e.boss ? Math.max(100, Math.round(h * 0.75))
+      : e.elite ? Math.max(66, Math.round(h * 0.66)) : Math.max(40, Math.round(h * 0.54));
+    const bh = e.boss ? 10 : e.elite ? 8 : 6;
+    const bar = this._bar(`e${e.id}`, kind);
+    bar.layout(w, bh, 0, e.boss ? 5 : e.elite ? 3 : 0);
+    if (kind !== 'foe') bar.title(e.boss ? '大个子' : '小头目', e.boss ? 0xffb09a : 0xffd08a);
+    bar.view.position.set(x - w / 2, feetY - h - bh - 8);
+    bar.update(shown.hp / e.maxHp, this._unitDt);
   }
 
   private _clearActors(): void {
@@ -2857,6 +2976,8 @@ export class BattleScene implements Scene {
     for (const a of this._foeActors.values()) a.destroy();
     this._villagerActors.clear();
     this._foeActors.clear();
+    for (const b of this._bars.values()) b.destroy();
+    this._bars.clear();
     this._nameLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
   }
 
