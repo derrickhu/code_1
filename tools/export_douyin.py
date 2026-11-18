@@ -49,9 +49,12 @@ def parse_wx_game_js(game_js_path: pathlib.Path) -> dict:
 
 TT_SHIM_JS = """// @ts-nocheck
 /* 抖音小游戏宿主适配层（必须在 weapp-adapter 之前首个加载） */
-const realTt = typeof tt !== 'undefined' ? tt : (typeof GameGlobal !== 'undefined' && GameGlobal.__tt ? GameGlobal.__tt : null);
+const rootScope = typeof GameGlobal !== 'undefined'
+  ? GameGlobal
+  : (typeof window !== 'undefined' ? window : Function('return this')());
+const realTt = typeof tt !== 'undefined' ? tt : (rootScope && rootScope.__tt ? rootScope.__tt : null);
 if (typeof GameGlobal === 'undefined') {
-  globalThis.GameGlobal = globalThis;
+  rootScope.GameGlobal = rootScope;
 }
 GameGlobal.__tt = realTt;
 
@@ -230,7 +233,7 @@ if (realTt) {
     },
   });
   GameGlobal.wx = wxShim;
-  globalThis.wx = wxShim;
+  rootScope.wx = wxShim;
 }
 """
 
@@ -865,8 +868,9 @@ export default class DouyinUnityManager {
     if (wx && typeof wx.onShow === 'function') wx.onShow(() => { this.isVisible = true; });
     if (wx && typeof wx.onHide === 'function') wx.onHide(() => { this.isVisible = false; });
 
-    const bgImg = this.config.loadingPageConfig?.materialConfig?.backgroundImage || 'images/background.jpg';
-    const ctxType = this.config.contextConfig?.contextType || 1;
+    const lpc = (this.config && this.config.loadingPageConfig) || {};
+    const bgImg = (lpc.materialConfig && lpc.materialConfig.backgroundImage) || 'images/background.jpg';
+    const ctxType = (this.config && this.config.contextConfig && this.config.contextConfig.contextType) || 1;
     this._splash = new SplashRenderer(GameGlobal.canvas, ctxType, bgImg);
   }
 
@@ -945,7 +949,7 @@ export default class DouyinUnityManager {
     const md5 = this.config.DATA_FILE_MD5;
     const gameName = this.config.GAME_NAME || 'webgl';
     const fileName = `${md5}.${gameName}.data.unityweb.bin.txt`;
-    const subPrefix = GameGlobal.unityNamespace?.dataFileSubPrefix || '';
+    const subPrefix = (GameGlobal.unityNamespace && GameGlobal.unityNamespace.dataFileSubPrefix) || '';
     const prefix = subPrefix ? `${subPrefix.replace(/^\\/+|\\/+$/g, '')}/` : '';
     const cdnUrl = `${String(this.config.DATA_CDN || '').replace(/\\/$/, '')}/${prefix}${fileName}`;
     const cacheFile = `${this.PLUGIN_CACHE_PATH}/${fileName}`;
@@ -1221,6 +1225,406 @@ checkVersion().then((enable) => {{
 """
 
 
+def _find_matching_forward(s: str, open_idx: int, open_ch: str, close_ch: str) -> int:
+    depth = 0
+    for i in range(open_idx, len(s)):
+        if s[i] == open_ch:
+            depth += 1
+        elif s[i] == close_ch:
+            depth -= 1
+            if depth == 0:
+                return i
+    raise ValueError(f"括号未闭合: {s[open_idx:open_idx + 60]!r}")
+
+
+def _find_matching_backward(s: str, close_idx: int, open_ch: str, close_ch: str) -> int:
+    depth = 0
+    for i in range(close_idx, -1, -1):
+        if s[i] == close_ch:
+            depth += 1
+        elif s[i] == open_ch:
+            depth -= 1
+            if depth == 0:
+                return i
+    raise ValueError(f"反向括号未闭合: {s[max(0, close_idx - 60):close_idx + 1]!r}")
+
+
+_JS_KEYWORDS = {
+    "return", "throw", "typeof", "void", "delete", "await", "yield",
+    "case", "new", "in", "of", "instanceof", "else", "if",
+}
+
+
+def _extract_lhs_bounds(s: str, end_pos: int) -> tuple[int, int]:
+    """反向提取紧邻 ?. 或 ?? 左侧的 Primary/Member/Call/Paren 表达式区间 [start, end)。"""
+    r = end_pos
+    while r > 0 and s[r - 1] in " \t":
+        r -= 1
+    p = r
+    while p > 0:
+        q = p
+        while q > 0 and s[q - 1] in " \t":
+            q -= 1
+        if q == 0:
+            break
+        ch = s[q - 1]
+        if ch == ")":
+            open_p = _find_matching_backward(s, q - 1, "(", ")")
+            # 检查圆括号前是否是函数调用（标识符 / ] / ) / .prop）还是独立分组表达式 (a || b)
+            k = open_p
+            while k > 0 and s[k - 1] in " \t":
+                k -= 1
+            if k > 0 and (s[k - 1].isalnum() or s[k - 1] in "_$])"):
+                p = open_p
+                continue
+            p = open_p
+            break
+        if ch == "]":
+            open_b = _find_matching_backward(s, q - 1, "[", "]")
+            p = open_b
+            continue
+        if ch.isalnum() or ch in "_$\x00":
+            id_end = q
+            while q > 0 and (s[q - 1].isalnum() or s[q - 1] in "_$\x00"):
+                q -= 1
+            word = s[q:id_end]
+            if word in _JS_KEYWORDS:
+                break
+            p = q
+            k = p
+            while k > 0 and s[k - 1] in " \t":
+                k -= 1
+            if k > 0 and s[k - 1] == ".":
+                if k >= 2 and s[k - 2] == "?":
+                    break
+                p = k - 1
+                continue
+            break
+        break
+    return p, r
+
+
+def _split_member_obj_prop(expr: str) -> tuple[str, str] | None:
+    """若 expr 形如 OBJ.PROP（顶层属性访问），拆出 (OBJ, PROP) 以保留方法调用的 this 绑定。"""
+    e = expr.strip()
+    m = re.search(r"\.\s*([A-Za-z_$][A-Za-z0-9_$]*)$", e)
+    if not m:
+        return None
+    obj = e[:m.start()].strip()
+    prop = m.group(1)
+    if not obj or obj.endswith("?"):
+        return None
+    return obj, prop
+
+
+def _extract_rhs_bounds(s: str, start_pos: int) -> tuple[int, int]:
+    """正向提取紧邻 ?? 右侧的单值/成员/调用/括号表达式区间 [start, end)。"""
+    l = start_pos
+    while l < len(s) and s[l] in " \t":
+        l += 1
+    p = l
+    if p < len(s) and s[p] in "+-!~":
+        p += 1
+        while p < len(s) and s[p] in " \t":
+            p += 1
+    while p < len(s):
+        ch = s[p]
+        if ch == "(":
+            p = _find_matching_forward(s, p, "(", ")") + 1
+            continue
+        if ch == "[":
+            p = _find_matching_forward(s, p, "[", "]") + 1
+            continue
+        if ch.isalnum() or ch in "_$\x00":
+            while p < len(s) and (s[p].isalnum() or s[p] in "_$\x00."):
+                p += 1
+            continue
+        break
+    return l, p
+
+
+def _lower_class_fields(code: str) -> str:
+    """将 ES2022 类实例字段声明（如 threeD = false; source;）降级进 constructor()，兼容字节 tmacs 的 babylon 解析器。"""
+    cls_rx = re.compile(r"\bclass\s+[A-Za-z_$][A-Za-z0-9_$]*(?:\s+extends\s+[^{]+)?\s*\{")
+    pos = 0
+    out = []
+    while True:
+        m = cls_rx.search(code, pos)
+        if not m:
+            out.append(code[pos:])
+            break
+        brace_open = m.end() - 1
+        brace_close = _find_matching_forward(code, brace_open, "{", "}")
+        out.append(code[pos:brace_open + 1])
+        body = code[brace_open + 1:brace_close]
+
+        # 扫描类体顶层（depth == 0）的字段声明行
+        lines = body.splitlines(keepends=True)
+        depth = 0
+        fields: list[tuple[str, str]] = []
+        kept_lines: list[str] = []
+        field_line_rx = re.compile(
+            r"^(\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=\s*([^;\n]+?))?\s*;(\s*(?:\x00L\d+L\x00)?\s*\r?\n?)$"
+        )
+        for ln in lines:
+            if depth == 0:
+                fm = field_line_rx.match(ln)
+                if fm and fm.group(2) not in _JS_KEYWORDS:
+                    fname = fm.group(2)
+                    fval = fm.group(3).strip() if fm.group(3) is not None else "undefined"
+                    fields.append((fname, fval))
+                    continue
+            kept_lines.append(ln)
+            # 简易花括号深度统计（这些文件顶层无复杂模板花括号）
+            depth += ln.count("{") - ln.count("}")
+
+        new_body = "".join(kept_lines)
+        if fields:
+            assigns = "".join(f"        this.{k} = {v};\n" for k, v in fields)
+            ctor_m = re.search(r"\bconstructor\s*\([^)]*\)\s*\{", new_body)
+            if ctor_m:
+                insert_at = ctor_m.end()
+                new_body = new_body[:insert_at] + "\n" + assigns + new_body[insert_at:]
+            else:
+                new_body = "\n    constructor() {\n" + assigns + "    }\n" + new_body
+
+        out.append(new_body)
+        out.append("}")
+        pos = brace_close + 1
+    return "".join(out)
+
+
+def _mask_js_non_code(code: str) -> tuple[str, list[str]]:
+    """逐字符扫描 JS，安全遮罩注释、正则字面量、单双引号字符串以及模板字符串静态文本段（保留 ${...} 内表达式代码与配对花括号）。"""
+    lits: list[str] = []
+    out: list[str] = []
+    n = len(code)
+    i = 0
+    tpl_brace_stack: list[int] = []
+    last_sig = ""  # 上一个非空白有效源码末尾字符或关键字标记，用于区分除号 / 与正则字面量 /.../
+
+    def save(seg: str) -> str:
+        idx = len(lits)
+        lits.append(seg)
+        return f"\x00L{idx}L\x00"
+
+    def can_start_regex() -> bool:
+        if not last_sig:
+            return True
+        if last_sig in "([{:;,=!&|?+-*~^%<>":
+            return True
+        if last_sig.startswith("KW:"):
+            return True
+        return False
+
+    def scan_template_chunk(start: int, include_open: bool) -> int:
+        j = start + (1 if include_open else 0)
+        while j < n:
+            c = code[j]
+            if c == "\\":
+                j += 2
+                continue
+            if c == "`":
+                out.append(save(code[start:j + 1]))
+                return j + 1
+            if c == "$" and j + 1 < n and code[j + 1] == "{":
+                if j > start:
+                    out.append(save(code[start:j]))
+                out.append("${")
+                tpl_brace_stack.append(0)
+                return j + 2
+            j += 1
+        if start < n:
+            out.append(save(code[start:]))
+        return n
+
+    while i < n:
+        c = code[i]
+        if c in " \t\r\n":
+            out.append(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and code[i + 1] == "/":
+            j = code.find("\n", i + 2)
+            if j < 0:
+                j = n
+            out.append(save(code[i:j]))
+            i = j
+            continue
+        if c == "/" and i + 1 < n and code[i + 1] == "*":
+            j = code.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append(save(code[i:j]))
+            i = j
+            continue
+        if c == "/" and can_start_regex():
+            j = i + 1
+            in_cls = False
+            while j < n and code[j] != "\n":
+                rc = code[j]
+                if rc == "\\":
+                    j += 2
+                    continue
+                if rc == "[":
+                    in_cls = True
+                elif rc == "]":
+                    in_cls = False
+                elif rc == "/" and not in_cls:
+                    j += 1
+                    while j < n and code[j].isalpha():
+                        j += 1
+                    break
+                j += 1
+            out.append(save(code[i:j]))
+            last_sig = "/"
+            i = j
+            continue
+        if c in ("'", '"'):
+            q = c
+            j = i + 1
+            while j < n:
+                if code[j] == "\\":
+                    j += 2
+                    continue
+                if code[j] == q:
+                    j += 1
+                    break
+                j += 1
+            out.append(save(code[i:j]))
+            last_sig = q
+            i = j
+            continue
+        if c == "`":
+            i = scan_template_chunk(i, True)
+            if not tpl_brace_stack:
+                last_sig = "`"
+            else:
+                last_sig = "{"
+            continue
+        if tpl_brace_stack:
+            if c == "{":
+                tpl_brace_stack[-1] += 1
+                out.append(c)
+                last_sig = "{"
+                i += 1
+                continue
+            if c == "}":
+                if tpl_brace_stack[-1] == 0:
+                    tpl_brace_stack.pop()
+                    out.append("}")
+                    i = scan_template_chunk(i + 1, False)
+                    last_sig = "`" if not tpl_brace_stack else "{"
+                    continue
+                tpl_brace_stack[-1] -= 1
+                out.append(c)
+                last_sig = "}"
+                i += 1
+                continue
+        if c.isalpha() or c in "_$":
+            j = i + 1
+            while j < n and (code[j].isalnum() or code[j] in "_$"):
+                j += 1
+            word = code[i:j]
+            out.append(word)
+            last_sig = f"KW:{word}" if word in _JS_KEYWORDS else "ID"
+            i = j
+            continue
+        out.append(c)
+        last_sig = c
+        i += 1
+
+    return "".join(out), lits
+
+
+def downlevel_js_for_tmacs(src: str) -> str:
+    """将 ES2020 可选链 (?.)、空值合并 (??) 及类属性字段降级为纯 ES2015/ES2017，兼容抖音上传编译器 babylon。"""
+    if "?." not in src and "??" not in src and "class " not in src:
+        return src
+
+    # 1. 先遮罩注释、字符串与模板静态段，再处理类字段与 ?. / ??
+    masked, lits = _mask_js_non_code(src)
+    masked = _lower_class_fields(masked)
+    if "?." not in masked and "??" not in masked:
+        def _restore_early(m: re.Match) -> str:
+            return lits[int(m.group(1))]
+        return re.sub(r"\x00L(\d+)L\x00", _restore_early, masked)
+
+    # 2. 逐个从左到右消解 ?. （含 ?.[k](args)、?.[k]、?.(args)、?.prop?.(args)、?.prop(args)、?.prop）
+    oc_seq = 0
+    while "?." in masked:
+        idx = masked.find("?.")
+        lhs_s, lhs_e = _extract_lhs_bounds(masked, idx)
+        lhs = masked[lhs_s:lhs_e]
+        if not lhs:
+            raise ValueError(f"无法提取 ?. 左侧表达式: {masked[max(0, idx - 50):idx + 50]!r}")
+        oc_seq += 1
+        v = f"_oc{oc_seq}"
+        rhs_start = idx + 2
+
+        if rhs_start < len(masked) and masked[rhs_start] == "[":
+            b_end = _find_matching_forward(masked, rhs_start, "[", "]")
+            key_expr = masked[rhs_start + 1:b_end]
+            after_b = b_end + 1
+            if after_b < len(masked) and masked[after_b] == "(":
+                p_end = _find_matching_forward(masked, after_b, "(", ")")
+                args_expr = masked[after_b + 1:p_end]
+                rep = f"(({v}) => ({v} != null && typeof {v}[{key_expr}] === 'function' ? {v}[{key_expr}]({args_expr}) : undefined))({lhs})"
+                masked = masked[:lhs_s] + rep + masked[p_end + 1:]
+            else:
+                rep = f"(({v}) => ({v} != null ? {v}[{key_expr}] : undefined))({lhs})"
+                masked = masked[:lhs_s] + rep + masked[after_b:]
+        elif rhs_start < len(masked) and masked[rhs_start] == "(":
+            p_end = _find_matching_forward(masked, rhs_start, "(", ")")
+            args_expr = masked[rhs_start + 1:p_end]
+            mp = _split_member_obj_prop(lhs)
+            if mp is not None:
+                obj_expr, prop_name = mp
+                rep = f"(({v}) => ({v} != null && typeof {v}.{prop_name} === 'function' ? {v}.{prop_name}({args_expr}) : undefined))({obj_expr})"
+            else:
+                rep = f"(({v}) => (typeof {v} === 'function' ? {v}({args_expr}) : undefined))({lhs})"
+            masked = masked[:lhs_s] + rep + masked[p_end + 1:]
+        else:
+            pm = re.match(r"([A-Za-z_$][A-Za-z0-9_$]*)", masked[rhs_start:])
+            if not pm:
+                raise ValueError(f"无法识别 ?. 右侧成员: {masked[idx:idx + 50]!r}")
+            prop = pm.group(1)
+            after_p = rhs_start + len(prop)
+            if masked[after_p:after_p + 3] == "?.(":
+                p_end = _find_matching_forward(masked, after_p + 2, "(", ")")
+                args_expr = masked[after_p + 3:p_end]
+                rep = f"(({v}) => ({v} != null && typeof {v}.{prop} === 'function' ? {v}.{prop}({args_expr}) : undefined))({lhs})"
+                masked = masked[:lhs_s] + rep + masked[p_end + 1:]
+            elif after_p < len(masked) and masked[after_p] == "(":
+                p_end = _find_matching_forward(masked, after_p, "(", ")")
+                args_expr = masked[after_p + 1:p_end]
+                rep = f"(({v}) => ({v} != null ? {v}.{prop}({args_expr}) : undefined))({lhs})"
+                masked = masked[:lhs_s] + rep + masked[p_end + 1:]
+            else:
+                rep = f"(({v}) => ({v} != null ? {v}.{prop} : undefined))({lhs})"
+                masked = masked[:lhs_s] + rep + masked[after_p:]
+
+    # 3. 逐个从左到右消解 ?? 空值合并
+    nc_seq = 0
+    while "??" in masked:
+        idx = masked.find("??")
+        lhs_s, lhs_e = _extract_lhs_bounds(masked, idx)
+        rhs_s, rhs_e = _extract_rhs_bounds(masked, idx + 2)
+        lhs = masked[lhs_s:lhs_e]
+        rhs = masked[rhs_s:rhs_e]
+        if not lhs or not rhs:
+            raise ValueError(f"无法提取 ?? 两侧表达式: {masked[max(0, idx - 50):idx + 50]!r}")
+        nc_seq += 1
+        v = f"_nc{nc_seq}"
+        rep = f"(({v}) => ({v} !== null && {v} !== undefined ? {v} : {rhs}))({lhs})"
+        masked = masked[:lhs_s] + rep + masked[rhs_e:]
+
+    # 4. 还原字符串与注释字面量
+    def _restore_lit(m: re.Match) -> str:
+        return lits[int(m.group(1))]
+
+    return re.sub(r"\x00L(\d+)L\x00", _restore_lit, masked)
+
+
 def main() -> int:
     game_js = WX_MINI / "game.js"
     if not game_js.exists():
@@ -1321,6 +1725,15 @@ def main() -> int:
     (DY_OUT / "check-version.js").write_text(CHECK_VERSION_JS, encoding="utf-8")
     (DY_OUT / "tt-unity-manager.js").write_text(TT_UNITY_MANAGER_JS, encoding="utf-8")
     (DY_OUT / "game.js").write_text(build_douyin_game_js(meta), encoding="utf-8")
+
+    # 4. 将全部 JS 文件中的 ES2020+ 语法（?. / ?? / 类实例字段）降级为 ES2015/ES2017，兼容抖音服务端 tmacs (babylon) 上传编译
+    downleveled_count = 0
+    for js_file in sorted(DY_OUT.rglob("*.js")):
+        orig = js_file.read_text(encoding="utf-8")
+        fixed = downlevel_js_for_tmacs(orig)
+        if fixed != orig:
+            js_file.write_text(fixed, encoding="utf-8")
+            downleveled_count += 1
 
     main_bytes = sum(
         p.stat().st_size for p in DY_OUT.rglob("*")
