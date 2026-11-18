@@ -1,5 +1,6 @@
 const { handleLogin } = require('./lib/auth');
 const { handlePull, handlePush } = require('./lib/save');
+const { handleRankSubmit, handleRankList, handleRankLike } = require('./lib/rank');
 const { respond, parseEvent, preflight } = require('./lib/http');
 const { getGameKey, getScopedGameKey } = require('./lib/config');
 
@@ -19,6 +20,9 @@ const ROUTES = {
   'POST /login': handleLogin,
   'POST /save/pull': handlePull,
   'POST /save/push': handlePush,
+  'POST /rank/submit': handleRankSubmit,
+  'POST /rank/list': handleRankList,
+  'POST /rank/like': handleRankLike,
 };
 
 exports.main = async (event, context) => {

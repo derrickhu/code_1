@@ -1,0 +1,21 @@
+fileFormatVersion: 2
+guid: Wi8esCv/BXtkTDVJlsSovxuzlZuUzkcAJueGrYqEIgt8pbhzN9a0YKo=
+TrueTypeFontImporter:
+  externalObjects: {}
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 2
+  includeFontData: 1
+  fontNames:
+  - Liangshan Bold
+  fallbackFontReferences: []
+  customCharacters: 
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  useLegacyBoundsCalculation: 0
+  shouldRoundAdvanceValue: 1
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
