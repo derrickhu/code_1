@@ -531,5 +531,97 @@ namespace Liangshan
             }, 40);
             if (can) Dot(btn, new Vector2(154, 42));
         }
+
+        // ---------------- 抖音专属福利（侧边栏复访 + 添加桌面） ----------------
+
+        public static void DouyinWelfare(Transform layer)
+        {
+            int today = Profile.Today;
+            Modal(layer, "dy_welfare", "抖音专属有礼", new Vector2(920, 1180), out var p, Pal.Gold);
+            Ui.SingleLine(Ui.Label(p, "侧边栏每日领补给 · 加桌面再领豪华礼包", 25, WarmSub, new Vector2(0, 446), new Vector2(820, 38), TextAnchor.MiddleCenter, Fonts.Heavy), 19);
+
+            // 1. 侧边栏复访有礼（每日可领）
+            Ui.Skin(p, "quest_tray", new Vector2(836, 468), new Vector2(0, 176), 1f);
+            Ui.SingleLine(Ui.Label(p, "侧边栏复访有礼（每日零点刷新）", 30, WarmTitle, new Vector2(-12, 368), new Vector2(760, 42), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
+            Ui.SingleLine(Ui.Label(p, "① 点击下方「去侧边栏」直达抖音首页侧边栏", 22, WarmSub, new Vector2(0, 318), new Vector2(770, 32), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
+            Ui.SingleLine(Ui.Label(p, "② 在侧边栏最近使用中点击「村口大战外星人」卡片返回", 22, WarmSub, new Vector2(0, 282), new Vector2(770, 32), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
+            Ui.SingleLine(Ui.Label(p, "③ 从侧边栏进入后，按钮自动切换为「领取奖励」", 22, Pal.GreenDeep, new Vector2(0, 246), new Vector2(770, 32), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
+
+            ItemRow(p, new List<Item>(Meta.DySidebarRewards), new Vector2(-150, 92), 116);
+            bool canSb = Meta.CanDySidebar(S, today);
+            bool fromSb = DouyinBridge.LaunchedFromSidebar;
+            string sbText = !canSb ? "今日已领" : fromSb ? "领取奖励" : "去侧边栏";
+            Color sbCol = !canSb ? Pal.Slate : fromSb ? Claim : Pal.Teal;
+            var sbBtn = Ui.Btn(p, sbText, new Vector2(268, 96), new Vector2(244, 92), sbCol, () =>
+            {
+                if (!Meta.CanDySidebar(S, Profile.Today))
+                {
+                    Ui.Toast("今日侧边栏好礼已领取，明日零点刷新", 200);
+                    return;
+                }
+                if (DouyinBridge.LaunchedFromSidebar)
+                {
+                    var got = Meta.ClaimDySidebar(S, Profile.Today);
+                    if (got == null) return;
+                    Save();
+                    DouyinWelfare(layer);
+                    ShowRewards(layer, "侧边栏复访有礼", new List<Item>(got));
+                    return;
+                }
+                DouyinBridge.NavigateToSidebar((ok, _) =>
+                {
+                    if (!ok)
+                    {
+                        Ui.Toast("请点击右上角「···」从抖音首页侧边栏重新进入领奖", 240);
+                        return;
+                    }
+                    if (layer != null && layer.Find("modal_dy_welfare") != null)
+                        DouyinWelfare(layer);
+                });
+            }, 34);
+            if (canSb && fromSb) Dot(sbBtn, new Vector2(118, 36));
+
+            // 2. 添加桌面有礼（限领一次）
+            Ui.Skin(p, "quest_tray", new Vector2(836, 396), new Vector2(0, -292), 1f);
+            Ui.SingleLine(Ui.Label(p, "添加桌面有礼（限领一次）", 30, WarmTitle, new Vector2(-12, -138), new Vector2(760, 42), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
+            Ui.SingleLine(Ui.Label(p, "将「村口大战外星人」添加到手机桌面，一键开战立领豪礼！", 22, WarmSub, new Vector2(0, -192), new Vector2(770, 34), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
+
+            ItemRow(p, new List<Item>(Meta.DyShortcutRewards), new Vector2(-150, -346), 116);
+            bool canSc = Meta.CanDyShortcut(S);
+            bool addedSc = DouyinBridge.ShortcutAdded;
+            string scText = !canSc ? "已领取" : addedSc ? "领取奖励" : "加到桌面";
+            Color scCol = !canSc ? Pal.Slate : addedSc ? Claim : Pal.Azure;
+            var scBtn = Ui.Btn(p, scText, new Vector2(268, 96), new Vector2(244, -346), scCol, () =>
+            {
+                if (!Meta.CanDyShortcut(S))
+                {
+                    Ui.Toast("桌面礼包已领取", 200);
+                    return;
+                }
+                void ClaimNow()
+                {
+                    var got = Meta.ClaimDyShortcut(S);
+                    if (got == null) return;
+                    Save();
+                    DouyinWelfare(layer);
+                    ShowRewards(layer, "添加桌面有礼", new List<Item>(got));
+                }
+                if (DouyinBridge.ShortcutAdded)
+                {
+                    ClaimNow();
+                    return;
+                }
+                DouyinBridge.AddShortcut((ok, _) =>
+                {
+                    if (!ok)
+                    {
+                        Ui.Toast("未完成添加桌面，请在系统权限中允许创建快捷方式", 220);
+                        return;
+                    }
+                    ClaimNow();
+                });
+            }, 34);
+            if (canSc && addedSc) Dot(scBtn, new Vector2(118, 36));
+        }
     }
 }

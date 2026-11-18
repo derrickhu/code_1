@@ -599,6 +599,11 @@ namespace Liangshan
 
         static void VibrateShort(string type)
         {
+            if (DouyinBridge.IsDouyin)
+            {
+                DouyinBridge.VibrateShort(type);
+                return;
+            }
             try
             {
                 var wx = Type.GetType("WeChatWASM.WX, Wx") ?? Type.GetType("WeChatWASM.WX");

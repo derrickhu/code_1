@@ -35,7 +35,7 @@ namespace Liangshan
             get
             {
 #if (UNITY_WEIXINMINIGAME || TUANJIE_WEIXINMINIGAME || UNITY_MINIGAME || WEIXINMINIGAME || MINIGAME_SUBPLATFORM_WEIXIN) && !UNITY_EDITOR
-                return true;
+                return !DouyinBridge.IsDouyin;
 #else
                 return false;
 #endif

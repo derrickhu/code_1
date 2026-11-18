@@ -37,10 +37,23 @@ namespace Liangshan
             Stretch(h.Layer);
             h.Rebuild(true);
             Profile.Changed += h.MarkDirty;
+            DouyinBridge.StateChanged += h.OnDouyinStateChanged;
             return h;
         }
 
-        void OnDestroy() => Profile.Changed -= MarkDirty;
+        void OnDestroy()
+        {
+            Profile.Changed -= MarkDirty;
+            DouyinBridge.StateChanged -= OnDouyinStateChanged;
+        }
+
+        void OnDouyinStateChanged()
+        {
+            _dirty = true;
+            if (Layer != null && Layer.Find("modal_dy_welfare") != null)
+                MetaUi.DouyinWelfare(Layer);
+        }
+
         void MarkDirty() => _dirty = true;
 
         static void Stretch(RectTransform rt)
@@ -317,7 +330,10 @@ namespace Liangshan
         static bool FortBadge() => IdleBadge() || Meta.CodexBadge(S) > 0 || RankBadge();
         static bool SevenBadge() => !Meta.SevenFinished(S) && Meta.SevenBadge(S, Profile.Today) > 0;
         static bool SprintBadge() => Meta.SprintTierBadge(S) + Meta.SprintTaskBadge(S) > 0;
-        static bool GrowthBadge() => SevenBadge() || SprintBadge() || Meta.CanWelfare(S, Profile.Today);
+        static bool DyWelfareBadge(int day) =>
+            DouyinBridge.IsDouyin && DouyinBridge.SidebarSupported &&
+            ((Meta.CanDySidebar(S, day) && DouyinBridge.LaunchedFromSidebar) || Meta.CanDyShortcut(S));
+        static bool GrowthBadge() => SevenBadge() || SprintBadge() || Meta.CanWelfare(S, Profile.Today) || DyWelfareBadge(Profile.Today);
 
         // ---------------- 出征 ----------------
 
@@ -339,13 +355,16 @@ namespace Liangshan
             Ui.Icon(gear, "ic_gear", 46, new Vector2(0, 1));
             Ui.Tap(gearBg, () => MetaUi.Settings(Layer), gear);
 
-            // 出征主页极简降噪（对标蔚蓝星球）：巡山、图鉴、演武、生辰纲统一收进「山寨」领地页签，主页左右仅保留各 3 枚福利/目标圆章
+            // 出征主页极简降噪（对标蔚蓝星球）：巡山、图鉴、演武、生辰纲统一收进「山寨」领地页签，主页左右仅保留各 3~4 枚福利/目标圆章
             float colY = 268 + sp * 0.04f;
             float colStep = 136 + sp * 0.025f;
-            SideDock(-468, colY, colStep, 3);
+            bool showDy = DouyinBridge.IsDouyin && DouyinBridge.SidebarSupported;
+            SideDock(-468, colY, colStep, showDy ? 4 : 3);
             SideBtn(-468, colY, "tab_welfare", "福利", Meta.CanWelfare(S, day), () => MetaUi.Welfare(Layer));
             SideBtn(-468, colY + colStep, "tab_gift", "签到", Meta.CanSign(S, day), () => MetaUi.SignIn(Layer));
             SideBtn(-468, colY + colStep * 2, "ic_feast", "流水席", MealBadge(), () => MetaUi.Meals(Layer));
+            if (showDy)
+                SideBtn(-468, colY + colStep * 3, "ic_chest_gold", "入口有礼", DyWelfareBadge(day), () => MetaUi.DouyinWelfare(Layer));
 
             int rightCount = Meta.SevenFinished(S) ? 3 : 4;
             SideDock(468, colY, colStep, rightCount);

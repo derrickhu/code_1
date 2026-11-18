@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace Liangshan
 {
     /// <summary>
@@ -11,6 +14,41 @@ namespace Liangshan
         public const string AppId = "wx4afec790790030e8";
         /// <summary>微信流量主激励视频广告位 ID（开通流量主后填入 adunit-xxx 即可自动切换真机激励视频；留空时走演示回退）。</summary>
         public const string RewardedAdUnitId = "";
+
+        /// <summary>抖音小游戏 AppID。</summary>
+        public const string DouyinAppId = "tt5b402dfdc53db6ff07";
+        /// <summary>抖音默认激励视频广告位 ID（未单独配置分场景广告位时统一回退此 ID）。</summary>
+        public const string DouyinDefaultAdUnitId = "mcs8desnlr2a80go8v";
+        /// <summary>抖音插屏广告位 ID（后续开通插屏广告位后填入即可启用）。</summary>
+        public const string DouyinInterstitialAdUnitId = "";
+
+        /// <summary>
+        /// 抖音分场景激励视频广告位映射表。
+        /// 后续在抖音后台新增各场景独立广告位后，直接将对应场景键的值填上即可自动区分统计；留空时回退 DouyinDefaultAdUnitId。
+        /// </summary>
+        static readonly Dictionary<string, string> DouyinSceneAdUnits = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "start_2star", "" },  // 开局村委增援（2星乡亲 + 能量币）
+            { "shop_ingot", "" },   // 供销社免费领星钻
+            { "shop_stamina", "" }, // 供销社免费领体力
+            { "recruit", "" },      // 摇人广播站免费摇人
+            { "stamina", "" },      // 体力弹窗看视频补体力
+            { "idle", "" },         // 联防巡逻双倍收益
+            { "speed2", "" },       // 局内解锁全天 2 倍速
+            { "swap_unit", "" },    // 局内换防上阵乡亲
+            { "reroll", "" },       // 局内强化卡免费刷新
+            { "take_all", "" },     // 局内强化三张全收
+            { "reel_jackpot", "" }, // 局内转盘鸿运全收
+            { "double", "" },       // 结算双倍战利品
+            { "revive", "" },       // 战败满血复活再战
+        };
+
+        public static string GetDouyinAdUnitId(string scene)
+        {
+            if (!string.IsNullOrEmpty(scene) && DouyinSceneAdUnits.TryGetValue(scene, out string id) && !string.IsNullOrEmpty(id))
+                return id;
+            return DouyinDefaultAdUnitId;
+        }
         /// <summary>云存储上的按需资源，和别的游戏同一个桶。曲子在 cunkou/StreamingAssets/Music，用到哪首下哪首。</summary>
         public const string AssetCdn = "https://726f-rosa-env-d7grf78r5dbd37323-1414200063.tcb.qcloud.la/" + GameKey;
 

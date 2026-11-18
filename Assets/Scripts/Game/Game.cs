@@ -41,6 +41,7 @@ namespace Liangshan
         {
             Application.targetFrameRate = 60;
             Input.multiTouchEnabled = false;
+            DouyinBridge.Init();
             ParseArgs();
             var camGo = new GameObject("Camera");
             camGo.transform.SetParent(transform, false);
@@ -79,6 +80,7 @@ namespace Liangshan
                 // 微信上封面就是这张启动图。主界面画出来再揭，云存档最多再等 6 秒，到点也揭。
                 if (LoadingScreen.InWeChat) LoadingScreen.SuppressAutoHide();
                 var loading = LoadingScreen.InWeChat ? null : LoadingScreen.Open();
+                if (DouyinBridge.IsDouyin) LoadingScreen.HideWeChatCover();
                 CloudSync.Startup(() => _cloudReady = true);
                 StartCoroutine(FinishBoot(loading));
             }

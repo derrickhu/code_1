@@ -309,5 +309,37 @@ namespace Liangshan.Sim
             foreach (var it in r) Give(s, it);
             return r;
         }
+
+        // ---------------- 抖音侧边栏复访与桌面快捷有礼 ----------------
+
+        public static readonly Item[] DySidebarRewards =
+        {
+            Ig(30), new Item(Cur.Stamina, 20), Cp(500),
+        };
+
+        public static readonly Item[] DyShortcutRewards =
+        {
+            Ig(60), Tk(2),
+        };
+
+        public static bool CanDySidebar(SaveData s, int today) => s != null && s.DySidebarDay != today + 1;
+
+        public static Item[] ClaimDySidebar(SaveData s, int today)
+        {
+            if (!CanDySidebar(s, today)) return null;
+            s.DySidebarDay = today + 1;
+            foreach (var it in DySidebarRewards) Give(s, it);
+            return DySidebarRewards;
+        }
+
+        public static bool CanDyShortcut(SaveData s) => s != null && s.DyShortcutGot == 0;
+
+        public static Item[] ClaimDyShortcut(SaveData s)
+        {
+            if (!CanDyShortcut(s)) return null;
+            s.DyShortcutGot = 1;
+            foreach (var it in DyShortcutRewards) Give(s, it);
+            return DyShortcutRewards;
+        }
     }
 }

@@ -92,7 +92,11 @@ namespace Liangshan
         static void Ad(string name, string scene, bool? ended)
         {
             if (!_sessionStarted) return;
-            Param p = Param.Of("ad_unit_id", "reward")
+            string unitId = DouyinBridge.IsDouyin
+                ? CloudConfig.GetDouyinAdUnitId(scene)
+                : (!string.IsNullOrEmpty(CloudConfig.RewardedAdUnitId) ? CloudConfig.RewardedAdUnitId : "reward");
+            if (string.IsNullOrEmpty(unitId)) unitId = "reward";
+            Param p = Param.Of("ad_unit_id", unitId)
                 .Str("ad_type", "reward")
                 .Str("scene", string.IsNullOrEmpty(scene) ? "unknown" : scene);
             if (_levelOpen) p.Num("level_id", _levelId).Str("mode", _mode);
@@ -225,6 +229,7 @@ namespace Liangshan
 
         static string PlatformName()
         {
+            if (DouyinBridge.IsDouyin) return "douyin";
 #if UNITY_MINIGAME || WEIXINMINIGAME || UNITY_WEIXINMINIGAME || MINIGAME_SUBPLATFORM_WEIXIN
             return "wechat";
 #elif MINIGAME_SUBPLATFORM_DOUYIN

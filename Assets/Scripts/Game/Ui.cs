@@ -153,7 +153,7 @@ namespace Liangshan
                 _topPx = FakeSafeTopPx;
                 _bottomPx = Mathf.Max(0f, FakeSafeBottomPx);
             }
-            else if (!WxSafe(out _topPx, out _bottomPx))
+            else if (!DouyinBridge.TryGetSafeArea(out _topPx, out _bottomPx) && !WxSafe(out _topPx, out _bottomPx))
             {
                 var sa = Screen.safeArea;
                 _topPx = Mathf.Max(0f, Screen.height - sa.yMax);

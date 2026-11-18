@@ -118,6 +118,8 @@ namespace Liangshan.Sim
         public string Nick = "";
         /// <summary>敌军图鉴三大分类（小怪/精英/首领）收集宝箱已领取位。</summary>
         public int CodexBox;
+        /// <summary>抖音专属福利：上次领取侧边栏复访奖励的日期序号 + 1；桌面快捷方式一次性奖励标记。</summary>
+        public int DySidebarDay, DyShortcutGot;
     }
 
     public enum Cur { Ingot, Copper, Iron, Token, Stamina, Shard, Page, Tome, Silk, Meteor, GearBox, AnyShard, Refine, Hammer }

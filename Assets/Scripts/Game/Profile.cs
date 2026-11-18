@@ -111,6 +111,43 @@ namespace Liangshan
         public static void Show(string scene, Action done)
         {
             Analytics.AdRequest(scene);
+            if (DouyinBridge.IsDouyin && !Application.isEditor)
+            {
+                string dyUnit = CloudConfig.GetDouyinAdUnitId(scene);
+                if (!string.IsNullOrEmpty(dyUnit))
+                {
+                    DouyinBridge.ShowRewardedAd(
+                        dyUnit,
+                        () => Analytics.AdShow(scene),
+                        ended =>
+                        {
+                            Analytics.AdClose(scene, ended);
+                            if (!ended)
+                            {
+                                Ui.Toast("完整观看视频才可获得奖励", 200);
+                                return;
+                            }
+                            if (Profile.S != null)
+                            {
+                                Meta.Progress(Profile.S, Act.Ad);
+                                Profile.Save();
+                            }
+                            done?.Invoke();
+                        },
+                        err =>
+                        {
+                            if (DouyinBridge.IsDevtools)
+                            {
+                                Debug.Log("[Ads] 抖音开发工具模拟激励视频（" + err + "）");
+                                ShowFallback(scene, done);
+                                return;
+                            }
+                            Analytics.AdClose(scene, false);
+                            Ui.Toast("暂无可播放的广告，请稍后再试", 200);
+                        });
+                    return;
+                }
+            }
 #if LIANGSHAN_WX_AD
             string unit = CloudConfig.RewardedAdUnitId;
             if (!string.IsNullOrEmpty(unit))

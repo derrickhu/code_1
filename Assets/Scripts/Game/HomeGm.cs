@@ -16,7 +16,7 @@ namespace Liangshan
         {
             get
             {
-                if (Force || Application.isEditor) return true;
+                if (Force || Application.isEditor || DouyinBridge.IsDevtools) return true;
                 try
                 {
                     var wx = Type.GetType("WeChatWASM.WX, Wx") ?? Type.GetType("WeChatWASM.WX");
@@ -50,21 +50,30 @@ namespace Liangshan
 
         public void ShowGm()
         {
-            const float H = 1520f;
+            const float H = 1620f;
             MetaUi.Modal(Layer, "gm", "GM", new Vector2(860, H), out var card, Pal.Slate);
             float y = H * 0.5f - 118f;
             _gmStatus = Ui.Label(card, GmFrontier(), 36, Pal.Ink, new Vector2(0, y), new Vector2(740, 56), TextAnchor.MiddleCenter, Fonts.Heavy);
-            y -= 64f;
-            Ui.Label(card, "只在编辑器和微信开发者工具里出现。跳过按三星通关结算。", 26, Pal.SubInk, new Vector2(0, y), new Vector2(740, 44));
-            y -= 92f;
+            y -= 60f;
+            Ui.Label(card, "只在编辑器和微信/抖音开发者工具里出现。跳过按三星通关结算。", 24, Pal.SubInk, new Vector2(0, y), new Vector2(760, 44));
+            y -= 86f;
             void Big(string name, Color c, Action act)
             {
-                Ui.Btn(card, name, new Vector2(560, 100), new Vector2(0, y), c, act, 40);
-                y -= 114f;
+                Ui.Btn(card, name, new Vector2(560, 92), new Vector2(0, y), c, act, 38);
+                y -= 104f;
             }
             Big("跳过本关", Pal.Azure, () => GmSkip(1));
             Big("连跳五关", Pal.Teal, () => GmSkip(5));
             Big("关卡全开", Pal.Green, () => GmSkip(Defs.LevelCount));
+            if (Application.isEditor)
+            {
+                string dyLabel = DouyinBridge.ForceSimulateDouyin ? "抖音入口模拟：已开启" : "抖音入口模拟：点击开启";
+                Big(dyLabel, DouyinBridge.ForceSimulateDouyin ? Pal.Gold : Pal.Purple, () =>
+                {
+                    DouyinBridge.SetSimulate(!DouyinBridge.ForceSimulateDouyin);
+                    ShowGm();
+                });
+            }
             Big("清档", Pal.Red, () => MetaUi.Confirm(Layer, "本地和云端都换成新档\n金币、进度、乡亲都没了，不能恢复", WipeAll));
             y -= 6f;
             Ui.Label(card, "发物资，直接写进存档", 26, Pal.SubInk, new Vector2(0, y), new Vector2(740, 40));

@@ -77,8 +77,9 @@ namespace Liangshan
 
         public static string UserId => _tok != null ? _tok.userId : "";
 
-        static bool UseWx => !Application.isEditor && WxType() != null;
-        static string PlatformCode => UseWx ? "wx" : "anon";
+        static bool UseDy => !Application.isEditor && DouyinBridge.IsDouyin;
+        static bool UseWx => !Application.isEditor && !DouyinBridge.IsDouyin && WxType() != null;
+        static string PlatformCode => UseDy ? "dy" : UseWx ? "wx" : "anon";
 
         public static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -95,7 +96,25 @@ namespace Liangshan
             }
 
             var body = new LoginBody { platform = PlatformCode };
-            if (UseWx)
+            if (UseDy)
+            {
+                string code = null, fail = null;
+                bool back = false;
+                DouyinBridge.Login(c => { code = c; back = true; }, e => { fail = e; back = true; });
+                float until = Time.realtimeSinceStartup + 4f;
+                while (!back && Time.realtimeSinceStartup < until) yield return null;
+                if (!string.IsNullOrEmpty(code))
+                {
+                    body.code = code;
+                }
+                else
+                {
+                    Debug.LogWarning("[Backend] tt.login fallback to anon: " + (fail ?? "timeout"));
+                    body.platform = "anon";
+                    body.anonId = AnonId();
+                }
+            }
+            else if (UseWx)
             {
                 string code = null, fail = null;
                 bool back = false;
@@ -114,6 +133,15 @@ namespace Liangshan
             long status = 0;
             CloudReply reply = null;
             yield return Post(CloudConfig.LoginPath, JsonUtility.ToJson(body), null, (s, r) => { status = s; reply = r; });
+            // 抖音云函数尚未配置 CUNKOU_TT_SECRET 或开发工具临时 code 校验未过时，自动平滑降级匿名登录，保障云存档与排行榜正常可用
+            if (body.platform == "dy" && (status != 200 || reply == null || !reply.ok || reply.data == null || string.IsNullOrEmpty(reply.data.token)))
+            {
+                Debug.LogWarning("[Backend] dy login fallback to anon: " + Describe(status, reply));
+                body = new LoginBody { platform = "anon", anonId = AnonId() };
+                status = 0;
+                reply = null;
+                yield return Post(CloudConfig.LoginPath, JsonUtility.ToJson(body), null, (s, r) => { status = s; reply = r; });
+            }
             if (status != 200 || reply == null || !reply.ok || reply.data == null || string.IsNullOrEmpty(reply.data.token))
             {
                 done(Describe(status, reply));
@@ -179,8 +207,15 @@ namespace Liangshan
 
         public static bool HookHide(Action hide)
         {
+            if (Application.isEditor || hide == null) return false;
+            if (DouyinBridge.IsDouyin)
+            {
+                DouyinBridge.Init();
+                DouyinBridge.AppHidden += hide;
+                return true;
+            }
             var wx = WxType();
-            if (wx == null || Application.isEditor || hide == null) return false;
+            if (wx == null) return false;
             MethodInfo method = null;
             foreach (var m in wx.GetMethods())
                 if (m.Name == "OnHide" && m.GetParameters().Length == 1) { method = m; break; }

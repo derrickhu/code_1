@@ -815,6 +815,38 @@ namespace Liangshan.Tests
             Assert.AreEqual(need - 1, Meta.CodexGroupBadge(s, 0));
         }
 
+        [Test]
+        public void DouyinSidebarDailyAndShortcutOnceRewardsWork()
+        {
+            var s = Meta.NewSave(0);
+            Assert.IsTrue(Meta.CanDySidebar(s, 5));
+            Assert.IsTrue(Meta.CanDyShortcut(s));
+
+            int ingots0 = s.Ingots, stam0 = s.Stamina, tokens0 = s.Tokens;
+            var sbGot = Meta.ClaimDySidebar(s, 5);
+            Assert.IsNotNull(sbGot);
+            Assert.IsFalse(Meta.CanDySidebar(s, 5), "当日领取后不可重复领");
+            Assert.IsNull(Meta.ClaimDySidebar(s, 5));
+            Assert.IsTrue(Meta.CanDySidebar(s, 6), "次日零点后可再次领取侧边栏复访奖励");
+            Assert.AreEqual(ingots0 + 30, s.Ingots);
+            Assert.AreEqual(stam0 + 20, s.Stamina);
+
+            var scGot = Meta.ClaimDyShortcut(s);
+            Assert.IsNotNull(scGot);
+            Assert.IsFalse(Meta.CanDyShortcut(s), "桌面快捷方式奖励全档限领一次");
+            Assert.IsNull(Meta.ClaimDyShortcut(s));
+            Assert.AreEqual(ingots0 + 90, s.Ingots);
+            Assert.AreEqual(tokens0 + 2, s.Tokens);
+
+            var cfg = System.Type.GetType("Liangshan.CloudConfig, Assembly-CSharp");
+            Assert.IsNotNull(cfg, "找不到 Liangshan.CloudConfig");
+            Assert.AreEqual("tt5b402dfdc53db6ff07", cfg.GetField("DouyinAppId").GetValue(null));
+            Assert.AreEqual("mcs8desnlr2a80go8v", cfg.GetField("DouyinDefaultAdUnitId").GetValue(null));
+            var getUnit = cfg.GetMethod("GetDouyinAdUnitId");
+            Assert.AreEqual("mcs8desnlr2a80go8v", getUnit.Invoke(null, new object[] { "revive" }));
+            Assert.AreEqual("mcs8desnlr2a80go8v", getUnit.Invoke(null, new object[] { "unknown_scene" }));
+        }
+
         static int SkillRowLevel(Meta.TalentSkill kind)
         {
             switch (kind)

@@ -17,7 +17,13 @@ namespace Liangshan.EditorTools
         [MenuItem("村口大战外星人/导出微信小游戏")]
         public static void Export()
         {
-            int code = 1;
+            int code = ExportCore() ? 0 : 1;
+            if (Application.isBatchMode)
+                EditorApplication.Exit(code);
+        }
+
+        public static bool ExportCore()
+        {
             try
             {
                 ActivateWeChat();
@@ -30,14 +36,13 @@ namespace Liangshan.EditorTools
                 Debug.Log("[微信] 转换结果：" + (result ?? "没找到转换接口"));
                 bool exported = ok && Directory.Exists(Path.Combine(ProjectRoot, "wechat-minigame", "minigame"));
                 if (exported) ApplyLoadingCover();
-                code = exported && CheckGameJs() ? 0 : 1;
+                return exported && CheckGameJs();
             }
             catch (Exception e)
             {
                 Debug.LogError("[微信] 转换失败：" + e);
+                return false;
             }
-            if (Application.isBatchMode)
-                EditorApplication.Exit(code);
         }
 
         static string ProjectRoot => Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
