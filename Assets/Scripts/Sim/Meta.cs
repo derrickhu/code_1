@@ -527,7 +527,7 @@ namespace Liangshan.Sim
                         ? $"「{d.PassiveName}」伤害 +20%"
                         : $"获得被动「{d.PassiveName}」，伤害 +20%";
                 case 3: return h == HeroId.HuaRong
-                    ? $"场上满4位华老猎穿透+1，「{OptPerk(h, 1).Name}」必暴，冷却 -10%"
+                    ? $"场上满4位{d.Name}穿透+1，「{OptPerk(h, 1).Name}」必暴，冷却 -10%"
                     : d.Buff.HasValue ? $"「{OptPerk(h, 1).Name}」效果翻倍，技能冷却 -10%" : $"「{OptPerk(h, 1).Name}」必定暴击、几率 +10%，技能冷却 -10%";
                 case 4: return $"解锁「{OptPerk(h, 2).Name}」选项，且取舍强化不再降低属性";
                 case 5: return d.Buff.HasValue ? "技能效果 +15%，奥义增幅 +35%" : (d.HasUlt ? "技能伤害 +15%，大招冷却 -15%" : "技能伤害 +15%，三合一奥义伤害 +35%");

@@ -82,11 +82,11 @@ namespace Liangshan
         /// <summary>每章一张 9:16 背景，长屏、标准屏共用一套版式。门洞按图上暗色拱门量出。</summary>
         static readonly System.Collections.Generic.Dictionary<string, BgLayout> ChapterBg = new System.Collections.Generic.Dictionary<string, BgLayout>
         {
-            ["battle_bg"] = new BgLayout(0.84f, 260, 819, 114, 176, 378),
-            ["battle_bg_ch2"] = new BgLayout(0.84f, 220, 865, 102, 109, 368),
-            ["battle_bg_ch3"] = new BgLayout(0.84f, 208, 872, 121, 135, 408),
-            ["battle_bg_ch4"] = new BgLayout(0.84f, 242, 837, 98, 157, 358),
-            ["battle_bg_ch5"] = new BgLayout(0.84f, 281, 799, 124, 195, 389),
+            ["battle_bg"] = new BgLayout(0.84f, 342, 737, 100, 248, 410),
+            ["battle_bg_ch2"] = new BgLayout(0.84f, 316, 790, 112, 228, 370),
+            ["battle_bg_ch3"] = new BgLayout(0.84f, 267, 812, 116, 111, 282),
+            ["battle_bg_ch4"] = new BgLayout(0.84f, 336, 761, 103, 207, 364),
+            ["battle_bg_ch5"] = new BgLayout(0.84f, 308, 773, 132, 241, 406),
         };
 
         readonly GateDoor[] _doors = new GateDoor[2];
@@ -174,24 +174,27 @@ namespace Liangshan
             _bg = WorldFx.Spr(_world, Art.Img(B.Stage.Bg), Vector2.zero, 1, -100, null, "bg");
             const float camW = 22f;
 
-            // 墙后玄青石板校场：与青灰石城墙、石垛底座材质浑然一体。
+            // 防线后方现代乡村水泥晒场/公路坪：采用明亮暖灰混凝土板块+伸缩缝+黄黑安全警戒线，告别古风玄青城砖。
             float floorTop = -5.85f;
             float floorBottom = Bottom - 0.5f;
-            WorldFx.Block(_world, Art.White, new Vector2(0, (floorTop + floorBottom) * 0.5f), new Vector2(camW + 1, floorTop - floorBottom), 40, Pal.Hex("34424F"), "floor");
+            WorldFx.Block(_world, Art.White, new Vector2(0, (floorTop + floorBottom) * 0.5f), new Vector2(camW + 1, floorTop - floorBottom), 40, Pal.Hex("5E6872"), "floor");
             var rng = new System.Random(7);
             int row = 0;
-            for (float y = floorTop - 0.45f; y > floorBottom - 0.6f; y -= 1.02f, row++)
+            for (float y = floorTop - 0.52f; y > floorBottom - 0.6f; y -= 1.18f, row++)
             {
-                float off = row % 2 == 0 ? 0 : 0.72f;
-                for (float x = -camW * 0.5f - 1.4f + off; x < camW * 0.5f + 1.4f; x += 1.44f)
+                for (float x = -camW * 0.5f - 1.2f; x < camW * 0.5f + 1.2f; x += 2.24f)
                 {
-                    float v = 0.93f + (float)rng.NextDouble() * 0.12f;
-                    WorldFx.Block(_world, Art.RoundedSmall, new Vector2(x, y), new Vector2(1.36f, 0.94f), 41, Pal.Hex("4A5B6C").Mul(v), "stone");
-                    WorldFx.Block(_world, Art.RoundedSmall, new Vector2(x, y + 0.39f), new Vector2(1.24f, 0.08f), 41, Pal.Hex("62768A").Mul(v), "stoneLit");
+                    float v = 0.96f + (float)rng.NextDouble() * 0.07f;
+                    WorldFx.Block(_world, Art.RoundedSmall, new Vector2(x, y), new Vector2(2.16f, 1.10f), 41, Pal.Hex("76818B").Mul(v), "slab");
+                    WorldFx.Block(_world, Art.RoundedSmall, new Vector2(x, y + 0.48f), new Vector2(2.08f, 0.05f), 41, Pal.Hex("8D99A4").Mul(v), "slabLit");
                 }
             }
-            var shade = WorldFx.Block(_world, Art.VGrad, new Vector2(0, floorTop - 0.65f), new Vector2(camW + 1, 1.3f), 42, new Color(0, 0, 0, 0.0f), "shade");
-            shade.color = new Color(0.05f, 0.09f, 0.14f, 0.48f);
+            // 防线内侧联防黄黑安全警戒标线
+            WorldFx.Block(_world, Art.White, new Vector2(0, floorTop - 0.06f), new Vector2(WallW * 0.96f, 0.11f), 42, Pal.Hex("23272C"), "warnBase");
+            for (float sx = -WallW * 0.46f; sx <= WallW * 0.46f; sx += 0.64f)
+                WorldFx.Block(_world, Art.RoundedSmall, new Vector2(sx, floorTop - 0.06f), new Vector2(0.36f, 0.08f), 43, Pal.Hex("F2BA2C"), "warnStripe");
+            var shade = WorldFx.Block(_world, Art.VGrad, new Vector2(0, floorTop - 0.65f), new Vector2(camW + 1, 1.3f), 44, new Color(0, 0, 0, 0.0f), "shade");
+            shade.color = new Color(0.06f, 0.09f, 0.13f, 0.32f);
             shade.flipY = true;
 
             // 寨墙：玄青条石城垣 + 两侧角楼，走道对齐基础格那一行。
@@ -452,7 +455,7 @@ namespace Liangshan
                         fx.Flash(p + new Vector2(0, 0.3f), 1.8f, c.A(0.45f), 0.25f);
                         fx.Sparks(Art.Img("fx_star"), p + new Vector2(0, 0.2f), 6, 0.28f, 2.6f, Color.white, 0.5f, 9100, 2f, true);
                         Tween.Punch(Drum, 0.2f, 0.12f);
-                        Sfx.Play(Snd.Summon, 0.55f);
+                        Sfx.Play(Snd.Summon, 0.78f);
                         Hud.OnSummon();
                         break;
                     }
@@ -472,7 +475,7 @@ namespace Liangshan
                         fx.Say(p + new Vector2(0, 0.95f), StarText(e.Value), WorldFx.Tx.Buff, c, 1.3f);
                         var trait = StarTraits.At(Defs.Hero(e.Hero), e.Value);
                         if (trait != null) fx.Say(p + new Vector2(0, 1.55f), $"解锁「{trait.Name}」", WorldFx.Tx.Skill, Pal.Hex("FFC63A"), 0.85f);
-                        Sfx.Play(Snd.Merge, 0.7f, 0.9f + e.Value * 0.06f);
+                        Sfx.Play(Snd.Merge, 0.86f, 0.94f + e.Value * 0.07f);
                         LastMergeTime = Time.unscaledTime;
                         MergesDone++;
                         break;
@@ -2571,10 +2574,13 @@ namespace Liangshan
                         break;
                     }
                     case ShotKind.Stone:
+                    {
                         _shadow = WorldFx.Spr(_root, Art.GroundShadow, Vector2.zero, 1, 125, new Color(0.02f, 0.05f, 0.1f, 0.40f), "shadow");
-                        _sr = WorldFx.Spr(_root, Art.Img("fx_rock" + Random.Range(0, 3)), Vector2.zero, s.Ult ? 0.60f : 0.46f, 9200);
+                        string stArt = hd != null && hd.AtkIcon == "fx_rock0" ? "fx_rock0" : ("fx_rock" + Random.Range(1, 3));
+                        _sr = WorldFx.Spr(_root, Art.Img(stArt), Vector2.zero, s.Ult ? 0.64f : 0.50f, 9200);
                         _trail = AddTrail(0.10f, s.Ult ? 0.16f : 0.11f, Pal.Hex("E4DFD4").A(0.48f), false);
                         break;
+                    }
                     case ShotKind.Spear:
                         _sr = WorldFx.Spr(_root, Art.Img("ic_sword"), Vector2.zero, 0.95f, 9200, Pal.Hex("E8F2FF"));
                         _trail = AddTrail(0.12f, 0.22f, Pal.Hex("CFE8FF"));

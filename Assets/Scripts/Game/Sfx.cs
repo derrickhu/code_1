@@ -56,16 +56,16 @@ namespace Liangshan
             _bgm.loop = true;
             _bgm.volume = 0f;
 
-            _clips[Snd.Tap] = Synth(0.07f, t => Tone(t, 880, 0.07f) * 0.5f + Tone(t, 1320, 0.04f) * 0.25f);
-            _clips[Snd.Deny] = Synth(0.18f, t => Square(t, 140) * Env(t, 0.18f) * 0.25f);
-            _clips[Snd.Coin] = Synth(0.25f, t => (Tone(t, 1900, 0.25f) + Tone(t - 0.06f, 2530, 0.19f)) * 0.35f);
-            _clips[Snd.Card] = Synth(0.22f, t => Noise() * Env(t, 0.22f) * 0.25f * Mathf.Sin(Mathf.Clamp01(t / 0.22f) * Mathf.PI));
-            _clips[Snd.Reel] = Synth(0.04f, t => Tone(t, 1600, 0.04f) * 0.3f);
-            _clips[Snd.ReelStop] = Synth(0.14f, t => (Tone(t, 520, 0.14f) + Noise() * Env(t, 0.03f) * 0.4f) * 0.5f);
-            _clips[Snd.Jackpot] = Synth(1.1f, t => Arp(t, new[] { 523f, 659f, 784f, 1046f, 1318f }, 0.09f, 1.1f) * 0.45f);
-            _clips[Snd.SlotAdd] = Synth(0.5f, t => Arp(t, new[] { 392f, 523f, 659f, 784f }, 0.07f, 0.5f) * 0.4f);
-            _clips[Snd.Warn] = Synth(1.0f, t => (Saw(t, 110) * 0.5f + Saw(t, 165) * 0.3f) * Env(t, 1f) * Mathf.Clamp01(t * 12) * 0.35f);
-            _clips[Snd.Kill] = Synth(0.06f, t => Noise() * Env(t, 0.06f) * 0.25f);
+            _clips[Snd.Tap] = Synth(0.08f, t => Tone(t, 760, 0.08f) * 0.55f + Tone(t, 1520, 0.045f) * 0.25f);
+            _clips[Snd.Deny] = Synth(0.20f, t => Tone(t, 240, 0.11f) * 0.45f + Tone(t - 0.08f, 180, 0.12f) * 0.50f);
+            _clips[Snd.Coin] = Synth(0.26f, t => (Tone(t, 2093, 0.24f) + Tone(t - 0.055f, 2637, 0.20f)) * 0.38f);
+            _clips[Snd.Card] = Synth(0.18f, t => (Noise() * 0.16f + Mathf.Sin(t * 1046f * Mathf.PI * 2) * 0.18f) * Env(t, 0.18f) * Mathf.Sin(Mathf.Clamp01(t / 0.18f) * Mathf.PI));
+            _clips[Snd.Reel] = Synth(0.045f, t => (Tone(t, 1320, 0.045f) + 0.35f * Tone(t, 2640, 0.025f)) * 0.32f);
+            _clips[Snd.ReelStop] = Synth(0.15f, t => (Tone(t, 587, 0.15f) + 0.45f * Tone(t, 1175, 0.10f) + Noise() * Env(t, 0.025f) * 0.22f) * 0.48f);
+            _clips[Snd.Jackpot] = Synth(1.1f, t => Arp(t, new[] { 523f, 659f, 784f, 1046f, 1318f }, 0.085f, 1.1f) * 0.46f);
+            _clips[Snd.SlotAdd] = Synth(0.5f, t => Arp(t, new[] { 392f, 523f, 659f, 784f }, 0.068f, 0.5f) * 0.42f);
+            _clips[Snd.Warn] = Synth(0.95f, t => (Mathf.Sin(t * 220f * Mathf.PI * 2) * 0.55f + Mathf.Sin(t * 330f * Mathf.PI * 2) * 0.30f + Mathf.Sin(t * 440f * Mathf.PI * 2) * 0.18f) * Env(t, 0.95f) * Mathf.Clamp01(t * 14) * 0.38f);
+            _clips[Snd.Kill] = Synth(0.07f, t => (Tone(t, 320f - t * 2200f, 0.07f) * 0.45f + Noise() * Env(t, 0.05f) * 0.18f));
 
             Load(Snd.Summon, "join", Snd.Tap);
             Load(Snd.Merge, "rank_up", Snd.SlotAdd);

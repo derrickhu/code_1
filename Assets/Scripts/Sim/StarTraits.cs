@@ -24,7 +24,7 @@ namespace Liangshan.Sim
     {
         static readonly StarTrait[] Arrow =
         {
-            new StarTrait { Star = 2, Name = "穿云", Desc = "箭矢穿透 +1 个敌人", Pierce = 1 },
+            new StarTrait { Star = 2, Name = "穿云", Desc = "弹体穿透 +1 个敌人", Pierce = 1 },
             new StarTrait { Star = 3, Name = "百步穿杨", Desc = "暴击率 +22%", Crit = 0.22f },
             new StarTrait { Star = 4, Name = "贯日觉醒", Desc = "穿透再 +1，暴击率再 +18%", Pierce = 1, Crit = 0.18f },
         };
@@ -53,9 +53,9 @@ namespace Liangshan.Sim
 
         static readonly StarTrait[] Spear =
         {
-            new StarTrait { Star = 2, Name = "破阵", Desc = "枪杆加宽 30%", Area = 0.3f },
-            new StarTrait { Star = 3, Name = "长驱", Desc = "贯穿距离 +2，25% 几率钉住 0.5 秒", Reach = 2f, Stun = 0.5f, StunP = 0.25f },
-            new StarTrait { Star = 4, Name = "二段连刺", Desc = "紧跟着再刺一击，60% 伤害", Twin = true },
+            new StarTrait { Star = 2, Name = "破阵", Desc = "冲击加宽 30%", Area = 0.3f },
+            new StarTrait { Star = 3, Name = "长驱", Desc = "贯穿距离 +2，25% 几率震住 0.5 秒", Reach = 2f, Stun = 0.5f, StunP = 0.25f },
+            new StarTrait { Star = 4, Name = "二段追击", Desc = "紧跟着再追一击，60% 伤害", Twin = true },
         };
 
         static readonly StarTrait[] Slam =

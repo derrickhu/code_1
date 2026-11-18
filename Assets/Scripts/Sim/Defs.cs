@@ -233,9 +233,9 @@ namespace Liangshan.Sim
         public static readonly HeroDef[] Heroes =
         {
             // ---------- 初始四人与早期入伙 ----------
-            new HeroDef { Id = HeroId.HuaRong, Name = "华老猎", Nick = "护林神弩", Kind = Sim.Role.Archer, Rarity = 3, Art = "hero_huarong",
-                Shot = ShotKind.Arrow, Coef = 1.42f, Interval = 2.0f, Chain = 1, PierceGrow = 0.18f, AtkName = "穿林劲箭", AtkIcon = "ic_arrow", Noun = "弩箭",
-                PassiveName = "百步穿杨", PassiveEff = Eff.Crit, PassiveV = 0.18f, Desc = "复合猎弩穿透外星军，每穿一敌伤害递增" },
+            new HeroDef { Id = HeroId.HuaRong, Name = "华木匠", Nick = "气钉神手", Kind = Sim.Role.Archer, Rarity = 3, Art = "hero_huarong",
+                Shot = ShotKind.Arrow, Coef = 1.42f, Interval = 2.0f, Chain = 1, PierceGrow = 0.18f, AtkName = "高压射钉", AtkIcon = "ic_arrow", Noun = "钢钉",
+                PassiveName = "百步穿钉", PassiveEff = Eff.Crit, PassiveV = 0.18f, Desc = "改装高压射钉枪穿透外星军，每穿一敌伤害递增" },
             new HeroDef { Id = HeroId.LingZhen, Name = "凌焊神", Nick = "野生发明家", Kind = Sim.Role.Bomber, Rarity = 3, Art = "hero_lingzhen", Element = "火系",
                 Shot = ShotKind.Bomb, Coef = 2.85f, Interval = 4.6f, Radius = 1.25f, Knock = 0.32f, AtkName = "煤气罐炮", AtkIcon = "ic_bomb", Noun = "重炮",
                 PassiveName = "焊装扩容", PassiveEff = Eff.Area, PassiveV = 0.25f, Desc = "土法焊接煤气罐迫击炮，大口径震退外星潮" },
@@ -243,18 +243,18 @@ namespace Liangshan.Sim
                 Shot = ShotKind.Lightning, Coef = 2.60f, Interval = 8.5f, Radius = 0.8f, Chain = 4, AtkName = "高压电弧", AtkIcon = "fx_zap", Noun = "电弧",
                 Ult = UltKind.Thunder, UltName = "拉闸放雷", UltIcon = "fx_lightning", UltCoef = 2.8f, UltCd = 30, UltN = 8, UltStun = 1f, UltRadius = 1.15f,
                 UltTip = "8道万伏雷暴劈向敌群\n每道麻痹1秒",
-                PassiveName = "并网增幅", PassiveEff = Eff.Chain, PassiveV = 2, Desc = "引万伏高压电弧在敌群间连环弹射，克制重甲" },
+                PassiveName = "并网增幅", PassiveEff = Eff.Chain, PassiveV = 2, Desc = "背负双塔超导变压器引万伏电弧连环弹射，克制重甲" },
             new HeroDef { Id = HeroId.WuSong, Name = "武教练", Nick = "散打拳王", Kind = Sim.Role.Fighter, Rarity = 3, Art = "hero_wusong",
                 Shot = ShotKind.Punch, Coef = 2.95f, Interval = 2.7f, Range = 4.8f, Radius = 0.92f, Knock = 0.65f, AtkName = "重炮铁拳", AtkIcon = "wp_ironfist", Proj = "wp_ironfist", Noun = "铁拳",
                 PassiveName = "专打硬茬", PassiveEff = Eff.Elite, PassiveV = 0.6f, Desc = "冠军重拳势大力沉，震退贴墙外星军" },
             new HeroDef { Id = HeroId.ZhangQing, Name = "张雀神", Nick = "麻将宗师", Kind = Sim.Role.Archer, Rarity = 3, Art = "hero_zhangqing",
                 Shot = ShotKind.Stone, Coef = 1.15f, Interval = 2.0f, Radius = 0.32f, Chain = 2, AtkName = "雀神飞牌", AtkIcon = "fx_rock0", Noun = "麻将牌",
                 PassiveName = "听牌自摸", PassiveEff = Eff.Chain, PassiveV = 2, Desc = "甩出麻将牌在外星人脑门之间连环弹射" },
-            new HeroDef { Id = HeroId.LinChong, Name = "林班长", Nick = "冷库枪神", Kind = Sim.Role.Fighter, Rarity = 4, Art = "hero_linchong",
-                Shot = ShotKind.Spear, Coef = 3.40f, Interval = 3.2f, Range = 6.2f, Radius = 0.55f, Knock = 0.30f, AtkName = "液氮长枪", AtkIcon = "wp_snakespear", Proj = "wp_snakespear", Noun = "寒枪",
+            new HeroDef { Id = HeroId.LinChong, Name = "林班长", Nick = "液氮兵王", Kind = Sim.Role.Fighter, Rarity = 4, Art = "hero_linchong",
+                Shot = ShotKind.Spear, Coef = 3.40f, Interval = 3.2f, Range = 6.2f, Radius = 0.55f, Knock = 0.30f, AtkName = "液氮冰炮", AtkIcon = "wp_snakespear", Proj = "wp_snakespear", Noun = "寒流",
                 Ult = UltKind.Frost, UltName = "冷库全开", UltIcon = "fx_ice", UltCoef = 13.5f, UltCd = 30, UltRadius = 1.9f, UltStun = 2.5f,
                 UltTip = "极寒液氮冰封大片敌人\n冻住2.5秒",
-                PassiveName = "退伍兵王", PassiveEff = Eff.Crit, PassiveV = 0.2f, Desc = "超导液氮长枪贯穿一列，攻击距离远" },
+                PassiveName = "退伍兵王", PassiveEff = Eff.Crit, PassiveV = 0.2f, Desc = "背负双联液氮罐喷射超导寒流贯穿整列，攻击距离远" },
             new HeroDef { Id = HeroId.LuZhiShen, Name = "鲁大力", Nick = "筑路猛汉", Kind = Sim.Role.Fighter, Rarity = 3, Art = "hero_luzhishen",
                 Shot = ShotKind.Slam, Coef = 3.80f, Interval = 3.5f, Range = 5.2f, Radius = 1.2f, Knock = 0.55f, AtkName = "千斤夯锤", AtkIcon = "wp_staff", Proj = "wp_staff", Noun = "夯锤",
                 PassiveName = "天生神力", PassiveEff = Eff.Speed, PassiveV = 0.2f, Desc = "筑路打夯大石锤腾空砸地，大范围震退" },
@@ -264,62 +264,62 @@ namespace Liangshan.Sim
                 PassiveName = "勤俭持村", PassiveEff = Eff.Coin, PassiveV = 15, Desc = "摇扇鼓舞输出乡亲加攻速，在场提升全村攻速" },
 
             // ---------- 传说 ----------
-            new HeroDef { Id = HeroId.LuJunyi, Name = "卢武师", Nick = "金龙教头", Kind = Sim.Role.Fighter, Rarity = 4, Art = "hero_lujunyi",
-                Shot = ShotKind.Spear, Coef = 3.70f, Interval = 3.2f, Range = 6.0f, Radius = 0.8f, Knock = 0.32f, AtkName = "金龙大杆", AtkIcon = "wp_spear", Proj = "wp_spear", Noun = "大杆",
+            new HeroDef { Id = HeroId.LuJunyi, Name = "卢宗师", Nick = "醒狮武王", Kind = Sim.Role.Fighter, Rarity = 4, Art = "hero_lujunyi",
+                Shot = ShotKind.Spear, Coef = 3.70f, Interval = 3.2f, Range = 6.0f, Radius = 0.8f, Knock = 0.32f, AtkName = "醒狮金棍", AtkIcon = "wp_spear", Proj = "wp_spear", Noun = "金棍",
                 Ult = UltKind.Sweep, UltName = "横扫村口", UltIcon = "fx_wave", UltCoef = 10.0f, UltCd = 30, UltN = 5,
-                UltTip = "金龙杆横扫防线前一整排\n五段击飞",
-                PassiveName = "武馆宗师", PassiveEff = Eff.Crit, PassiveV = 0.15f, Desc = "白蜡金龙大杆宽幅横扫，一次挑翻一列" },
+                UltTip = "金龙电光棍横扫防线前一整排\n五段击飞",
+                PassiveName = "醒狮宗师", PassiveEff = Eff.Crit, PassiveV = 0.15f, Desc = "金狮披挂加持高压电光武棍宽幅横扫，一次挑翻一列" },
             new HeroDef { Id = HeroId.GuanSheng, Name = "关大爷", Nick = "镇村刀神", Kind = Sim.Role.Fighter, Rarity = 4, Art = "hero_guansheng",
-                Shot = ShotKind.Slam, Coef = 4.35f, Interval = 3.5f, Range = 5.4f, Radius = 1.3f, Knock = 0.55f, AtkName = "社火关刀", AtkIcon = "wp_broadsword", Proj = "wp_broadsword", Noun = "大刀",
+                Shot = ShotKind.Slam, Coef = 4.35f, Interval = 3.5f, Range = 5.4f, Radius = 1.3f, Knock = 0.55f, AtkName = "热熔重刀", AtkIcon = "wp_broadsword", Proj = "wp_broadsword", Noun = "大刀",
                 Ult = UltKind.Sweep, UltName = "社火刀阵", UltIcon = "fx_shock", UltCoef = 11.5f, UltCd = 30, UltN = 5,
-                UltTip = "青龙大刀横扫防线前\n五段重劈",
-                PassiveName = "老当益壮", PassiveEff = Eff.Elite, PassiveV = 0.5f, Desc = "祖传社火重刀腾空劈斩，范围大伤害高" },
+                UltTip = "超导热熔重刀横扫防线前\n五段重劈",
+                PassiveName = "老当益壮", PassiveEff = Eff.Elite, PassiveV = 0.5f, Desc = "背插社火双旗挥烧红弹簧钢重刀腾空劈斩，范围大伤害高" },
             new HeroDef { Id = HeroId.YanQing, Name = "小燕子", Nick = "改装极客", Kind = Sim.Role.Archer, Rarity = 4, Art = "hero_yanqing",
-                Shot = ShotKind.Arrow, Coef = 0.58f, Interval = 1.9f, Count = 3, AtkName = "三联钉弩", AtkIcon = "ic_arrow", Noun = "钢钉",
+                Shot = ShotKind.Arrow, Coef = 0.58f, Interval = 1.9f, Count = 3, AtkName = "三联钉枪", AtkIcon = "ic_arrow", Noun = "钢钉",
                 Ult = UltKind.Snipe, UltName = "超距狙击", UltIcon = "fx_goldarrow", UltCoef = 11f, UltCd = 30,
                 UltTip = "锁定场上最强外星头目\n一发重创",
-                PassiveName = "极速供弹", PassiveEff = Eff.Speed, PassiveV = 0.2f, Desc = "唯一三连电磁射钉射手，场上满四位再添一钉" },
+                PassiveName = "双翼供弹", PassiveEff = Eff.Speed, PassiveV = 0.2f, Desc = "双翼无人机辅助三联电磁射钉，场上满四位再添一钉" },
             new HeroDef { Id = HeroId.FanRui, Name = "樊飞手", Nick = "狂风飞手", Kind = Sim.Role.Mage, Rarity = 4, Art = "hero_fanrui", Element = "风系",
                 Shot = ShotKind.Wind, Coef = 0.88f, Interval = 12.0f, Chan = 3f, Tick = 0.25f, Radius = 1.1f, Slow = 1.5f, AtkName = "旋风涡流", AtkIcon = "fx_smoke", Noun = "涡流", Tint = "C9D9C2",
                 Ult = UltKind.Tornado, UltName = "十级狂飙", UltIcon = "fx_rock1", UltCoef = 9.0f, UltCd = 30, UltRadius = 2.2f, UltStun = 1f,
-                UltTip = "无人机龙卷风卷起敌群\n眩晕1秒",
-                PassiveName = "涡轮增压", PassiveEff = Eff.Dmg, PassiveV = 0.2f, Desc = "植保无人机吹出强风持续绞杀，范围减速" },
-            new HeroDef { Id = HeroId.HuSanniang, Name = "胡三妹", Nick = "牧场飒姐", Kind = Sim.Role.Control, Rarity = 4, Art = "hero_husanniang",
-                Shot = ShotKind.Lasso, Coef = 2.90f, Interval = 5.2f, Stun = 1.6f, AtkName = "缚牛红索", AtkIcon = "wp_lasso", Proj = "wp_lasso", ProjSpin = true, Noun = "套索", Tint = "E8483A",
+                UltTip = "巨型八旋翼无人机卷起敌群\n眩晕1秒",
+                PassiveName = "涡轮增压", PassiveEff = Eff.Dmg, PassiveV = 0.2f, Desc = "操控巨型八旋翼植保机吹出强风持续绞杀，范围减速" },
+            new HeroDef { Id = HeroId.HuSanniang, Name = "胡三妹", Nick = "套马飒姐", Kind = Sim.Role.Control, Rarity = 4, Art = "hero_husanniang",
+                Shot = ShotKind.Lasso, Coef = 2.90f, Interval = 5.2f, Stun = 1.6f, AtkName = "电磁红索", AtkIcon = "wp_lasso", Proj = "wp_lasso", ProjSpin = true, Noun = "套索", Tint = "E8483A",
                 Ult = UltKind.Bind, UltName = "五花大绑", UltIcon = "ic_hand", UltCoef = 6.6f, UltCd = 30, UltN = 5, UltStun = 2.5f,
                 UltTip = "同时套住5个外星人\n优先精英首领",
-                PassiveName = "驯牛巧劲", PassiveEff = Eff.Stun, PassiveV = 0.4f, Desc = "高强套牛索精准锁敌，连外星首领也能捆住" },
+                PassiveName = "套马巧劲", PassiveEff = Eff.Stun, PassiveV = 0.4f, Desc = "电磁绞盘驱动发光红索精准锁敌，连外星首领也能捆住" },
             new HeroDef { Id = HeroId.AnDaoquan, Name = "安神医", Nick = "赤脚神医", Kind = Sim.Role.Support, Rarity = 4, Art = "hero_andaoquan", Element = "风系",
                 Shot = ShotKind.Wind, Interval = 20f, Buff = UltKind.Mend, BuffV = 0.08f, AtkName = "醒脑修墙", AtkIcon = "ic_heart", Noun = "汤药", Tint = "8FF0A0",
                 Aura = AuraKind.Heal,
                 Ult = UltKind.Heal, UltName = "妙手加固", UltIcon = "ic_heart", UltCoef = 0.3f, UltCd = 40,
                 UltTip = "村口防线回复30%\n解除全部晕眩",
-                PassiveName = "祖传秘方", PassiveEff = Eff.Aura, PassiveV = 0.5f, Desc = "定时抢修村口防线，银针解除乡亲晕眩" },
+                PassiveName = "祖传秘方", PassiveEff = Eff.Aura, PassiveV = 0.5f, Desc = "翠玉药葫芦与悬浮金针抢修村口防线，解除乡亲晕眩" },
             new HeroDef { Id = HeroId.DaiZong, Name = "戴领舞", Nick = "广场舞王", Kind = Sim.Role.Support, Rarity = 4, Art = "hero_daizong",
                 Shot = ShotKind.Stone, Interval = 20f, Buff = UltKind.Rush, BuffV = 0.3f, AtkName = "动感节拍", AtkIcon = "ic_fast", Noun = "节拍", Tint = "FFD84A",
                 Aura = AuraKind.Charge, AuraV = 0.04f,
                 Ult = UltKind.Haste, UltName = "最炫神曲", UltIcon = "ic_fast", UltCd = 35,
                 UltTip = "全村攻速+60%\n持续8秒",
-                PassiveName = "领舞气场", PassiveEff = Eff.Aura, PassiveV = 0.5f, Desc = "劲曲带动全队缩短冷却，在场技能转得更快" },
+                PassiveName = "领舞气场", PassiveEff = Eff.Aura, PassiveV = 0.5f, Desc = "悬浮低音炮音响阵劲曲带动全队缩短冷却，技能转得更快" },
             new HeroDef { Id = HeroId.QinMing, Name = "秦厂长", Nick = "花炮狂人", Kind = Sim.Role.Bomber, Rarity = 4, Art = "hero_qinming", Element = "火系",
                 Shot = ShotKind.Fireball, Coef = 3.40f, Interval = 4.5f, Radius = 1.3f, Dot = 0.45f, AtkName = "高爆礼花", AtkIcon = "fx_fireball", Noun = "礼花",
                 Ult = UltKind.Meteor, UltName = "除夕总攻", UltIcon = "fx_explode", UltCoef = 3.8f, UltCd = 30, UltN = 10, UltRadius = 1.2f,
                 UltTip = "漫天砸落10颗巨型礼花弹\n轰炸敌群",
-                PassiveName = "黑药加量", PassiveEff = Eff.Area, PassiveV = 0.25f, Desc = "天降重型庆典礼花弹，大招十颗天火洗地" },
+                PassiveName = "黑药加量", PassiveEff = Eff.Area, PassiveV = 0.25f, Desc = "背负金龙礼花巢轰出庆典重型礼花弹，大招十发洗地" },
 
             // ---------- 史诗 ----------
-            new HeroDef { Id = HeroId.LiKui, Name = "李黑牛", Nick = "旋风樵夫", Kind = Sim.Role.Fighter, Rarity = 3, Art = "hero_likui",
-                Shot = ShotKind.Punch, Coef = 2.95f, Interval = 2.9f, Range = 4.8f, Radius = 1.05f, Knock = 0.52f, AtkName = "旋风劈斧", AtkIcon = "wp_axe_spin", Proj = "wp_axe", ProjSpin = true, Noun = "飞斧",
-                PassiveName = "乱斧开山", PassiveEff = Eff.Area, PassiveV = 0.3f, Desc = "甩出沉重回旋劈柴斧，击退近墙外星军" },
+            new HeroDef { Id = HeroId.LiKui, Name = "李铁牛", Nick = "油锯猛汉", Kind = Sim.Role.Fighter, Rarity = 3, Art = "hero_likui",
+                Shot = ShotKind.Punch, Coef = 2.95f, Interval = 2.9f, Range = 4.8f, Radius = 1.05f, Knock = 0.52f, AtkName = "旋风油锯", AtkIcon = "wp_axe_spin", Proj = "wp_axe", ProjSpin = true, Noun = "油锯",
+                PassiveName = "双锯开山", PassiveEff = Eff.Area, PassiveV = 0.3f, Desc = "双持大马力伐木油锯呼啸切割，击退近墙外星军" },
             new HeroDef { Id = HeroId.QiaoDaoqing, Name = "乔老板", Nick = "烈火烤王", Kind = Sim.Role.Mage, Rarity = 3, Art = "hero_qiaodaoqing", Element = "火系",
                 Shot = ShotKind.Beam, Coef = 0.58f, Interval = 11.5f, Chan = 3f, Tick = 0.2f, Radius = 0.45f, AtkName = "炙烤火舌", AtkIcon = "fx_fireball", Noun = "火舌", Tint = "FF8A2A",
-                PassiveName = "猛火炙烤", PassiveEff = Eff.Crit, PassiveV = 0.15f, Desc = "喷出高温焊枪火舌持续融甲，火伤克制重甲" },
+                PassiveName = "猛火炙烤", PassiveEff = Eff.Crit, PassiveV = 0.15f, Desc = "喷出高温烤枪火舌持续融甲，火伤克制重甲" },
             new HeroDef { Id = HeroId.ZhuWu, Name = "朱棋王", Nick = "残局大爷", Kind = Sim.Role.Control, Rarity = 3, Art = "hero_zhuwu", Element = "风系",
                 Shot = ShotKind.Wind, Coef = 1.9f, Interval = 6.0f, Radius = 1.6f, Slow = 3f, AtkName = "楚河棋阵", AtkIcon = "prop_book", Noun = "棋阵", Tint = "7FB4FF",
                 PassiveName = "老谋深算", PassiveEff = Eff.Slow, PassiveV = 1f, Desc = "展开强磁象棋大阵困住敌群，长时间减速" },
-            new HeroDef { Id = HeroId.XuNing, Name = "徐农机", Nick = "铁钩机手", Kind = Sim.Role.Control, Rarity = 3, Art = "hero_xuning",
-                Shot = ShotKind.Spear, Coef = 2.95f, Interval = 4.6f, Range = 6.0f, Radius = 0.6f, Slow = 2f, AtkName = "液压抓钩", AtkIcon = "wp_hookspear", Proj = "wp_hookspear", Noun = "抓钩", Tint = "FFD27A",
-                PassiveName = "专拆底盘", PassiveEff = Eff.Cav, PassiveV = 0.5f, Desc = "长柄液压抓钩拖慢敌军，专克飞艇与机甲兽" },
+            new HeroDef { Id = HeroId.XuNing, Name = "徐农机", Nick = "铁臂机手", Kind = Sim.Role.Control, Rarity = 3, Art = "hero_xuning",
+                Shot = ShotKind.Spear, Coef = 2.95f, Interval = 4.6f, Range = 6.0f, Radius = 0.6f, Slow = 2f, AtkName = "液压抓钳", AtkIcon = "wp_hookspear", Proj = "wp_hookspear", Noun = "抓钳", Tint = "FFD27A",
+                PassiveName = "专拆底盘", PassiveEff = Eff.Cav, PassiveV = 0.5f, Desc = "重型挖掘机液压钢抓钳拖慢敌军，专克飞艇与机甲兽" },
             new HeroDef { Id = HeroId.ShanTinggui, Name = "单消防", Nick = "高压水手", Kind = Sim.Role.Mage, Rarity = 3, Art = "hero_shantinggui", Element = "水系",
                 Shot = ShotKind.Beam, Coef = 0.54f, Interval = 11.5f, Chan = 3f, Tick = 0.2f, Radius = 0.5f, Slow = 1.5f, AtkName = "高压水柱", AtkIcon = "fx_icecrystal", Noun = "水柱", Tint = "6FC8FF",
                 PassiveName = "增压水泵", PassiveEff = Eff.Dmg, PassiveV = 0.2f, Desc = "大功率水炮冲刷一整条直线，沿途强力减速" },
@@ -329,14 +329,14 @@ namespace Liangshan.Sim
 
             // ---------- 稀有 ----------
             new HeroDef { Id = HeroId.ShiXiu, Name = "王铁柱", Nick = "快刀屠夫", Kind = Sim.Role.Fighter, Rarity = 2, Art = "hero_shixiu",
-                Shot = ShotKind.Punch, Coef = 1.85f, Interval = 2.2f, Range = 4.8f, Radius = 0.72f, Knock = 0.34f, AtkName = "剔骨快刀", AtkIcon = "wp_jian", Proj = "wp_jian", ProjSize = 1.0f, Noun = "快刀",
-                PassiveName = "刀法利落", PassiveEff = Eff.Crit, PassiveV = 0.2f, Desc = "宽背寒钢剔骨快刀凌厉劈斩，暴击极高" },
+                Shot = ShotKind.Punch, Coef = 1.85f, Interval = 2.2f, Range = 4.8f, Radius = 0.72f, Knock = 0.34f, AtkName = "剔骨快刀", AtkIcon = "wp_dao", Proj = "wp_dao", ProjSize = 1.0f, Noun = "快刀",
+                PassiveName = "刀法利落", PassiveEff = Eff.Crit, PassiveV = 0.2f, Desc = "宽背精钢剔骨斩骨刀凌厉劈斩，暴击极高" },
             new HeroDef { Id = HeroId.XieZhen, Name = "二狗子", Nick = "弹弓皮猴", Kind = Sim.Role.Archer, Rarity = 2, Art = "hero_xiezhen",
                 Shot = ShotKind.Arrow, Coef = 1.18f, Interval = 1.9f, AtkName = "穿云钢珠", AtkIcon = "ic_arrow", Noun = "钢珠",
                 PassiveName = "打鸟专家", PassiveEff = Eff.Fly, PassiveV = 0.5f, Desc = "钛合金弹弓精准点射，专克空中飞碟" },
-            new HeroDef { Id = HeroId.XieBao, Name = "王大壮", Nick = "钢叉猛男", Kind = Sim.Role.Archer, Rarity = 2, Art = "hero_xiebao",
-                Shot = ShotKind.Arrow, Coef = 1.15f, Interval = 2.1f, Chain = 1, Dot = 0.35f, AtkName = "生化钢叉", AtkIcon = "wp_fork", Proj = "wp_fork", Noun = "钢叉",
-                PassiveName = "双倍辣毒", PassiveEff = Eff.Chain, PassiveV = 1, Desc = "三股钢叉穿透外星人并附带持续生化辣毒" },
+            new HeroDef { Id = HeroId.XieBao, Name = "王大壮", Nick = "辣叉壮汉", Kind = Sim.Role.Archer, Rarity = 2, Art = "hero_xiebao",
+                Shot = ShotKind.Arrow, Coef = 1.15f, Interval = 2.1f, Chain = 1, Dot = 0.35f, AtkName = "魔鬼辣叉", AtkIcon = "wp_fork", Proj = "wp_fork", Noun = "辣叉",
+                PassiveName = "双倍辣毒", PassiveEff = Eff.Chain, PassiveV = 1, Desc = "蘸满特辣红油的不锈钢农叉穿透外星人并附带持续辣毒" },
             new HeroDef { Id = HeroId.MaLing, Name = "马包工", Nick = "红砖队长", Kind = Sim.Role.Mage, Rarity = 2, Art = "hero_maling", Element = "磁系",
                 Shot = ShotKind.Stone, Coef = 2.00f, Interval = 3.8f, Radius = 0.45f, Stun = 0.8f, StunChance = 0.35f, AtkName = "磁化红砖", AtkIcon = "wp_goldbrick", Proj = "wp_goldbrick", ProjSpin = true, Noun = "红砖", Tint = "FFD24A",
                 PassiveName = "砌墙快手", PassiveEff = Eff.Speed, PassiveV = 0.2f, Desc = "甩出电磁实心红砖从天砸落，高几率拍晕外星人" },
@@ -497,8 +497,8 @@ namespace Liangshan.Sim
                     });
                 AddPlays(list, d, key);
             }
-            Add(HeroId.HuaRong, ("连珠劲弩", Eff.Count, 1, 2), ("一箭双穿", Eff.Chain, 1, 2), ("护林鹰眼", Eff.Crit, 0.2f, 1), ("复合强弦", Eff.Dmg, 0.35f, 2),
-                ("神弩之魂", Eff.Dmg, 1f, 1), ("疾风连射", Eff.Speed, 0.5f, 1), ("万箭齐发", Eff.UltPow, 1f, 1));
+            Add(HeroId.HuaRong, ("双排钉匣", Eff.Count, 1, 2), ("一钉双穿", Eff.Chain, 1, 2), ("鲁班准星", Eff.Crit, 0.2f, 1), ("气泵增压", Eff.Dmg, 0.35f, 2),
+                ("匠心神射", Eff.Dmg, 1f, 1), ("连发射钉", Eff.Speed, 0.5f, 1), ("万钉齐发", Eff.UltPow, 1f, 1));
             Add(HeroId.LingZhen, ("双联罐炮", Eff.Count, 1, 2), ("丙烷加压", Eff.Area, 0.35f, 2), ("子母巨弹", Eff.Split, 1, 1), ("焊枪改良", Eff.Dmg, 0.35f, 2),
                 ("子母连环", Eff.Count, 2, 1), ("手工核弹", Eff.Dmg, 1f, 1), ("炮火连天", Eff.UltCd, 0.3f, 1));
             Add(HeroId.GongSun, ("双路电弧", Eff.Count, 1, 2), ("超压导电", Eff.Chain, 2, 2), ("触电麻痹", Eff.Stun, 0.3f, 1), ("升压线圈", Eff.Dmg, 0.35f, 2),
@@ -507,22 +507,22 @@ namespace Liangshan.Sim
                 ("疾风摆拳", Eff.Speed, 0.6f, 1), ("金腰带", Eff.Dmg, 1f, 1), ("擂台制霸", Eff.UltPow, 1f, 1));
             Add(HeroId.ZhangQing, ("连环摸牌", Eff.Chain, 2, 2), ("杠上拍晕", Eff.Stun, 0.3f, 1), ("红中发财", Eff.Dmg, 0.3f, 2), ("盲摸快手", Eff.Speed, 0.3f, 1),
                 ("天胡牌雨", Eff.Chain, 4, 1), ("清一色", Eff.Dmg, 1f, 1), ("连庄不绝", Eff.UltPow, 1f, 1));
-            Add(HeroId.LinChong, ("加长枪杆", Eff.Range, 1.5f, 2), ("冷锋暴击", Eff.Crit, 0.25f, 1), ("液氮挂霜", Eff.Slow, 1.6f, 1), ("急速突刺", Eff.Dmg, 0.35f, 2),
-                ("冰封防线", Eff.Dmg, 1f, 1), ("极度深寒", Eff.UltPow, 1f, 1), ("连环冷刺", Eff.Speed, 0.5f, 1));
+            Add(HeroId.LinChong, ("加压喷管", Eff.Range, 1.5f, 2), ("冷锋暴击", Eff.Crit, 0.25f, 1), ("液氮挂霜", Eff.Slow, 1.6f, 1), ("急冻齐射", Eff.Dmg, 0.35f, 2),
+                ("冰封防线", Eff.Dmg, 1f, 1), ("极度深寒", Eff.UltPow, 1f, 1), ("连环寒潮", Eff.Speed, 0.5f, 1));
             Add(HeroId.LuZhiShen, ("大锤横扫", Eff.Area, 0.4f, 2), ("抡锤生风", Eff.Speed, 0.4f, 2), ("碎甲重锤", Eff.Elite, 1f, 1), ("筑路怪力", Eff.Dmg, 0.35f, 1),
                 ("力拔山兮", Eff.UltPow, 1f, 1), ("巨锤开路", Eff.Dmg, 1f, 1), ("地动山摇", Eff.Area, 0.6f, 1));
             Add(HeroId.WuYong, ("清风徐来", Eff.Aura, 0.5f, 2), ("枸杞提神", Eff.Dmg, 0.6f, 2), ("经费节流", Eff.Coin, 15, 1), ("课间铃声", Eff.UltCd, 0.2f, 1),
                 ("满堂高徒", Eff.Aura, 1f, 1), ("谆谆教诲", Eff.UltPow, 1f, 1), ("神清气爽", Eff.Speed, 0.5f, 1));
 
-            Add(HeroId.LuJunyi, ("横扫千军", Eff.Area, 0.4f, 2), ("枪杆无双", Eff.Dmg, 0.35f, 2), ("金龙点睛", Eff.Crit, 0.2f, 1), ("疾风快杆", Eff.Speed, 0.3f, 1),
-                ("武林泰斗", Eff.Dmg, 1f, 1), ("破阵长杆", Eff.UltPow, 1f, 1), ("游龙出洞", Eff.Speed, 0.5f, 1));
-            Add(HeroId.GuanSheng, ("满月劈斩", Eff.Area, 0.35f, 2), ("刀劈机甲", Eff.Elite, 1f, 1), ("红脸威风", Eff.Dmg, 0.35f, 2), ("流云快刀", Eff.Speed, 0.3f, 1),
-                ("青龙腾空", Eff.Dmg, 1f, 1), ("社火压轴", Eff.UltPow, 1f, 1), ("刀风浩荡", Eff.Area, 0.6f, 1));
+            Add(HeroId.LuJunyi, ("横扫千军", Eff.Area, 0.4f, 2), ("金棍无双", Eff.Dmg, 0.35f, 2), ("醒狮点睛", Eff.Crit, 0.2f, 1), ("疾风快棍", Eff.Speed, 0.3f, 1),
+                ("武林泰斗", Eff.Dmg, 1f, 1), ("电光破阵", Eff.UltPow, 1f, 1), ("游龙出洞", Eff.Speed, 0.5f, 1));
+            Add(HeroId.GuanSheng, ("满月劈斩", Eff.Area, 0.35f, 2), ("刀劈机甲", Eff.Elite, 1f, 1), ("热熔威风", Eff.Dmg, 0.35f, 2), ("流云快刀", Eff.Speed, 0.3f, 1),
+                ("烈焰开山", Eff.Dmg, 1f, 1), ("社火压轴", Eff.UltPow, 1f, 1), ("刀风浩荡", Eff.Area, 0.6f, 1));
             Add(HeroId.YanQing, ("扩容钉匣", Eff.Count, 1, 2), ("钨钢穿钉", Eff.Chain, 1, 1), ("激光校准", Eff.Crit, 0.2f, 1), ("电磁加速", Eff.Dmg, 0.35f, 2),
                 ("万钉齐发", Eff.Count, 2, 1), ("弱点狙杀", Eff.UltPow, 1f, 1), ("无刷连发", Eff.Speed, 0.5f, 1));
             Add(HeroId.FanRui, ("广角风场", Eff.Area, 0.35f, 2), ("砂石卷击", Eff.Stun, 0.3f, 1), ("碳纤桨叶", Eff.Dmg, 0.35f, 2), ("低压气团", Eff.Slow, 1f, 1),
                 ("超强风压", Eff.Dmg, 1f, 1), ("狂飙席卷", Eff.UltPow, 1f, 1), ("双倍旋翼", Eff.Area, 0.6f, 1));
-            Add(HeroId.HuSanniang, ("双索齐飞", Eff.Count, 1, 2), ("牧场劲绳", Eff.Dmg, 0.35f, 2), ("死结", Eff.Stun, 0.5f, 1), ("套头目", Eff.Elite, 0.6f, 1),
+            Add(HeroId.HuSanniang, ("双索齐飞", Eff.Count, 1, 2), ("电磁劲绳", Eff.Dmg, 0.35f, 2), ("死结", Eff.Stun, 0.5f, 1), ("套头目", Eff.Elite, 0.6f, 1),
                 ("连环套索", Eff.Count, 2, 1), ("生擒活捉", Eff.UltPow, 1f, 1), ("快手甩绳", Eff.Speed, 0.5f, 1));
             Add(HeroId.AnDaoquan, ("银针", Eff.Aura, 0.5f, 2), ("浓煎草药", Eff.Dmg, 0.5f, 1), ("急诊包扎", Eff.UltCd, 0.25f, 1), ("提神药膏", Eff.Speed, 0.3f, 1),
                 ("妙手神针", Eff.Aura, 1f, 1), ("固若金汤", Eff.UltPow, 1f, 1), ("随叫随到", Eff.Speed, 0.5f, 1));
@@ -531,14 +531,14 @@ namespace Liangshan.Sim
             Add(HeroId.QinMing, ("双管礼花", Eff.Count, 1, 2), ("绚烂炸裂", Eff.Area, 0.35f, 2), ("高纯铝粉", Eff.Dmg, 0.35f, 2), ("快引火线", Eff.Speed, 0.3f, 1),
                 ("盛世烟火", Eff.Dmg, 1f, 1), ("流星礼花", Eff.UltPow, 1f, 1), ("漫天花火", Eff.Area, 0.6f, 1));
 
-            Add(HeroId.LiKui, ("双斧同掷", Eff.Count, 1, 2), ("大回旋", Eff.Area, 0.4f, 2), ("猛汉挥臂", Eff.Speed, 0.35f, 2), ("开刃利斧", Eff.Dmg, 0.35f, 1),
-                ("专劈巨兽", Eff.Elite, 1.5f, 1), ("狂风飞斧", Eff.UltPow, 1f, 1), ("蛮牛巨力", Eff.Dmg, 1f, 1));
+            Add(HeroId.LiKui, ("双锯齐轰", Eff.Count, 1, 2), ("加长锯板", Eff.Area, 0.4f, 2), ("拉满油门", Eff.Speed, 0.35f, 2), ("合金锯链", Eff.Dmg, 0.35f, 1),
+                ("专锯巨兽", Eff.Elite, 1.5f, 1), ("旋风链锯", Eff.UltPow, 1f, 1), ("铁牛巨力", Eff.Dmg, 1f, 1));
             Add(HeroId.QiaoDaoqing, ("猛火喷嘴", Eff.Dmg, 0.35f, 2), ("宽幅烤架", Eff.Area, 0.35f, 2), ("延时喷火", Eff.Count, 1, 1), ("加压气瓶", Eff.Speed, 0.3f, 1),
                 ("炭火融金", Eff.Dmg, 1f, 1), ("爆烤全场", Eff.UltPow, 1f, 1), ("双倍火力", Eff.Count, 2, 1));
             Add(HeroId.ZhuWu, ("扩盘", Eff.Area, 0.35f, 2), ("连环杀招", Eff.Slow, 1f, 2), ("当头炮", Eff.Stun, 0.25f, 1), ("重炮将死", Eff.Dmg, 0.4f, 1),
                 ("绝杀残局", Eff.UltPow, 1f, 1), ("天地棋盘", Eff.Area, 0.6f, 1), ("快棋", Eff.Speed, 0.5f, 1));
-            Add(HeroId.XuNing, ("破甲钩爪", Eff.Cav, 0.5f, 2), ("熟练操作", Eff.Dmg, 0.35f, 2), ("卡死履带", Eff.Stun, 0.25f, 1), ("伸缩长臂", Eff.Range, 1.5f, 1),
-                ("拆车专家", Eff.Cav, 1.5f, 1), ("液压狂潮", Eff.UltPow, 1f, 1), ("高速回钩", Eff.Speed, 0.5f, 1));
+            Add(HeroId.XuNing, ("破甲钢钳", Eff.Cav, 0.5f, 2), ("熟练操作", Eff.Dmg, 0.35f, 2), ("卡死履带", Eff.Stun, 0.25f, 1), ("伸缩液压臂", Eff.Range, 1.5f, 1),
+                ("拆车专家", Eff.Cav, 1.5f, 1), ("液压狂潮", Eff.UltPow, 1f, 1), ("高速回钳", Eff.Speed, 0.5f, 1));
             Add(HeroId.ShanTinggui, ("大口径", Eff.Area, 0.35f, 2), ("冰井凉水", Eff.Slow, 1f, 1), ("水压倍增", Eff.Dmg, 0.35f, 2), ("双泵联动", Eff.Speed, 0.3f, 1),
                 ("怒涛冲刷", Eff.UltPow, 1f, 1), ("消防精英", Eff.Dmg, 1f, 1), ("巨浪滔天", Eff.Area, 0.6f, 1));
             Add(HeroId.WeiDingguo, ("双罐齐投", Eff.Count, 1, 2), ("热油飞溅", Eff.Area, 0.35f, 2), ("沸点红油", Eff.Dmg, 0.35f, 1), ("子母油罐", Eff.Split, 1, 1),
@@ -681,17 +681,17 @@ namespace Liangshan.Sim
         {
             public static readonly string[] Surge =
         {
-            "重弩穿空", "超压巨炮", "变压器暴走", "冠军重勾拳", "大牌压顶", "极寒枪芒", "万吨重锤", "勤俭持村",
-            "盘龙破阵", "青龙狂斩", "电磁暴射", "旋翼风暴", "连环困索", "神医妙方", "劲曲高潮", "巨型礼花王",
-            "开山巨斧", "超温焊焰", "将死困局", "重型液压钩", "消防水龙", "沸腾大油瓮",
-            "案板惊雷斩", "金刚大钢珠", "巨型夺命叉", "天降大板砖", "震村大礼炮", "神级大改装", "十里呛魂雾", "巨网罩全场", "极速顺手礼", "利滚利翻倍",
+            "超压穿甲钉", "超压巨炮", "变压器暴走", "冠军重勾拳", "大牌压顶", "极寒冰柱", "万吨重锤", "勤俭持村",
+            "醒狮电光棍", "烈焰狂斩", "电磁暴射", "旋翼风暴", "连环困索", "神医妙方", "劲曲高潮", "巨型礼花王",
+            "暴走大油锯", "超温焊焰", "将死困局", "重型液压钳", "消防水龙", "沸腾大油瓮",
+            "案板惊雷斩", "金刚大钢珠", "巨型魔鬼叉", "天降大板砖", "震村大礼炮", "神级大改装", "十里呛魂雾", "巨网罩全场", "极速顺手礼", "利滚利翻倍",
         };
             public static readonly string[] Awaken =
         {
-            "一箭串糖葫芦", "土法重炮营", "全村超载电暴", "十八连环拳", "杠上开花雨", "极寒穿云刺", "倒拔电线杆", "桃李满村口",
-            "金龙镇山河", "刀神显威", "暴雨梨花钉", "超级台风眼", "天罗捆仙索", "杏林春满园", "全村摇起来", "满天红火海",
-            "后山劈柴王", "孜然火焰山", "将军死胡同", "钩翻飞碟阵", "百米大水龙", "沸油泼天阵",
-            "案板无影刀", "百步穿飞碟", "农家夺命叉", "万砖拍脑门", "开门满堂红", "神级手艺人", "十里呛魂香", "一网打尽光", "全村及时达", "算盘响黄金",
+            "一钉串糖葫芦", "土法重炮营", "全村超载电暴", "十八连环拳", "杠上开花雨", "绝对零度场", "倒拔电线杆", "桃李满村口",
+            "醒狮镇山河", "刀神显威", "暴雨梨花钉", "超级台风眼", "天罗电磁索", "杏林春满园", "全村摇起来", "满天红火海",
+            "后山油锯王", "孜然火焰山", "将军死胡同", "钳翻飞碟阵", "百米大水龙", "沸油泼天阵",
+            "案板无影刀", "百步穿飞碟", "农家魔鬼叉", "万砖拍脑门", "开门满堂红", "神级手艺人", "十里呛魂香", "一网打尽光", "全村及时达", "算盘响黄金",
         };
         }
 
