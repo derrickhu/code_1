@@ -155,7 +155,7 @@ namespace Liangshan
         void BuildTop()
         {
             var title = TopRt(0, 60, new Vector2(720, 80), "title");
-            _title = Ui.Outlined(title, B.Stage.Title, 50, Color.white, Vector2.zero, new Vector2(720, 80), Pal.Hex("102236"), 3.5f);
+            _title = Ui.SingleLine(Ui.Outlined(title, B.Stage.Title, 50, Color.white, Vector2.zero, new Vector2(720, 80), Pal.Hex("102236"), 3.5f), 28);
             _wavePill = TopRt(0, 126, new Vector2(276, 54), "wave");
             Ui.Box(_wavePill, new Vector2(276, 54), Vector2.zero, Pal.Hex("5E82A4").A(0.55f), Art.Pill);
             Ui.Box(_wavePill, new Vector2(270, 48), Vector2.zero, Pal.Hex("132232").A(0.84f), Art.Pill);
@@ -886,7 +886,7 @@ namespace Liangshan
             var sk = Skill(u, tab, atk);
             var blk = new Vector2(130, 20);
             Ui.Box(_info, new Vector2(746, 174), blk, Pal.Hex("132233"), Art.Rounded);
-            Ui.Outlined(_info, sk.Name, 34, sk.Locked ? Pal.Hex("8CA2B8") : Color.white, blk + new Vector2(-176, 58), new Vector2(368, 44), Pal.Hex("0C1622"), 2f, TextAnchor.MiddleLeft);
+            Ui.SingleLine(Ui.Outlined(_info, sk.Name, 34, sk.Locked ? Pal.Hex("8CA2B8") : Color.white, blk + new Vector2(-176, 58), new Vector2(368, 44), Pal.Hex("0C1622"), 2f, TextAnchor.MiddleLeft), 22);
             string cd = sk.Cd <= 0 ? "" : sk.Cut > 0.05f
                 ? $"冷却：<color=#FFB648>{sk.Cd:0.0#}s</color><color=#7DE35A>-{sk.Cut:0.0#}s</color>"
                 : $"冷却：<color=#FFB648>{sk.Cd:0.0#}s</color>";
@@ -1033,7 +1033,7 @@ namespace Liangshan
             Ui.Box(_info, new Vector2(162, 34), card + new Vector2(0, -34), new Color(0.05f, 0.1f, 0.18f, 0.16f), Art.GroundShadow);
             Ui.Icon(_info, d.Art, 188, card + new Vector2(0, 22));
             Ui.Box(_info, new Vector2(216, 58), card + new Vector2(0, -96), Pal.Hex("D6E3F0"), Art.Rounded);
-            Ui.Label(_info, d.Name, 34, Pal.Ink, card + new Vector2(0, -96), new Vector2(214, 56), TextAnchor.MiddleCenter, Fonts.Heavy);
+            Ui.SingleLine(Ui.Label(_info, d.Name, 34, Pal.Ink, card + new Vector2(0, -96), new Vector2(210, 56), TextAnchor.MiddleCenter, Fonts.Heavy), 22);
 
             // 第一行：血条 + 定位（同步切换为清爽胶囊皮肤）
             var row = new Vector2(132, 106);
@@ -1457,7 +1457,7 @@ namespace Liangshan
                 Ui.Box(card, new Vector2(cw - 20, ch - headH - 22), new Vector2(0, -headH * 0.5f + 2), Pal.Hex("DFD9C8"), Art.RoundedSmall);
                 Ui.Box(card, new Vector2(cw - 24, ch - headH - 26), new Vector2(0, -headH * 0.5f + 2), Pal.Hex("F6F4EC"), Art.RoundedSmall);
                 bool stamp = p.Ult || p.Star;
-                Ui.Outlined(card, p.Name, nameSize, Color.white, new Vector2(stamp ? -26 : 0, ch * 0.5f - headH * 0.5f - 2), new Vector2(cw - (stamp ? 106 : 28), headH), head.Mul(0.4f), 2f);
+                Ui.SingleLine(Ui.Outlined(card, p.Name, nameSize, Color.white, new Vector2(stamp ? -26 : 0, ch * 0.5f - headH * 0.5f - 2), new Vector2(cw - (stamp ? 106 : 28), headH), head.Mul(0.4f), 2f), 19);
                 Ui.Box(card, new Vector2(icon * 0.85f, icon * 0.24f), new Vector2(0, ch * 0.04f - icon * 0.34f), new Color(0.05f, 0.1f, 0.16f, 0.14f), Art.GroundShadow);
                 Ui.Icon(card, d.Art, icon, new Vector2(0, ch * 0.08f));
                 if (stamp)
@@ -1647,7 +1647,7 @@ namespace Liangshan
                     var orn = Ui.Box(card, new Vector2(12, 12), new Vector2(s * (cw * 0.5f - 28), headY), Color.white.A(0.32f), Art.RoundedSmall);
                     orn.rectTransform.localRotation = Quaternion.Euler(0, 0, 45);
                 }
-                Ui.Outlined(card, p.Name, 38, Color.white, new Vector2(0, headY + 1), new Vector2(cw - 48, headH), headC.Mul(0.4f), 2.3f);
+                Ui.SingleLine(Ui.Outlined(card, p.Name, 38, Color.white, new Vector2(0, headY + 1), new Vector2(cw - 68, headH), headC.Mul(0.4f), 2.3f), 22);
 
                 // 内衬细线框与底角菱纹
                 float bodyH = chh - headH - 22f;
@@ -1937,8 +1937,8 @@ namespace Liangshan
                 // 右侧标题 + 效果详情
                 float textW = cw - leftW - 48f;
                 float textX = -cw * 0.5f + leftW + 24f + textW * 0.5f;
-                Ui.Label(body.transform, item.title, rows.Count >= 3 ? 29 : 32, Pal.Hex("2B231C"),
-                    new Vector2(textX, ch * 0.22f), new Vector2(textW, 44f), TextAnchor.MiddleLeft, Fonts.Heavy);
+                Ui.SingleLine(Ui.Label(body.transform, item.title, rows.Count >= 3 ? 29 : 32, Pal.Hex("2B231C"),
+                    new Vector2(textX, ch * 0.22f), new Vector2(textW, 44f), TextAnchor.MiddleLeft, Fonts.Heavy), 21);
                 var desc = Ui.Label(body.transform, item.desc, rows.Count >= 3 ? 23 : 25, Pal.Hex("5A5248"),
                     new Vector2(textX, -ch * 0.19f), new Vector2(textW, 56f), TextAnchor.MiddleLeft, Fonts.Bold);
                 MetaUi.Fit(desc, 19);

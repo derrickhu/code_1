@@ -356,10 +356,10 @@ namespace Liangshan
                     if (!string.IsNullOrEmpty(d.UltIcon)) Ui.Icon(uSlot.transform, d.UltIcon, 78, Vector2.zero);
                     Badge(skillCard, "镇村大招", Pal.Red, new Vector2(112, 32), new Vector2(-346, 54), 18);
                     string tipFlat = string.IsNullOrEmpty(d.UltTip) ? d.Desc : d.UltTip.Replace("\n", "，");
-                    Ui.Outlined(skillCard, $"【{d.UltName}】 <size=22><color=#FFE6A0>招牌：{d.AtkName}</color></size>",
-                        29, Pal.Hex("FFF4C2"), new Vector2(44, 24), new Vector2(640, 42), Pal.Ink, 2.0f, TextAnchor.MiddleLeft);
-                    Ui.Outlined(skillCard, tipFlat, 23, Pal.Hex("E6F2FF"),
-                        new Vector2(44, -24), new Vector2(640, 40), Pal.Ink, 1.6f, TextAnchor.MiddleLeft);
+                    Ui.SingleLine(Ui.Outlined(skillCard, $"【{d.UltName}】 <size=22><color=#FFE6A0>招牌：{d.AtkName}</color></size>",
+                        29, Pal.Hex("FFF4C2"), new Vector2(44, 24), new Vector2(640, 42), Pal.Ink, 2.0f, TextAnchor.MiddleLeft), 20);
+                    Ui.SingleLine(Ui.Outlined(skillCard, tipFlat, 23, Pal.Hex("E6F2FF"),
+                        new Vector2(44, -24), new Vector2(640, 40), Pal.Ink, 1.6f, TextAnchor.MiddleLeft), 18);
                 }
                 else
                 {
@@ -367,10 +367,10 @@ namespace Liangshan
                     Ui.Skin(skillCard, r == 3 ? "gacha_dock_purple" : "gacha_tray", new Vector2(820, 118), Vector2.zero, 0.68f);
                     var aSlot = Slot(skillCard, RaritySlot(r), 86, new Vector2(-336, 0));
                     if (!string.IsNullOrEmpty(d.AtkIcon)) Ui.Icon(aSlot.transform, d.AtkIcon, 62, Vector2.zero);
-                    Ui.Outlined(skillCard, $"招牌绝技 · 【{d.AtkName}】", 26, Pal.Hex("FFE89E"),
-                        new Vector2(36, 18), new Vector2(620, 36), Pal.Ink, 1.8f, TextAnchor.MiddleLeft);
-                    Ui.Outlined(skillCard, d.Desc, 22, Pal.Hex("DCEEFF"),
-                        new Vector2(36, -20), new Vector2(620, 34), Pal.Ink, 1.5f, TextAnchor.MiddleLeft);
+                    Ui.SingleLine(Ui.Outlined(skillCard, $"招牌绝技 · 【{d.AtkName}】", 26, Pal.Hex("FFE89E"),
+                        new Vector2(36, 18), new Vector2(620, 36), Pal.Ink, 1.8f, TextAnchor.MiddleLeft), 20);
+                    Ui.SingleLine(Ui.Outlined(skillCard, d.Desc, 22, Pal.Hex("DCEEFF"),
+                        new Vector2(36, -20), new Vector2(620, 34), Pal.Ink, 1.5f, TextAnchor.MiddleLeft), 17);
                 }
                 Tween.Pop(skillCard, 0.24f, 0.06f);
 
@@ -1512,7 +1512,7 @@ namespace Liangshan
             Ui.Outlined(tagPill, $"{RarityName(d.Rarity)} · {d.Role}", 20, Color.white, Vector2.zero, new Vector2(162, 32), QualStroke(tier), 1.6f);
 
             string fullTitle = !string.IsNullOrEmpty(d.Nick) ? $"<color=#FFE28A>「{d.Nick}」</color>{d.Name}" : d.Name;
-            Ui.Outlined(plaque, fullTitle, 31, Color.white, new Vector2(0, -3), new Vector2(396, 52), Pal.Ink, 2.3f);
+            Ui.SingleLine(Ui.Outlined(plaque, fullTitle, 31, Color.white, new Vector2(0, -3), new Vector2(396, 52), Pal.Ink, 2.3f), 20);
 
             if (isNew)
                 Badge(plaque, "新乡亲!", Pal.Red, new Vector2(98, 34), new Vector2(158, 38), 19);

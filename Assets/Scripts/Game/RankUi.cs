@@ -584,7 +584,7 @@ namespace Liangshan
 
             Color edge = tier == 1 ? Pal.Hex("5A1408") : tier == 2 ? Pal.Hex("2E1254") : tier == 3 ? Pal.Hex("0E3050") : Pal.Hex("123C22");
             Color bot = tier == 1 ? Pal.Hex("FFE27A") : tier == 2 ? Pal.Hex("F6D8FF") : tier == 3 ? Pal.Hex("CAFAFF") : Pal.Hex("E2FFB8");
-            Ui.GradOutlined(b, title, 23, Color.white, bot, new Vector2(2f, 1f), new Vector2(w - 64f, 44), edge, 2.2f);
+            Ui.SingleLine(Ui.GradOutlined(b, title, 23, Color.white, bot, new Vector2(2f, 1f), new Vector2(w - 64f, 44), edge, 2.2f), 17);
         }
 
         static void BuildOrnateAvatar(Transform parent, HeroId h, bool gold, Vector2 pos, float sz)
@@ -669,10 +669,10 @@ namespace Liangshan
 
             Ui.Skin(p, "dark", new Vector2(868, 128), new Vector2(0, top - 122f), 1f);
             int ready = Meta.RankRewardBadge(S);
-            Ui.GradOutlined(p, $"当前通关：第 {S.Cleared} 关", 34, Color.white, Pal.Hex("FFE27A"),
-                new Vector2(-150f, top - 102f), new Vector2(480, 46), Pal.Ink, 2.2f, TextAnchor.MiddleLeft);
-            Ui.Label(p, "突破主线关口即可领取丰厚星钻、大喇叭券与破译扳手", 23, Pal.Hex("C6DCF0"),
-                new Vector2(-110f, top - 144f), new Vector2(560, 34), TextAnchor.MiddleLeft, Fonts.Bold);
+            Ui.SingleLine(Ui.GradOutlined(p, $"当前通关：第 {S.Cleared} 关", 34, Color.white, Pal.Hex("FFE27A"),
+                new Vector2(-150f, top - 102f), new Vector2(480, 46), Pal.Ink, 2.2f, TextAnchor.MiddleLeft), 22);
+            Ui.SingleLine(Ui.Label(p, "突破主线关口即可领取丰厚星钻、大喇叭券与破译扳手", 22, Pal.Hex("C6DCF0"),
+                new Vector2(-118f, top - 144f), new Vector2(576, 34), TextAnchor.MiddleLeft, Fonts.Bold), 18);
 
             if (ready > 0)
             {
@@ -732,8 +732,8 @@ namespace Liangshan
                 float textLeft = -362f + d.Items.Length * 98f - 28f;
                 float midW = 224f - textLeft;
                 float midCx = textLeft + midW * 0.5f;
-                Ui.Label(r, $"通关第 {d.Stage} 关 · {d.Name}", 27, got ? Pal.Hex("8A8276") : Pal.Hex("443322"),
-                    new Vector2(midCx, 22f), new Vector2(midW, 40), TextAnchor.MiddleLeft, Fonts.Heavy);
+                Ui.SingleLine(Ui.Label(r, $"通关第 {d.Stage} 关 · {d.Name}", 27, got ? Pal.Hex("8A8276") : Pal.Hex("443322"),
+                    new Vector2(midCx, 22f), new Vector2(midW, 40), TextAnchor.MiddleLeft, Fonts.Heavy), 20);
                 float frac = Mathf.Clamp01(S.Cleared / (float)Mathf.Max(1, d.Stage));
                 MetaUi.Bar(r, new Vector2(midCx, -22f), new Vector2(midW, 24f), frac, can || got ? Pal.Hex("58C2EE") : Pal.Green,
                     $"{Mathf.Min(S.Cleared, d.Stage)}/{d.Stage}");
@@ -784,12 +784,12 @@ namespace Liangshan
             Ui.Skin(p, "dark", new Vector2(804, 210), new Vector2(0, 216f), 1f);
             BuildOrnateAvatar(p, e.Hero, rank <= 6 || e.Cleared >= 30, new Vector2(-296f, 216f), 146f);
 
-            Ui.GradOutlined(p, e.Name, 36, Color.white, Pal.Hex("FFE890"),
-                new Vector2(26f, 264f), new Vector2(440, 48), Pal.Ink, 2.4f, TextAnchor.MiddleLeft);
+            Ui.SingleLine(Ui.GradOutlined(p, e.Name, 36, Color.white, Pal.Hex("FFE890"),
+                new Vector2(26f, 264f), new Vector2(440, 48), Pal.Ink, 2.4f, TextAnchor.MiddleLeft), 22);
             var (titleTxt, titleTier) = Meta.HonorTitle(rank, e.Cleared, e.Power);
             BuildTitleBadge(p, titleTxt, titleTier, new Vector2(-84f, 204f), 0.94f);
-            Ui.Outlined(p, $"第 {rank} 名  ·  主线 第{Mathf.Max(1, e.Cleared)}关  ·  总战力 {Ui.Num(e.Power)}",
-                24, Pal.Hex("CBE2F6"), new Vector2(40f, 148f), new Vector2(490, 36), Pal.Ink, 1.5f, TextAnchor.MiddleLeft);
+            Ui.SingleLine(Ui.Outlined(p, $"第 {rank} 名  ·  主线 第{Mathf.Max(1, e.Cleared)}关  ·  总战力 {Ui.Num(e.Power)}",
+                24, Pal.Hex("CBE2F6"), new Vector2(88f, 148f), new Vector2(586, 36), Pal.Ink, 1.5f, TextAnchor.MiddleLeft), 18);
 
             Ui.Label(p, "主力出战阵容", 28, Pal.Ink, new Vector2(0, 68f), new Vector2(400, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
 

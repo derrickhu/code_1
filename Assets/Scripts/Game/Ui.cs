@@ -280,6 +280,33 @@ namespace Liangshan
             return t;
         }
 
+        /// <summary>强制单行显示：永不换行压盖下方控件；超出框宽时按真实字宽自动收字号（下限 minSize）。</summary>
+        public static Text SingleLine(Text t, int minSize = 15)
+        {
+            if (t == null) return null;
+            t.resizeTextForBestFit = false;
+            t.horizontalOverflow = HorizontalWrapMode.Overflow;
+            t.verticalOverflow = VerticalWrapMode.Overflow;
+            float maxW = t.rectTransform.sizeDelta.x;
+            if (maxW <= 4f || string.IsNullOrEmpty(t.text)) return t;
+            Canvas.ForceUpdateCanvases();
+            float pw = t.preferredWidth;
+            if (pw > maxW && t.fontSize > minSize)
+            {
+                int target = Mathf.Max(minSize, Mathf.FloorToInt(t.fontSize * (maxW / pw)));
+                t.fontSize = target;
+                Canvas.ForceUpdateCanvases();
+                while (t.preferredWidth > maxW && t.fontSize > minSize)
+                {
+                    t.fontSize--;
+                    Canvas.ForceUpdateCanvases();
+                }
+                var cs = t.GetComponent<CrispStroke>();
+                if (cs) cs.Radius = Mathf.Clamp(cs.Radius, 0.95f, Mathf.Min(3.4f, t.fontSize * 0.068f));
+            }
+            return t;
+        }
+
         /// <summary>八向等距真圆描边（替代 Unity 四角对角线 Outline 的重影分叉）；字号越小描边自动收细。</summary>
         public static Text Stroke(Text t, Color c, float d)
         {
@@ -402,6 +429,7 @@ namespace Liangshan
                     stroke, 2.3f, TextAnchor.MiddleCenter, "text");
             }
             label.resizeTextForBestFit = false;
+            if (text == null || !text.Contains("\n")) SingleLine(label, 17);
             if (icon != null)
             {
                 float tw = Mathf.Min(size.x - iconW - 24f, label.preferredWidth);
@@ -451,12 +479,13 @@ namespace Liangshan
                     stroke, 2.5f, TextAnchor.MiddleCenter, "text");
             }
             lbl.resizeTextForBestFit = false;
+            if (title == null || !title.Contains("\n")) SingleLine(lbl, 20);
 
             // 下半部干净同色系内嵌凹槽（0% 脏黑阴影）
             float wellH = Mathf.Clamp(size.y * 0.31f, 34f, 44f);
             float wellY = -size.y * 0.24f;
             var dummy = Outlined(body, subText, subSize, Color.white, Vector2.zero, new Vector2(size.x - 32f, wellH), stroke, 2.0f, TextAnchor.MiddleCenter, "costText");
-            dummy.resizeTextForBestFit = false;
+            SingleLine(dummy, 15);
             float tw = dummy.preferredWidth;
             float icSz = subIcon != null ? wellH * 0.92f : 0f;
             float contentW = tw + (subIcon != null ? icSz + 8f : 0f);
@@ -517,8 +546,8 @@ namespace Liangshan
             holder.anchoredPosition = pos;
             holder.sizeDelta = new Vector2(rw, 118);
             Skin(holder, skin, new Vector2(rw + 136f, 128f), new Vector2(0, -4f), -1f, null, "face");
-            int fsz = s != null && s.Length >= 8 ? 42 : s != null && s.Length >= 6 ? 46 : 50;
-            GradOutlined(holder, s, fsz, Color.white, botCol, new Vector2(0, 7f), new Vector2(rw - 24f, 88f), stroke, 3.0f);
+            int fsz = s != null && s.Length >= 10 ? 36 : s != null && s.Length >= 8 ? 40 : s != null && s.Length >= 6 ? 45 : 50;
+            SingleLine(GradOutlined(holder, s, fsz, Color.white, botCol, new Vector2(0, 7f), new Vector2(rw - 24f, 88f), stroke, 3.0f), 26);
             return holder;
         }
 

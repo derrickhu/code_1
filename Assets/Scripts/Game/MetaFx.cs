@@ -533,7 +533,7 @@ namespace Liangshan
             Ui.Box(namePlaque.transform, new Vector2(332, 66), Vector2.zero, MetaUi.QualGlow(MetaUi.HeroTier(d.Rarity)).A(0.28f), Art.Pill);
             Ui.Outlined(card, d.Name, 54, d.Rarity >= 4 ? Pal.Hex("FFF1B4") : Color.white, new Vector2(0, -205), new Vector2(330, 72), Pal.Ink, 3f);
             MetaUi.Badge(card, d.Role, MetaUi.RoleColor(d.Kind), new Vector2(132, 54), new Vector2(-128, 232), 28);
-            Ui.Outlined(root, $"「{d.Nick}」{d.Desc}", 32, Pal.Hex("FFE7B0"), new Vector2(0, -330), new Vector2(900, 50), Pal.Ink, 2f);
+            Ui.SingleLine(Ui.Outlined(root, $"「{d.Nick}」{d.Desc}", 32, Pal.Hex("FFE7B0"), new Vector2(0, -330), new Vector2(980, 50), Pal.Ink, 2f), 21);
 
             // 好汉先从左边拖着尾光冲到中间，再翻成卡
             card.localScale = new Vector3(0, 1, 1);

@@ -397,7 +397,7 @@ namespace Liangshan
             float tagY = feet + 44f;
             var tag = Top(0, tagY, new Vector2(540, 100), "levelTag");
             var ribbon = Ui.Skin(tag, "h_ribbon", new Vector2(540, 100), Vector2.zero, -1f, null, "ribbon");
-            Ui.Outlined(tag, $"第{st.No}关 · {st.Name}", 39, Paper, new Vector2(0, 5), new Vector2(390, 60), AzureDeep, 2.5f);
+            Ui.SingleLine(Ui.Outlined(tag, $"第{st.No}关 · {st.Name}", 36, Paper, new Vector2(0, 5), new Vector2(436, 60), AzureDeep, 2.5f), 25);
             Ui.Tap(ribbon, () => MetaUi.LevelList(Layer), tag);
             if (S.Selected > 1) ArrowBtn(tag, -304, -1);
             if (S.Selected <= S.Cleared && S.Selected < Defs.LevelCount) ArrowBtn(tag, 304, 1);
@@ -950,7 +950,7 @@ namespace Liangshan
                 Ui.Box(g, Vector2.one * 37, new Vector2(66, -86), MetaUi.RoleColor(d.Kind), Art.Circle, "rBg");
                 Ui.Icon(g, MetaUi.RoleArt(d.Kind), 28, new Vector2(66, -85));
                 var plate = Ui.Skin(g, "h_capsule", new Vector2(206, 46), new Vector2(0, -134), -1f);
-                Ui.Outlined(plate.transform, $"Lv.{S.HeroLv[(int)h]} {d.Name}", 23, d.Rarity >= 4 ? Pal.Hex("FFF0B2") : Paper, new Vector2(0, 1), new Vector2(200, 42), Ink, 1.5f);
+                Ui.SingleLine(Ui.Outlined(plate.transform, $"Lv.{S.HeroLv[(int)h]} {d.Name}", 23, d.Rarity >= 4 ? Pal.Hex("FFF0B2") : Paper, new Vector2(0, 1), new Vector2(194, 42), Ink, 1.5f), 18);
                 int slot = i;
                 if (_swap.HasValue)
                 {
@@ -1725,7 +1725,7 @@ namespace Liangshan
             {
                 _totemFilter = _totemFilter >= Meta.Equips.Length - 1 ? -1 : _totemFilter + 1;
                 Rebuild(false);
-            }, 29);
+            }, 26);
             filterBtn.anchorMin = filterBtn.anchorMax = new Vector2(0.5f, 1f);
 
             var huntBtn = Ui.Btn(drawer, $"寻宝 ({S.Hammers})", new Vector2(292, 80), new Vector2(0, barY), Pal.Gold, () => SetShopSubTab(1), 30, "ic_hammer");
@@ -1761,10 +1761,8 @@ namespace Liangshan
             boxRow.sizeDelta = new Vector2(960, 118);
             Ui.Skin(boxRow, "row", new Vector2(960, 118), Vector2.zero, 1f, Pal.Hex("F6F2E8"));
             Ui.Icon(boxRow, "ic_gearbox", 86, new Vector2(-412, 1));
-            var gbTitle = Ui.Label(boxRow, $"五金工具箱 ×{S.GearBoxes}", 30, Pal.Ink, new Vector2(-48, 22), new Vector2(600, 38), TextAnchor.MiddleLeft, Fonts.Heavy);
-            gbTitle.horizontalOverflow = HorizontalWrapMode.Overflow;
-            var gbDesc = Ui.Label(boxRow, "开启必得精良~传说装备，低阶自动回收合金钢", 20, Pal.SubInk, new Vector2(-48, -21), new Vector2(600, 32), TextAnchor.MiddleLeft);
-            gbDesc.horizontalOverflow = HorizontalWrapMode.Overflow;
+            Ui.SingleLine(Ui.Label(boxRow, $"五金工具箱 ×{S.GearBoxes}", 30, Pal.Ink, new Vector2(-58, 22), new Vector2(580, 38), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
+            Ui.SingleLine(Ui.Label(boxRow, "开启必得精良~传说装备，低阶自动回收合金钢", 20, Pal.SubInk, new Vector2(-58, -21), new Vector2(580, 32), TextAnchor.MiddleLeft), 16);
             var openBtn = Ui.Btn(boxRow, "开启", new Vector2(188, 76), new Vector2(360, 0), S.GearBoxes > 0 ? Pal.Gold : Pal.Slate, () => MetaUi.GearBox(Layer, re), 34);
             if (S.GearBoxes > 0) MetaUi.Dot(openBtn, new Vector2(80, 31));
 
@@ -1781,10 +1779,9 @@ namespace Liangshan
                 var hit = Ui.Box(card, new Vector2(470, 114), Vector2.zero, new Color(0, 0, 0, 0), Art.White);
                 MetaUi.Slot(card, MetaUi.QualitySlot(q), 90, new Vector2(-174, 0));
                 Ui.Icon(card, e.Icon, 70, new Vector2(-174, 2));
-                var l1 = Ui.Label(card, $"<color=#{MetaUi.QualInkHex(q)}>{Meta.QualityName[q]}</color>·{e.Name} Lv.{lv}", 23, Pal.Ink, new Vector2(46, 30), new Vector2(320, 30), TextAnchor.MiddleLeft, Fonts.Heavy);
-                var l2 = Ui.Label(card, Meta.EquipText(i, lv, q), 20, Pal.GreenDeep, new Vector2(46, 0), new Vector2(320, 28), TextAnchor.MiddleLeft, Fonts.Heavy);
-                var l3 = Ui.Label(card, Meta.Breaks(lv) > 0 ? Meta.BreakText(i, lv) : $"满10级突破：{Defs.RoleName(e.Role)}+4%", 18, Pal.SubInk, new Vector2(46, -30), new Vector2(320, 26), TextAnchor.MiddleLeft);
-                l1.horizontalOverflow = l2.horizontalOverflow = l3.horizontalOverflow = HorizontalWrapMode.Overflow;
+                Ui.SingleLine(Ui.Label(card, $"<color=#{MetaUi.QualInkHex(q)}>{Meta.QualityName[q]}</color>·{e.Name} Lv.{lv}", 23, Pal.Ink, new Vector2(46, 30), new Vector2(332, 30), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
+                Ui.SingleLine(Ui.Label(card, Meta.EquipText(i, lv, q), 20, Pal.GreenDeep, new Vector2(46, 0), new Vector2(332, 28), TextAnchor.MiddleLeft, Fonts.Heavy), 16);
+                Ui.SingleLine(Ui.Label(card, Meta.Breaks(lv) > 0 ? Meta.BreakText(i, lv) : $"满10级突破：{Defs.RoleName(e.Role)}+4%", 18, Pal.SubInk, new Vector2(46, -30), new Vector2(332, 26), TextAnchor.MiddleLeft), 15);
                 int si = i;
                 Ui.Tap(hit, () => MetaUi.EquipSheet(Layer, si, re), card);
             }
@@ -2241,7 +2238,7 @@ namespace Liangshan
             var c = Ui.Rect(parent, "shop" + i);
             c.sizeDelta = new Vector2(236, 250);
             var face = Ui.Skin(c, "tab_on", new Vector2(236, 250), Vector2.zero);
-            Ui.Label(c, d.Name, 27, Pal.Ink, new Vector2(0, 92), new Vector2(216, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
+            Ui.SingleLine(Ui.Label(c, d.Name, 27, Pal.Ink, new Vector2(0, 92), new Vector2(216, 40), TextAnchor.MiddleCenter, Fonts.Heavy), 20);
             Ui.Icon(c, d.Icon, 110, new Vector2(0, 26));
             Ui.Outlined(c, "×" + Ui.Num(d.Get.N), 28, Color.white, new Vector2(52, -16), new Vector2(116, 36), Ink, 2f);
             int used = d.Ad ? (d.Get.Cur == Cur.Ingot ? S.AdIngots : S.AdStamina) : 0;
