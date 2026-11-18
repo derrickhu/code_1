@@ -120,6 +120,8 @@ namespace Liangshan.Sim
         public int CodexBox;
         /// <summary>抖音专属福利：上次领取侧边栏复访奖励的日期序号 + 1；桌面快捷方式一次性奖励标记。</summary>
         public int DySidebarDay, DyShortcutGot;
+        /// <summary>抖音订阅消息记录：巡村满仓提醒订阅日 + 1、签到提醒订阅日 + 1、累计授权次数（仅服务状态标记，无物质奖励诱导）。</summary>
+        public int DySubPatrolDay, DySubSignDay, DySubTotal;
     }
 
     public enum Cur { Ingot, Copper, Iron, Token, Stamina, Shard, Page, Tome, Silk, Meteor, GearBox, AnyShard, Refine, Hammer }

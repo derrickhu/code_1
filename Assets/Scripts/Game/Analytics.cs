@@ -89,6 +89,15 @@ namespace Liangshan
         public static void AdShow(string scene) => Ad("ad_show", scene, null);
         public static void AdClose(string scene, bool ended) => Ad("ad_close", scene, ended);
 
+        public static void SubscribeMessage(string scene, bool accepted, string detail = "")
+        {
+            if (!_sessionStarted) return;
+            Param p = Param.Of("scene", string.IsNullOrEmpty(scene) ? "all" : scene)
+                .Bool("accepted", accepted)
+                .Str("detail", detail ?? "");
+            Track("subscribe_message", p);
+        }
+
         static void Ad(string name, string scene, bool? ended)
         {
             if (!_sessionStarted) return;

@@ -395,16 +395,45 @@ namespace Liangshan
 
         // ---------------- 签到 ----------------
 
+        static void BindDouyinSubscribeBtn(RectTransform btn, string scene, Action refresh)
+        {
+            Action<bool, string> onDone = (ok, info) =>
+            {
+                if (ok)
+                {
+                    Meta.MarkDySubscribed(S, scene, Profile.Today);
+                    Save();
+                    Ui.Toast("已开启订阅提醒", 200);
+                    refresh?.Invoke();
+                }
+                else if (info == "no_tmpl_cfg")
+                {
+                    Ui.Toast("订阅通知模板准备中，敬请期待", 200);
+                }
+                else if (info == "reject")
+                {
+                    Ui.Toast("已取消本次订阅提醒", 180);
+                }
+                else
+                {
+                    Ui.Toast("当前环境暂未开启订阅通知", 180);
+                }
+            };
+            DouyinBridge.BindSubscribeGesture(btn, scene, onDone);
+        }
+
         public static void SignIn(Transform layer)
         {
-            Modal(layer, "sign", "七日签到", new Vector2(940, 1020), out var p, Pal.Gold);
+            bool showDySub = DouyinBridge.IsDouyin;
+            float dyLift = showDySub ? 38f : 0f;
+            Modal(layer, "sign", "七日签到", new Vector2(940, showDySub ? 1110 : 1020), out var p, Pal.Gold);
             int day = Profile.Today;
             bool can = Meta.CanSign(S, day);
-            Ui.Skin(p, "modal_well", new Vector2(864, 790), new Vector2(0, 26), 1f);
+            Ui.Skin(p, "modal_well", new Vector2(864, 790), new Vector2(0, 26 + dyLift), 1f);
             for (int i = 0; i < Meta.SignRewards.Length; i++)
             {
                 bool last = i == 6;
-                var pos = last ? new Vector2(0, -252) : new Vector2(((i % 3) - 1) * 276, 286 - (i / 3) * 246);
+                var pos = last ? new Vector2(0, -252 + dyLift) : new Vector2(((i % 3) - 1) * 276, 286 - (i / 3) * 246 + dyLift);
                 var size = last ? new Vector2(812, 206) : new Vector2(260, 224);
                 var c = Ui.Rect(p, "day" + i);
                 c.anchoredPosition = pos;
@@ -458,32 +487,55 @@ namespace Liangshan
                 }
             }
             Ui.Label(p, can ? "点击高亮格子领取今日村委补贴" : S.SignDays >= 7 ? "七日签到已圆满领完" : "今日已签到，明日零点继续领取",
-                26, WarmSub, new Vector2(0, -424), new Vector2(800, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
+                26, WarmSub, new Vector2(0, -424 + dyLift), new Vector2(800, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
+            if (showDySub)
+            {
+                bool subbed = Meta.HasDySubSignToday(S, day);
+                var subBtn = Ui.Btn(p, subbed ? "今日已设签到提醒" : "订阅明日签到提醒", new Vector2(360, 74), new Vector2(0, -464),
+                    subbed ? Pal.Slate : Pal.Azure, () => DouyinBridge.RequestSubscribe("sign", (ok, info) =>
+                    {
+                        if (ok)
+                        {
+                            Meta.MarkDySubscribed(S, "sign", Profile.Today);
+                            Save();
+                            Ui.Toast("已开启明日签到提醒", 200);
+                            if (layer != null && layer.Find("modal_sign") != null) SignIn(layer);
+                        }
+                        else if (info == "no_tmpl_cfg") Ui.Toast("订阅通知模板准备中，敬请期待", 200);
+                        else if (info == "reject") Ui.Toast("已取消本次订阅提醒", 180);
+                    }), 27);
+                BindDouyinSubscribeBtn(subBtn, "sign", () =>
+                {
+                    if (layer != null && layer.Find("modal_sign") != null) SignIn(layer);
+                });
+            }
         }
 
         // ---------------- 巡山（挂机收益） ----------------
 
         public static void Idle(Transform layer)
         {
-            Modal(layer, "idle", "巡村收益", new Vector2(920, 960), out var p, Pal.Hex("3A7A9A"));
+            bool showDySub = DouyinBridge.IsDouyin;
+            float dyLift = showDySub ? 38f : 0f;
+            Modal(layer, "idle", "巡村收益", new Vector2(920, showDySub ? 1060 : 960), out var p, Pal.Hex("3A7A9A"));
             double h = Meta.IdleHours(S, Profile.Now);
             int secs = (int)(h * 3600);
 
-            Ui.Skin(p, "quest_tray", new Vector2(836, 300), new Vector2(0, 240), 1f);
-            Ui.Icon(p, "tab_idle", 168, new Vector2(-286, 244));
+            Ui.Skin(p, "quest_tray", new Vector2(836, 300), new Vector2(0, 240 + dyLift), 1f);
+            Ui.Icon(p, "tab_idle", 168, new Vector2(-286, 244 + dyLift));
             Ui.Label(p, $"已巡村  <color=#C85A14>{secs / 3600}小时{secs % 3600 / 60:00}分</color>", 36, WarmTitle,
-                new Vector2(64, 292), new Vector2(500, 48), TextAnchor.MiddleLeft, Fonts.Heavy);
-            Bar(p, new Vector2(58, 236), new Vector2(480, 28), (float)(h / Meta.IdleCapHours), Pal.Azure, $"上限 {Meta.IdleCapHours} 小时");
+                new Vector2(64, 292 + dyLift), new Vector2(500, 48), TextAnchor.MiddleLeft, Fonts.Heavy);
+            Bar(p, new Vector2(58, 236 + dyLift), new Vector2(480, 28), (float)(h / Meta.IdleCapHours), Pal.Azure, $"上限 {Meta.IdleCapHours} 小时");
             Ui.SingleLine(Ui.Label(p, $"每小时产出：金币 {Meta.IdleCopperPerHour(S)} · 合金钢 {Meta.IdleIronPerHour(S):0.#}（随主线提升）",
-                23, WarmSub, new Vector2(105, 178), new Vector2(582, 38), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
+                23, WarmSub, new Vector2(105, 178 + dyLift), new Vector2(582, 38), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
 
-            Ui.Skin(p, "modal_well", new Vector2(836, 236), new Vector2(0, -56), 1f);
+            Ui.Skin(p, "modal_well", new Vector2(836, 236), new Vector2(0, -56 + dyLift), 1f);
             var r = Meta.IdleRewards(S, h);
             r.Items.RemoveAll(x => x.N <= 0);
-            if (r.Items.Count > 0) ItemRow(p, r.Items, new Vector2(0, -44), 132);
-            else Ui.Label(p, "联防大爷正骑三轮巡村捡外星物资，稍后再来收取", 28, WarmSub, new Vector2(0, -56), new Vector2(720, 56), TextAnchor.MiddleCenter, Fonts.Heavy);
+            if (r.Items.Count > 0) ItemRow(p, r.Items, new Vector2(0, -44 + dyLift), 132);
+            else Ui.Label(p, "联防大爷正骑三轮巡村捡外星物资，稍后再来收取", 28, WarmSub, new Vector2(0, -56 + dyLift), new Vector2(720, 56), TextAnchor.MiddleCenter, Fonts.Heavy);
 
-            Ui.Btn(p, "领取收益", new Vector2(310, 106), new Vector2(-184, -318), r.Items.Count > 0 ? Pal.Gold : Pal.Slate, () =>
+            Ui.Btn(p, "领取收益", new Vector2(310, 106), new Vector2(-184, -318 + dyLift), r.Items.Count > 0 ? Pal.Gold : Pal.Slate, () =>
             {
                 if (r.Items.Count == 0) { Ui.Toast("还没有收益", 200); return; }
                 var got = Meta.CollectIdle(S, Profile.Now);
@@ -492,7 +544,7 @@ namespace Liangshan
                 ShowRewards(layer, "巡村收益", got);
             }, 38);
             int adLeft = Meta.AdIdleMax - S.AdIdle;
-            Ui.Btn(p, adLeft > 0 ? $"快速巡村 ({adLeft})" : "明日再来", new Vector2(336, 106), new Vector2(184, -318), adLeft > 0 ? Pal.Green : Pal.Slate, () =>
+            Ui.Btn(p, adLeft > 0 ? $"快速巡村 ({adLeft})" : "明日再来", new Vector2(336, 106), new Vector2(184, -318 + dyLift), adLeft > 0 ? Pal.Green : Pal.Slate, () =>
             {
                 if (S.AdIdle >= Meta.AdIdleMax) return;
                 Ads.Show("idle", () =>
@@ -505,6 +557,28 @@ namespace Liangshan
                     ShowRewards(layer, "快速巡村（2小时）", got);
                 });
             }, 34, "ic_ad");
+
+            if (showDySub)
+            {
+                bool subbed = Meta.HasDySubPatrolToday(S, Profile.Today);
+                var subBtn = Ui.Btn(p, subbed ? "今日已设满仓提醒" : "订阅巡村满仓提醒", new Vector2(380, 74), new Vector2(0, -424),
+                    subbed ? Pal.Slate : Pal.Azure, () => DouyinBridge.RequestSubscribe("patrol", (ok, info) =>
+                    {
+                        if (ok)
+                        {
+                            Meta.MarkDySubscribed(S, "patrol", Profile.Today);
+                            Save();
+                            Ui.Toast("已开启巡村满仓提醒", 200);
+                            if (layer != null && layer.Find("modal_idle") != null) Idle(layer);
+                        }
+                        else if (info == "no_tmpl_cfg") Ui.Toast("订阅通知模板准备中，敬请期待", 200);
+                        else if (info == "reject") Ui.Toast("已取消本次订阅提醒", 180);
+                    }), 27);
+                BindDouyinSubscribeBtn(subBtn, "patrol", () =>
+                {
+                    if (layer != null && layer.Find("modal_idle") != null) Idle(layer);
+                });
+            }
         }
 
         // ---------------- 图鉴（v2 旗舰重构：奶油雕花格卡 + 怪种角标 + 收集宝箱条 + 底挂书签页签 + 敌军详情二级弹窗） ----------------
@@ -950,10 +1024,11 @@ namespace Liangshan
 
         public static void Settings(Transform layer)
         {
-            Modal(layer, "settings", "系统设置", new Vector2(840, 840), out var p, Pal.Hex("56677A"));
-            Ui.Skin(p, "modal_well", new Vector2(748, 288), new Vector2(0, 156), 1f);
-            Toggle(p, 224, "游戏音效", S.Sound == 1, on => { S.Sound = on ? 1 : 0; Sfx.On = on; Save(); Settings(layer); });
-            Toggle(p, 88, "背景音乐", S.Music == 1, on =>
+            bool showDySub = DouyinBridge.IsDouyin;
+            Modal(layer, "settings", "系统设置", new Vector2(840, showDySub ? 980 : 840), out var p, Pal.Hex("56677A"));
+            Ui.Skin(p, "modal_well", new Vector2(748, showDySub ? 424 : 288), new Vector2(0, 156), 1f);
+            Toggle(p, showDySub ? 292 : 224, "游戏音效", S.Sound == 1, on => { S.Sound = on ? 1 : 0; Sfx.On = on; Save(); Settings(layer); });
+            Toggle(p, showDySub ? 156 : 88, "背景音乐", S.Music == 1, on =>
             {
                 S.Music = on ? 1 : 0;
                 Sfx.Music = on;
@@ -962,14 +1037,43 @@ namespace Liangshan
                 else Sfx.PlayMusic(Bgm.None);
                 Settings(layer);
             });
+            if (showDySub)
+            {
+                var r = Ui.Rect(p, "sub_notify");
+                r.anchoredPosition = new Vector2(0, 20);
+                r.sizeDelta = new Vector2(720, 118);
+                Ui.Skin(r, "row", new Vector2(720, 118), Vector2.zero);
+                Ui.SingleLine(Ui.Label(r, "消息订阅提醒", 32, WarmTitle, new Vector2(-150, 18), new Vector2(340, 44), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
+                Ui.SingleLine(Ui.Label(r, "巡村收益满仓与每日签到通知", 22, WarmSub, new Vector2(-150, -22), new Vector2(340, 34), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
+                bool subToday = Meta.HasDySubPatrolToday(S, Profile.Today) && Meta.HasDySubSignToday(S, Profile.Today);
+                var subBtn = Ui.Btn(r, subToday ? "继续订阅" : "订阅通知", new Vector2(184, 78), new Vector2(236, 0), Pal.Azure, () =>
+                {
+                    DouyinBridge.RequestSubscribe("all", (ok, info) =>
+                    {
+                        if (ok)
+                        {
+                            Meta.MarkDySubscribed(S, "all", Profile.Today);
+                            Save();
+                            Ui.Toast("已开启消息订阅提醒", 200);
+                            if (layer != null && layer.Find("modal_settings") != null) Settings(layer);
+                        }
+                        else if (info == "no_tmpl_cfg") Ui.Toast("订阅通知模板准备中，敬请期待", 200);
+                        else if (info == "reject") Ui.Toast("已取消本次订阅提醒", 180);
+                    });
+                }, 28);
+                BindDouyinSubscribeBtn(subBtn, "all", () =>
+                {
+                    if (layer != null && layer.Find("modal_settings") != null) Settings(layer);
+                });
+            }
             Ui.Label(p, $"当前通关 {S.Cleared}/{Defs.LevelCount}  ·  战绩 {S.Wins} 胜 / {S.Battles} 战  ·  累计摇人 {S.Pulls} 次",
-                25, WarmTitle, new Vector2(0, -48), new Vector2(760, 44), TextAnchor.MiddleCenter, Fonts.Heavy);
-            Ui.Btn(p, "重置存档", new Vector2(310, 96), new Vector2(0, -186), Pal.Red, () => Confirm(layer, "确定清空全部游戏进度？\n此操作不可恢复。", () =>
+                25, WarmTitle, new Vector2(0, showDySub ? -118 : -48), new Vector2(760, 44), TextAnchor.MiddleCenter, Fonts.Heavy);
+            Ui.Btn(p, "重置存档", new Vector2(310, 96), new Vector2(0, showDySub ? -252 : -186), Pal.Red, () => Confirm(layer, "确定清空全部游戏进度？\n此操作不可恢复。", () =>
             {
                 Profile.Reset();
                 Game.I.ShowHome();
             }), 36);
-            Ui.Label(p, "村口大战外星人 v1.0 · 幸福村保卫版", 22, WarmSub, new Vector2(0, -324), new Vector2(740, 36), TextAnchor.MiddleCenter, Fonts.Bold);
+            Ui.Label(p, "村口大战外星人 v1.0 · 幸福村保卫版", 22, WarmSub, new Vector2(0, showDySub ? -390 : -324), new Vector2(740, 36), TextAnchor.MiddleCenter, Fonts.Bold);
         }
 
         static void Toggle(Transform p, float y, string name, bool on, Action<bool> set)

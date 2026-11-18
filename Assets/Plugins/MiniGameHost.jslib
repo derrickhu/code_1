@@ -4,6 +4,12 @@ var MiniGameHostLib = {
     fromSidebar: 0,
     ads: {},
     adBusy: false,
+    armedSubScene: '',
+    armedSubTmpls: null,
+    armedSubAt: 0,
+    lastSubConsumedAt: 0,
+    touchStartX: 0,
+    touchStartY: 0,
 
     tt: function () {
       if (typeof GameGlobal !== 'undefined' && GameGlobal.__tt) return GameGlobal.__tt;
@@ -75,6 +81,127 @@ var MiniGameHostLib = {
           });
         }
       } catch (e) {}
+
+      try {
+        if (typeof t.onTouchStart === 'function') {
+          t.onTouchStart(function (res) {
+            var p = res && res.touches && res.touches[0];
+            if (p) {
+              self.touchStartX = p.clientX || p.pageX || 0;
+              self.touchStartY = p.clientY || p.pageY || 0;
+            }
+          });
+        }
+        if (typeof t.onTouchCancel === 'function') {
+          t.onTouchCancel(function () {
+            self.armedSubTmpls = null;
+          });
+        }
+        if (typeof t.onTouchEnd === 'function') {
+          t.onTouchEnd(function (res) {
+            if (self.armedSubTmpls === null) return;
+            var tmpls = self.armedSubTmpls;
+            var scene = self.armedSubScene || 'all';
+            var armedAt = self.armedSubAt || 0;
+            self.armedSubTmpls = null;
+            if (Date.now() - armedAt > 2500) return;
+            var p = res && res.changedTouches && res.changedTouches[0];
+            if (p) {
+              var dx = (p.clientX || p.pageX || 0) - self.touchStartX;
+              var dy = (p.clientY || p.pageY || 0) - self.touchStartY;
+              if (dx * dx + dy * dy > 36 * 36) return;
+            }
+            self.lastSubConsumedAt = Date.now();
+            self.invokeSubscribe(scene, tmpls);
+          });
+        }
+      } catch (e) {}
+    },
+
+    resolveTmplIds: function (scene, csv) {
+      var out = [];
+      var pushUnique = function (id) {
+        if (!id) return;
+        var s = String(id).trim();
+        if (s && out.indexOf(s) < 0 && out.length < 3) out.push(s);
+      };
+      if (csv) {
+        var parts = String(csv).split(',');
+        for (var i = 0; i < parts.length; i++) pushUnique(parts[i]);
+      }
+      if (!out.length && typeof GameGlobal !== 'undefined' && GameGlobal.managerConfig && GameGlobal.managerConfig.SUBSCRIBE_TMPL_IDS) {
+        var cfg = GameGlobal.managerConfig.SUBSCRIBE_TMPL_IDS;
+        if (Array.isArray(cfg)) {
+          for (var j = 0; j < cfg.length; j++) pushUnique(cfg[j]);
+        } else if (typeof cfg === 'object') {
+          if (scene === 'update') {
+            pushUnique(cfg.update);
+          } else if (scene === 'patrol') {
+            pushUnique(cfg.patrol);
+          } else if (scene === 'sign') {
+            pushUnique(cfg.sign);
+          } else {
+            pushUnique(cfg.patrol);
+            pushUnique(cfg.sign);
+          }
+        }
+      }
+      return out.slice(0, 3);
+    },
+
+    invokeSubscribe: function (scene, ids) {
+      var t = this.tt();
+      var list = Array.isArray(ids) ? ids.slice(0, 3) : [];
+      if (!list.length) {
+        var isDev = false;
+        try {
+          isDev = !!(t && t.getSystemInfoSync && String((t.getSystemInfoSync() || {}).platform || '').toLowerCase() === 'devtools');
+        } catch (e0) {}
+        if (isDev) {
+          this.send('subscribe_res', 1, scene + '|devtools_sim');
+        } else {
+          this.send('subscribe_res', 0, 'no_tmpl_cfg');
+        }
+        return;
+      }
+
+      var onOk = function (res) {
+        var accepted = [];
+        if (res) {
+          for (var i = 0; i < list.length; i++) {
+            if (res[list[i]] === 'accept') accepted.push(list[i]);
+          }
+        }
+        if (accepted.length > 0) {
+          MiniGameHost.send('subscribe_res', 1, scene + '|' + accepted.join(','));
+        } else {
+          MiniGameHost.send('subscribe_res', 0, 'reject');
+        }
+      };
+      var onFail = function (err) {
+        var msg = err ? ((err.errCode || err.errNo || '') + ' ' + (err.errMsg || '')).trim() : 'subscribe_fail';
+        MiniGameHost.send('subscribe_res', 0, msg);
+      };
+
+      try {
+        if (typeof tt !== 'undefined' && tt && typeof tt.requestSubscribeMessage === 'function') {
+          tt.requestSubscribeMessage({
+            tmplIds: list,
+            success: onOk,
+            fail: onFail
+          });
+        } else if (t && typeof t.requestSubscribeMessage === 'function') {
+          t.requestSubscribeMessage({
+            tmplIds: list,
+            success: onOk,
+            fail: onFail
+          });
+        } else {
+          this.send('subscribe_res', 0, 'unsupported');
+        }
+      } catch (e) {
+        this.send('subscribe_res', 0, String(e));
+      }
     }
   },
 
@@ -308,6 +435,28 @@ var MiniGameHostLib = {
       var tp = UTF8ToString(typePtr || 0) || 'medium';
       t.vibrateShort({ type: tp });
     } catch (e) {}
+  },
+
+  MiniGame_ArmSubscribe: function (scenePtr, tmplCsvPtr) {
+    MiniGameHost.ensureInit();
+    var scene = UTF8ToString(scenePtr || 0) || 'all';
+    var csv = UTF8ToString(tmplCsvPtr || 0) || '';
+    MiniGameHost.armedSubScene = scene;
+    MiniGameHost.armedSubTmpls = MiniGameHost.resolveTmplIds(scene, csv);
+    MiniGameHost.armedSubAt = Date.now();
+  },
+
+  MiniGame_DisarmSubscribe: function () {
+    MiniGameHost.armedSubTmpls = null;
+  },
+
+  MiniGame_RequestSubscribe: function (scenePtr, tmplCsvPtr) {
+    MiniGameHost.ensureInit();
+    if (Date.now() - (MiniGameHost.lastSubConsumedAt || 0) < 600) return;
+    MiniGameHost.armedSubTmpls = null;
+    var scene = UTF8ToString(scenePtr || 0) || 'all';
+    var csv = UTF8ToString(tmplCsvPtr || 0) || '';
+    MiniGameHost.invokeSubscribe(scene, MiniGameHost.resolveTmplIds(scene, csv));
   }
 };
 

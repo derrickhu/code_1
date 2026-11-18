@@ -341,5 +341,23 @@ namespace Liangshan.Sim
             foreach (var it in DyShortcutRewards) Give(s, it);
             return DyShortcutRewards;
         }
+
+        // ---------------- 抖音订阅消息状态记录（纯服务提醒，不挂钩道具奖励） ----------------
+
+        public static bool HasDySubPatrolToday(SaveData s, int today) => s != null && s.DySubPatrolDay == today + 1;
+        public static bool HasDySubSignToday(SaveData s, int today) => s != null && s.DySubSignDay == today + 1;
+
+        public static void MarkDySubscribed(SaveData s, string scene, int today)
+        {
+            if (s == null) return;
+            if (scene == "patrol") s.DySubPatrolDay = today + 1;
+            else if (scene == "sign") s.DySubSignDay = today + 1;
+            else
+            {
+                s.DySubPatrolDay = today + 1;
+                s.DySubSignDay = today + 1;
+            }
+            s.DySubTotal++;
+        }
     }
 }

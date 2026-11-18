@@ -5,6 +5,8 @@ using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace Liangshan
 {
@@ -37,6 +39,9 @@ namespace Liangshan
         [DllImport("__Internal")] static extern void MiniGame_ShowRewardedAd(string unitId);
         [DllImport("__Internal")] static extern void MiniGame_ShowInterstitialAd(string unitId);
         [DllImport("__Internal")] static extern void MiniGame_VibrateShort(string type);
+        [DllImport("__Internal")] static extern void MiniGame_ArmSubscribe(string scene, string tmplCsv);
+        [DllImport("__Internal")] static extern void MiniGame_DisarmSubscribe();
+        [DllImport("__Internal")] static extern void MiniGame_RequestSubscribe(string scene, string tmplCsv);
 #endif
 
         static DouyinBridge _inst;
@@ -46,6 +51,7 @@ namespace Liangshan
 
         static Action<bool, string> _navCb;
         static Action<bool, string> _shortcutCb;
+        static Action<bool, string> _subCb;
         static Action<string> _loginOk, _loginFail;
         static Action _adShown;
         static Action<bool> _adClosed;
@@ -275,6 +281,81 @@ namespace Liangshan
 #endif
         }
 
+        /// <summary>
+        /// 为订阅按钮挂载按下预装填手势监听：手指在按钮上抬起（tt.onTouchEnd）时同步唤起 tt.requestSubscribeMessage，
+        /// 满足抖音「订阅接口必须在真实点击事件回调中同步触发」的强校验，同时兼容开发工具鼠标点击与编辑器模拟。
+        /// </summary>
+        public static void BindSubscribeGesture(RectTransform btn, string scene, Action<bool, string> done)
+        {
+            if (btn == null) return;
+            GameObject target = btn.gameObject;
+            var hit = btn.GetComponentInChildren<Graphic>();
+            if (hit != null && hit.raycastTarget) target = hit.gameObject;
+            var arm = target.GetComponent<SubscribeTouchArm>() ?? target.AddComponent<SubscribeTouchArm>();
+            arm.Scene = scene ?? "all";
+            arm.Callback = done;
+        }
+
+        public static void RequestSubscribe(string scene, Action<bool, string> done = null)
+        {
+            Init();
+            string sc = string.IsNullOrEmpty(scene) ? "all" : scene;
+            if (ForceSimulateDouyin && Application.isEditor)
+            {
+                Analytics.SubscribeMessage(sc, true, "editor_sim");
+                StateChanged?.Invoke();
+                done?.Invoke(true, sc + "|editor_sim");
+                return;
+            }
+#if LIANGSHAN_JSLIB
+            _subCb = done;
+            try
+            {
+                MiniGame_RequestSubscribe(sc, CloudConfig.GetDouyinSubscribeTmplCsv(sc));
+            }
+            catch (Exception e)
+            {
+                _subCb = null;
+                done?.Invoke(false, e.Message);
+            }
+#else
+            done?.Invoke(false, "not_douyin");
+#endif
+        }
+
+        static void ArmSubscribe(string scene, Action<bool, string> done)
+        {
+            if (!IsDouyin || Application.isEditor) return;
+            Init();
+            string sc = string.IsNullOrEmpty(scene) ? "all" : scene;
+            _subCb = done;
+#if LIANGSHAN_JSLIB
+            try { MiniGame_ArmSubscribe(sc, CloudConfig.GetDouyinSubscribeTmplCsv(sc)); }
+            catch (Exception) { }
+#endif
+        }
+
+        static void DisarmSubscribe()
+        {
+#if LIANGSHAN_JSLIB
+            if (!Application.isEditor)
+            {
+                try { MiniGame_DisarmSubscribe(); }
+                catch (Exception) { }
+            }
+#endif
+        }
+
+        sealed class SubscribeTouchArm : MonoBehaviour, IPointerDownHandler, IPointerExitHandler, IBeginDragHandler
+        {
+            public string Scene = "all";
+            public Action<bool, string> Callback;
+
+            public void OnPointerDown(PointerEventData eventData) => ArmSubscribe(Scene, Callback);
+            public void OnPointerExit(PointerEventData eventData) => DisarmSubscribe();
+            public void OnBeginDrag(PointerEventData eventData) => DisarmSubscribe();
+        }
+
         /// <summary>由 MiniGameHost.jslib 通过 SendMessage('DouyinBridge', 'OnJsEvent', json) 回调。</summary>
         public void OnJsEvent(string json)
         {
@@ -359,6 +440,20 @@ namespace Liangshan
                     _adClosed = null;
                     _adError = null;
                     cb?.Invoke(m.data ?? "ad_error");
+                    break;
+                }
+                case "subscribe_res":
+                {
+                    bool ok = m.ok == 1;
+                    string payload = m.data ?? "";
+                    string sc = "all";
+                    int sep = payload.IndexOf('|');
+                    if (sep > 0) sc = payload.Substring(0, sep);
+                    Analytics.SubscribeMessage(sc, ok, payload);
+                    StateChanged?.Invoke();
+                    var cb = _subCb;
+                    _subCb = null;
+                    cb?.Invoke(ok, payload);
                     break;
                 }
             }

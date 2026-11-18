@@ -1154,6 +1154,12 @@ const managerConfig = {{
   DATA_FILE_SIZE: '{meta["DATA_FILE_SIZE"]}',
   OPT_DATA_FILE_SIZE: '',
   DATA_CDN: '{meta["DATA_CDN"]}',
+  // 抖音一次性订阅消息模板 ID（在抖音开放平台 -> 运营/互动能力 -> 订阅消息 选用模板后可直接填在此处或 CloudConfig.cs 中）
+  SUBSCRIBE_TMPL_IDS: {{
+    patrol: '', // 巡村收益满仓 / 体力恢复提醒模板 ID（如 MSG...）
+    sign: '',   // 每日签到 / 活动开启提醒模板 ID（如 MSG...）
+    update: '', // 版本更新提醒模板 ID（单独请求）
+  }},
   loadDataPackageFromSubpackage: false,
   compressDataPackage: false,
   preloadDataList: [],

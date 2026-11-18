@@ -845,6 +845,19 @@ namespace Liangshan.Tests
             var getUnit = cfg.GetMethod("GetDouyinAdUnitId");
             Assert.AreEqual("mcs8desnlr2a80go8v", getUnit.Invoke(null, new object[] { "revive" }));
             Assert.AreEqual("mcs8desnlr2a80go8v", getUnit.Invoke(null, new object[] { "unknown_scene" }));
+
+            // 抖音订阅消息状态记录（纯服务提醒，不赠送货币）
+            int ingotsBeforeSub = s.Ingots;
+            Assert.IsFalse(Meta.HasDySubPatrolToday(s, 8));
+            Assert.IsFalse(Meta.HasDySubSignToday(s, 8));
+            Meta.MarkDySubscribed(s, "patrol", 8);
+            Assert.IsTrue(Meta.HasDySubPatrolToday(s, 8));
+            Assert.IsFalse(Meta.HasDySubSignToday(s, 8));
+            Meta.MarkDySubscribed(s, "sign", 8);
+            Assert.IsTrue(Meta.HasDySubSignToday(s, 8));
+            Assert.AreEqual(2, s.DySubTotal);
+            Assert.AreEqual(ingotsBeforeSub, s.Ingots, "订阅消息仅记录提醒状态，不附带利益诱导奖励");
+            Assert.IsFalse(Meta.HasDySubPatrolToday(s, 9), "次日可再次设置一次性订阅提醒");
         }
 
         static int SkillRowLevel(Meta.TalentSkill kind)

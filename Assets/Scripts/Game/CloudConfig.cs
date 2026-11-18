@@ -23,6 +23,27 @@ namespace Liangshan
         public const string DouyinInterstitialAdUnitId = "";
 
         /// <summary>
+        /// 抖音一次性订阅消息模板 ID（在抖音开放平台 -> 运营/互动能力 -> 订阅消息 选用模板后填入 MSG...）。
+        /// 注意：一次性模板单次最多传 3 个；版本更新提醒模板须单独请求，不可与普通一次性模板混传。
+        /// 也可在不重编 Unity 的情况下直接填入导出目录 douyin-minigame/game.js 的 SUBSCRIBE_TMPL_IDS。
+        /// </summary>
+        public const string DouyinSubscribePatrolTmplId = ""; // 巡村收益满仓 / 体力恢复提醒
+        public const string DouyinSubscribeSignTmplId = "";   // 每日签到 / 活动开启提醒
+        public const string DouyinSubscribeUpdateTmplId = ""; // 版本更新提醒（单独请求）
+
+        public static string GetDouyinSubscribeTmplCsv(string scene)
+        {
+            if (scene == "update") return DouyinSubscribeUpdateTmplId ?? "";
+            if (scene == "patrol") return DouyinSubscribePatrolTmplId ?? "";
+            if (scene == "sign") return DouyinSubscribeSignTmplId ?? "";
+            var list = new List<string>(2);
+            if (!string.IsNullOrEmpty(DouyinSubscribePatrolTmplId)) list.Add(DouyinSubscribePatrolTmplId);
+            if (!string.IsNullOrEmpty(DouyinSubscribeSignTmplId) && !list.Contains(DouyinSubscribeSignTmplId))
+                list.Add(DouyinSubscribeSignTmplId);
+            return list.Count > 0 ? string.Join(",", list) : "";
+        }
+
+        /// <summary>
         /// 抖音分场景激励视频广告位映射表。
         /// 后续在抖音后台新增各场景独立广告位后，直接将对应场景键的值填上即可自动区分统计；留空时回退 DouyinDefaultAdUnitId。
         /// </summary>
