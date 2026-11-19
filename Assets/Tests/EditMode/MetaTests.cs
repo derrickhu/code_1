@@ -885,6 +885,79 @@ namespace Liangshan.Tests
             }
         }
 
+        [Test]
+        public void WeChatRankProfileSyncAndAvatarNormalizationWork()
+        {
+            var rankType = System.Type.GetType("Liangshan.RankService, Assembly-CSharp");
+            var profileType = System.Type.GetType("Liangshan.Profile, Assembly-CSharp");
+            var payloadType = System.Type.GetType("Liangshan.DouyinBridge+WxUserPayload, Assembly-CSharp");
+            Assert.IsNotNull(rankType, "找不到 Liangshan.RankService");
+            Assert.IsNotNull(profileType, "找不到 Liangshan.Profile");
+            Assert.IsNotNull(payloadType, "找不到 Liangshan.DouyinBridge+WxUserPayload");
+
+            var norm = rankType.GetMethod("NormalizeAvatarUrl");
+            Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/abc/132",
+                norm.Invoke(null, new object[] { "http://thirdwx.qlogo.cn/mmopen/vi_32/abc/132" }));
+            Assert.AreEqual("https://wx.qlogo.cn/mmhead/xyz/0",
+                norm.Invoke(null, new object[] { "  http://wx.qlogo.cn/mmhead/xyz/0  " }));
+            Assert.AreEqual("", norm.Invoke(null, new object[] { "http://example.com/insecure.png" }));
+            Assert.AreEqual("", norm.Invoke(null, new object[] { "" }));
+
+            bool hadSaveKey = UnityEngine.PlayerPrefs.HasKey("save");
+            string prevRaw = hadSaveKey ? UnityEngine.PlayerPrefs.GetString("save", "") : "";
+            var volatileField = profileType.GetField("Volatile");
+            var sProp = profileType.GetProperty("S");
+            var useMethod = profileType.GetMethod("Use");
+            bool prevVolatile = (bool)volatileField.GetValue(null);
+            object prevSave = sProp.GetValue(null);
+
+            try
+            {
+                volatileField.SetValue(null, true);
+                var s = Meta.NewSave(0);
+                s.Cleared = 12;
+                useMethod.Invoke(null, new object[] { s });
+
+                var apply = rankType.GetMethod("ApplyWeChatUser");
+                var p1 = System.Activator.CreateInstance(payloadType);
+                payloadType.GetField("nickName").SetValue(p1, "  张老三  ");
+                payloadType.GetField("avatarUrl").SetValue(p1, "http://thirdwx.qlogo.cn/mmopen/vi_32/zhang/132");
+                payloadType.GetField("gender").SetValue(p1, 1);
+                apply.Invoke(null, new object[] { p1 });
+
+                Assert.AreEqual("张老三", s.Nick);
+                Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/zhang/132", s.Avatar);
+                Assert.AreEqual(1, s.Gender);
+                Assert.AreEqual(1, s.WxAuthed);
+
+                // 当微信返回通用占位名“微信用户”时，不应覆盖玩家已有的自定义/真实昵称
+                var p2 = System.Activator.CreateInstance(payloadType);
+                payloadType.GetField("nickName").SetValue(p2, "微信用户");
+                payloadType.GetField("avatarUrl").SetValue(p2, "https://thirdwx.qlogo.cn/mmopen/vi_32/new_avatar/132");
+                payloadType.GetField("gender").SetValue(p2, 2);
+                apply.Invoke(null, new object[] { p2 });
+
+                Assert.AreEqual("张老三", s.Nick, "通用占位名“微信用户”不应覆盖已有昵称");
+                Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/new_avatar/132", s.Avatar);
+                Assert.AreEqual(2, s.Gender);
+
+                var entry = rankType.GetMethod("BuildMyEntry").Invoke(null, null);
+                var entryType = entry.GetType();
+                Assert.AreEqual("张老三", entryType.GetField("Name").GetValue(entry));
+                Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/new_avatar/132", entryType.GetField("Avatar").GetValue(entry));
+                Assert.AreEqual(2, entryType.GetField("Gender").GetValue(entry));
+                Assert.AreEqual(12, entryType.GetField("Cleared").GetValue(entry));
+            }
+            finally
+            {
+                volatileField.SetValue(null, prevVolatile);
+                sProp.GetSetMethod(true).Invoke(null, new object[] { prevSave });
+                if (hadSaveKey) UnityEngine.PlayerPrefs.SetString("save", prevRaw);
+                else UnityEngine.PlayerPrefs.DeleteKey("save");
+                UnityEngine.PlayerPrefs.Save();
+            }
+        }
+
         static int SkillRowLevel(Meta.TalentSkill kind)
         {
             switch (kind)

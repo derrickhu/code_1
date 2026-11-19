@@ -205,6 +205,7 @@ namespace Liangshan
             Clear();
             _home = HomeScreen.Create(tab);
             Sfx.PlayMusic(Bgm.Menu);
+            RankService.TrySilentSyncWeChatProfile();
             RankService.SubmitIfChanged();
             if (_pendingReveal.HasValue && _autoSkill < 0)
             {

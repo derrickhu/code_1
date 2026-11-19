@@ -116,6 +116,11 @@ namespace Liangshan
             _early = false;
             Analytics.BindUser(_ready ? Backend.UserId : "");
             done();
+            if (_ready)
+            {
+                RankService.TrySilentSyncWeChatProfile();
+                RankService.SubmitIfChanged();
+            }
             if (_pending && _ready)
             {
                 _pending = false;

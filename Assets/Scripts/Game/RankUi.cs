@@ -132,12 +132,31 @@ namespace Liangshan
                 PopulateBoard(root, layer, stage, content, view, meSlot, entries, myRank, onClose);
             });
 
+            var watcher = root.gameObject.AddComponent<RankSyncWatcher>();
+            watcher.OnSynced = () =>
+            {
+                if (!root) return;
+                RankService.FetchBoard(_board, true, (entries, myRank) =>
+                {
+                    if (!root) return;
+                    PopulateBoard(root, layer, stage, content, view, meSlot, entries, myRank, onClose);
+                });
+            };
+
             if (!again)
             {
                 Sfx.Play(Snd.Open, 0.7f);
                 var cg = root.gameObject.AddComponent<CanvasGroup>();
                 Tween.Fade(cg, 0f, 1f, 0.16f);
             }
+        }
+
+        sealed class RankSyncWatcher : MonoBehaviour
+        {
+            public Action OnSynced;
+            void OnEnable() => RankService.ProfileSynced += HandleSync;
+            void OnDisable() => RankService.ProfileSynced -= HandleSync;
+            void HandleSync() => OnSynced?.Invoke();
         }
 
         static void PopulateBoard(RectTransform root, Transform layer, RectTransform stage, RectTransform content,
@@ -198,7 +217,7 @@ namespace Liangshan
             int others = 0;
             for (int i = 0; i < entries.Count; i++)
                 if (!entries[i].IsMe) others++;
-            BuildMyBar(meSlot, layer, RankService.BuildMyEntry(), myRank, prevEntry, others, chasingTail, () =>
+            BuildMyBar(root, meSlot, layer, RankService.BuildMyEntry(), myRank, prevEntry, others, chasingTail, () =>
             {
                 _savedScroll = content ? content.anchoredPosition.y : 0f;
                 Open(layer, _board, onClose);
@@ -289,15 +308,37 @@ namespace Liangshan
             Ui.GradOutlined(medal.transform, rank.ToString(), isFirst ? 36 : 31, Color.white, Pal.Hex("FFEFA8"),
                 new Vector2(0, -1), new Vector2(70, 50), medalEdge, 2.6f);
 
-            // 台面铭牌内的玩家昵称 + 成绩（整体上提至铭牌视觉正中，远离底边拱檐重叠区！）
+            // 台面铭牌内的玩家头像小徽章（若有微信头像）+ 玩家昵称 + 成绩
             Color plaqueEdge = rank == 1 ? Pal.Hex("481014") : rank == 2 ? Pal.Hex("162A44") : Pal.Hex("3C1E0E");
-            float textCenterX = 18f;
+            bool hasAv = !string.IsNullOrEmpty(e.Avatar);
+            float textCenterX = hasAv ? 34f : 18f;
             float nameY = isFirst ? 12f : 10f;
             float scoreY = isFirst ? -32f : -28f;
-            Ui.Outlined(slot, Truncate(e.Name, 7), isFirst ? 28 : 25, e.IsMe ? Pal.Hex("FFF284") : Color.white,
-                new Vector2(textCenterX, nameY), new Vector2(podSz.x - 84f, 40), plaqueEdge, 2.2f);
-            Ui.GradOutlined(slot, ScoreLabel(e), isFirst ? 32 : 28, Color.white, Pal.Hex("FFE68E"),
-                new Vector2(textCenterX, scoreY), new Vector2(podSz.x - 48f, 44), plaqueEdge, 2.6f);
+            if (hasAv)
+            {
+                float miniSz = isFirst ? 42f : 36f;
+                float avX = -podSz.x * 0.5f + (isFirst ? 82f : 72f);
+                var miniWrap = Ui.Rect(slot, "podiumWxAv");
+                miniWrap.anchoredPosition = new Vector2(avX, nameY);
+                miniWrap.sizeDelta = new Vector2(miniSz + 6f, miniSz + 6f);
+                Ui.Box(miniWrap, new Vector2(miniSz + 6f, miniSz + 6f), Vector2.zero, Pal.Gold, Art.RoundedSmall, "rim");
+                var miniMask = Ui.Rect(miniWrap, "m");
+                miniMask.sizeDelta = new Vector2(miniSz, miniSz);
+                miniMask.gameObject.AddComponent<RectMask2D>();
+                var rawImg = Ui.Box(miniMask, new Vector2(miniSz, miniSz), Vector2.zero, Pal.Hex("24486A"), Art.White, "pic");
+                RankService.LoadAvatar(e.Avatar, spr =>
+                {
+                    if (spr != null && rawImg != null)
+                    {
+                        rawImg.sprite = spr;
+                        rawImg.color = Color.white;
+                    }
+                });
+            }
+            Ui.SingleLine(Ui.Outlined(slot, Truncate(e.Name, hasAv ? 6 : 7), isFirst ? 27 : 24, e.IsMe ? Pal.Hex("FFF284") : Color.white,
+                new Vector2(textCenterX, nameY), new Vector2(podSz.x - (hasAv ? 116f : 84f), 40), plaqueEdge, 2.2f), 18);
+            Ui.SingleLine(Ui.GradOutlined(slot, ScoreLabel(e), isFirst ? 32 : 28, Color.white, Pal.Hex("FFE68E"),
+                new Vector2(18f, scoreY), new Vector2(podSz.x - 48f, 44), plaqueEdge, 2.6f), 20);
 
             // 点击高台或好汉查看该名强者的出战阵容名片
             var inspectHit = Ui.Box(slot, new Vector2(podSz.x - 16f, podSz.y + 260f), new Vector2(0, 116f), new Color(0, 0, 0, 0), Art.White, "inspectHit");
@@ -352,13 +393,13 @@ namespace Liangshan
                     new Vector2(-412f, 2f), new Vector2(112, 76), Pal.Hex("4E4236"), 2.8f);
             }
 
-            // 2) 手绘宝剑雕花头像框（前 6 名金翼王冠框，其余冰晶银剑框）
-            BuildOrnateAvatar(row, e.Hero, rank <= 6 || e.Cleared >= 36, new Vector2(-288f, 2f), 116f);
+            // 2) 手绘宝剑雕花头像框（优先展示微信真实头像，未授权回退最强好汉立绘）
+            BuildOrnateAvatar(row, e.Hero, e.Avatar, rank <= 6 || e.Cleared >= 36, new Vector2(-288f, 2f), 116f);
 
             // 3) 性别徽记 + 深棕粗体昵称 + 下方美术级雕花称号徽章
             string genderPrefix = e.Gender == 2 ? "<color=#FF6EA8>♀</color>" : e.Gender == 1 ? "<color=#3B9EFF>♂</color>" : "";
-            Ui.Label(row, genderPrefix + Truncate(e.Name, 8), 29, Pal.Hex("5A473A"),
-                new Vector2(-58f, 30f), new Vector2(304, 42), TextAnchor.MiddleLeft, Fonts.Heavy, "name");
+            Ui.SingleLine(Ui.Label(row, genderPrefix + Truncate(e.Name, 8), 29, Pal.Hex("5A473A"),
+                new Vector2(-58f, 30f), new Vector2(304, 42), TextAnchor.MiddleLeft, Fonts.Heavy, "name"), 20);
 
             var (titleTxt, titleTier) = Meta.HonorTitle(rank, e.Cleared, e.Power);
             BuildTitleBadge(row, titleTxt, titleTier, new Vector2(-114f, -22f), 0.90f);
@@ -371,7 +412,7 @@ namespace Liangshan
             BuildLikeBtn(row, e, new Vector2(404f, 10f), 74f, false, refresh);
         }
 
-        static void BuildMyBar(RectTransform meSlot, Transform layer, RankService.Entry me, int myRank,
+        static void BuildMyBar(RectTransform modalRoot, RectTransform meSlot, Transform layer, RankService.Entry me, int myRank,
             RankService.Entry prev, int others, bool chasingTail, Action refresh)
         {
             Ui.Skin(meSlot, "rank_row_me", new Vector2(968, MeRowH), Vector2.zero, 1f, null, "meBg");
@@ -395,7 +436,7 @@ namespace Liangshan
                     new Vector2(-412f, 2f), new Vector2(114, 72), Pal.Hex("543208"), 3.0f);
             }
 
-            // 统帅宋江金翼雕花头像框（点击可改榜上名号）
+            // 个人金翼雕花头像框（优先展示微信真实头像；未授权时微信环境下支持一键原生授权同步！）
             var av = Ui.Rect(meSlot, "myAvatar");
             av.anchoredPosition = new Vector2(-288f, 2f);
             av.sizeDelta = new Vector2(114, 114);
@@ -404,23 +445,49 @@ namespace Liangshan
             mask.anchoredPosition = new Vector2(0f, -4f);
             mask.gameObject.AddComponent<RectMask2D>();
             Ui.Box(mask, new Vector2(82, 86), Vector2.zero, Pal.Hex("234466"), Art.White);
-            Ui.Icon(mask, "lord_songjiang", 156, new Vector2(0, -32));
+            var fallbackLord = Ui.Icon(mask, "lord_songjiang", 156, new Vector2(0, -32));
+            if (!string.IsNullOrEmpty(me.Avatar))
+            {
+                RankService.LoadAvatar(me.Avatar, spr =>
+                {
+                    if (spr == null || !mask) return;
+                    if (fallbackLord) fallbackLord.gameObject.SetActive(false);
+                    var wxPic = Ui.Box(mask, new Vector2(78, 82), Vector2.zero, Color.white, spr, "wxAv");
+                    wxPic.preserveAspect = true;
+                });
+            }
             var avFrame = Ui.Icon(av, "ui/rank_av_gold", 116, Vector2.zero, "frame");
             Ui.Tap(avFrame, () => ShowRenameModal(layer, refresh), av);
 
+            bool needWxSync = DouyinBridge.IsWeChat && !RankService.HasWeChatProfile;
+            if (needWxSync)
+            {
+                // 微信尚未同步头像昵称时，在头像框正上方挂透明原生 UserInfoButton：点一下直接弹微信官方授权！
+                DouyinBridge.BindWeChatUserInfoButton(av, modalRoot, layer,
+                    u =>
+                    {
+                        Sfx.Play(Snd.Coin);
+                        RankService.ApplyWeChatUser(u);
+                        Ui.Toast("已同步微信名号：" + RankService.MyName, 240f);
+                    },
+                    _ => ShowRenameModal(layer, refresh));
+            }
+
             // 中部醒目个人进度 + 精炼追赶目标（清爽两行，绝不拥挤）
             string myMain = _board == RankService.BoardPower
-                ? $"战力 {Ui.Num(me.Power)}"
-                : (me.Cleared > 0 ? $"第{me.Cleared}关" : "第1关前");
+                ? $"{Truncate(me.Name, 5)} · 战力 {Ui.Num(me.Power)}"
+                : (me.Cleared > 0 ? $"{Truncate(me.Name, 5)} · 第{me.Cleared}关" : $"{Truncate(me.Name, 5)} · 第1关前");
 
-            Ui.Label(meSlot, myMain, 34, Pal.Hex("4A3219"),
-                new Vector2(-18f, 18f), new Vector2(380, 46), TextAnchor.MiddleLeft, Fonts.Heavy);
+            Ui.SingleLine(Ui.Label(meSlot, myMain, 31, Pal.Hex("4A3219"),
+                new Vector2(-18f, 18f), new Vector2(392, 46), TextAnchor.MiddleLeft, Fonts.Heavy), 21);
 
             string chaseTxt;
-            if (myRank == 1 && others > 0)
+            if (needWxSync)
+                chaseTxt = "点击左侧头像 · 同步微信头像与昵称";
+            else if (myRank == 1 && others > 0)
                 chaseTxt = $"{Truncate(me.Name, 7)} · 十里八乡总榜首";
             else if (myRank == 1)
-                chaseTxt = me.Cleared > 0 ? "榜上还只有你一人" : "通关主线后，才算真正的榜首";
+                chaseTxt = me.Cleared > 0 ? "榜上还只有你一人 · 快邀好友比拼" : "通关主线后，冲刺全村榜首";
             else if (myRank <= 0)
                 chaseTxt = "榜单暂时连不上 · 本地进度已保留";
             else if (prev != null)
@@ -434,10 +501,10 @@ namespace Liangshan
                         : $"再夺 {Mathf.Max(1, prev.Stars - me.Stars + 1)} 星{goal}";
             }
             else
-                chaseTxt = $"{Truncate(me.Name, 8)} · 点击头像可改名";
+                chaseTxt = "点击左侧头像可同步微信或修改名号";
 
-            Ui.Label(meSlot, chaseTxt, 22, Pal.Hex("7C5526"),
-                new Vector2(-18f, -22f), new Vector2(400, 32), TextAnchor.MiddleLeft, Fonts.Bold);
+            Ui.SingleLine(Ui.Label(meSlot, chaseTxt, 22, needWxSync ? Pal.Hex("1D7A3A") : Pal.Hex("7C5526"),
+                new Vector2(-18f, -22f), new Vector2(400, 32), TextAnchor.MiddleLeft, Fonts.Bold), 17);
 
             // 右侧大范围暖金放射光晕 + 发光宝箱【进度奖励】（完全还原参考图右下高光宝箱！）
             var chestSlot = Ui.Rect(meSlot, "rewardBtn");
@@ -587,7 +654,7 @@ namespace Liangshan
             Ui.SingleLine(Ui.GradOutlined(b, title, 23, Color.white, bot, new Vector2(2f, 1f), new Vector2(w - 64f, 44), edge, 2.2f), 17);
         }
 
-        static void BuildOrnateAvatar(Transform parent, HeroId h, bool gold, Vector2 pos, float sz)
+        static void BuildOrnateAvatar(Transform parent, HeroId h, string avatarUrl, bool gold, Vector2 pos, float sz)
         {
             var box = Ui.Rect(parent, "avatar");
             box.anchoredPosition = pos;
@@ -611,6 +678,17 @@ namespace Liangshan
                 {
                     var fr = Art.Frames(key);
                     if (fr != null && fr.Length > 0 && ic) ic.sprite = fr[0];
+                });
+            }
+
+            if (!string.IsNullOrEmpty(avatarUrl))
+            {
+                RankService.LoadAvatar(avatarUrl, spr =>
+                {
+                    if (spr == null || !mask) return;
+                    if (ic) ic.gameObject.SetActive(false);
+                    var wxImg = Ui.Box(mask, new Vector2(innerW + 4f, innerH + 4f), Vector2.zero, Color.white, spr, "wxAv");
+                    wxImg.preserveAspect = true;
                 });
             }
 
@@ -782,7 +860,7 @@ namespace Liangshan
             MetaUi.Modal(layer, "rankPlayer", "守村名片", new Vector2(880, 860), out var p, Pal.Hex("2B6E9A"));
 
             Ui.Skin(p, "dark", new Vector2(804, 210), new Vector2(0, 216f), 1f);
-            BuildOrnateAvatar(p, e.Hero, rank <= 6 || e.Cleared >= 30, new Vector2(-296f, 216f), 146f);
+            BuildOrnateAvatar(p, e.Hero, e.Avatar, rank <= 6 || e.Cleared >= 30, new Vector2(-296f, 216f), 146f);
 
             Ui.SingleLine(Ui.GradOutlined(p, e.Name, 36, Color.white, Pal.Hex("FFE890"),
                 new Vector2(26f, 264f), new Vector2(440, 48), Pal.Ink, 2.4f, TextAnchor.MiddleLeft), 22);
@@ -839,16 +917,47 @@ namespace Liangshan
                 }, 34, null, liked ? (Color?)null : Pal.Hex("543008"));
         }
 
-        // ---------------- 玩家自定义榜上名号 ----------------
+        // ---------------- 玩家微信头像昵称同步与自定义榜上名号 ----------------
 
         static void ShowRenameModal(Transform layer, Action refresh)
         {
-            var m = MetaUi.Modal(layer, "rankNick", "修改榜上名号", new Vector2(780, 560), out var p, Pal.Hex("3A6E98"));
-            Ui.Label(p, "点击随机切换响亮幸福村名号，实时同步至全服排行榜", 25, Pal.SubInk, new Vector2(0, 126f), new Vector2(680, 44));
+            bool showWxBtn = DouyinBridge.IsWeChat || Application.isEditor;
+            float modalH = showWxBtn ? 680f : 560f;
+            var m = MetaUi.Modal(layer, "rankNick", "名号与头像设置", new Vector2(800, modalH), out var p, Pal.Hex("3A6E98"));
+            Ui.SingleLine(Ui.Label(p, showWxBtn ? "可一键同步微信真实头像与昵称，或自由切换幸福村响亮名号" : "点击随机切换响亮幸福村名号，实时同步至全服排行榜",
+                24, Pal.SubInk, new Vector2(0, showWxBtn ? 186f : 126f), new Vector2(710, 40)), 18);
 
-            var box = Ui.Skin(p, "dark", new Vector2(560, 88), new Vector2(0, 26f), 1f);
+            var box = Ui.Skin(p, "dark", new Vector2(580, 92), new Vector2(0, showWxBtn ? 96f : 26f), 1f);
             string curName = RankService.MyName;
-            var txt = Ui.Outlined(box.transform, curName, 34, Pal.Hex("FFE88E"), Vector2.zero, new Vector2(520, 64), Pal.Ink, 2.0f);
+            var txt = Ui.SingleLine(Ui.Outlined(box.transform, curName, 34, Pal.Hex("FFE88E"), Vector2.zero, new Vector2(536, 64), Pal.Ink, 2.0f), 22);
+
+            if (showWxBtn)
+            {
+                var wxBtn = Ui.Btn(p, "同步微信头像与昵称", new Vector2(460, 88), new Vector2(0f, -18f), Pal.Green, () =>
+                {
+                    Sfx.Play(Snd.Tap);
+                    DouyinBridge.WxRequestUserInfoDirect(
+                        u =>
+                        {
+                            RankService.ApplyWeChatUser(u);
+                            Sfx.Play(Snd.Coin);
+                            if (m) MetaUi.Close(m);
+                            refresh?.Invoke();
+                            Ui.Toast("已同步微信头像与昵称：" + RankService.MyName, 240f);
+                        },
+                        _ => Ui.Toast("未完成微信授权，也可直接使用下方名号上榜", 240f));
+                }, 31);
+                DouyinBridge.BindWeChatUserInfoButton(wxBtn, m, layer,
+                    u =>
+                    {
+                        RankService.ApplyWeChatUser(u);
+                        Sfx.Play(Snd.Coin);
+                        if (m) MetaUi.Close(m);
+                        refresh?.Invoke();
+                        Ui.Toast("已同步微信头像与昵称：" + RankService.MyName, 240f);
+                    },
+                    _ => Ui.Toast("未完成微信授权，也可直接使用下方名号上榜", 240f));
+            }
 
             string[] pool =
             {
@@ -856,15 +965,16 @@ namespace Liangshan
                 "苞米地守望者", "拖拉机漂移王", "退伍炊事班长", "槐树下第一棋", "专治外星不服",
             };
             int seedIdx = Mathf.Abs(Environment.TickCount) % pool.Length;
+            float botY = showWxBtn ? -168f : -124f;
 
-            Ui.Btn(p, "换个名号", new Vector2(248, 86), new Vector2(-150f, -124f), Pal.Azure, () =>
+            Ui.Btn(p, "换个名号", new Vector2(248, 86), new Vector2(-150f, botY), Pal.Azure, () =>
             {
                 Sfx.Play(Snd.Tap);
                 curName = pool[seedIdx++ % pool.Length] + UnityEngine.Random.Range(10, 99);
                 txt.text = curName;
             }, 32);
 
-            Ui.Btn(p, "确认上榜", new Vector2(248, 86), new Vector2(150f, -124f), Pal.Gold, () =>
+            Ui.Btn(p, "确认上榜", new Vector2(248, 86), new Vector2(150f, botY), Pal.Gold, () =>
             {
                 S.Nick = curName;
                 Profile.Save();

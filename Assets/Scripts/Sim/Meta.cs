@@ -113,9 +113,9 @@ namespace Liangshan.Sim
         /// <summary>最近一次主线战败的关卡号。援军开局只在这一关还没打过时出现。</summary>
         public int LostStage;
         public int[] WeeklyShardBought = new int[0];
-        /// <summary>排行榜主线进度奖励领取位、今日已点赞次数、玩家自定义名号。</summary>
-        public int RankClaimed, RankLikes;
-        public string Nick = "";
+        /// <summary>排行榜主线进度奖励领取位、今日已点赞次数、玩家自定义/微信名号与头像。</summary>
+        public int RankClaimed, RankLikes, Gender, WxAuthed;
+        public string Nick = "", Avatar = "";
         /// <summary>敌军图鉴三大分类（小怪/精英/首领）收集宝箱已领取位。</summary>
         public int CodexBox;
         /// <summary>抖音专属福利：上次领取侧边栏复访奖励的日期序号 + 1；桌面快捷方式一次性奖励标记。</summary>

@@ -3,12 +3,13 @@ using System.Collections;
 using System.Collections.Generic;
 using Liangshan.Sim;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace Liangshan
 {
     /// <summary>
-    /// 排行榜数据服务：对接 CloudBase 云函数 cunkou-api（/rank/submit · /rank/list · /rank/like）。
-    /// 榜面只含云端真实玩家和本机存档，不塞预设对手。弱网时沿用上次拉到的真榜，拉不到就只显示自己。
+    /// 排行榜数据服务：对接 CloudBase 云函数 cunkou-api（/rank/submit · /rank/list · /rank/like），
+    /// 并支持微信小游戏真实昵称与头像静默同步、原生授权按钮及跨域名安全头像加载缓存。
     /// </summary>
     public sealed class RankService : MonoBehaviour
     {
@@ -23,6 +24,7 @@ namespace Liangshan
             public string userId;
             public string name;
             public string avatar;
+            public int gender;
             public int cleared;
             public int stars;
             public int power;
@@ -56,6 +58,7 @@ namespace Liangshan
         {
             public string name;
             public string avatar;
+            public int gender;
             public int cleared;
             public int stars;
             public int power;
@@ -82,6 +85,7 @@ namespace Liangshan
         {
             public string Id;
             public string Name;
+            public string Avatar;
             public int Gender; // 0 无, 1 男(♂), 2 女(♀)
             public int Cleared;
             public int Stars;
@@ -100,9 +104,16 @@ namespace Liangshan
         static RankService _it;
         static int _lastSubmittedStage = -1;
         static int _lastSubmittedPower = -1;
+        static string _lastSubmittedName = "";
+        static string _lastSubmittedAvatar = "";
+        static bool _wxSilentChecked;
         static readonly Dictionary<string, CloudRow[]> RemoteCache = new Dictionary<string, CloudRow[]>();
         static readonly Dictionary<string, int> RemoteMyRank = new Dictionary<string, int>();
         static readonly Dictionary<string, float> RemoteFetchedAt = new Dictionary<string, float>();
+        static readonly Dictionary<string, Sprite> AvatarSprites = new Dictionary<string, Sprite>();
+        static readonly Dictionary<string, List<Action<Sprite>>> AvatarPending = new Dictionary<string, List<Action<Sprite>>>();
+
+        public static event Action ProfileSynced;
 
         static RankService It
         {
@@ -114,6 +125,25 @@ namespace Liangshan
                 _it = go.AddComponent<RankService>();
                 return _it;
             }
+        }
+
+        void Awake()
+        {
+            DouyinBridge.WxUserSynced -= ApplyWeChatUser;
+            DouyinBridge.WxUserSynced += ApplyWeChatUser;
+        }
+
+        public static string NormalizeAvatarUrl(string u)
+        {
+            if (string.IsNullOrWhiteSpace(u)) return "";
+            string v = u.Trim();
+            if (v.StartsWith("http://thirdwx.qlogo.cn/", StringComparison.OrdinalIgnoreCase) ||
+                v.StartsWith("http://wx.qlogo.cn/", StringComparison.OrdinalIgnoreCase) ||
+                v.StartsWith("http://mmbiz.qpic.cn/", StringComparison.OrdinalIgnoreCase))
+            {
+                v = "https://" + v.Substring("http://".Length);
+            }
+            return v.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? v : "";
         }
 
         public static string MyName
@@ -130,12 +160,158 @@ namespace Liangshan
             }
         }
 
+        public static string MyAvatar => Profile.S != null ? NormalizeAvatarUrl(Profile.S.Avatar) : "";
+        public static int MyGender => Profile.S != null ? Profile.S.Gender : 0;
+        public static bool HasWeChatProfile => Profile.S != null && (Profile.S.WxAuthed > 0 || !string.IsNullOrEmpty(MyAvatar));
+
+        /// <summary>若玩家此前在微信已授权过 scope.userInfo，静默拉取最新微信昵称与头像，不主动弹隐私窗。</summary>
+        public static void TrySilentSyncWeChatProfile()
+        {
+            if (Profile.Volatile || Application.isBatchMode || _wxSilentChecked) return;
+            _wxSilentChecked = true;
+            _ = It;
+            DouyinBridge.WxTrySilentUserInfo();
+        }
+
+        public static void ApplyWeChatUser(DouyinBridge.WxUserPayload u)
+        {
+            if (u == null || Profile.S == null) return;
+            var s = Profile.S;
+            bool changed = false;
+            string nick = (u.nickName ?? "").Trim();
+            if (!string.IsNullOrEmpty(nick))
+            {
+                bool isGenericWx = nick == "微信用户";
+                if (!isGenericWx || string.IsNullOrWhiteSpace(s.Nick))
+                {
+                    if (s.Nick != nick) { s.Nick = nick; changed = true; }
+                }
+            }
+            string av = NormalizeAvatarUrl(u.avatarUrl);
+            if (!string.IsNullOrEmpty(av) && s.Avatar != av)
+            {
+                s.Avatar = av;
+                changed = true;
+            }
+            if ((u.gender == 1 || u.gender == 2) && s.Gender != u.gender)
+            {
+                s.Gender = u.gender;
+                changed = true;
+            }
+            if (s.WxAuthed == 0)
+            {
+                s.WxAuthed = 1;
+                changed = true;
+            }
+            if (!changed) return;
+            Profile.Save();
+            RemoteFetchedAt.Clear();
+            SubmitIfChanged(true);
+            ProfileSynced?.Invoke();
+        }
+
+        public static void LoadAvatar(string rawUrl, Action<Sprite> done)
+        {
+            string url = NormalizeAvatarUrl(rawUrl);
+            if (string.IsNullOrEmpty(url) || Profile.Volatile || Application.isBatchMode)
+            {
+                done?.Invoke(null);
+                return;
+            }
+            if (AvatarSprites.TryGetValue(url, out var cached) && cached != null)
+            {
+                done?.Invoke(cached);
+                return;
+            }
+            if (AvatarPending.TryGetValue(url, out var waiters))
+            {
+                if (done != null) waiters.Add(done);
+                return;
+            }
+            var list = new List<Action<Sprite>>();
+            if (done != null) list.Add(done);
+            AvatarPending[url] = list;
+
+            if (DouyinBridge.IsWeChat && !Application.isEditor)
+            {
+                DouyinBridge.WxLoadAvatarBytes(url, bytes =>
+                {
+                    if (bytes != null && bytes.Length > 16)
+                    {
+                        var spr = BytesToSprite(bytes);
+                        if (spr != null)
+                        {
+                            FinishAvatar(url, spr);
+                            return;
+                        }
+                    }
+                    It.StartCoroutine(It.CoDownloadAvatar(url));
+                });
+                return;
+            }
+            It.StartCoroutine(It.CoDownloadAvatar(url));
+        }
+
+        static Sprite BytesToSprite(byte[] bytes)
+        {
+            try
+            {
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!tex.LoadImage(bytes, true))
+                {
+                    Destroy(tex);
+                    return null;
+                }
+                tex.wrapMode = TextureWrapMode.Clamp;
+                tex.filterMode = FilterMode.Bilinear;
+                return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        IEnumerator CoDownloadAvatar(string url)
+        {
+            Sprite spr = null;
+            using (var req = UnityWebRequest.Get(url))
+            {
+                req.timeout = 8;
+                yield return req.SendWebRequest();
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    var data = req.downloadHandler != null ? req.downloadHandler.data : null;
+                    if (data != null && data.Length > 16)
+                        spr = BytesToSprite(data);
+                }
+            }
+            FinishAvatar(url, spr);
+        }
+
+        static void FinishAvatar(string url, Sprite spr)
+        {
+            if (spr != null) AvatarSprites[url] = spr;
+            if (!AvatarPending.TryGetValue(url, out var waiters)) return;
+            AvatarPending.Remove(url);
+            for (int i = 0; i < waiters.Count; i++) waiters[i]?.Invoke(spr);
+        }
+
+        static bool NeedsSubmit(SaveData s, int power)
+        {
+            if (s.Cleared != _lastSubmittedStage) return true;
+            if (Mathf.Abs(power - _lastSubmittedPower) >= 20) return true;
+            if (_lastSubmittedName != MyName) return true;
+            if (_lastSubmittedAvatar != MyAvatar) return true;
+            return false;
+        }
+
         public static void SubmitIfChanged(bool force = false)
         {
             if (Profile.Volatile || Application.isBatchMode || Profile.S == null) return;
             var s = Profile.S;
             int p = Meta.TeamPower(s);
-            if (!force && s.Cleared == _lastSubmittedStage && Mathf.Abs(p - _lastSubmittedPower) < 20) return;
+            if (!force && !NeedsSubmit(s, p)) return;
             It.StartCoroutine(It.CoSubmit(s, p));
         }
 
@@ -153,10 +329,13 @@ namespace Liangshan
             for (int i = 0; i < s.EquipLv.Length; i++) eqSum += s.EquipLv[i];
             int lordLv = Meta.LordLevel(s, out _);
 
+            string subName = MyName;
+            string subAvatar = MyAvatar;
             var body = new SubmitBody
             {
-                name = MyName,
-                avatar = "",
+                name = subName,
+                avatar = subAvatar,
+                gender = MyGender,
                 cleared = s.Cleared,
                 stars = Meta.TotalStars(s),
                 power = power,
@@ -172,19 +351,22 @@ namespace Liangshan
             {
                 _lastSubmittedStage = s.Cleared;
                 _lastSubmittedPower = power;
+                _lastSubmittedName = subName;
+                _lastSubmittedAvatar = subAvatar;
+                RemoteFetchedAt.Clear();
             }
         }
 
         public static void FetchBoard(int board, bool forceRefresh, Action<List<Entry>, int> done)
         {
             string key = board == BoardPower ? "power" : "stage";
-            // 截图 / 单测不走网络：只放本机存档，名次按「榜上只有自己」算。
             if (Profile.Volatile || Application.isBatchMode)
             {
                 var local = BuildMerged(board, Array.Empty<CloudRow>(), 1, true, out int myRank);
                 done?.Invoke(local, myRank);
                 return;
             }
+            TrySilentSyncWeChatProfile();
             if (!forceRefresh && RemoteCache.TryGetValue(key, out var cached) &&
                 RemoteFetchedAt.TryGetValue(key, out float at) && Time.realtimeSinceStartup - at < 25f)
             {
@@ -202,7 +384,7 @@ namespace Liangshan
             if (s != null)
             {
                 int p = Meta.TeamPower(s);
-                if (s.Cleared != _lastSubmittedStage || Mathf.Abs(p - _lastSubmittedPower) >= 20)
+                if (NeedsSubmit(s, p))
                     yield return CoSubmit(s, p);
             }
 
@@ -254,7 +436,8 @@ namespace Liangshan
             {
                 Id = "me",
                 Name = MyName,
-                Gender = 0,
+                Avatar = MyAvatar,
+                Gender = MyGender,
                 Cleared = s.Cleared,
                 Stars = Meta.TotalStars(s),
                 Power = Meta.TeamPower(s),
@@ -266,14 +449,10 @@ namespace Liangshan
                 Likes = extraLikes,
                 IsMe = true,
                 IsCloud = true,
-                TieOrder = int.MaxValue, // 同分让先写上云端的玩家排前
+                TieOrder = int.MaxValue,
             };
         }
 
-        /// <summary>
-        /// 云端行 + 本机存档。known 为 false 表示这次没拉到榜（也没有缓存），名次返回 -1，榜面留空。
-        /// 云端只回前 50 名；本机成绩排不进这 50 时，名次用服务端算好的 rank，不把自己插进榜面。
-        /// </summary>
         static List<Entry> BuildMerged(int board, CloudRow[] cloud, int serverRank, bool known, out int myRank)
         {
             if (!known || cloud == null)
@@ -295,6 +474,13 @@ namespace Liangshan
                 if (c.me || (!string.IsNullOrEmpty(Backend.UserId) && c.userId == Backend.UserId))
                 {
                     remoteMyLikes = Mathf.Max(remoteMyLikes, c.likes);
+                    string cAv = NormalizeAvatarUrl(c.avatar);
+                    if (string.IsNullOrEmpty(me.Avatar) && !string.IsNullOrEmpty(cAv))
+                    {
+                        me.Avatar = cAv;
+                        if (Profile.S != null && string.IsNullOrEmpty(Profile.S.Avatar)) Profile.S.Avatar = cAv;
+                    }
+                    if (me.Gender == 0 && (c.gender == 1 || c.gender == 2)) me.Gender = c.gender;
                     continue;
                 }
                 HeroId hero = (HeroId)Mathf.Clamp(c.hero, 0, Defs.HeroCount - 1);
@@ -305,7 +491,8 @@ namespace Liangshan
                 {
                     Id = "c_" + c.userId,
                     Name = string.IsNullOrEmpty(c.name) ? "热心村民" : c.name,
-                    Gender = 0,
+                    Avatar = NormalizeAvatarUrl(c.avatar),
+                    Gender = c.gender == 1 || c.gender == 2 ? c.gender : 0,
                     Cleared = c.cleared,
                     Stars = c.stars,
                     Power = Mathf.Max(0, c.power),

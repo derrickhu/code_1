@@ -42,7 +42,20 @@ namespace Liangshan
         [DllImport("__Internal")] static extern void MiniGame_ArmSubscribe(string scene, string tmplCsv);
         [DllImport("__Internal")] static extern void MiniGame_DisarmSubscribe();
         [DllImport("__Internal")] static extern void MiniGame_RequestSubscribe(string scene, string tmplCsv);
+        [DllImport("__Internal")] static extern void MiniGame_WxTrySilentUserInfo();
+        [DllImport("__Internal")] static extern void MiniGame_WxMountUserInfoBtn(float xNorm, float yNorm, float wNorm, float hNorm);
+        [DllImport("__Internal")] static extern void MiniGame_WxDestroyUserInfoBtn();
+        [DllImport("__Internal")] static extern void MiniGame_WxRequestUserInfoDirect();
+        [DllImport("__Internal")] static extern void MiniGame_WxLoadAvatar(string reqId, string url);
 #endif
+
+        [Serializable]
+        public sealed class WxUserPayload
+        {
+            public string nickName;
+            public string avatarUrl;
+            public int gender;
+        }
 
         static DouyinBridge _inst;
         static int _host = -1;
@@ -57,6 +70,15 @@ namespace Liangshan
         static Action<bool> _adClosed;
         static Action<string> _adError;
         static bool _adBusy;
+
+        static WxUserBtnAnchor _activeWxAnchor;
+        static Action<WxUserPayload> _wxUserOk;
+        static Action<string> _wxUserFail;
+        static int _avatarSeq;
+        static readonly System.Collections.Generic.Dictionary<string, Action<byte[]>> _avatarWaiters =
+            new System.Collections.Generic.Dictionary<string, Action<byte[]>>();
+
+        public static event Action<WxUserPayload> WxUserSynced;
 
         /// <summary>编辑器 GM 模拟开关：开启后主界面显示抖音专属入口并可模拟侧边栏/桌面回调。</summary>
         public static bool ForceSimulateDouyin { get; private set; }
@@ -83,6 +105,24 @@ namespace Liangshan
 #endif
                 }
                 return _host == 1;
+            }
+        }
+
+        public static bool IsWeChat
+        {
+            get
+            {
+                if (ForceSimulateDouyin) return false;
+                if (_host < 0)
+                {
+#if LIANGSHAN_JSLIB
+                    try { _host = MiniGame_GetHost(); }
+                    catch (Exception) { _host = 0; }
+#else
+                    _host = 0;
+#endif
+                }
+                return _host == 2;
             }
         }
 
@@ -356,6 +396,177 @@ namespace Liangshan
             public void OnBeginDrag(PointerEventData eventData) => DisarmSubscribe();
         }
 
+        // ---------------- 微信小游戏真实昵称与头像桥接 ----------------
+
+        public static void WxTrySilentUserInfo()
+        {
+            if (!IsWeChat || Application.isEditor) return;
+            Init();
+#if LIANGSHAN_JSLIB
+            try { MiniGame_WxTrySilentUserInfo(); }
+            catch (Exception) { }
+#endif
+        }
+
+        public static void WxRequestUserInfoDirect(Action<WxUserPayload> onOk, Action<string> onFail = null)
+        {
+            Init();
+            if (Application.isEditor)
+            {
+                var sim = new WxUserPayload { nickName = "微信村民" + UnityEngine.Random.Range(10, 99), avatarUrl = "", gender = 1 };
+                onOk?.Invoke(sim);
+                WxUserSynced?.Invoke(sim);
+                return;
+            }
+            if (!IsWeChat)
+            {
+                onFail?.Invoke("not_wx");
+                return;
+            }
+            _wxUserOk = onOk;
+            _wxUserFail = onFail;
+#if LIANGSHAN_JSLIB
+            try { MiniGame_WxRequestUserInfoDirect(); }
+            catch (Exception e)
+            {
+                _wxUserOk = null;
+                _wxUserFail = null;
+                onFail?.Invoke(e.Message);
+            }
+#endif
+        }
+
+        public static void WxLoadAvatarBytes(string url, Action<byte[]> done)
+        {
+            if (string.IsNullOrEmpty(url) || !IsWeChat || Application.isEditor)
+            {
+                done?.Invoke(null);
+                return;
+            }
+            Init();
+            string reqId = "av_" + (++_avatarSeq);
+            _avatarWaiters[reqId] = done;
+#if LIANGSHAN_JSLIB
+            try { MiniGame_WxLoadAvatar(reqId, url); }
+            catch (Exception)
+            {
+                _avatarWaiters.Remove(reqId);
+                done?.Invoke(null);
+            }
+#else
+            _avatarWaiters.Remove(reqId);
+            done?.Invoke(null);
+#endif
+        }
+
+        public static void BindWeChatUserInfoButton(RectTransform btn, Transform modalRoot, Transform layer,
+            Action<WxUserPayload> onOk, Action<string> onFail = null)
+        {
+            if (btn == null || !IsWeChat || Application.isEditor) return;
+            Init();
+            var anchor = btn.GetComponent<WxUserBtnAnchor>() ?? btn.gameObject.AddComponent<WxUserBtnAnchor>();
+            anchor.Target = btn;
+            anchor.ModalRoot = modalRoot;
+            anchor.Layer = layer;
+            anchor.OnOk = onOk;
+            anchor.OnFail = onFail;
+        }
+
+        public static void DestroyWeChatUserInfoButton()
+        {
+            _activeWxAnchor = null;
+#if LIANGSHAN_JSLIB
+            if (!Application.isEditor)
+            {
+                try { MiniGame_WxDestroyUserInfoBtn(); }
+                catch (Exception) { }
+            }
+#endif
+        }
+
+        sealed class WxUserBtnAnchor : MonoBehaviour
+        {
+            public RectTransform Target;
+            public Transform ModalRoot;
+            public Transform Layer;
+            public Action<WxUserPayload> OnOk;
+            public Action<string> OnFail;
+
+            readonly Vector3[] _corners = new Vector3[4];
+            Vector4 _lastRect = new Vector4(-1, -1, -1, -1);
+            bool _mounted;
+            int _warmupFrames = 2;
+
+            bool IsTopModal()
+            {
+                if (ModalRoot == null || Layer == null) return true;
+                for (int i = Layer.childCount - 1; i >= 0; i--)
+                {
+                    var c = Layer.GetChild(i);
+                    if (!c.gameObject.activeInHierarchy) continue;
+                    if (c == ModalRoot) return true;
+                    if (c.name.StartsWith("modal_", StringComparison.Ordinal)) return false;
+                }
+                return true;
+            }
+
+            void LateUpdate()
+            {
+                if (!IsWeChat || Application.isEditor || Target == null) return;
+                if (_warmupFrames > 0) { _warmupFrames--; return; }
+
+                if (!IsTopModal())
+                {
+                    UnmountIfOwner();
+                    return;
+                }
+
+                if (Screen.width < 10 || Screen.height < 10) return;
+                Target.GetWorldCorners(_corners);
+                float xMin = Mathf.Clamp01(_corners[0].x / Screen.width);
+                float xMax = Mathf.Clamp01(_corners[2].x / Screen.width);
+                float yTop = Mathf.Clamp01(1f - _corners[2].y / Screen.height);
+                float yBot = Mathf.Clamp01(1f - _corners[0].y / Screen.height);
+                float w = Mathf.Max(0f, xMax - xMin);
+                float h = Mathf.Max(0f, yBot - yTop);
+                if (w < 0.01f || h < 0.01f) return;
+
+                var cur = new Vector4(xMin, yTop, w, h);
+                if (_mounted && _activeWxAnchor == this && Vector4.Distance(cur, _lastRect) < 0.004f) return;
+
+                _lastRect = cur;
+                _mounted = true;
+                _activeWxAnchor = this;
+                _wxUserOk = OnOk;
+                _wxUserFail = OnFail;
+#if LIANGSHAN_JSLIB
+                try { MiniGame_WxMountUserInfoBtn(xMin, yTop, w, h); }
+                catch (Exception) { }
+#endif
+            }
+
+            void UnmountIfOwner()
+            {
+                if (!_mounted) return;
+                _mounted = false;
+                _lastRect = new Vector4(-1, -1, -1, -1);
+                if (_activeWxAnchor == this)
+                {
+                    _activeWxAnchor = null;
+#if LIANGSHAN_JSLIB
+                    if (!Application.isEditor)
+                    {
+                        try { MiniGame_WxDestroyUserInfoBtn(); }
+                        catch (Exception) { }
+                    }
+#endif
+                }
+            }
+
+            void OnDisable() => UnmountIfOwner();
+            void OnDestroy() => UnmountIfOwner();
+        }
+
         /// <summary>由 MiniGameHost.jslib 通过 SendMessage('DouyinBridge', 'OnJsEvent', json) 回调。</summary>
         public void OnJsEvent(string json)
         {
@@ -454,6 +665,51 @@ namespace Liangshan
                     var cb = _subCb;
                     _subCb = null;
                     cb?.Invoke(ok, payload);
+                    break;
+                }
+                case "wx_userinfo":
+                {
+                    var okCb = _wxUserOk;
+                    var failCb = _wxUserFail;
+                    if (m.ok == 1 && !string.IsNullOrEmpty(m.data))
+                    {
+                        WxUserPayload u = null;
+                        try { u = JsonUtility.FromJson<WxUserPayload>(m.data); }
+                        catch (Exception) { u = null; }
+                        if (u != null && (!string.IsNullOrEmpty(u.nickName) || !string.IsNullOrEmpty(u.avatarUrl)))
+                        {
+                            _wxUserOk = null;
+                            _wxUserFail = null;
+                            okCb?.Invoke(u);
+                            WxUserSynced?.Invoke(u);
+                            break;
+                        }
+                    }
+                    _wxUserOk = null;
+                    _wxUserFail = null;
+                    failCb?.Invoke(m.data ?? "cancel");
+                    break;
+                }
+                case "wx_avatar":
+                {
+                    string raw = m.data ?? "";
+                    int sep = raw.IndexOf('|');
+                    if (sep <= 0) break;
+                    string reqId = raw.Substring(0, sep);
+                    string body = raw.Substring(sep + 1);
+                    if (!_avatarWaiters.TryGetValue(reqId, out var cb)) break;
+                    _avatarWaiters.Remove(reqId);
+                    if (m.ok == 1 && !string.IsNullOrEmpty(body))
+                    {
+                        try
+                        {
+                            byte[] bytes = Convert.FromBase64String(body);
+                            cb?.Invoke(bytes);
+                            break;
+                        }
+                        catch (Exception) { }
+                    }
+                    cb?.Invoke(null);
                     break;
                 }
             }

@@ -10,6 +10,38 @@ var MiniGameHostLib = {
     lastSubConsumedAt: 0,
     touchStartX: 0,
     touchStartY: 0,
+    wxBtn: null,
+
+    normalizeAvatarUrl: function (u) {
+      var v = String(u || '').trim();
+      if (v.indexOf('http://thirdwx.qlogo.cn/') === 0 || v.indexOf('http://wx.qlogo.cn/') === 0 || v.indexOf('http://mmbiz.qpic.cn/') === 0) {
+        v = 'https://' + v.slice(7);
+      }
+      return v;
+    },
+
+    emitWxUser: function (u) {
+      if (!u) return;
+      var nick = String(u.nickName || '').trim();
+      var av = this.normalizeAvatarUrl(u.avatarUrl || '');
+      var gd = Number(u.gender || 0) || 0;
+      if (!nick && !av) return;
+      this.send('wx_userinfo', 1, JSON.stringify({
+        nickName: nick,
+        avatarUrl: av,
+        gender: gd
+      }));
+    },
+
+    destroyWxBtn: function () {
+      if (this.wxBtn) {
+        try {
+          if (typeof this.wxBtn.destroy === 'function') this.wxBtn.destroy();
+          else if (typeof this.wxBtn.hide === 'function') this.wxBtn.hide();
+        } catch (e) {}
+        this.wxBtn = null;
+      }
+    },
 
     tt: function () {
       if (typeof GameGlobal !== 'undefined' && GameGlobal.__tt) return GameGlobal.__tt;
@@ -457,6 +489,176 @@ var MiniGameHostLib = {
     var scene = UTF8ToString(scenePtr || 0) || 'all';
     var csv = UTF8ToString(tmplCsvPtr || 0) || '';
     MiniGameHost.invokeSubscribe(scene, MiniGameHost.resolveTmplIds(scene, csv));
+  },
+
+  MiniGame_WxTrySilentUserInfo: function () {
+    var w = MiniGameHost.wxOnly();
+    if (!w || typeof w.getSetting !== 'function' || typeof w.getUserInfo !== 'function') return;
+    var checkAuth = function () {
+      try {
+        w.getSetting({
+          success: function (res) {
+            if (res && res.authSetting && res.authSetting['scope.userInfo']) {
+              w.getUserInfo({
+                lang: 'zh_CN',
+                success: function (u) {
+                  if (u && u.userInfo) MiniGameHost.emitWxUser(u.userInfo);
+                }
+              });
+            }
+          }
+        });
+      } catch (e) {}
+    };
+    try {
+      if (typeof w.getPrivacySetting === 'function') {
+        w.getPrivacySetting({
+          success: function (p) {
+            if (p && p.needAuthorization) return;
+            checkAuth();
+          },
+          fail: checkAuth
+        });
+      } else {
+        checkAuth();
+      }
+    } catch (e2) {
+      checkAuth();
+    }
+  },
+
+  MiniGame_WxMountUserInfoBtn: function (xNorm, yNorm, wNorm, hNorm) {
+    MiniGameHost.destroyWxBtn();
+    var w = MiniGameHost.wxOnly();
+    if (!w || typeof w.createUserInfoButton !== 'function') return;
+    try {
+      var info = (typeof w.getWindowInfo === 'function' ? w.getWindowInfo() : (typeof w.getSystemInfoSync === 'function' ? w.getSystemInfoSync() : null)) || {};
+      var sw = Number(info.windowWidth || info.screenWidth || 375);
+      var sh = Number(info.windowHeight || info.screenHeight || 667);
+      var left = Math.max(0, Math.round(xNorm * sw));
+      var top = Math.max(0, Math.round(yNorm * sh));
+      var width = Math.max(20, Math.round(wNorm * sw));
+      var height = Math.max(20, Math.round(hNorm * sh));
+      var btn = w.createUserInfoButton({
+        type: 'text',
+        text: '',
+        lang: 'zh_CN',
+        style: {
+          left: left,
+          top: top,
+          width: width,
+          height: height,
+          backgroundColor: 'rgba(0,0,0,0)',
+          borderColor: 'rgba(0,0,0,0)',
+          borderWidth: 0,
+          borderRadius: 0,
+          textAlign: 'center',
+          fontSize: 1,
+          lineHeight: height
+        }
+      });
+      if (btn && typeof btn.onTap === 'function') {
+        btn.onTap(function (res) {
+          if (res && res.userInfo && (res.userInfo.nickName || res.userInfo.avatarUrl)) {
+            MiniGameHost.destroyWxBtn();
+            MiniGameHost.emitWxUser(res.userInfo);
+          } else {
+            var msg = (res && res.errMsg) ? String(res.errMsg) : 'cancel';
+            MiniGameHost.send('wx_userinfo', 0, msg);
+          }
+        });
+      }
+      MiniGameHost.wxBtn = btn;
+    } catch (e) {
+      console.warn('[WxUserInfo] createUserInfoButton failed:', e);
+    }
+  },
+
+  MiniGame_WxDestroyUserInfoBtn: function () {
+    MiniGameHost.destroyWxBtn();
+  },
+
+  MiniGame_WxRequestUserInfoDirect: function () {
+    var w = MiniGameHost.wxOnly();
+    if (!w) {
+      MiniGameHost.send('wx_userinfo', 0, 'not_wx');
+      return;
+    }
+    var doGet = function () {
+      if (typeof w.getUserInfo !== 'function') {
+        MiniGameHost.send('wx_userinfo', 0, 'no_api');
+        return;
+      }
+      try {
+        w.getUserInfo({
+          lang: 'zh_CN',
+          success: function (res) {
+            if (res && res.userInfo) MiniGameHost.emitWxUser(res.userInfo);
+            else MiniGameHost.send('wx_userinfo', 0, 'empty');
+          },
+          fail: function (err) {
+            MiniGameHost.send('wx_userinfo', 0, (err && err.errMsg) || 'getUserInfo_fail');
+          }
+        });
+      } catch (e) {
+        MiniGameHost.send('wx_userinfo', 0, String(e));
+      }
+    };
+    try {
+      if (typeof w.requirePrivacyAuthorize === 'function') {
+        w.requirePrivacyAuthorize({
+          success: doGet,
+          fail: function (err) {
+            MiniGameHost.send('wx_userinfo', 0, (err && err.errMsg) || 'privacy_deny');
+          }
+        });
+      } else {
+        doGet();
+      }
+    } catch (e2) {
+      doGet();
+    }
+  },
+
+  MiniGame_WxLoadAvatar: function (reqIdPtr, urlPtr) {
+    var reqId = UTF8ToString(reqIdPtr || 0) || '';
+    var rawUrl = UTF8ToString(urlPtr || 0) || '';
+    var url = MiniGameHost.normalizeAvatarUrl(rawUrl);
+    var w = MiniGameHost.wxOnly();
+    if (!w || !url || typeof w.createImage !== 'function' || typeof w.createCanvas !== 'function') {
+      MiniGameHost.send('wx_avatar', 0, reqId + '|fallback');
+      return;
+    }
+    try {
+      var img = w.createImage();
+      img.onload = function () {
+        try {
+          var sz = 96;
+          var canvas = w.createCanvas();
+          canvas.width = sz;
+          canvas.height = sz;
+          var ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, sz, sz);
+          ctx.drawImage(img, 0, 0, sz, sz);
+          var dataUrl = canvas.toDataURL('image/png');
+          var prefix = 'base64,';
+          var idx = dataUrl ? dataUrl.indexOf(prefix) : -1;
+          if (idx >= 0) {
+            MiniGameHost.send('wx_avatar', 1, reqId + '|' + dataUrl.slice(idx + prefix.length));
+          } else {
+            MiniGameHost.send('wx_avatar', 0, reqId + '|fallback');
+          }
+        } catch (eDraw) {
+          MiniGameHost.send('wx_avatar', 0, reqId + '|fallback');
+        }
+      };
+      img.onerror = function () {
+        MiniGameHost.send('wx_avatar', 0, reqId + '|error');
+      };
+      img.src = url;
+    } catch (e) {
+      MiniGameHost.send('wx_avatar', 0, reqId + '|fallback');
+    }
   }
 };
 
