@@ -223,22 +223,37 @@ async function main() {
   }
   const token = loginJson.data.token;
 
-  // 只读验证 /rank/list（不向正式排行榜写入任何假测试数据！）
-  for (const board of ['stage', 'power']) {
-    const listRes = await httpsReq({
-      hostname: GATEWAY_HOST,
-      path: '/cunkou-api/rank/list',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ board }),
-    });
-    console.log(`      POST /cunkou-api/rank/list (${board}) -> HTTP ${listRes.statusCode}: ${listRes.body.slice(0, 180)}`);
-    if (listRes.statusCode !== 200) throw new Error(`/rank/list (${board}) 失败: ${listRes.body}`);
+  // 只读验证微信/通用命名空间 (cunkou_rank) 与抖音独立命名空间 (cunkou_tt_rank)（不向正式排行榜写入任何假测试数据！）
+  const dyLoginRes = await httpsReq({
+    hostname: GATEWAY_HOST,
+    path: '/cunkou-api/login',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform: 'dy', anonId: 'dy_smoke_verify_rank' }),
+  });
+  const dyLoginJson = JSON.parse(dyLoginRes.body);
+  if (!dyLoginJson.ok || !dyLoginJson.data?.token || dyLoginJson.data?.gameKey !== 'cunkou_tt') {
+    throw new Error(`线上抖音 /login 命名空间异常: ${dyLoginRes.body}`);
   }
-  console.log('✅ 云函数 cunkou-api 排行榜接口已全线就绪！');
+  const dyToken = dyLoginJson.data.token;
+
+  for (const [label, tk] of [['wx/cunkou_rank', token], ['dy/cunkou_tt_rank', dyToken]]) {
+    for (const board of ['stage', 'power']) {
+      const listRes = await httpsReq({
+        hostname: GATEWAY_HOST,
+        path: '/cunkou-api/rank/list',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tk}`,
+        },
+        body: JSON.stringify({ board }),
+      });
+      console.log(`      [${label}] POST /cunkou-api/rank/list (${board}) -> HTTP ${listRes.statusCode}: ${listRes.body.slice(0, 180)}`);
+      if (listRes.statusCode !== 200) throw new Error(`[${label}] /rank/list (${board}) 失败: ${listRes.body}`);
+    }
+  }
+  console.log('✅ 云函数 cunkou-api 微信 + 抖音双端排行榜接口已全线就绪！');
 }
 
 main().catch((e) => {

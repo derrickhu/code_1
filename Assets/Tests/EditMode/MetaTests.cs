@@ -842,9 +842,31 @@ namespace Liangshan.Tests
             Assert.IsNotNull(cfg, "找不到 Liangshan.CloudConfig");
             Assert.AreEqual("tt5b402dfdc53db6ff07", cfg.GetField("DouyinAppId").GetValue(null));
             Assert.AreEqual("mcs8desnlr2a80go8v", cfg.GetField("DouyinDefaultAdUnitId").GetValue(null));
-            var getUnit = cfg.GetMethod("GetDouyinAdUnitId");
-            Assert.AreEqual("mcs8desnlr2a80go8v", getUnit.Invoke(null, new object[] { "revive" }));
-            Assert.AreEqual("mcs8desnlr2a80go8v", getUnit.Invoke(null, new object[] { "unknown_scene" }));
+            Assert.AreEqual("adunit-3e808f8ac0bd9209", cfg.GetField("RewardedAdUnitId").GetValue(null));
+
+            var getDyUnit = cfg.GetMethod("GetDouyinAdUnitId");
+            Assert.AreEqual("al008pk72n23x56kq9", getDyUnit.Invoke(null, new object[] { "recruit" }));
+            Assert.AreEqual("al008pk72n23x56kq9", getDyUnit.Invoke(null, new object[] { "shop_ingot" }));
+            Assert.AreEqual("1alnffp680mg2gdah1", getDyUnit.Invoke(null, new object[] { "reroll" }));
+            Assert.AreEqual("1alnffp680mg2gdah1", getDyUnit.Invoke(null, new object[] { "speed2" }));
+            Assert.AreEqual("1nbibg488beg3t4ahs", getDyUnit.Invoke(null, new object[] { "double" }));
+            Assert.AreEqual("1nbibg488beg3t4ahs", getDyUnit.Invoke(null, new object[] { "start_2star" }));
+            Assert.AreEqual("3oengr4154u8nn45gn", getDyUnit.Invoke(null, new object[] { "revive" }));
+            Assert.AreEqual("mcs8desnlr2a80go8v", getDyUnit.Invoke(null, new object[] { "stamina" }));
+            Assert.AreEqual("mcs8desnlr2a80go8v", getDyUnit.Invoke(null, new object[] { "idle" }));
+            Assert.AreEqual("mcs8desnlr2a80go8v", getDyUnit.Invoke(null, new object[] { "unknown_scene" }));
+
+            var getWxUnit = cfg.GetMethod("GetWeChatAdUnitId");
+            Assert.AreEqual("adunit-39a3bb98a95fc55c", getWxUnit.Invoke(null, new object[] { "recruit" }));
+            Assert.AreEqual("adunit-39a3bb98a95fc55c", getWxUnit.Invoke(null, new object[] { "shop_ingot" }));
+            Assert.AreEqual("adunit-c5587bc19363af50", getWxUnit.Invoke(null, new object[] { "reroll" }));
+            Assert.AreEqual("adunit-c5587bc19363af50", getWxUnit.Invoke(null, new object[] { "take_all" }));
+            Assert.AreEqual("adunit-6233ca9f96b05e36", getWxUnit.Invoke(null, new object[] { "double" }));
+            Assert.AreEqual("adunit-6233ca9f96b05e36", getWxUnit.Invoke(null, new object[] { "start_2star" }));
+            Assert.AreEqual("adunit-fe7a8a11e1ea7ee9", getWxUnit.Invoke(null, new object[] { "revive" }));
+            Assert.AreEqual("adunit-3e808f8ac0bd9209", getWxUnit.Invoke(null, new object[] { "stamina" }));
+            Assert.AreEqual("adunit-3e808f8ac0bd9209", getWxUnit.Invoke(null, new object[] { "idle" }));
+            Assert.AreEqual("adunit-3e808f8ac0bd9209", getWxUnit.Invoke(null, new object[] { "unknown_scene" }));
 
             // 抖音订阅消息状态记录（纯服务提醒，不赠送货币）
             int ingotsBeforeSub = s.Ingots;
@@ -900,6 +922,8 @@ namespace Liangshan.Tests
                 norm.Invoke(null, new object[] { "http://thirdwx.qlogo.cn/mmopen/vi_32/abc/132" }));
             Assert.AreEqual("https://wx.qlogo.cn/mmhead/xyz/0",
                 norm.Invoke(null, new object[] { "  http://wx.qlogo.cn/mmhead/xyz/0  " }));
+            Assert.AreEqual("https://p3-pc.douyinpic.com/aweme/100x100/avatar.jpeg",
+                norm.Invoke(null, new object[] { "http://p3-pc.douyinpic.com/aweme/100x100/avatar.jpeg" }));
             Assert.AreEqual("", norm.Invoke(null, new object[] { "http://example.com/insecure.png" }));
             Assert.AreEqual("", norm.Invoke(null, new object[] { "" }));
 
@@ -941,11 +965,19 @@ namespace Liangshan.Tests
                 Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/new_avatar/132", s.Avatar);
                 Assert.AreEqual(2, s.Gender);
 
+                var p3 = System.Activator.CreateInstance(payloadType);
+                payloadType.GetField("nickName").SetValue(p3, "抖音用户");
+                payloadType.GetField("avatarUrl").SetValue(p3, "http://p6-passport.byteacctimg.com/img/mosaic-legacy/dy.png");
+                payloadType.GetField("gender").SetValue(p3, 1);
+                apply.Invoke(null, new object[] { p3 });
+                Assert.AreEqual("张老三", s.Nick, "通用占位名“抖音用户”不应覆盖已有昵称");
+                Assert.AreEqual("https://p6-passport.byteacctimg.com/img/mosaic-legacy/dy.png", s.Avatar);
+
                 var entry = rankType.GetMethod("BuildMyEntry").Invoke(null, null);
                 var entryType = entry.GetType();
                 Assert.AreEqual("张老三", entryType.GetField("Name").GetValue(entry));
-                Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/new_avatar/132", entryType.GetField("Avatar").GetValue(entry));
-                Assert.AreEqual(2, entryType.GetField("Gender").GetValue(entry));
+                Assert.AreEqual("https://p6-passport.byteacctimg.com/img/mosaic-legacy/dy.png", entryType.GetField("Avatar").GetValue(entry));
+                Assert.AreEqual(1, entryType.GetField("Gender").GetValue(entry));
                 Assert.AreEqual(12, entryType.GetField("Cleared").GetValue(entry));
             }
             finally

@@ -46,6 +46,11 @@ namespace Liangshan
         [DllImport("__Internal")] static extern void MiniGame_WxMountUserInfoBtn(float xNorm, float yNorm, float wNorm, float hNorm);
         [DllImport("__Internal")] static extern void MiniGame_WxDestroyUserInfoBtn();
         [DllImport("__Internal")] static extern void MiniGame_WxRequestUserInfoDirect();
+        [DllImport("__Internal")] static extern void MiniGame_DyTrySilentUserInfo();
+        [DllImport("__Internal")] static extern void MiniGame_ArmDyUserProfile();
+        [DllImport("__Internal")] static extern void MiniGame_DisarmDyUserProfile();
+        [DllImport("__Internal")] static extern void MiniGame_RequestDyUserProfile();
+        [DllImport("__Internal")] static extern int MiniGame_GetDeviceInfo(byte[] outBuf, int bufLen);
         [DllImport("__Internal")] static extern void MiniGame_WxLoadAvatar(string reqId, string url);
 #endif
 
@@ -89,6 +94,7 @@ namespace Liangshan
 
         public static event Action StateChanged;
         public static event Action AppHidden;
+        public static event Action AppShown;
 
         public static bool IsDouyin
         {
@@ -396,7 +402,32 @@ namespace Liangshan
             public void OnBeginDrag(PointerEventData eventData) => DisarmSubscribe();
         }
 
-        // ---------------- 微信小游戏真实昵称与头像桥接 ----------------
+        // ---------------- 微信 / 抖音小游戏真实昵称、头像与设备信息桥接 ----------------
+
+        public static bool TryGetDeviceInfo(out string brand, out string model, out string sys, out string sdkVer)
+        {
+            brand = model = sys = sdkVer = "";
+            if (Application.isEditor) return false;
+#if LIANGSHAN_JSLIB
+            try
+            {
+                var buf = new byte[256];
+                if (MiniGame_GetDeviceInfo(buf, buf.Length) != 1) return false;
+                int len = Array.IndexOf(buf, (byte)0);
+                if (len <= 0) return false;
+                string raw = System.Text.Encoding.UTF8.GetString(buf, 0, len);
+                var p = raw.Split('|');
+                if (p.Length >= 1) brand = p[0];
+                if (p.Length >= 2) model = p[1];
+                if (p.Length >= 3) sys = p[2];
+                if (p.Length >= 4) sdkVer = p[3];
+                return true;
+            }
+            catch (Exception) { return false; }
+#else
+            return false;
+#endif
+        }
 
         public static void WxTrySilentUserInfo()
         {
@@ -406,6 +437,88 @@ namespace Liangshan
             try { MiniGame_WxTrySilentUserInfo(); }
             catch (Exception) { }
 #endif
+        }
+
+        public static void DyTrySilentUserInfo()
+        {
+            if (!IsDouyin || Application.isEditor) return;
+            Init();
+#if LIANGSHAN_JSLIB
+            try { MiniGame_DyTrySilentUserInfo(); }
+            catch (Exception) { }
+#endif
+        }
+
+        public static void BindDouyinUserProfileGesture(RectTransform btn, Action<WxUserPayload> onOk, Action<string> onFail = null)
+        {
+            if (btn == null || !IsDouyin) return;
+            GameObject target = btn.gameObject;
+            var hit = btn.GetComponentInChildren<Graphic>();
+            if (hit != null && hit.raycastTarget) target = hit.gameObject;
+            var arm = target.GetComponent<DyProfileTouchArm>() ?? target.AddComponent<DyProfileTouchArm>();
+            arm.OnOk = onOk;
+            arm.OnFail = onFail;
+        }
+
+        public static void RequestDouyinUserProfile(Action<WxUserPayload> onOk, Action<string> onFail = null)
+        {
+            Init();
+            if (Application.isEditor)
+            {
+                var sim = new WxUserPayload { nickName = "抖音老铁" + UnityEngine.Random.Range(10, 99), avatarUrl = "", gender = 1 };
+                onOk?.Invoke(sim);
+                WxUserSynced?.Invoke(sim);
+                return;
+            }
+            if (!IsDouyin)
+            {
+                onFail?.Invoke("not_dy");
+                return;
+            }
+            _wxUserOk = onOk;
+            _wxUserFail = onFail;
+#if LIANGSHAN_JSLIB
+            try { MiniGame_RequestDyUserProfile(); }
+            catch (Exception e)
+            {
+                _wxUserOk = null;
+                _wxUserFail = null;
+                onFail?.Invoke(e.Message);
+            }
+#endif
+        }
+
+        static void ArmDyProfile(Action<WxUserPayload> onOk, Action<string> onFail)
+        {
+            if (!IsDouyin || Application.isEditor) return;
+            Init();
+            _wxUserOk = onOk;
+            _wxUserFail = onFail;
+#if LIANGSHAN_JSLIB
+            try { MiniGame_ArmDyUserProfile(); }
+            catch (Exception) { }
+#endif
+        }
+
+        static void DisarmDyProfile()
+        {
+#if LIANGSHAN_JSLIB
+            if (!Application.isEditor)
+            {
+                try { MiniGame_DisarmDyUserProfile(); }
+                catch (Exception) { }
+            }
+#endif
+        }
+
+        sealed class DyProfileTouchArm : MonoBehaviour, IPointerDownHandler, IPointerExitHandler, IBeginDragHandler
+        {
+            public Action<WxUserPayload> OnOk;
+            public Action<string> OnFail;
+
+            public void OnPointerDown(PointerEventData eventData) => ArmDyProfile(OnOk, OnFail);
+            public void OnPointerExit(PointerEventData eventData) => DisarmDyProfile();
+            public void OnBeginDrag(PointerEventData eventData) => DisarmDyProfile();
         }
 
         public static void WxRequestUserInfoDirect(Action<WxUserPayload> onOk, Action<string> onFail = null)
@@ -438,7 +551,7 @@ namespace Liangshan
 
         public static void WxLoadAvatarBytes(string url, Action<byte[]> done)
         {
-            if (string.IsNullOrEmpty(url) || !IsWeChat || Application.isEditor)
+            if (string.IsNullOrEmpty(url) || (!IsWeChat && !IsDouyin) || Application.isEditor)
             {
                 done?.Invoke(null);
                 return;
@@ -581,6 +694,7 @@ namespace Liangshan
                 case "sidebar_show":
                     LaunchedFromSidebar = true;
                     StateChanged?.Invoke();
+                    AppShown?.Invoke();
                     break;
                 case "app_show":
 #if LIANGSHAN_JSLIB
@@ -592,6 +706,7 @@ namespace Liangshan
                     catch (Exception) { }
 #endif
                     StateChanged?.Invoke();
+                    AppShown?.Invoke();
                     break;
                 case "app_hide":
                     AppHidden?.Invoke();

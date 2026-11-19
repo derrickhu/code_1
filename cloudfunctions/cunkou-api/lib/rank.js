@@ -59,7 +59,7 @@ function isDefaultGeneratedName(n) {
 
 function cleanAvatar(u) {
   let v = String(u || '').trim();
-  if (v.startsWith('http://thirdwx.qlogo.cn/') || v.startsWith('http://wx.qlogo.cn/') || v.startsWith('http://mmbiz.qpic.cn/')) {
+  if (/^http:\/\/([a-z0-9-]+\.)?(qlogo\.cn|qpic\.cn|douyinpic\.com|byteimg\.com|byteacctimg\.com|toutiaostatic\.com|snssdk\.com|pstatp\.com)\//i.test(v)) {
     v = 'https://' + v.slice('http://'.length);
   }
   if (!/^https:\/\/\S{8,2000}$/.test(v)) return '';

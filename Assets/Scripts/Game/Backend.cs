@@ -61,6 +61,7 @@ namespace Liangshan
         {
             public string platform;
             public string code;
+            public string anonymousCode;
             public string anonId;
         }
 
@@ -98,20 +99,28 @@ namespace Liangshan
             var body = new LoginBody { platform = PlatformCode };
             if (UseDy)
             {
-                string code = null, fail = null;
+                body.anonId = AnonId();
+                string rawCode = null, fail = null;
                 bool back = false;
-                DouyinBridge.Login(c => { code = c; back = true; }, e => { fail = e; back = true; });
+                DouyinBridge.Login(c => { rawCode = c; back = true; }, e => { fail = e; back = true; });
                 float until = Time.realtimeSinceStartup + 4f;
                 while (!back && Time.realtimeSinceStartup < until) yield return null;
-                if (!string.IsNullOrEmpty(code))
+                if (!string.IsNullOrEmpty(rawCode))
                 {
-                    body.code = code;
+                    int sep = rawCode.IndexOf('|');
+                    if (sep >= 0)
+                    {
+                        body.code = rawCode.Substring(0, sep);
+                        body.anonymousCode = rawCode.Substring(sep + 1);
+                    }
+                    else
+                    {
+                        body.code = rawCode;
+                    }
                 }
                 else
                 {
-                    Debug.LogWarning("[Backend] tt.login fallback to anon: " + (fail ?? "timeout"));
-                    body.platform = "anon";
-                    body.anonId = AnonId();
+                    Debug.LogWarning("[Backend] tt.login gave no code, use dy scoped anonId: " + (fail ?? "timeout"));
                 }
             }
             else if (UseWx)
@@ -133,15 +142,6 @@ namespace Liangshan
             long status = 0;
             CloudReply reply = null;
             yield return Post(CloudConfig.LoginPath, JsonUtility.ToJson(body), null, (s, r) => { status = s; reply = r; });
-            // 抖音云函数尚未配置 CUNKOU_TT_SECRET 或开发工具临时 code 校验未过时，自动平滑降级匿名登录，保障云存档与排行榜正常可用
-            if (body.platform == "dy" && (status != 200 || reply == null || !reply.ok || reply.data == null || string.IsNullOrEmpty(reply.data.token)))
-            {
-                Debug.LogWarning("[Backend] dy login fallback to anon: " + Describe(status, reply));
-                body = new LoginBody { platform = "anon", anonId = AnonId() };
-                status = 0;
-                reply = null;
-                yield return Post(CloudConfig.LoginPath, JsonUtility.ToJson(body), null, (s, r) => { status = s; reply = r; });
-            }
             if (status != 200 || reply == null || !reply.ok || reply.data == null || string.IsNullOrEmpty(reply.data.token))
             {
                 done(Describe(status, reply));

@@ -31,7 +31,7 @@ async function handleLogin(req) {
     const wxSession = await wxCode2Session(body.code);
     platformUid = wxSession.openid;
   } else if (platform === 'dy') {
-    platformUid = await ttCode2Openid(body.code);
+    platformUid = await ttCode2Openid(body.code, body.anonymousCode, body.anonId);
   } else if (platform === 'tap') {
     const tapSession = await tapCode2Session(body.code);
     platformUid = tapSession.openid;
@@ -111,16 +111,30 @@ async function wxCode2Session(code) {
   };
 }
 
-async function ttCode2Openid(code) {
-  const appid = getPlatformCredential('tt', 'APPID');
+async function ttCode2Openid(code, anonymousCode, fallbackAnonId) {
+  const appid = getPlatformCredential('tt', 'APPID') || 'tt5b402dfdc53db6ff07';
   const secret = getPlatformCredential('tt', 'SECRET');
-  if (!appid || !secret) throw httpError(500, 'NO_TT_CFG', `${gameKeyUpper()}_TT_APPID/${gameKeyUpper()}_TT_SECRET 未配置`);
-  if (!code) throw httpError(400, 'NO_CODE', 'dy code 缺失');
-  const data = await httpPostJson('https://developer.toutiao.com/api/apps/v2/jscode2session', { appid, secret, code });
-  if (!data || data.err_no !== 0 || !data.data || !data.data.openid) {
+  const validAnon = (id) => {
+    const s = String(id || '').trim();
+    return /^[A-Za-z0-9_\-:.]{8,128}$/.test(s) ? s : '';
+  };
+
+  if (appid && secret && (code || anonymousCode)) {
+    const reqBody = { appid, secret };
+    if (code) reqBody.code = String(code);
+    if (anonymousCode) reqBody.anonymous_code = String(anonymousCode);
+    const data = await httpPostJson('https://developer.toutiao.com/api/apps/v2/jscode2session', reqBody);
+    const openid = data && data.err_no === 0 && data.data && (data.data.openid || data.data.anonymous_openid);
+    if (openid) return String(openid);
+    const anon = validAnon(fallbackAnonId);
+    if (anon) return anon;
     throw httpError(401, 'TT_LOGIN_FAIL', `dy code2session 失败: ${JSON.stringify(data || {})}`);
   }
-  return data.data.openid;
+
+  const anonFallback = validAnon(fallbackAnonId);
+  if (anonFallback) return anonFallback;
+  if (!appid || !secret) throw httpError(500, 'NO_TT_CFG', `${gameKeyUpper()}_TT_APPID/${gameKeyUpper()}_TT_SECRET 未配置`);
+  throw httpError(400, 'NO_CODE', 'dy code 缺失');
 }
 
 async function tapCode2Session(code) {

@@ -457,9 +457,27 @@ namespace Liangshan
                 });
             }
             var avFrame = Ui.Icon(av, "ui/rank_av_gold", 116, Vector2.zero, "frame");
-            Ui.Tap(avFrame, () => ShowRenameModal(layer, refresh), av);
+            bool needDySync = DouyinBridge.IsDouyin && !RankService.HasWeChatProfile;
+            bool needWxSync = !DouyinBridge.IsDouyin && DouyinBridge.IsWeChat && !RankService.HasWeChatProfile;
+            bool needSocialSync = needDySync || needWxSync;
 
-            bool needWxSync = DouyinBridge.IsWeChat && !RankService.HasWeChatProfile;
+            if (needDySync)
+            {
+                Action<DouyinBridge.WxUserPayload> onDyOk = u =>
+                {
+                    Sfx.Play(Snd.Coin);
+                    RankService.ApplyWeChatUser(u);
+                    Ui.Toast("已同步抖音名号：" + RankService.MyName, 240f);
+                };
+                Action<string> onDyFail = _ => ShowRenameModal(layer, refresh);
+                DouyinBridge.BindDouyinUserProfileGesture(av, onDyOk, onDyFail);
+                Ui.Tap(avFrame, () => DouyinBridge.RequestDouyinUserProfile(onDyOk, onDyFail), av);
+            }
+            else
+            {
+                Ui.Tap(avFrame, () => ShowRenameModal(layer, refresh), av);
+            }
+
             if (needWxSync)
             {
                 // 微信尚未同步头像昵称时，在头像框正上方挂透明原生 UserInfoButton：点一下直接弹微信官方授权！
@@ -482,7 +500,9 @@ namespace Liangshan
                 new Vector2(-18f, 18f), new Vector2(392, 46), TextAnchor.MiddleLeft, Fonts.Heavy), 21);
 
             string chaseTxt;
-            if (needWxSync)
+            if (needDySync)
+                chaseTxt = "点击左侧头像 · 同步抖音头像与昵称";
+            else if (needWxSync)
                 chaseTxt = "点击左侧头像 · 同步微信头像与昵称";
             else if (myRank == 1 && others > 0)
                 chaseTxt = $"{Truncate(me.Name, 7)} · 十里八乡总榜首";
@@ -501,9 +521,9 @@ namespace Liangshan
                         : $"再夺 {Mathf.Max(1, prev.Stars - me.Stars + 1)} 星{goal}";
             }
             else
-                chaseTxt = "点击左侧头像可同步微信或修改名号";
+                chaseTxt = DouyinBridge.IsDouyin ? "点击左侧头像可同步抖音或修改名号" : "点击左侧头像可同步微信或修改名号";
 
-            Ui.SingleLine(Ui.Label(meSlot, chaseTxt, 22, needWxSync ? Pal.Hex("1D7A3A") : Pal.Hex("7C5526"),
+            Ui.SingleLine(Ui.Label(meSlot, chaseTxt, 22, needSocialSync ? Pal.Hex("1D7A3A") : Pal.Hex("7C5526"),
                 new Vector2(-18f, -22f), new Vector2(400, 32), TextAnchor.MiddleLeft, Fonts.Bold), 17);
 
             // 右侧大范围暖金放射光晕 + 发光宝箱【进度奖励】（完全还原参考图右下高光宝箱！）
@@ -921,17 +941,42 @@ namespace Liangshan
 
         static void ShowRenameModal(Transform layer, Action refresh)
         {
-            bool showWxBtn = DouyinBridge.IsWeChat || Application.isEditor;
-            float modalH = showWxBtn ? 680f : 560f;
+            bool isDy = DouyinBridge.IsDouyin;
+            bool showWxBtn = !isDy && (DouyinBridge.IsWeChat || Application.isEditor);
+            bool showSocialBtn = isDy || showWxBtn;
+            float modalH = showSocialBtn ? 680f : 560f;
             var m = MetaUi.Modal(layer, "rankNick", "名号与头像设置", new Vector2(800, modalH), out var p, Pal.Hex("3A6E98"));
-            Ui.SingleLine(Ui.Label(p, showWxBtn ? "可一键同步微信真实头像与昵称，或自由切换幸福村响亮名号" : "点击随机切换响亮幸福村名号，实时同步至全服排行榜",
-                24, Pal.SubInk, new Vector2(0, showWxBtn ? 186f : 126f), new Vector2(710, 40)), 18);
+            string subTip = isDy
+                ? "可一键同步抖音真实头像与昵称，或自由切换幸福村响亮名号"
+                : showWxBtn
+                    ? "可一键同步微信真实头像与昵称，或自由切换幸福村响亮名号"
+                    : "点击随机切换响亮幸福村名号，实时同步至全服排行榜";
+            Ui.SingleLine(Ui.Label(p, subTip,
+                24, Pal.SubInk, new Vector2(0, showSocialBtn ? 186f : 126f), new Vector2(710, 40)), 18);
 
-            var box = Ui.Skin(p, "dark", new Vector2(580, 92), new Vector2(0, showWxBtn ? 96f : 26f), 1f);
+            var box = Ui.Skin(p, "dark", new Vector2(580, 92), new Vector2(0, showSocialBtn ? 96f : 26f), 1f);
             string curName = RankService.MyName;
             var txt = Ui.SingleLine(Ui.Outlined(box.transform, curName, 34, Pal.Hex("FFE88E"), Vector2.zero, new Vector2(536, 64), Pal.Ink, 2.0f), 22);
 
-            if (showWxBtn)
+            if (isDy)
+            {
+                Action<DouyinBridge.WxUserPayload> onDyOk = u =>
+                {
+                    RankService.ApplyWeChatUser(u);
+                    Sfx.Play(Snd.Coin);
+                    if (m) MetaUi.Close(m);
+                    refresh?.Invoke();
+                    Ui.Toast("已同步抖音头像与昵称：" + RankService.MyName, 240f);
+                };
+                Action<string> onDyFail = _ => Ui.Toast("未完成抖音授权，也可直接使用下方名号上榜", 240f);
+                var dyBtn = Ui.Btn(p, "同步抖音头像与昵称", new Vector2(460, 88), new Vector2(0f, -18f), Pal.Teal, () =>
+                {
+                    Sfx.Play(Snd.Tap);
+                    DouyinBridge.RequestDouyinUserProfile(onDyOk, onDyFail);
+                }, 31);
+                DouyinBridge.BindDouyinUserProfileGesture(dyBtn, onDyOk, onDyFail);
+            }
+            else if (showWxBtn)
             {
                 var wxBtn = Ui.Btn(p, "同步微信头像与昵称", new Vector2(460, 88), new Vector2(0f, -18f), Pal.Green, () =>
                 {
@@ -965,7 +1010,7 @@ namespace Liangshan
                 "苞米地守望者", "拖拉机漂移王", "退伍炊事班长", "槐树下第一棋", "专治外星不服",
             };
             int seedIdx = Mathf.Abs(Environment.TickCount) % pool.Length;
-            float botY = showWxBtn ? -168f : -124f;
+            float botY = showSocialBtn ? -168f : -124f;
 
             Ui.Btn(p, "换个名号", new Vector2(248, 86), new Vector2(-150f, botY), Pal.Azure, () =>
             {

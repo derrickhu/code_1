@@ -12,12 +12,12 @@ namespace Liangshan
         public const string GameKey = "cunkou";
         public const string GameName = "村口大战外星人";
         public const string AppId = "wx4afec790790030e8";
-        /// <summary>微信流量主激励视频广告位 ID（开通流量主后填入 adunit-xxx 即可自动切换真机激励视频；留空时走演示回退）。</summary>
-        public const string RewardedAdUnitId = "";
+        /// <summary>微信默认激励视频广告位 ID（体力+挂机巡村，未单独命中的场景回退此 ID）。</summary>
+        public const string RewardedAdUnitId = "adunit-3e808f8ac0bd9209";
 
         /// <summary>抖音小游戏 AppID。</summary>
         public const string DouyinAppId = "tt5b402dfdc53db6ff07";
-        /// <summary>抖音默认激励视频广告位 ID（未单独配置分场景广告位时统一回退此 ID）。</summary>
+        /// <summary>抖音默认激励视频广告位 ID（体力，未单独命中的场景回退此 ID）。</summary>
         public const string DouyinDefaultAdUnitId = "mcs8desnlr2a80go8v";
         /// <summary>抖音插屏广告位 ID（后续开通插屏广告位后填入即可启用）。</summary>
         public const string DouyinInterstitialAdUnitId = "";
@@ -44,24 +44,60 @@ namespace Liangshan
         }
 
         /// <summary>
-        /// 抖音分场景激励视频广告位映射表。
-        /// 后续在抖音后台新增各场景独立广告位后，直接将对应场景键的值填上即可自动区分统计；留空时回退 DouyinDefaultAdUnitId。
+        /// 微信分场景激励视频广告位映射表（5 个分组广告位覆盖全部 13 个激励视频入口）：
+        /// - 体力+挂机巡村：adunit-3e808f8ac0bd9209
+        /// - 局内强化+倍速：adunit-c5587bc19363af50
+        /// - 胜利双倍+开局增援：adunit-6233ca9f96b05e36
+        /// - 战败复活：adunit-fe7a8a11e1ea7ee9
+        /// - 抽卡+供销社星钻：adunit-39a3bb98a95fc55c
+        /// </summary>
+        static readonly Dictionary<string, string> WeChatSceneAdUnits = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "start_2star",  "adunit-6233ca9f96b05e36" }, // 胜利双倍+开局增援
+            { "double",       "adunit-6233ca9f96b05e36" }, // 胜利双倍+开局增援
+            { "shop_ingot",   "adunit-39a3bb98a95fc55c" }, // 抽卡+供销社星钻
+            { "recruit",      "adunit-39a3bb98a95fc55c" }, // 抽卡+供销社星钻
+            { "shop_stamina", "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
+            { "stamina",      "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
+            { "idle",         "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
+            { "speed2",       "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "swap_unit",    "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "reroll",       "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "take_all",     "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "reel_jackpot", "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "revive",       "adunit-fe7a8a11e1ea7ee9" }, // 战败复活
+        };
+
+        public static string GetWeChatAdUnitId(string scene)
+        {
+            if (!string.IsNullOrEmpty(scene) && WeChatSceneAdUnits.TryGetValue(scene, out string id) && !string.IsNullOrEmpty(id))
+                return id;
+            return RewardedAdUnitId;
+        }
+
+        /// <summary>
+        /// 抖音分场景激励视频广告位映射表（5 个分组广告位覆盖全部 13 个激励视频入口）：
+        /// - 抽卡 & 供销社星钻：al008pk72n23x56kq9
+        /// - 局内强化 & 倍速：1alnffp680mg2gdah1
+        /// - 胜利双倍 & 开局增援：1nbibg488beg3t4ahs
+        /// - 战败复活：3oengr4154u8nn45gn
+        /// - 体力（含巡村挂机）：mcs8desnlr2a80go8v
         /// </summary>
         static readonly Dictionary<string, string> DouyinSceneAdUnits = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            { "start_2star", "" },  // 开局村委增援（2星乡亲 + 能量币）
-            { "shop_ingot", "" },   // 供销社免费领星钻
-            { "shop_stamina", "" }, // 供销社免费领体力
-            { "recruit", "" },      // 摇人广播站免费摇人
-            { "stamina", "" },      // 体力弹窗看视频补体力
-            { "idle", "" },         // 联防巡逻双倍收益
-            { "speed2", "" },       // 局内解锁全天 2 倍速
-            { "swap_unit", "" },    // 局内换防上阵乡亲
-            { "reroll", "" },       // 局内强化卡免费刷新
-            { "take_all", "" },     // 局内强化三张全收
-            { "reel_jackpot", "" }, // 局内转盘鸿运全收
-            { "double", "" },       // 结算双倍战利品
-            { "revive", "" },       // 战败满血复活再战
+            { "start_2star",  "1nbibg488beg3t4ahs" }, // 胜利双倍 & 开局增援
+            { "double",       "1nbibg488beg3t4ahs" }, // 胜利双倍 & 开局增援
+            { "shop_ingot",   "al008pk72n23x56kq9" }, // 抽卡 & 供销社星钻
+            { "recruit",      "al008pk72n23x56kq9" }, // 抽卡 & 供销社星钻
+            { "shop_stamina", "mcs8desnlr2a80go8v" }, // 体力
+            { "stamina",      "mcs8desnlr2a80go8v" }, // 体力
+            { "idle",         "mcs8desnlr2a80go8v" }, // 体力（挂机巡村）
+            { "speed2",       "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "swap_unit",    "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "reroll",       "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "take_all",     "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "reel_jackpot", "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "revive",       "3oengr4154u8nn45gn" }, // 战败复活
         };
 
         public static string GetDouyinAdUnitId(string scene)

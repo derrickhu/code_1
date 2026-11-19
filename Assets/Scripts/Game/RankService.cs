@@ -137,11 +137,18 @@ namespace Liangshan
         {
             if (string.IsNullOrWhiteSpace(u)) return "";
             string v = u.Trim();
-            if (v.StartsWith("http://thirdwx.qlogo.cn/", StringComparison.OrdinalIgnoreCase) ||
-                v.StartsWith("http://wx.qlogo.cn/", StringComparison.OrdinalIgnoreCase) ||
-                v.StartsWith("http://mmbiz.qpic.cn/", StringComparison.OrdinalIgnoreCase))
+            if (v.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
             {
-                v = "https://" + v.Substring("http://".Length);
+                string rest = v.Substring("http://".Length);
+                int slash = rest.IndexOf('/');
+                string host = (slash >= 0 ? rest.Substring(0, slash) : rest).ToLowerInvariant();
+                if (host.EndsWith("qlogo.cn") || host.EndsWith("qpic.cn") ||
+                    host.EndsWith("douyinpic.com") || host.EndsWith("byteimg.com") ||
+                    host.EndsWith("byteacctimg.com") || host.EndsWith("toutiaostatic.com") ||
+                    host.EndsWith("snssdk.com") || host.EndsWith("pstatp.com"))
+                {
+                    v = "https://" + rest;
+                }
             }
             return v.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? v : "";
         }
@@ -164,13 +171,14 @@ namespace Liangshan
         public static int MyGender => Profile.S != null ? Profile.S.Gender : 0;
         public static bool HasWeChatProfile => Profile.S != null && (Profile.S.WxAuthed > 0 || !string.IsNullOrEmpty(MyAvatar));
 
-        /// <summary>若玩家此前在微信已授权过 scope.userInfo，静默拉取最新微信昵称与头像，不主动弹隐私窗。</summary>
+        /// <summary>若玩家此前在微信/抖音已授权过 scope.userInfo，静默拉取最新真实昵称与头像，不主动弹隐私窗。</summary>
         public static void TrySilentSyncWeChatProfile()
         {
             if (Profile.Volatile || Application.isBatchMode || _wxSilentChecked) return;
             _wxSilentChecked = true;
             _ = It;
-            DouyinBridge.WxTrySilentUserInfo();
+            if (DouyinBridge.IsDouyin) DouyinBridge.DyTrySilentUserInfo();
+            else DouyinBridge.WxTrySilentUserInfo();
         }
 
         public static void ApplyWeChatUser(DouyinBridge.WxUserPayload u)
@@ -181,8 +189,8 @@ namespace Liangshan
             string nick = (u.nickName ?? "").Trim();
             if (!string.IsNullOrEmpty(nick))
             {
-                bool isGenericWx = nick == "微信用户";
-                if (!isGenericWx || string.IsNullOrWhiteSpace(s.Nick))
+                bool isGeneric = nick == "微信用户" || nick == "抖音用户";
+                if (!isGeneric || string.IsNullOrWhiteSpace(s.Nick))
                 {
                     if (s.Nick != nick) { s.Nick = nick; changed = true; }
                 }
@@ -232,7 +240,7 @@ namespace Liangshan
             if (done != null) list.Add(done);
             AvatarPending[url] = list;
 
-            if (DouyinBridge.IsWeChat && !Application.isEditor)
+            if ((DouyinBridge.IsWeChat || DouyinBridge.IsDouyin) && !Application.isEditor)
             {
                 DouyinBridge.WxLoadAvatarBytes(url, bytes =>
                 {

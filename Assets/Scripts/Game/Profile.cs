@@ -102,26 +102,50 @@ namespace Liangshan
         public static bool Fast;
 
 #if LIANGSHAN_WX_AD
-        static WXRewardedVideoAd _wxAd;
-        static string _wxUnit;
+        static readonly System.Collections.Generic.Dictionary<string, WXRewardedVideoAd> _wxAds =
+            new System.Collections.Generic.Dictionary<string, WXRewardedVideoAd>(StringComparer.Ordinal);
         static Action<bool> _wxClosed;
         static bool _wxBusy;
+        static string _wxLastErrCode = "";
+        static string _wxLastErrMsg = "";
 #endif
+
+        static void SplitAdErr(string raw, out string code, out string msg)
+        {
+            code = "";
+            msg = string.IsNullOrWhiteSpace(raw) ? "ad_error" : raw.Trim();
+            int sp = msg.IndexOf(' ');
+            if (sp > 0)
+            {
+                string head = msg.Substring(0, sp);
+                bool digits = true;
+                for (int i = 0; i < head.Length; i++)
+                {
+                    char c = head[i];
+                    if (!(c >= '0' && c <= '9') && !(i == 0 && c == '-')) { digits = false; break; }
+                }
+                if (digits)
+                {
+                    code = head;
+                    msg = msg.Substring(sp + 1).Trim();
+                }
+            }
+        }
 
         public static void Show(string scene, Action done)
         {
-            Analytics.AdRequest(scene);
             if (DouyinBridge.IsDouyin && !Application.isEditor)
             {
                 string dyUnit = CloudConfig.GetDouyinAdUnitId(scene);
+                Analytics.AdRequest(scene, dyUnit);
                 if (!string.IsNullOrEmpty(dyUnit))
                 {
                     DouyinBridge.ShowRewardedAd(
                         dyUnit,
-                        () => Analytics.AdShow(scene),
+                        () => Analytics.AdShow(scene, dyUnit),
                         ended =>
                         {
-                            Analytics.AdClose(scene, ended);
+                            Analytics.AdClose(scene, ended, dyUnit);
                             if (!ended)
                             {
                                 Ui.Toast("完整观看视频才可获得奖励", 200);
@@ -142,25 +166,28 @@ namespace Liangshan
                                 ShowFallback(scene, done);
                                 return;
                             }
-                            Analytics.AdClose(scene, false);
+                            SplitAdErr(err, out string ec, out string em);
+                            Analytics.AdError(scene, ec, em, dyUnit);
                             Ui.Toast("暂无可播放的广告，请稍后再试", 200);
                         });
                     return;
                 }
+                ShowFallback(scene, done);
+                return;
             }
 #if LIANGSHAN_WX_AD
-            string unit = CloudConfig.RewardedAdUnitId;
+            string unit = CloudConfig.GetWeChatAdUnitId(scene);
+            Analytics.AdRequest(scene, unit);
             if (!string.IsNullOrEmpty(unit))
             {
                 if (_wxBusy) return;
                 try
                 {
-                    if (_wxAd == null || _wxUnit != unit)
+                    if (!_wxAds.TryGetValue(unit, out var ad) || ad == null)
                     {
-                        if (_wxAd != null) { try { _wxAd.Destroy(); } catch (Exception) { } }
-                        _wxUnit = unit;
-                        _wxAd = WX.CreateRewardedVideoAd(new WXCreateRewardedVideoAdParam { adUnitId = unit, multiton = true });
-                        _wxAd.OnClose(r =>
+                        ad = WX.CreateRewardedVideoAd(new WXCreateRewardedVideoAdParam { adUnitId = unit, multiton = true });
+                        var cachedAd = ad;
+                        ad.OnClose(r =>
                         {
                             if (!_wxBusy) return;
                             _wxBusy = false;
@@ -168,14 +195,22 @@ namespace Liangshan
                             var cb = _wxClosed;
                             _wxClosed = null;
                             cb?.Invoke(ended);
-                            try { _wxAd?.Load(_ => { }, _ => { }); } catch (Exception) { }
+                            try { cachedAd?.Load(_ => { }, _ => { }); } catch (Exception) { }
                         });
-                        _wxAd.OnError(e => Debug.LogWarning("[Ads] wx error " + (e != null ? e.errCode + " " + e.errMsg : "?")));
+                        ad.OnError(e =>
+                        {
+                            _wxLastErrCode = e != null ? e.errCode.ToString() : "";
+                            _wxLastErrMsg = e != null ? (e.errMsg ?? "") : "wx_ad_error";
+                            Debug.LogWarning("[Ads] wx error (" + unit + ") " + _wxLastErrCode + " " + _wxLastErrMsg);
+                        });
+                        _wxAds[unit] = ad;
                     }
                     _wxBusy = true;
+                    _wxLastErrCode = "";
+                    _wxLastErrMsg = "";
                     _wxClosed = ended =>
                     {
-                        Analytics.AdClose(scene, ended);
+                        Analytics.AdClose(scene, ended, unit);
                         if (!ended)
                         {
                             Ui.Toast("完整观看视频才可获得奖励", 200);
@@ -188,11 +223,11 @@ namespace Liangshan
                         }
                         done?.Invoke();
                     };
-                    _wxAd.Show(_ => Analytics.AdShow(scene), _ =>
+                    ad.Show(_ => Analytics.AdShow(scene, unit), _ =>
                     {
-                        _wxAd.Load(
-                            __ => _wxAd.Show(___ => Analytics.AdShow(scene), ___ => FailWx(scene)),
-                            __ => FailWx(scene));
+                        ad.Load(
+                            __ => ad.Show(___ => Analytics.AdShow(scene, unit), e2 => FailWx(scene, unit, e2 != null ? e2.errCode.ToString() : "", e2 != null ? e2.errMsg : "show_fail")),
+                            e1 => FailWx(scene, unit, e1 != null ? e1.errCode.ToString() : "", e1 != null ? e1.errMsg : "load_fail"));
                     });
                     return;
                 }
@@ -200,18 +235,25 @@ namespace Liangshan
                 {
                     Debug.LogWarning("[Ads] wx create failed " + e.Message);
                     _wxBusy = false;
+                    Analytics.AdError(scene, "-100", e.Message, unit);
                 }
             }
-#endif
             ShowFallback(scene, done);
+            return;
+#else
+            Analytics.AdRequest(scene);
+            ShowFallback(scene, done);
+#endif
         }
 
 #if LIANGSHAN_WX_AD
-        static void FailWx(string scene)
+        static void FailWx(string scene, string unit, string code, string msg)
         {
             _wxBusy = false;
             _wxClosed = null;
-            Analytics.AdClose(scene, false);
+            string ec = !string.IsNullOrEmpty(code) ? code : _wxLastErrCode;
+            string em = !string.IsNullOrEmpty(msg) ? msg : (!string.IsNullOrEmpty(_wxLastErrMsg) ? _wxLastErrMsg : "wx_ad_fail");
+            Analytics.AdError(scene, ec, em, unit);
             Ui.Toast("暂无可播放的广告，请稍后再试", 200);
         }
 #endif

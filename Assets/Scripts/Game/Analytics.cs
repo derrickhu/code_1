@@ -37,6 +37,11 @@ namespace Liangshan
         static float _levelAt;
         static bool _levelOpen;
         static float _lastEndAt = -10f;
+        static float _lastShowAt = -10f;
+        static string _devBrand = "";
+        static string _devModel = "";
+        static string _devSystem = "";
+        static string _devSdkVer = "";
         static readonly List<string> Queue = new List<string>();
         static Pump _pump;
 
@@ -85,9 +90,11 @@ namespace Liangshan
             Track(_mainLevel ? "level_fail" : "mode_fail", LevelParams(string.IsNullOrEmpty(reason) ? "lose" : reason, wave, kills));
         }
 
-        public static void AdRequest(string scene) => Ad("ad_request", scene, null);
-        public static void AdShow(string scene) => Ad("ad_show", scene, null);
-        public static void AdClose(string scene, bool ended) => Ad("ad_close", scene, ended);
+        public static void AdRequest(string scene, string unitOverride = null) => Ad("ad_request", scene, null, null, null, unitOverride);
+        public static void AdShow(string scene, string unitOverride = null) => Ad("ad_show", scene, null, null, null, unitOverride);
+        public static void AdClose(string scene, bool ended, string unitOverride = null) => Ad("ad_close", scene, ended, null, null, unitOverride);
+        public static void AdError(string scene, string errCode = "", string errMsg = "", string unitOverride = null) =>
+            Ad("ad_error", scene, null, errCode ?? "", string.IsNullOrEmpty(errMsg) ? "ad_error" : errMsg, unitOverride);
 
         public static void SubscribeMessage(string scene, bool accepted, string detail = "")
         {
@@ -98,18 +105,33 @@ namespace Liangshan
             Track("subscribe_message", p);
         }
 
-        static void Ad(string name, string scene, bool? ended)
+        public static string ResolveAdUnitId(string scene, string unitOverride = null)
         {
-            if (!_sessionStarted) return;
+            if (!string.IsNullOrEmpty(unitOverride)) return unitOverride;
             string unitId = DouyinBridge.IsDouyin
                 ? CloudConfig.GetDouyinAdUnitId(scene)
-                : (!string.IsNullOrEmpty(CloudConfig.RewardedAdUnitId) ? CloudConfig.RewardedAdUnitId : "reward");
-            if (string.IsNullOrEmpty(unitId)) unitId = "reward";
+                : CloudConfig.GetWeChatAdUnitId(scene);
+            return string.IsNullOrEmpty(unitId) ? "reward" : unitId;
+        }
+
+        static void Ad(string name, string scene, bool? ended, string errCode, string errMsg, string unitOverride)
+        {
+            if (!_sessionStarted) return;
+            string unitId = ResolveAdUnitId(scene, unitOverride);
             Param p = Param.Of("ad_unit_id", unitId)
                 .Str("ad_type", "reward")
                 .Str("scene", string.IsNullOrEmpty(scene) ? "unknown" : scene);
             if (_levelOpen) p.Num("level_id", _levelId).Str("mode", _mode);
-            if (ended.HasValue) p.Bool("is_ended", ended.Value);
+            if (ended.HasValue)
+            {
+                p.Bool("completed", ended.Value);
+                p.Bool("is_ended", ended.Value);
+            }
+            if (errMsg != null)
+            {
+                string shortMsg = errMsg.Length > 200 ? errMsg.Substring(0, 200) : errMsg;
+                p.Str("err_code", errCode ?? "").Str("err_msg", shortMsg);
+            }
             Track(name, p);
         }
 
@@ -133,11 +155,32 @@ namespace Liangshan
                 PlayerPrefs.Save();
             }
             _sessionId = NewId();
+            _devModel = SystemInfo.deviceModel ?? "";
+            _devSystem = SystemInfo.operatingSystem ?? "";
+            if (DouyinBridge.TryGetDeviceInfo(out string b, out string m, out string sys, out string sdk))
+            {
+                if (!string.IsNullOrEmpty(b)) _devBrand = b;
+                if (!string.IsNullOrEmpty(m)) _devModel = m;
+                if (!string.IsNullOrEmpty(sys)) _devSystem = sys;
+                if (!string.IsNullOrEmpty(sdk)) _devSdkVer = sdk;
+            }
+            DouyinBridge.AppShown -= HandleAppShown;
+            DouyinBridge.AppShown += HandleAppShown;
             Restore();
             var go = new GameObject("Analytics");
             UnityEngine.Object.DontDestroyOnLoad(go);
             _pump = go.AddComponent<Pump>();
             _ready = true;
+        }
+
+        static void HandleAppShown() => OnShow("app-show");
+
+        public static void OnShow(string reason)
+        {
+            if (!_ready || !_sessionStarted) return;
+            if (Time.realtimeSinceStartup - _lastShowAt < 1f) return;
+            _lastShowAt = Time.realtimeSinceStartup;
+            Track("app_show", Param.Of("reason", string.IsNullOrEmpty(reason) ? "app-show" : reason));
         }
 
         public static void OnHide(string reason)
@@ -225,9 +268,10 @@ namespace Liangshan
             sb.Append(",\"session_id\":").Append(Json(_sessionId));
             sb.Append(",\"session_seq\":").Append(_seq.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"device\":{");
-            sb.Append("\"brand\":\"\",\"model\":").Append(Json(SystemInfo.deviceModel));
-            sb.Append(",\"system\":").Append(Json(SystemInfo.operatingSystem));
-            sb.Append(",\"sdk_version\":\"\"");
+            sb.Append("\"brand\":").Append(Json(_devBrand));
+            sb.Append(",\"model\":").Append(Json(string.IsNullOrEmpty(_devModel) ? SystemInfo.deviceModel : _devModel));
+            sb.Append(",\"system\":").Append(Json(string.IsNullOrEmpty(_devSystem) ? SystemInfo.operatingSystem : _devSystem));
+            sb.Append(",\"sdk_version\":").Append(Json(_devSdkVer));
             sb.Append(",\"screen_w\":").Append(Screen.width.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"screen_h\":").Append(Screen.height.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"network\":\"unknown\"}");
@@ -239,6 +283,7 @@ namespace Liangshan
         static string PlatformName()
         {
             if (DouyinBridge.IsDouyin) return "douyin";
+            if (DouyinBridge.IsWeChat) return "wechat";
 #if UNITY_MINIGAME || WEIXINMINIGAME || UNITY_WEIXINMINIGAME || MINIGAME_SUBPLATFORM_WEIXIN
             return "wechat";
 #elif MINIGAME_SUBPLATFORM_DOUYIN
@@ -373,6 +418,7 @@ namespace Liangshan
             void OnApplicationPause(bool paused)
             {
                 if (paused) OnHide("app-hide");
+                else OnShow("app-resume");
             }
 
             void OnApplicationQuit()

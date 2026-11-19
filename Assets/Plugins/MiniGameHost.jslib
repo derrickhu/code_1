@@ -8,13 +8,15 @@ var MiniGameHostLib = {
     armedSubTmpls: null,
     armedSubAt: 0,
     lastSubConsumedAt: 0,
+    armedDyProfileAt: 0,
+    lastDyProfileAt: 0,
     touchStartX: 0,
     touchStartY: 0,
     wxBtn: null,
 
     normalizeAvatarUrl: function (u) {
       var v = String(u || '').trim();
-      if (v.indexOf('http://thirdwx.qlogo.cn/') === 0 || v.indexOf('http://wx.qlogo.cn/') === 0 || v.indexOf('http://mmbiz.qpic.cn/') === 0) {
+      if (/^http:\/\/([a-z0-9-]+\.)?(qlogo\.cn|qpic\.cn|douyinpic\.com|byteimg\.com|byteacctimg\.com|toutiaostatic\.com|snssdk\.com|pstatp\.com)\//i.test(v)) {
         v = 'https://' + v.slice(7);
       }
       return v;
@@ -127,22 +129,36 @@ var MiniGameHostLib = {
         if (typeof t.onTouchCancel === 'function') {
           t.onTouchCancel(function () {
             self.armedSubTmpls = null;
+            self.armedDyProfileAt = 0;
           });
         }
         if (typeof t.onTouchEnd === 'function') {
           t.onTouchEnd(function (res) {
+            var p = res && res.changedTouches && res.changedTouches[0];
+            if (p) {
+              var dx = (p.clientX || p.pageX || 0) - self.touchStartX;
+              var dy = (p.clientY || p.pageY || 0) - self.touchStartY;
+              if (dx * dx + dy * dy > 36 * 36) {
+                self.armedSubTmpls = null;
+                self.armedDyProfileAt = 0;
+                return;
+              }
+            }
+            if (self.armedDyProfileAt > 0) {
+              var profAt = self.armedDyProfileAt;
+              self.armedDyProfileAt = 0;
+              if (Date.now() - profAt <= 2500) {
+                self.lastDyProfileAt = Date.now();
+                self.invokeDyUserProfile();
+                return;
+              }
+            }
             if (self.armedSubTmpls === null) return;
             var tmpls = self.armedSubTmpls;
             var scene = self.armedSubScene || 'all';
             var armedAt = self.armedSubAt || 0;
             self.armedSubTmpls = null;
             if (Date.now() - armedAt > 2500) return;
-            var p = res && res.changedTouches && res.changedTouches[0];
-            if (p) {
-              var dx = (p.clientX || p.pageX || 0) - self.touchStartX;
-              var dy = (p.clientY || p.pageY || 0) - self.touchStartY;
-              if (dx * dx + dy * dy > 36 * 36) return;
-            }
             self.lastSubConsumedAt = Date.now();
             self.invokeSubscribe(scene, tmpls);
           });
@@ -234,6 +250,77 @@ var MiniGameHostLib = {
       } catch (e) {
         this.send('subscribe_res', 0, String(e));
       }
+    },
+
+    invokeDyUserProfile: function () {
+      var t = this.tt();
+      if (!t) {
+        this.send('wx_userinfo', 0, 'not_dy');
+        return;
+      }
+      var self = this;
+      var fallbackGetInfo = function () {
+        if (typeof t.getUserInfo !== 'function') {
+          self.send('wx_userinfo', 0, 'no_api');
+          return;
+        }
+        try {
+          t.getUserInfo({
+            withCredentials: false,
+            success: function (res) {
+              if (res && res.userInfo && (res.userInfo.nickName || res.userInfo.avatarUrl)) {
+                self.emitWxUser(res.userInfo);
+              } else {
+                self.send('wx_userinfo', 0, 'empty');
+              }
+            },
+            fail: function (err) {
+              self.send('wx_userinfo', 0, (err && err.errMsg) || 'dy_userinfo_fail');
+            }
+          });
+        } catch (e2) {
+          self.send('wx_userinfo', 0, String(e2));
+        }
+      };
+
+      if (typeof t.getUserProfile === 'function') {
+        try {
+          t.getUserProfile({
+            force: true,
+            desc: '用于展示守村排行榜头像与昵称',
+            success: function (res) {
+              if (res && res.userInfo && (res.userInfo.nickName || res.userInfo.avatarUrl)) {
+                self.emitWxUser(res.userInfo);
+              } else {
+                fallbackGetInfo();
+              }
+            },
+            fail: function (err) {
+              var msg = (err && err.errMsg) ? String(err.errMsg) : '';
+              if (msg.indexOf('cancel') >= 0 || msg.indexOf('deny') >= 0 || msg.indexOf('auth deny') >= 0) {
+                self.send('wx_userinfo', 0, msg);
+              } else {
+                fallbackGetInfo();
+              }
+            }
+          });
+          return;
+        } catch (e) {}
+      }
+
+      if (typeof t.authorize === 'function') {
+        try {
+          t.authorize({
+            scope: 'scope.userInfo',
+            success: fallbackGetInfo,
+            fail: function (err) {
+              self.send('wx_userinfo', 0, (err && err.errMsg) || 'dy_auth_deny');
+            }
+          });
+          return;
+        } catch (e3) {}
+      }
+      fallbackGetInfo();
     }
   },
 
@@ -384,8 +471,9 @@ var MiniGameHostLib = {
       t.login({
         force: false,
         success: function (res) {
-          var code = (res && (res.code || res.anonymousCode)) || '';
-          if (code) MiniGameHost.send('login', 1, code);
+          var code = (res && res.code) ? String(res.code) : '';
+          var anon = (res && res.anonymousCode) ? String(res.anonymousCode) : '';
+          if (code || anon) MiniGameHost.send('login', 1, code + '|' + anon);
           else MiniGameHost.send('login', 0, 'empty_code');
         },
         fail: function (err) {
@@ -620,21 +708,72 @@ var MiniGameHostLib = {
     }
   },
 
+  MiniGame_DyTrySilentUserInfo: function () {
+    var t = MiniGameHost.tt();
+    if (!t || typeof t.getSetting !== 'function' || typeof t.getUserInfo !== 'function') return;
+    try {
+      t.getSetting({
+        success: function (res) {
+          if (res && res.authSetting && res.authSetting['scope.userInfo']) {
+            t.getUserInfo({
+              withCredentials: false,
+              success: function (u) {
+                if (u && u.userInfo) MiniGameHost.emitWxUser(u.userInfo);
+              }
+            });
+          }
+        }
+      });
+    } catch (e) {}
+  },
+
+  MiniGame_ArmDyUserProfile: function () {
+    MiniGameHost.ensureInit();
+    MiniGameHost.armedDyProfileAt = Date.now();
+  },
+
+  MiniGame_DisarmDyUserProfile: function () {
+    MiniGameHost.armedDyProfileAt = 0;
+  },
+
+  MiniGame_RequestDyUserProfile: function () {
+    MiniGameHost.ensureInit();
+    if (Date.now() - (MiniGameHost.lastDyProfileAt || 0) < 600) return;
+    MiniGameHost.armedDyProfileAt = 0;
+    MiniGameHost.invokeDyUserProfile();
+  },
+
+  MiniGame_GetDeviceInfo: function (outBuf, bufLen) {
+    var host = MiniGameHost.tt() || MiniGameHost.wxOnly();
+    if (!host || typeof host.getSystemInfoSync !== 'function') return 0;
+    try {
+      var info = host.getSystemInfoSync() || {};
+      var clean = function (s) {
+        return String(s || '').replace(/[\|\r\n]/g, ' ').trim();
+      };
+      var str = clean(info.brand) + '|' + clean(info.model) + '|' + clean(info.system || info.platform) + '|' + clean(info.SDKVersion || info.sdkVersion);
+      stringToUTF8(str, outBuf, bufLen);
+      return 1;
+    } catch (e) {
+      return 0;
+    }
+  },
+
   MiniGame_WxLoadAvatar: function (reqIdPtr, urlPtr) {
     var reqId = UTF8ToString(reqIdPtr || 0) || '';
     var rawUrl = UTF8ToString(urlPtr || 0) || '';
     var url = MiniGameHost.normalizeAvatarUrl(rawUrl);
-    var w = MiniGameHost.wxOnly();
-    if (!w || !url || typeof w.createImage !== 'function' || typeof w.createCanvas !== 'function') {
+    var host = MiniGameHost.tt() || MiniGameHost.wxOnly();
+    if (!host || !url || typeof host.createImage !== 'function' || typeof host.createCanvas !== 'function') {
       MiniGameHost.send('wx_avatar', 0, reqId + '|fallback');
       return;
     }
     try {
-      var img = w.createImage();
+      var img = host.createImage();
       img.onload = function () {
         try {
           var sz = 96;
-          var canvas = w.createCanvas();
+          var canvas = host.createCanvas();
           canvas.width = sz;
           canvas.height = sz;
           var ctx = canvas.getContext('2d');
