@@ -780,7 +780,7 @@ namespace Liangshan
         {
             for (int i = 0; i < n; i++)
             {
-                var spr = Art.Img("fx_rock" + UnityEngine.Random.Range(0, 6));
+                var spr = Art.Img("fx_rock" + UnityEngine.Random.Range(1, 6));
                 float ang = UnityEngine.Random.Range(0f, Mathf.PI * 2);
                 var vx = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang) * 0.45f) * speed * UnityEngine.Random.Range(0.4f, 1f);
                 float vz = speed * UnityEngine.Random.Range(0.9f, 1.6f);

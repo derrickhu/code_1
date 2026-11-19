@@ -860,6 +860,31 @@ namespace Liangshan.Tests
             Assert.IsFalse(Meta.HasDySubPatrolToday(s, 9), "次日可再次设置一次性订阅提醒");
         }
 
+        [Test]
+        public void AllHeroesHaveAuthenticModernProjectilesAndLoadedArtSprites()
+        {
+            foreach (var d in Defs.Heroes)
+            {
+                Assert.IsNotEmpty(d.AtkIcon, d.Name + " 缺少 AtkIcon");
+                Assert.IsNotNull(UnityEngine.Resources.Load<UnityEngine.Sprite>("Art/" + d.AtkIcon), d.Name + " AtkIcon 缺图: " + d.AtkIcon);
+                if (d.Proj != null)
+                    Assert.IsNotNull(UnityEngine.Resources.Load<UnityEngine.Sprite>("Art/" + d.Proj), d.Name + " Proj 缺图: " + d.Proj);
+                if (d.HasUlt)
+                    Assert.IsNotNull(UnityEngine.Resources.Load<UnityEngine.Sprite>("Art/" + d.UltIcon), d.Name + " UltIcon 缺图: " + d.UltIcon);
+                if (d.Carry && (d.Shot == ShotKind.Arrow || d.Shot == ShotKind.Bomb || d.Shot == ShotKind.Fireball))
+                    Assert.IsNotNull(d.Proj, d.Name + " 必须配置专属弹道贴图 Proj，禁止回退旧通用箭/雷");
+            }
+            foreach (var tex in new[] {
+                "wp_pellet", "wp_nail", "wp_nail_stuck", "wp_railnail",
+                "wp_cracker", "wp_gascan", "wp_oilpot", "wp_firework",
+                "wp_chili", "wp_chess", "wp_plasma_bolt", "ic_fan",
+                "fx_fire_vortex", "fx_gold_cone", "fx_purple_cone", "fx_chili_cone", "fx_rune"
+            })
+            {
+                Assert.IsNotNull(UnityEngine.Resources.Load<UnityEngine.Sprite>("Art/" + tex), "特效/弹道 Sprite 未正确按 Sprite 导入: " + tex);
+            }
+        }
+
         static int SkillRowLevel(Meta.TalentSkill kind)
         {
             switch (kind)

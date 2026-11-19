@@ -48,7 +48,7 @@ function loadSecret() {
   const shared = path.join(ROOT, '..', 'xiaochu2', 'scripts', '.cdn_secret');
   const file = fs.existsSync(own) ? own : shared;
   const env = { ...readEnvFile(file), ...process.env };
-  return { id: env.TENCENTCLOUD_SECRET_ID || '', key: env.TENCENTCLOUD_SECRET_KEY || '', region: env.TENCENTCLOUD_REGION || '', file };
+  return { id: env.TENCENTCLOUD_SECRET_ID || '', key: env.TENCENTCLOUD_SECRET_KEY || '', region: env.TENCENTCLOUD_REGION || 'ap-shanghai', file };
 }
 
 const secret = loadSecret();
@@ -58,7 +58,7 @@ const sha1Hex = (s) => crypto.createHash('sha1').update(s).digest('hex');
 const hmacSha1Hex = (k, s) => crypto.createHmac('sha1', k).update(s).digest('hex');
 const encodePathname = (p) => p.split('/').map(encodeURIComponent).join('/');
 
-function request({ method = 'GET', hostname, path: reqPath = '/', headers = {}, body = null, timeoutMs = 60000 }) {
+function requestOnce({ method = 'GET', hostname, path: reqPath = '/', headers = {}, body = null, timeoutMs = 60000 }) {
   return new Promise((resolve, reject) => {
     const data = body == null ? null : Buffer.isBuffer(body) ? body : Buffer.from(String(body));
     const req = https.request({ hostname, path: reqPath, method, headers: { ...headers, ...(data ? { 'Content-Length': data.length } : {}) } }, (res) => {
@@ -71,6 +71,19 @@ function request({ method = 'GET', hostname, path: reqPath = '/', headers = {}, 
     if (data) req.write(data);
     req.end();
   });
+}
+
+async function request(opts) {
+  let lastErr;
+  for (let i = 0; i < 4; i++) {
+    try {
+      return await requestOnce(opts);
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 function cosAuth(method, host, uri) {

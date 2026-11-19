@@ -95,10 +95,22 @@ namespace Liangshan
                 _views[i].Tick();
                 if (s.T < s.Dur) continue;
                 var at = new Vector2(s.To.X, s.To.Y);
+                var hd = Defs.Hero(s.Hero);
                 _views[i].Destroy();
                 _views.RemoveAt(i);
                 _shots.RemoveAt(i);
-                if (WorldFx.I != null) WorldFx.I.Flash(at, 1.4f, Color.white.A(0.75f), 0.16f, 9300);
+                if (WorldFx.I != null)
+                {
+                    Color hitCol = hd.Tint != null ? Pal.Hex(hd.Tint)
+                        : hd.Rarity >= 4 ? Pal.Gold
+                        : hd.Rarity == 3 ? Pal.Hex("B86CFF")
+                        : Color.white;
+                    float sc = hd.Rarity >= 4 ? 1.55f : hd.Rarity == 3 ? 1.25f : 0.95f;
+                    WorldFx.I.Flash(at, 1.2f * sc, hitCol.A(0.68f), 0.16f, 9300);
+                    WorldFx.I.Glint(at, 1.1f * sc, Color.Lerp(hitCol, Color.white, 0.55f), 0.16f, 9305);
+                    if (hd.Rarity >= 3)
+                        WorldFx.I.SparkStreaks(at, hd.Rarity >= 4 ? 6 : 3, 0.32f * sc, 4.2f, hitCol, 0.20f, 9302, 4f);
+                }
                 Landed?.Invoke();
             }
         }
