@@ -518,13 +518,35 @@ function userRoot() {
 
 function ensureDirSync(fs, dirPath) {
   if (!fs || !dirPath) return;
+  const clean = String(dirPath).replace(/\\/+$/, '');
+  if (!clean) return;
   try {
-    fs.accessSync(dirPath);
+    fs.accessSync(clean);
     return;
   } catch (e) {}
+  const root = userRoot().replace(/\\/+$/, '');
+  if (clean.startsWith(root + '/')) {
+    const parts = clean.substring(root.length + 1).split('/').filter(Boolean);
+    let cur = root;
+    for (let i = 0; i < parts.length; i++) {
+      cur += '/' + parts[i];
+      try {
+        fs.accessSync(cur);
+      } catch (e2) {
+        try {
+          fs.mkdirSync(cur, true);
+        } catch (e3) {
+          try { fs.mkdirSync(cur); } catch (e4) {}
+        }
+      }
+    }
+    return;
+  }
   try {
-    fs.mkdirSync(dirPath, true);
-  } catch (e) {}
+    fs.mkdirSync(clean, true);
+  } catch (e) {
+    try { fs.mkdirSync(clean); } catch (e2) {}
+  }
 }
 
 function parentDir(filePath) {
@@ -795,6 +817,7 @@ function installUnityLoader(unityNamespace, manager) {
     constructor() {
       this.signal = { aborted: false };
       this.paramsCache = { url: '', method: 'GET' };
+      this.headers = {};
       this.responseType = 'arraybuffer';
       this.status = 0;
       this.response = null;
@@ -807,6 +830,14 @@ function installUnityLoader(unityNamespace, manager) {
       this.onsave = null;
       this.onsavefail = null;
       this._task = null;
+      // 关键修复：团结引擎 _JS_WebRequest_Send 会以 `fetchImpl = abortController.openAndSend; fetchImpl(...)`
+      // 脱离实例直接调用 openAndSend，必须在构造时绑定 this，否则严格模式下 this === undefined 必抛 TypeError -> Unknown Error！
+      this.abort = this.abort.bind(this);
+      this.open = this.open.bind(this);
+      this.setRequestHeader = this.setRequestHeader.bind(this);
+      this.send = this.send.bind(this);
+      this.openAndSend = this.openAndSend.bind(this);
+      this._fetchNetwork = this._fetchNetwork.bind(this);
     }
 
     abort() {
@@ -821,11 +852,15 @@ function installUnityLoader(unityNamespace, manager) {
       this.paramsCache = { url: String(url || ''), method: String(method || 'GET').toUpperCase() };
     }
 
+    setRequestHeader(k, v) {
+      if (k) this.headers[String(k)] = String(v);
+    }
+
     send(body) {
       this.postData = body || null;
       this.openAndSend(this.paramsCache.url, {
         method: this.paramsCache.method,
-        headers: {},
+        headers: this.headers,
         body: body || null,
       }).then(() => {
         if (typeof this.onload === 'function') this.onload({ target: this });
@@ -836,117 +871,71 @@ function installUnityLoader(unityNamespace, manager) {
     }
 
     openAndSend(url, init = {}) {
-      const method = String(init.method || this.paramsCache.method || 'GET').toUpperCase();
-      const headers = init.headers || {};
-      this.paramsCache = { url, method };
+      const targetUrl = String(url || (this.paramsCache && this.paramsCache.url) || '');
+      const method = String((init && init.method) || (this.paramsCache && this.paramsCache.method) || 'GET').toUpperCase();
+      const headers = Object.assign({}, this.headers || {}, (init && init.headers) || {});
+      this.paramsCache = { url: targetUrl, method };
       const fs = getFs();
-      const canCache = method === 'GET' && fs && unityNamespace.isCacheableFile && unityNamespace.isCacheableFile(url);
-      const cachePath = canCache ? manager.getCachePath(url) : '';
+      const canCache = method === 'GET' && !!fs && !!(unityNamespace.isCacheableFile && unityNamespace.isCacheableFile(targetUrl));
+      const cachePath = canCache ? manager.resolveCachePath(targetUrl) : '';
 
-      if (canCache && cachePath) {
-        try {
-          fs.accessSync(cachePath);
-          return new Promise((resolve, reject) => {
-            fs.readFile({
-              filePath: cachePath,
-              success: (res) => {
-                const ab = toArrayBuffer(res.data);
-                const bytes = new Uint8Array(ab);
-                this.status = 200;
-                this.response = ab;
-                this.isReadFromCache = true;
+      if (canCache && cachePath && manager.fs.accessSync(cachePath)) {
+        return new Promise((resolve, reject) => {
+          fs.readFile({
+            filePath: cachePath,
+            success: (res) => {
+              const ab = toArrayBuffer(res.data);
+              const bytes = new Uint8Array(ab);
+              if (bytes.byteLength === 0) {
+                this._fetchNetwork(targetUrl, method, headers, init || {}, fs, canCache, cachePath).then(resolve, reject);
+                return;
+              }
+              this.status = 200;
+              this.response = ab;
+              this.isReadFromCache = true;
+              setTimeout(() => {
                 if (typeof this.onsave === 'function') {
                   try { this.onsave(cachePath); } catch (e) {}
                 }
-                resolve({
-                  url,
-                  status: 200,
-                  headers: new Map(),
-                  parsedBody: bytes,
-                  originXHR: this,
-                });
-              },
-              fail: () => {
-                this._fetchNetwork(url, method, headers, init, fs, canCache, cachePath).then(resolve, reject);
-              },
-            });
-          });
-        } catch (e) {}
-      }
-
-      return this._fetchNetwork(url, method, headers, init, fs, canCache, cachePath);
-    }
-
-    _fetchNetwork(url, method, headers, init, fs, canCache, cachePath) {
-      // GET 可缓存大文件（StreamingAssets 图包 / 音乐）优先走 downloadFile 落盘，省内存峰值
-      if (canCache && cachePath && typeof wx.downloadFile === 'function') {
-        return new Promise((resolve, reject) => {
-          const task = wx.downloadFile({
-            url,
-            header: headers,
-            success: (res) => {
-              const code = Number(res.statusCode || 200);
-              if (code >= 200 && code < 300 && res.tempFilePath && fs) {
-                ensureDirSync(fs, parentDir(cachePath));
-                let savedPath = res.tempFilePath;
-                try {
-                  fs.copyFileSync(res.tempFilePath, cachePath);
-                  savedPath = cachePath;
-                  if (typeof this.onsave === 'function') this.onsave(cachePath);
-                } catch (e) {
-                  if (typeof this.onsavefail === 'function') this.onsavefail(e);
-                }
-                fs.readFile({
-                  filePath: savedPath,
-                  success: (rf) => {
-                    const ab = toArrayBuffer(rf.data);
-                    const bytes = new Uint8Array(ab);
-                    this.status = code;
-                    this.response = ab;
-                    this.isReadFromCache = false;
-                    resolve({
-                      url,
-                      status: code,
-                      headers: new Map(),
-                      parsedBody: bytes,
-                      originXHR: this,
-                    });
-                  },
-                  fail: (err) => reject(new Error((err && err.errMsg) || 'readFile fail')),
-                });
-              } else {
-                this.status = code || 500;
-                reject(new Error('HTTP ' + this.status));
-              }
-            },
-            fail: (err) => reject(new Error((err && err.errMsg) || 'downloadFile fail')),
-          });
-          this._task = task;
-          if (task && typeof task.onProgressUpdate === 'function' && typeof init.onProgress === 'function') {
-            task.onProgressUpdate((p) => {
-              init.onProgress({
-                response: { url, status: 200, headers: new Map() },
-                loaded: p.totalBytesWritten || 0,
-                total: p.totalBytesExpectedToWrite || 100,
-                lengthComputable: true,
-                type: 'progress',
+              }, 0);
+              resolve({
+                url: targetUrl,
+                status: 200,
+                headers: new Map(),
+                parsedBody: bytes,
+                originXHR: this,
               });
-            });
-          }
+            },
+            fail: () => {
+              this._fetchNetwork(targetUrl, method, headers, init || {}, fs, canCache, cachePath).then(resolve, reject);
+            },
+          });
         });
       }
 
-      // 常规 HTTP 请求（含云函数 POST 登录/存档/排行榜、经分上报）
-      return new Promise((resolve, reject) => {
-        let reqData = undefined;
-        if (init.body != null) {
-          const ct = String(headers['Content-Type'] || headers['content-type'] || '').toLowerCase();
-          if (ArrayBuffer.isView(init.body)) {
-            const view = new Uint8Array(init.body.buffer, init.body.byteOffset, init.body.byteLength);
-            reqData = (ct.includes('json') || ct.includes('text')) ? decodeUtf8(view) : view.slice().buffer;
-          } else {
-            reqData = init.body;
-          }
+      return this._fetchNetwork(targetUrl, method, headers, init || {}, fs, canCache, cachePath);
+    }
+
+    _fetchNetwork(url, method, headers, init, fs, canCache, cachePath) {
+      // 全部请求统一走 wx.request (tt.request, responseType: 'arraybuffer')，彻底规避抖音 downloadFile 合法域名单独白名单限制；
+      // 命中 StreamingAssets 可缓存资源时异步落盘至 __GAME_FILE_CACHE，供下次秒开与 WXFS 按需流式读取。
+      let reqData = undefined;
+      if (init.body != null) {
+        const ct = String(headers['Content-Type'] || headers['content-type'] || '').toLowerCase();
+        if (ArrayBuffer.isView(init.body)) {
+          const view = new Uint8Array(init.body.buffer, init.body.byteOffset, init.body.byteLength);
+          reqData = (ct.includes('json') || ct.includes('text')) ? decodeUtf8(view) : view.slice().buffer;
+        } else {
+          reqData = init.body;
+        }
+      }
+      const rawTimeout = init && init.timeout ? Number(init.timeout) : 0;
+      const timeoutMs = rawTimeout > 0 ? (rawTimeout > 1000 ? rawTimeout : rawTimeout * 1000) : 30000;
+
+      const attempt = (retriesLeft) => new Promise((resolve, reject) => {
+        if (this.signal.aborted) {
+          reject(new Error('Aborted.'));
+          return;
         }
         const task = wx.request({
           url,
@@ -954,11 +943,15 @@ function installUnityLoader(unityNamespace, manager) {
           header: headers,
           data: reqData,
           responseType: 'arraybuffer',
-          timeout: (init.timeout ? Number(init.timeout) * 1000 : 15000),
+          timeout: timeoutMs,
           success: (res) => {
             const code = Number(res.statusCode || 200);
             const ab = toArrayBuffer(res.data);
             const bytes = new Uint8Array(ab);
+            if ((code >= 500 || (canCache && code >= 200 && code < 300 && bytes.byteLength === 0)) && method === 'GET' && retriesLeft > 0 && !this.signal.aborted) {
+              setTimeout(() => attempt(retriesLeft - 1).then(resolve, reject), 300);
+              return;
+            }
             const hdrMap = new Map();
             if (res.header && typeof res.header === 'object') {
               Object.keys(res.header).forEach((k) => hdrMap.set(k, String(res.header[k])));
@@ -966,6 +959,31 @@ function installUnityLoader(unityNamespace, manager) {
             this.status = code;
             this.response = ab;
             this.isReadFromCache = false;
+
+            if (canCache && cachePath && code >= 200 && code < 300 && bytes.byteLength > 0 && fs && typeof fs.writeFile === 'function') {
+              try {
+                ensureDirSync(fs, parentDir(cachePath));
+                fs.writeFile({
+                  filePath: cachePath,
+                  data: ab,
+                  success: () => {
+                    setTimeout(() => {
+                      if (typeof this.onsave === 'function') {
+                        try { this.onsave(cachePath); } catch (e) {}
+                      }
+                    }, 0);
+                  },
+                  fail: (e) => {
+                    setTimeout(() => {
+                      if (typeof this.onsavefail === 'function') {
+                        try { this.onsavefail(e); } catch (e2) {}
+                      }
+                    }, 0);
+                  },
+                });
+              } catch (e3) {}
+            }
+
             resolve({
               url,
               status: code,
@@ -974,10 +992,18 @@ function installUnityLoader(unityNamespace, manager) {
               originXHR: this,
             });
           },
-          fail: (err) => reject(new Error((err && err.errMsg) || 'request fail')),
+          fail: (err) => {
+            if (method === 'GET' && retriesLeft > 0 && !this.signal.aborted) {
+              setTimeout(() => attempt(retriesLeft - 1).then(resolve, reject), 300);
+              return;
+            }
+            reject(new Error((err && err.errMsg) || 'request fail'));
+          },
         });
         this._task = task;
       });
+
+      return attempt(method === 'GET' ? 2 : 0);
     }
   }
 
@@ -1103,16 +1129,21 @@ export default class DouyinUnityManager {
     this._preparedCbs = [];
     this.isVisible = true;
     this.gameInstance = null;
-    this.assetPath = `${String(this.config.DATA_CDN || '').replace(/\\/$/, '')}/Assets`;
+    const cleanCdn = String(this.config.DATA_CDN || '').replace(/\\/$/, '');
+    this.config.DATA_CDN = cleanCdn;
+    if (GameGlobal.unityNamespace) GameGlobal.unityNamespace.DATA_CDN = cleanCdn;
+    GameGlobal.DATA_CDN = cleanCdn;
+    this.assetPath = `${cleanCdn}/Assets`;
     this.PLUGIN_CACHE_PATH = `${userRoot()}/${CACHE_ROOT_NAME}`;
 
     const rawFs = getFs();
     ensureDirSync(rawFs, this.PLUGIN_CACHE_PATH);
     this.fs = {
       accessSync(p) {
-        if (!rawFs) return false;
+        if (!rawFs || !p) return false;
         try { rawFs.accessSync(p); return true; } catch (e) { return false; }
       },
+      setSyncReadCacheEnabled() {},
       addFileInfo() {},
       modifyFileInfo() {},
       removeFileInfo() {},
@@ -1121,10 +1152,14 @@ export default class DouyinUnityManager {
     this.Logger = {
       eventLog() {},
       pluginLog(msg) { console.log(msg); },
+      pluginError(...args) { console.error(...args); },
     };
     this.TimeLogger = {
       timeStart() {},
-      timeEnd() {},
+      timeEnd() { return 0; },
+    };
+    this.font = {
+      reportGetFontCost() {},
     };
     this.reporter = {
       wxAssetBundle: { reportEmptyContent(info) { console.warn('[AssetBundle]', info); } },
@@ -1169,19 +1204,51 @@ export default class DouyinUnityManager {
     });
   }
 
-  getCachePath(url) {
+  resolveCachePath(url) {
     if (!url) return '';
     let clean = String(url).replace(/ /g, '%20');
     const q = clean.indexOf('?');
     if (q >= 0) clean = clean.substring(0, q);
+    const root = userRoot().replace(/\\/$/, '');
+    if (clean.startsWith(root + '/') || /^(ttfile|wxfile):\\/\\//.test(clean)) {
+      return clean.replace(/([^:])\\/{2,}/g, '$1/');
+    }
+    if (clean.startsWith('/vfs_streamingassets/')) {
+      return `${this.PLUGIN_CACHE_PATH}/StreamingAssets/${clean.substring('/vfs_streamingassets/'.length)}`.replace(/([^:])\\/{2,}/g, '$1/');
+    }
     const cdn = String(this.config.DATA_CDN || '').replace(/\\/$/, '');
     let rel = clean;
-    if (cdn && clean.startsWith(cdn)) {
+    if (cdn && (clean === cdn || clean.startsWith(cdn + '/'))) {
       rel = clean.substring(cdn.length).replace(/^\\/+/, '');
     } else {
-      rel = clean.replace(/^https?:\\/\\/[^/]+\\//, '');
+      rel = clean.replace(/^https?:\\/\\/[^/]+\\//, '').replace(/^\\/+/, '');
     }
-    return `${this.PLUGIN_CACHE_PATH}/${rel}`;
+    return `${this.PLUGIN_CACHE_PATH}/${rel}`.replace(/([^:])\\/{2,}/g, '$1/');
+  }
+
+  // 与微信官方 UnityPlugin.getCachePath 语义保持一致：仅当文件已落盘存在时返回本地路径，未缓存时返回空字符串 ''
+  getCachePath(url) {
+    const p = this.resolveCachePath(url);
+    if (!p) return '';
+    return this.fs.accessSync(p) ? p : '';
+  }
+
+  // 供 unity-sdk/audio/unity-audio.js 将压缩音频（如 battle.mp3 / menu.mp3）写入本地临时缓存供 InnerAudioContext 播放
+  writeFile(filePath, data) {
+    const fs = getFs();
+    if (!fs || !filePath || typeof fs.writeFile !== 'function') {
+      return Promise.reject(new Error('fs.writeFile unavailable'));
+    }
+    ensureDirSync(fs, parentDir(filePath));
+    const ab = toArrayBuffer(data);
+    return new Promise((resolve, reject) => {
+      fs.writeFile({
+        filePath,
+        data: ab,
+        success: () => resolve(filePath),
+        fail: (err) => reject(new Error((err && err.errMsg) || 'writeFile fail')),
+      });
+    });
   }
 
   hideLoadingPage() {
@@ -1198,7 +1265,13 @@ export default class DouyinUnityManager {
   reportCustomLaunchInfo() {}
   reportGameSceneError() {}
   setConcurrent() {}
-  setDataCDN(cdn) { this.config.DATA_CDN = cdn; }
+  setDataCDN(cdn) {
+    const cleanCdn = String(cdn || '').replace(/\\/$/, '');
+    this.config.DATA_CDN = cleanCdn;
+    this.assetPath = `${cleanCdn}/Assets`;
+    if (GameGlobal.unityNamespace) GameGlobal.unityNamespace.DATA_CDN = cleanCdn;
+    GameGlobal.DATA_CDN = cleanCdn;
+  }
   setPreloadList() {}
   setGameStage() {}
   cleanCache() { return Promise.resolve(true); }
@@ -1613,6 +1686,7 @@ const managerConfig = {{
 
 GameGlobal.managerConfig = managerConfig;
 GameGlobal.DATA_CDN = managerConfig.DATA_CDN;
+unityNamespace.DATA_CDN = managerConfig.DATA_CDN;
 
 checkVersion().then((enable) => {{
   if (!enable) return;
@@ -1631,10 +1705,13 @@ checkVersion().then((enable) => {{
   gameManager.onModulePrepared(() => {{
     for (const key in unityNamespace) {{
       if (!Object.prototype.hasOwnProperty.call(GameGlobal, key) || key === 'DATA_CDN') {{
-        GameGlobal[key] = unityNamespace[key];
+        if (unityNamespace[key] !== undefined) {{
+          GameGlobal[key] = unityNamespace[key];
+        }}
       }}
     }}
-    managerConfig.DATA_CDN = GameGlobal.DATA_CDN;
+    unityNamespace.DATA_CDN = GameGlobal.DATA_CDN || managerConfig.DATA_CDN;
+    managerConfig.DATA_CDN = unityNamespace.DATA_CDN;
     gameManager.assetPath = `${{(managerConfig.DATA_CDN || '').replace(/\\/$/, '')}}/Assets`;
   }});
 
@@ -2089,7 +2166,7 @@ def main() -> int:
         if src_dir.exists():
             shutil.copytree(src_dir, DY_OUT / folder)
 
-    # 修正 inner-audio.js 对 ttfile:// 本地缓存路径的判断
+    # 修正 inner-audio.js 对 ttfile:// 本地缓存路径的判断，并加固 unity-audio.js 对抖音本地 MP3 音频时长的探测
     inner_audio = DY_OUT / "unity-sdk" / "audio" / "inner-audio.js"
     if inner_audio.exists():
         ia_txt = inner_audio.read_text(encoding="utf-8")
@@ -2099,9 +2176,64 @@ def main() -> int:
         )
         inner_audio.write_text(ia_txt, encoding="utf-8")
 
+    unity_audio = DY_OUT / "unity-sdk" / "audio" / "unity-audio.js"
+    if unity_audio.exists():
+        ua_txt = unity_audio.read_text(encoding="utf-8")
+        old_set_len = (
+            "    function setSoundLength() {\n"
+            "        if (needGetLength && soundClip.url) {\n"
+            "            const { audio: getAudio } = createInnerAudio();\n"
+            "            getAudio.src = soundClip.url;\n"
+            "            getAudio.onCanplay(() => {\n"
+            "                getSoundLength(getAudio).then((duration) => {\n"
+            "                    soundClip.length = duration * 44100;\n"
+            "                    getAudio.destroy();\n"
+            "                })\n"
+            "                    .catch((e) => {\n"
+            "                    if (soundClip.length === 0) {\n"
+            "                        soundClip.error = true;\n"
+            "                        printErrMsg(e);\n"
+            "                    }\n"
+            "                    getAudio.destroy();\n"
+            "                });\n"
+            "            });\n"
+            "        }\n"
+            "    }"
+        )
+        new_set_len = (
+            "    function setSoundLength() {\n"
+            "        if (needGetLength && soundClip.url) {\n"
+            "            const { audio: getAudio } = createInnerAudio();\n"
+            "            let settled = false;\n"
+            "            const finishLen = (samples) => {\n"
+            "                if (settled) return;\n"
+            "                settled = true;\n"
+            "                soundClip.length = samples > 0 ? samples : defaultSoundLength;\n"
+            "                try { getAudio.destroy(); } catch (e2) {}\n"
+            "            };\n"
+            "            const fallbackTimer = setTimeout(() => finishLen(soundClip.length || defaultSoundLength), 500);\n"
+            "            getAudio.onCanplay(() => {\n"
+            "                getSoundLength(getAudio).then((duration) => {\n"
+            "                    clearTimeout(fallbackTimer);\n"
+            "                    finishLen(duration * 44100);\n"
+            "                }).catch(() => {\n"
+            "                    clearTimeout(fallbackTimer);\n"
+            "                    finishLen(soundClip.length || defaultSoundLength);\n"
+            "                });\n"
+            "            });\n"
+            "            getAudio.src = soundClip.url;\n"
+            "        }\n"
+            "    }"
+        )
+        if old_set_len not in ua_txt:
+            raise RuntimeError("unity-audio.js 未找到预期的 setSoundLength 代码块")
+        ua_txt = ua_txt.replace(old_set_len, new_set_len, 1)
+        unity_audio.write_text(ua_txt, encoding="utf-8")
+
     # 加固 webgl.wasm.framework.unityweb.js：
     # 1) jsCanvasSelector 对 canvas.id 为空的兜底保护
-    # 2) 还原抖音真机 TTWebAssembly 跨 WASM 栈改写的 'unwind' 与 IL2CPP C# 异常指针，避免 handleException / invoke_* 误判崩溃
+    # 2) WXFS.url2path 对 DATA_CDN 末尾有无斜杠的统一单斜杠归一化，确保与 manager.resolveCachePath 100% 一致
+    # 3) 还原抖音真机 TTWebAssembly 跨 WASM 栈改写的 'unwind' 与 IL2CPP C# 异常指针，避免 handleException / invoke_* 误判崩溃
     fw_js = DY_OUT / "webgl.wasm.framework.unityweb.js"
     if fw_js.exists():
         fw_txt = fw_js.read_text(encoding="utf-8")
@@ -2109,6 +2241,17 @@ def main() -> int:
             'var canvasId=Module["canvas"]?Module["canvas"].id:"tuanjie-canvas";',
             'var canvasId=(Module["canvas"]&&Module["canvas"].id)?Module["canvas"].id:"canvas";',
         )
+        old_url2path = 'var path=url.replace(GameGlobal.unityNamespace.DATA_CDN,wx.env.USER_DATA_PATH+"/__GAME_FILE_CACHE/")'
+        new_url2path = (
+            'var _cdn=(GameGlobal.unityNamespace.DATA_CDN||"").replace(/\\/$/,"");'
+            'var path=(_cdn&&url.startsWith(_cdn+"/")'
+            '?wx.env.USER_DATA_PATH+"/__GAME_FILE_CACHE/"+url.substring(_cdn.length+1)'
+            ':url.replace(GameGlobal.unityNamespace.DATA_CDN,wx.env.USER_DATA_PATH+"/__GAME_FILE_CACHE/"))'
+            '.replace(/([^:])\\/{2,}/g,"$1/")'
+        )
+        if old_url2path not in fw_txt:
+            raise RuntimeError("webgl.wasm.framework.unityweb.js 未找到 WXFS.url2path 签名")
+        fw_txt = fw_txt.replace(old_url2path, new_url2path, 1)
         tt_unwrap_helpers = (
             'function __ttUnwrapMainEx(e){'
             'var t=typeof GameGlobal!=="undefined"&&GameGlobal.__ttLastWasmThrow;'
