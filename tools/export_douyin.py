@@ -200,6 +200,55 @@ function createSilentAudioContext() {
   return ctx;
 }
 
+function wrapDouyinAudioContext(ctx) {
+  if (!ctx) return null;
+  if (!ctx.listener) {
+    ctx.listener = {
+      positionX: audioParam(0),
+      positionY: audioParam(0),
+      positionZ: audioParam(0),
+      forwardX: audioParam(0),
+      forwardY: audioParam(0),
+      forwardZ: audioParam(-1),
+      upX: audioParam(0),
+      upY: audioParam(1),
+      upZ: audioParam(0),
+      setPosition() {},
+      setOrientation() {},
+    };
+  }
+  if (typeof ctx.resume !== 'function') ctx.resume = function () { return Promise.resolve(); };
+  if (typeof ctx.suspend !== 'function') ctx.suspend = function () { return Promise.resolve(); };
+  if (typeof ctx.close !== 'function') ctx.close = function () { return Promise.resolve(); };
+  return ctx;
+}
+
+function createDouyinWebAudioContext(target) {
+  // 抖音小游戏基础库 1.34.0+ 的原生 WebAudio 接口名为 tt.getAudioContext()（而非微信的 wx.createWebAudioContext()）
+  try {
+    if (target && typeof target.createWebAudioContext === 'function') {
+      const ctx = target.createWebAudioContext();
+      if (ctx) return wrapDouyinAudioContext(ctx);
+    }
+  } catch (e) {}
+  try {
+    if (target && typeof target.getAudioContext === 'function') {
+      const ctx = target.getAudioContext();
+      if (ctx) return wrapDouyinAudioContext(ctx);
+    }
+  } catch (e) {}
+  try {
+    const BrowserAudioCtx = (typeof AudioContext !== 'undefined' && AudioContext)
+      || (typeof webkitAudioContext !== 'undefined' && webkitAudioContext);
+    if (typeof BrowserAudioCtx === 'function') {
+      const ctx = new BrowserAudioCtx();
+      if (ctx) return wrapDouyinAudioContext(ctx);
+    }
+  } catch (e) {}
+  console.warn('[DouyinBoot] WebAudio 不可用，改用静音上下文');
+  return createSilentAudioContext();
+}
+
 const noopLog = {
   info(...args) { console.info(...args); },
   log(...args) { console.log(...args); },
@@ -381,8 +430,8 @@ const fallbacks = {
       }
     },
     createWebAudioContext() {
-    return createSilentAudioContext();
-  },
+      return createDouyinWebAudioContext(realTt);
+    },
 };
 
 if (realTt) {
@@ -402,14 +451,7 @@ if (realTt) {
       }
       if (prop === 'createWebAudioContext') {
         return function () {
-          try {
-            if (typeof target.createWebAudioContext === 'function') {
-              const ctx = target.createWebAudioContext();
-              if (ctx) return ctx;
-            }
-          } catch (e) {}
-          console.warn('[DouyinBoot] WebAudio 不可用，改用静音上下文');
-          return createSilentAudioContext();
+          return createDouyinWebAudioContext(target);
         };
       }
       if (prop in target && target[prop] !== undefined) {
@@ -1099,26 +1141,42 @@ function toUint8(raw) {
 }
 
 function instantiateBrowserWasm(brPath, imports) {
-  const browserWasm = GameGlobal.__DouyinBrowserWebAssembly;
-  if (!browserWasm || typeof browserWasm.instantiate !== 'function') {
-    return Promise.reject(new Error('没有浏览器 WebAssembly'));
-  }
-  if (typeof DecompressionStream !== 'function' || typeof Blob === 'undefined' || typeof Response === 'undefined') {
-    return Promise.reject(new Error('没有 brotli 解压'));
-  }
-  const fs = wx.getFileSystemManager();
-  let raw;
-  try {
-    raw = fs.readFileSync(brPath);
-  } catch (e) {
-    raw = fs.readFileSync('/' + brPath);
-  }
-  const u8 = toUint8(raw);
-  console.log('[DouyinBoot] 浏览器解压 wasm', u8.byteLength);
-  const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream('br'));
-  return new Response(stream).arrayBuffer().then((buf) => {
-    console.log('[DouyinBoot] 浏览器编译 wasm', buf.byteLength);
-    return browserWasm.instantiate(buf, imports);
+  return new Promise((resolve, reject) => {
+    try {
+      const browserWasm = GameGlobal.__DouyinBrowserWebAssembly;
+      if (!browserWasm || typeof browserWasm.instantiate !== 'function') {
+        reject(new Error('没有浏览器 WebAssembly'));
+        return;
+      }
+      if (typeof DecompressionStream !== 'function' || typeof Blob === 'undefined' || typeof Response === 'undefined') {
+        reject(new Error('没有 brotli 解压'));
+        return;
+      }
+      // 先同步探测 DecompressionStream('br')，防止抖音模拟器旧内核抛同步 TypeError 打断 Module.instantiateWasm 回退链
+      let ds;
+      try {
+        ds = new DecompressionStream('br');
+      } catch (brErr) {
+        reject(new Error('DecompressionStream 不支持 br'));
+        return;
+      }
+      const fs = wx.getFileSystemManager();
+      let raw;
+      try {
+        raw = fs.readFileSync(brPath);
+      } catch (e) {
+        raw = fs.readFileSync('/' + brPath);
+      }
+      const u8 = toUint8(raw);
+      console.log('[DouyinBoot] 浏览器解压 wasm', u8.byteLength);
+      const stream = new Blob([u8]).stream().pipeThrough(ds);
+      new Response(stream).arrayBuffer().then((buf) => {
+        console.log('[DouyinBoot] 浏览器编译 wasm', buf.byteLength);
+        return browserWasm.instantiate(buf, imports);
+      }).then(resolve, reject);
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
@@ -1594,7 +1652,7 @@ export default class DouyinUnityManager {
         } catch (err) {
           console.warn('[DouyinBoot] 建立内存存档目录失败', err);
         }
-        console.log('[DouyinBoot] 已跳过 IndexedDB，存档只在本次运行有效');
+        console.log('[DouyinBoot] 已跳过浏览器 IndexedDB（存档由 tt.setStorageSync 与云端持久保存）');
       };
       unityNamespace.isLoopRunnerEnable = true;
       console.log('[DouyinBoot] 启动帧循环');
