@@ -58,11 +58,13 @@ if (typeof GameGlobal === 'undefined') {
 }
 GameGlobal.__tt = realTt;
 
-const nativeWasm = typeof TTWebAssembly !== 'undefined'
-  ? TTWebAssembly
-  : (typeof WebAssembly !== 'undefined' ? WebAssembly : undefined);
+const browserWasm = typeof WebAssembly !== 'undefined' ? WebAssembly : undefined;
+const nativeWasm = typeof TTWebAssembly !== 'undefined' ? TTWebAssembly : browserWasm;
+GameGlobal.__DouyinBrowserWebAssembly = browserWasm;
 GameGlobal.WXWebAssembly = nativeWasm;
-GameGlobal.WebAssembly = nativeWasm;
+// 开发者工具里 TTWebAssembly 在 wasm 调 JS 时会报 JS Function calls failed。
+// 浏览器自带的 WebAssembly 留着，供模拟器解压后编译。真机没有它时才用 TTWebAssembly。
+if (!browserWasm && nativeWasm) GameGlobal.WebAssembly = nativeWasm;
 
 function safeSysInfo() {
   if (!realTt || typeof realTt.getSystemInfoSync !== 'function') {
@@ -111,6 +113,91 @@ function safeSysInfo() {
       safeArea: { left: 0, right: 375, top: 0, bottom: 812, width: 375, height: 812 },
     };
   }
+}
+
+function audioParam(initial) {
+  return {
+    value: initial,
+    setValueAtTime() {},
+    linearRampToValueAtTime() {},
+    exponentialRampToValueAtTime() {},
+    cancelScheduledValues() {},
+  };
+}
+
+function createSilentAudioContext() {
+  const destination = { connect() {}, disconnect() {}, channelCount: 2 };
+  const makeNode = () => {
+    const node = {
+      connect() { return node; },
+      disconnect() {},
+      channelCount: 2,
+    };
+    return node;
+  };
+  const started = Date.now();
+  const ctx = {
+    sampleRate: 44100,
+    state: 'running',
+    destination,
+    listener: {
+      positionX: audioParam(0),
+      positionY: audioParam(0),
+      positionZ: audioParam(0),
+      forwardX: audioParam(0),
+      forwardY: audioParam(0),
+      forwardZ: audioParam(-1),
+      upX: audioParam(0),
+      upY: audioParam(1),
+      upZ: audioParam(0),
+      setPosition() {},
+      setOrientation() {},
+    },
+    createGain() {
+      const node = makeNode();
+      node.gain = audioParam(1);
+      return node;
+    },
+    createBufferSource() {
+      const node = makeNode();
+      node.buffer = null;
+      node.loop = false;
+      node.playbackRate = audioParam(1);
+      node.onended = null;
+      node.start = function () {};
+      node.stop = function () {};
+      return node;
+    },
+    createBuffer(channels, length, sampleRate) {
+      const ch = Math.max(1, channels | 0);
+      const len = Math.max(1, length | 0);
+      const rate = sampleRate || 44100;
+      const data = [];
+      for (let i = 0; i < ch; i++) data.push(new Float32Array(len));
+      return {
+        length: len,
+        duration: len / rate,
+        numberOfChannels: ch,
+        sampleRate: rate,
+        getChannelData(i) { return data[i] || data[0]; },
+        copyToChannel() {},
+        copyFromChannel() {},
+      };
+    },
+    decodeAudioData(_data, success) {
+      const buffer = ctx.createBuffer(2, 1, 44100);
+      const done = Promise.resolve(buffer);
+      if (typeof success === 'function') done.then(success);
+      return done;
+    },
+    resume() { ctx.state = 'running'; return Promise.resolve(); },
+    suspend() { ctx.state = 'suspended'; return Promise.resolve(); },
+    close() { ctx.state = 'closed'; return Promise.resolve(); },
+  };
+  Object.defineProperty(ctx, 'currentTime', {
+    get() { return (Date.now() - started) / 1000; },
+  });
+  return ctx;
 }
 
 const noopLog = {
@@ -207,21 +294,124 @@ const fallbacks = {
       try { realTt.triggerGC(); } catch (e) {}
     }
   },
-  createWebAudioContext() {
-    if (realTt && typeof realTt.createWebAudioContext === 'function') {
-      try { return realTt.createWebAudioContext(); } catch (e) {}
-    }
-    const Ctx = typeof AudioContext !== 'undefined'
-      ? AudioContext
-      : (typeof webkitAudioContext !== 'undefined' ? webkitAudioContext : null);
-    return Ctx ? new Ctx() : null;
+    onNetworkStatusChange(cb) {
+      if (realTt && typeof realTt.onNetworkStatusChange === 'function') {
+        try { realTt.onNetworkStatusChange(cb); } catch (e) {}
+      }
+    },
+    getNetworkType(opt) {
+      if (realTt && typeof realTt.getNetworkType === 'function') {
+        try { return realTt.getNetworkType(opt); } catch (e) {}
+      }
+      if (opt && typeof opt.success === 'function') opt.success({ networkType: 'wifi' });
+    },
+    onError(cb) {
+      if (realTt && typeof realTt.onError === 'function') {
+        try { realTt.onError(cb); } catch (e) {}
+      }
+    },
+    onMemoryWarning(cb) {
+      if (realTt && typeof realTt.onMemoryWarning === 'function') {
+        try { realTt.onMemoryWarning(cb); } catch (e) {}
+      }
+    },
+    onAudioInterruptionBegin(cb) {
+      if (realTt && typeof realTt.onAudioInterruptionBegin === 'function') {
+        try { realTt.onAudioInterruptionBegin(cb); } catch (e) {}
+      }
+    },
+    onAudioInterruptionEnd(cb) {
+      if (realTt && typeof realTt.onAudioInterruptionEnd === 'function') {
+        try { realTt.onAudioInterruptionEnd(cb); } catch (e) {}
+      }
+    },
+    showShareMenu(opt) {
+      if (realTt && typeof realTt.showShareMenu === 'function') {
+        try { return realTt.showShareMenu(opt); } catch (e) {}
+      }
+    },
+    onShareAppMessage(cb) {
+      if (realTt && typeof realTt.onShareAppMessage === 'function') {
+        try { return realTt.onShareAppMessage(cb); } catch (e) {}
+      }
+    },
+    setStorage(opt) {
+      if (realTt && typeof realTt.setStorage === 'function') return realTt.setStorage(opt);
+      try {
+        if (realTt && typeof realTt.setStorageSync === 'function' && opt) realTt.setStorageSync(opt.key, opt.data);
+        if (opt && typeof opt.success === 'function') opt.success({});
+      } catch (e) {
+        if (opt && typeof opt.fail === 'function') opt.fail({ errMsg: String(e) });
+      }
+      if (opt && typeof opt.complete === 'function') opt.complete({});
+    },
+    getStorage(opt) {
+      if (realTt && typeof realTt.getStorage === 'function') return realTt.getStorage(opt);
+      try {
+        const data = (realTt && typeof realTt.getStorageSync === 'function' && opt) ? realTt.getStorageSync(opt.key) : '';
+        if (opt && typeof opt.success === 'function') opt.success({ data });
+      } catch (e) {
+        if (opt && typeof opt.fail === 'function') opt.fail({ errMsg: String(e) });
+      }
+      if (opt && typeof opt.complete === 'function') opt.complete({});
+    },
+    removeStorage(opt) {
+      if (realTt && typeof realTt.removeStorage === 'function') return realTt.removeStorage(opt);
+      try {
+        if (realTt && typeof realTt.removeStorageSync === 'function' && opt) realTt.removeStorageSync(opt.key);
+        if (opt && typeof opt.success === 'function') opt.success({});
+      } catch (e) {
+        if (opt && typeof opt.fail === 'function') opt.fail({ errMsg: String(e) });
+      }
+      if (opt && typeof opt.complete === 'function') opt.complete({});
+    },
+    clearStorage(opt) {
+      if (realTt && typeof realTt.clearStorage === 'function') return realTt.clearStorage(opt);
+      try {
+        if (realTt && typeof realTt.clearStorageSync === 'function') realTt.clearStorageSync();
+        if (opt && typeof opt.success === 'function') opt.success({});
+      } catch (e) {
+        if (opt && typeof opt.fail === 'function') opt.fail({ errMsg: String(e) });
+      }
+      if (opt && typeof opt.complete === 'function') opt.complete({});
+    },
+    setPreferredFramesPerSecond(fps) {
+      if (realTt && typeof realTt.setPreferredFramesPerSecond === 'function') {
+        try { realTt.setPreferredFramesPerSecond(fps); } catch (e) {}
+      }
+    },
+    createWebAudioContext() {
+    return createSilentAudioContext();
   },
 };
 
 if (realTt) {
+  let mainCanvasCreated = false;
   const wxShim = new Proxy(realTt, {
     get(target, prop) {
       if (prop === 'env') return fallbacks.env;
+      if (prop === 'createCanvas') {
+        return function () {
+          const c = target.createCanvas.apply(target, arguments);
+          if (c && !c.id) {
+            c.id = mainCanvasCreated ? 'offscreen-canvas' : 'canvas';
+            mainCanvasCreated = true;
+          }
+          return c;
+        };
+      }
+      if (prop === 'createWebAudioContext') {
+        return function () {
+          try {
+            if (typeof target.createWebAudioContext === 'function') {
+              const ctx = target.createWebAudioContext();
+              if (ctx) return ctx;
+            }
+          } catch (e) {}
+          console.warn('[DouyinBoot] WebAudio 不可用，改用静音上下文');
+          return createSilentAudioContext();
+        };
+      }
       if (prop in target && target[prop] !== undefined) {
         const val = target[prop];
         return typeof val === 'function' ? val.bind(target) : val;
@@ -229,11 +419,35 @@ if (realTt) {
       if (prop in fallbacks) {
         return fallbacks[prop];
       }
+      if (typeof prop === 'string' && /^(on|off)[A-Z]/.test(prop)) {
+        return function () {};
+      }
       return undefined;
     },
   });
   GameGlobal.wx = wxShim;
   rootScope.wx = wxShim;
+}
+
+if (typeof requestAnimationFrame !== 'function') {
+  const raf = function (cb) {
+    if (realTt && typeof realTt.requestAnimationFrame === 'function') {
+      try { return realTt.requestAnimationFrame(cb); } catch (e) {}
+    }
+    return setTimeout(cb, 16);
+  };
+  rootScope.requestAnimationFrame = raf;
+  GameGlobal.requestAnimationFrame = raf;
+}
+if (typeof cancelAnimationFrame !== 'function') {
+  const cancel = function (id) {
+    if (realTt && typeof realTt.cancelAnimationFrame === 'function') {
+      try { return realTt.cancelAnimationFrame(id); } catch (e) {}
+    }
+    return clearTimeout(id);
+  };
+  rootScope.cancelAnimationFrame = cancel;
+  GameGlobal.cancelAnimationFrame = cancel;
 }
 """
 
@@ -385,6 +599,7 @@ class SplashRenderer {
     this.imgH = 1280;
     this.gl = null;
     try {
+      // WeChat UnityPlugin 中 contextType: 1=WebGL1, 2=WebGL2；必须与 data.tj3d 的图形 API 严格一致，避免主画布锁定到错误的 WebGL 版本
       const attrs = { alpha: false, depth: true, stencil: true, antialias: false, preserveDrawingBuffer: false };
       this.gl = (contextType === 2 && mainCanvas.getContext('webgl2', attrs)) || mainCanvas.getContext('webgl', attrs);
       if (this.gl) this.initGl(bgPath);
@@ -819,6 +1034,68 @@ function parseAndMountWebData(Module, bytes) {
   }
 }
 
+function wrapWasmImports(info) {
+  const wrapped = {};
+  Object.keys(info || {}).forEach((mod) => {
+    const src = info[mod] || {};
+    const dst = {};
+    Object.keys(src).forEach((key) => {
+      const val = src[key];
+      if (typeof val !== 'function') {
+        dst[key] = val;
+        return;
+      }
+      dst[key] = function douyinWasmImport() {
+        try {
+          return val.apply(this, arguments);
+        } catch (err) {
+          // 抖音真机 TTWebAssembly 会在跨 WASM 栈回抛时把原始值（如 Emscripten 主循环 'unwind' 或 IL2CPP C# 异常指针数字）
+          // 统一吞掉改写成 Error('JS Function calls failed.')，在此记录原始抛值供 handleException 与 invoke_* 精确还原！
+          GameGlobal.__ttLastWasmThrow = { has: true, val: err };
+          if (err !== 'unwind' && typeof err !== 'number' && !(err && err.name === 'ExitStatus')) {
+            console.error('[DouyinBoot] wasm 调用 JS 失败', mod + '.' + key, err && (err.stack || err.message || err));
+          }
+          throw err;
+        }
+      };
+    });
+    wrapped[mod] = dst;
+  });
+  return wrapped;
+}
+
+function toUint8(raw) {
+  if (!raw) throw new Error('wasm 文件是空的');
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (ArrayBuffer.isView(raw)) return new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  if (raw.data) return toUint8(raw.data);
+  throw new Error('无法读取 wasm 文件');
+}
+
+function instantiateBrowserWasm(brPath, imports) {
+  const browserWasm = GameGlobal.__DouyinBrowserWebAssembly;
+  if (!browserWasm || typeof browserWasm.instantiate !== 'function') {
+    return Promise.reject(new Error('没有浏览器 WebAssembly'));
+  }
+  if (typeof DecompressionStream !== 'function' || typeof Blob === 'undefined' || typeof Response === 'undefined') {
+    return Promise.reject(new Error('没有 brotli 解压'));
+  }
+  const fs = wx.getFileSystemManager();
+  let raw;
+  try {
+    raw = fs.readFileSync(brPath);
+  } catch (e) {
+    raw = fs.readFileSync('/' + brPath);
+  }
+  const u8 = toUint8(raw);
+  console.log('[DouyinBoot] 浏览器解压 wasm', u8.byteLength);
+  const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream('br'));
+  return new Response(stream).arrayBuffer().then((buf) => {
+    console.log('[DouyinBoot] 浏览器编译 wasm', buf.byteLength);
+    return browserWasm.instantiate(buf, imports);
+  });
+}
+
 export default class DouyinUnityManager {
   constructor(config) {
     this.config = config || {};
@@ -868,6 +1145,9 @@ export default class DouyinUnityManager {
     if (wx && typeof wx.onShow === 'function') wx.onShow(() => { this.isVisible = true; });
     if (wx && typeof wx.onHide === 'function') wx.onHide(() => { this.isVisible = false; });
 
+    if (GameGlobal.canvas && !GameGlobal.canvas.id) {
+      GameGlobal.canvas.id = 'canvas';
+    }
     const lpc = (this.config && this.config.loadingPageConfig) || {};
     const bgImg = (lpc.materialConfig && lpc.materialConfig.backgroundImage) || 'images/background.jpg';
     const ctxType = (this.config && this.config.contextConfig && this.config.contextConfig.contextType) || 1;
@@ -934,12 +1214,25 @@ export default class DouyinUnityManager {
   _loadWasmSubpackage() {
     if (!wx || typeof wx.loadSubpackage !== 'function') return Promise.resolve();
     return new Promise((resolve) => {
+      let settled = false;
+      const done = (why) => {
+        if (settled) return;
+        settled = true;
+        if (why) console.warn('[DouyinBoot] wasm 分包超时，继续启动');
+        resolve();
+      };
+      const timer = setTimeout(() => done('timeout'), 20000);
       wx.loadSubpackage({
         name: 'wasmcode',
-        success: () => resolve(),
+        success: () => {
+          clearTimeout(timer);
+          console.log('[DouyinBoot] wasm 分包完成');
+          done();
+        },
         fail: (err) => {
-          console.warn('[DouyinBoot] loadSubpackage wasmcode fallback:', err);
-          resolve();
+          clearTimeout(timer);
+          console.warn('[DouyinBoot] loadSubpackage wasmcode fallback:', err && err.errMsg ? err.errMsg : err);
+          done();
         },
       });
     });
@@ -953,80 +1246,167 @@ export default class DouyinUnityManager {
     const prefix = subPrefix ? `${subPrefix.replace(/^\\/+|\\/+$/g, '')}/` : '';
     const cdnUrl = `${String(this.config.DATA_CDN || '').replace(/\\/$/, '')}/${prefix}${fileName}`;
     const cacheFile = `${this.PLUGIN_CACHE_PATH}/${fileName}`;
+    const total = Number(this.config.DATA_FILE_SIZE) || 0;
     const fs = getFs();
 
-    // 命中本地缓存直接读盘（并清理旧 MD5 首包文件释放空间）
-    if (fs) {
+    const downloadAndCache = () => {
+      if (fs) {
+        try {
+          const files = fs.readdirSync(this.PLUGIN_CACHE_PATH) || [];
+          files.forEach((f) => {
+            if (f !== fileName && f.endsWith('.data.unityweb.bin.txt')) {
+              try { fs.unlinkSync(`${this.PLUGIN_CACHE_PATH}/${f}`); } catch (e2) {}
+            }
+          });
+        } catch (e) {}
+      }
+      console.log('[DouyinBoot] 开始拉取首包', total, cdnUrl);
+      return this._downloadDataByRange(cdnUrl, total).then((bytes) => {
+        if (fs && bytes && bytes.byteLength > 0 && typeof fs.writeFile === 'function') {
+          try {
+            ensureDirSync(fs, this.PLUGIN_CACHE_PATH);
+            const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+            fs.writeFile({ filePath: cacheFile, data: ab, fail() {} });
+          } catch (e3) {}
+        }
+        return bytes;
+      });
+    };
+
+    if (fs && typeof fs.readFile === 'function') {
       try {
         fs.accessSync(cacheFile);
         return new Promise((resolve, reject) => {
           fs.readFile({
             filePath: cacheFile,
             success: (res) => {
-              if (this._splash) this._splash.setProgress(0.75);
-              resolve(new Uint8Array(toArrayBuffer(res.data)));
+              const bytes = new Uint8Array(toArrayBuffer(res.data));
+              if (bytes.byteLength >= 32 && (!total || bytes.byteLength === total)) {
+                this._setDataProgress(1);
+                console.log('[DouyinBoot] 命中本地首包缓存', bytes.byteLength);
+                resolve(bytes);
+              } else {
+                downloadAndCache().then(resolve, reject);
+              }
             },
-            fail: () => {
-              this._downloadDataPackage(cdnUrl, cacheFile, fileName, fs).then(resolve, reject);
-            },
+            fail: () => downloadAndCache().then(resolve, reject),
           });
         });
       } catch (e) {}
     }
 
-    return this._downloadDataPackage(cdnUrl, cacheFile, fileName, fs);
+    return downloadAndCache();
   }
 
-  _downloadDataPackage(cdnUrl, cacheFile, currentName, fs) {
-    if (fs) {
-      try {
-        const files = fs.readdirSync(this.PLUGIN_CACHE_PATH) || [];
-        files.forEach((f) => {
-          if (f !== currentName && f.endsWith('.data.unityweb.bin.txt')) {
-            try { fs.unlinkSync(`${this.PLUGIN_CACHE_PATH}/${f}`); } catch (e2) {}
-          }
-        });
-      } catch (e) {}
-    }
+  _setDataProgress(ratio) {
+    let r = ratio;
+    if (r < 0) r = 0;
+    if (r > 1) r = 1;
+    if (this._splash) this._splash.setProgress(0.12 + r * 0.65);
+  }
 
-    return new Promise((resolve, reject) => {
-      const task = wx.downloadFile({
+  _downloadDataByRange(cdnUrl, totalSize) {
+    const CHUNK = 512 * 1024;
+    const CONCURRENCY = 4;
+    const self = this;
+    if (!wx || typeof wx.request !== 'function') {
+      return Promise.reject(new Error('tt.request 不可用'));
+    }
+    const requestChunk = (start, end, left) => new Promise((resolve, reject) => {
+      wx.request({
         url: cdnUrl,
+        method: 'GET',
+        responseType: 'arraybuffer',
+        header: { Range: 'bytes=' + start + '-' + end },
+        timeout: 20000,
         success: (res) => {
-          if (Number(res.statusCode || 200) !== 200 || !res.tempFilePath) {
-            reject(new Error('首包下载失败 HTTP ' + res.statusCode));
+          const code = Number(res.statusCode || 0);
+          if ((code === 206 || code === 200) && res.data) {
+            resolve(new Uint8Array(toArrayBuffer(res.data)));
             return;
           }
-          let readTarget = res.tempFilePath;
-          if (fs) {
-            try {
-              ensureDirSync(fs, this.PLUGIN_CACHE_PATH);
-              fs.copyFileSync(res.tempFilePath, cacheFile);
-              readTarget = cacheFile;
-            } catch (e) {}
-            fs.readFile({
-              filePath: readTarget,
-              success: (rf) => resolve(new Uint8Array(toArrayBuffer(rf.data))),
-              fail: (err) => reject(new Error((err && err.errMsg) || '读取首包失败')),
-            });
-          } else {
-            reject(new Error('FileSystemManager 不可用'));
+          if (left > 0) {
+            requestChunk(start, end, left - 1).then(resolve, reject);
+            return;
           }
+          reject(new Error('首包分块 HTTP ' + code));
         },
-        fail: (err) => reject(new Error((err && err.errMsg) || '下载首包网络异常')),
+        fail: (err) => {
+          if (left > 0) {
+            requestChunk(start, end, left - 1).then(resolve, reject);
+            return;
+          }
+          reject(new Error((err && err.errMsg) || '首包分块失败'));
+        },
       });
-      if (task && typeof task.onProgressUpdate === 'function') {
-        task.onProgressUpdate((p) => {
-          const ratio = p.totalBytesExpectedToWrite > 0
-            ? (p.totalBytesWritten / p.totalBytesExpectedToWrite)
-            : 0.3;
-          if (this._splash) this._splash.setProgress(0.12 + ratio * 0.65);
-        });
+    });
+
+    const firstEnd = Math.max(0, Math.min(CHUNK, totalSize || CHUNK) - 1);
+    return requestChunk(0, firstEnd, 2).then((first) => {
+      const total = totalSize || first.length;
+      if (!total) throw new Error('首包长度未知');
+      if (first.length >= total) {
+        self._setDataProgress(1);
+        console.log('[DouyinBoot] 首包完成', first.length);
+        return first.subarray(0, total);
       }
+      const firstExpect = firstEnd + 1;
+      if (first.length < firstExpect) throw new Error('首包分块过短');
+      const out = new Uint8Array(total);
+      out.set(first.subarray(0, firstExpect), 0);
+      let received = firstExpect;
+      let cursor = firstExpect;
+      let inflight = 0;
+      let lastLog = 0;
+      return new Promise((resolve, reject) => {
+        let failed = false;
+        const tick = () => {
+          self._setDataProgress(received / total);
+          if (received - lastLog >= 2 * 1024 * 1024 || received >= total) {
+            lastLog = received;
+            console.log('[DouyinBoot] 首包 ' + Math.floor(received * 100 / total) + '%');
+          }
+        };
+        const launch = () => {
+          if (failed) return;
+          if (received >= total && inflight === 0) {
+            console.log('[DouyinBoot] 首包完成', total);
+            resolve(out);
+            return;
+          }
+          while (!failed && inflight < CONCURRENCY && cursor < total) {
+            const start = cursor;
+            const end = Math.min(total - 1, start + CHUNK - 1);
+            const expect = end - start + 1;
+            cursor = end + 1;
+            inflight += 1;
+            requestChunk(start, end, 2).then((chunk) => {
+              if (failed) return;
+              if (chunk.length < expect) {
+                failed = true;
+                reject(new Error('首包分块过短 ' + start));
+                return;
+              }
+              out.set(chunk.subarray(0, expect), start);
+              received += expect;
+              inflight -= 1;
+              tick();
+              launch();
+            }).catch((err) => {
+              if (failed) return;
+              failed = true;
+              reject(err);
+            });
+          }
+        };
+        tick();
+        launch();
+      });
     });
   }
 
   startGame() {
+    console.log('[DouyinBoot] startGame');
     const unityNamespace = GameGlobal.unityNamespace;
     installUnityLoader(unityNamespace, this);
     this._emitProgress(launchEventType.launchPlugin);
@@ -1046,6 +1426,9 @@ export default class DouyinUnityManager {
       }),
     ]).then(([, dataBytes]) => {
       if (this._splash) this._splash.setProgress(0.86);
+      if (GameGlobal.canvas && !GameGlobal.canvas.id) {
+        GameGlobal.canvas.id = 'canvas';
+      }
       const Module = {
         canvas: GameGlobal.canvas,
         IsWxGame: true,
@@ -1075,16 +1458,29 @@ export default class DouyinUnityManager {
           this._emitProgress(launchEventType.prepareGame);
         },
         instantiateWasm: (imports, successCallback) => {
-          const WasmHost = typeof TTWebAssembly !== 'undefined' ? TTWebAssembly : GameGlobal.WXWebAssembly;
-          const tryInstantiate = (p) => WasmHost.instantiate(p, imports);
-          tryInstantiate(wasmRelPath)
-            .catch(() => tryInstantiate('/' + wasmRelPath))
-            .then((res) => {
-              const inst = (res && res.instance) ? res.instance : res;
-              const mod = res && res.module;
-              // 先释放临时封面占用的 GL 句柄，再交由引擎接管同一个 WebGL 上下文
-              this.hideLoadingPage();
-              successCallback(inst, mod);
+          const wrapped = wrapWasmImports(imports);
+          const finish = (res, how) => {
+            const inst = (res && res.instance) ? res.instance : res;
+            const mod = res && res.module;
+            console.log('[DouyinBoot] wasm 编译完成', how);
+            // 严禁对主画布调用 WEBGL_lose_context.loseContext()（会导致同一 canvas 的 WebGL 上下文永久丢失）
+            // 仅调用 hideLoadingPage() 释放封面着色器与缓冲，将健康的 WebGL2 上下文平滑移交团结引擎
+            this.hideLoadingPage();
+            successCallback(inst, mod);
+          };
+          const viaTt = (p) => {
+            const WasmHost = typeof TTWebAssembly !== 'undefined' ? TTWebAssembly : GameGlobal.WXWebAssembly;
+            if (!WasmHost || typeof WasmHost.instantiate !== 'function') {
+              return Promise.reject(new Error('没有可用的 WebAssembly.instantiate'));
+            }
+            console.log('[DouyinBoot] 编译 wasm TTWebAssembly', p);
+            return WasmHost.instantiate(p, wrapped);
+          };
+          instantiateBrowserWasm(wasmRelPath, wrapped)
+            .then((res) => finish(res, 'browser'))
+            .catch((err) => {
+              console.warn('[DouyinBoot] 浏览器 WebAssembly 不可用，改用 TTWebAssembly', err && (err.message || err));
+              return viaTt(wasmRelPath).catch(() => viaTt('/' + wasmRelPath)).then((res) => finish(res, 'tt'));
             })
             .catch((err) => {
               console.error('[DouyinBoot] TTWebAssembly.instantiate failed:', err);
@@ -1093,19 +1489,6 @@ export default class DouyinUnityManager {
           return {};
         },
       };
-
-      Module.preRun.push(() => {
-        try {
-          parseAndMountWebData(Module, dataBytes);
-          this._emitProgress(launchEventType.readAssets);
-        } catch (err) {
-          console.error('[DouyinBoot] mount data failed:', err);
-          if (this.onLogError) this.onLogError(err);
-        }
-        if (typeof Module.removeRunDependency === 'function') {
-          Module.removeRunDependency('wasm-preloadAssets');
-        }
-      });
 
       GameGlobal.Module = Module;
       unityNamespace.Module = Module;
@@ -1119,7 +1502,46 @@ export default class DouyinUnityManager {
       if (typeof bootFn !== 'function') {
         throw new Error('缺少 unityNamespace.UnityModule');
       }
+      // 抖音没有 IndexedDB。引擎默认会 FS.mount(IDBFS) 再 syncfs，assert 直接把启动打断。
+      // 改成内存目录，PlayerPrefs 只在本次运行有效。
+      Module.tuanjieFileSystemInit = function () {
+        const ns = GameGlobal.unityNamespace || {};
+        const FS = ns.FS;
+        const IDBFS = ns.IDBFS;
+        if (IDBFS) {
+          IDBFS.syncfs = function (mount, populate, callback) {
+            if (typeof callback === 'function') callback(null);
+          };
+        }
+        try {
+          if (FS && IDBFS) {
+            try { FS.mkdir('/idbfs'); } catch (e) {}
+            FS.mount(IDBFS, {}, '/idbfs');
+          }
+        } catch (err) {
+          console.warn('[DouyinBoot] 建立内存存档目录失败', err);
+        }
+        console.log('[DouyinBoot] 已跳过 IndexedDB，存档只在本次运行有效');
+      };
+      unityNamespace.isLoopRunnerEnable = true;
+      console.log('[DouyinBoot] 启动帧循环');
+      console.log('[DouyinBoot] 调用引擎');
       bootFn(Module);
+      // wasm-preloadAssets 只能在引擎函数返回后清掉。放进 preRun 会和 run() 互相等待，首包下完也会一直停在封面上。
+      console.log('[DouyinBoot] 开始挂载首包', dataBytes && dataBytes.length);
+      try {
+        parseAndMountWebData(Module, dataBytes);
+        console.log('[DouyinBoot] 首包已挂载');
+        this._emitProgress(launchEventType.readAssets);
+      } catch (err) {
+        console.error('[DouyinBoot] mount data failed:', err);
+        if (this.onLogError) this.onLogError(err);
+        throw err;
+      }
+      if (typeof Module.removeRunDependency === 'function') {
+        console.log('[DouyinBoot] 放开引擎启动');
+        Module.removeRunDependency('wasm-preloadAssets');
+      }
     }).catch((err) => {
       console.error('[DouyinBoot] 启动失败:', err);
       if (this.onLogError) this.onLogError(err);
@@ -1676,6 +2098,39 @@ def main() -> int:
             "!/^(https?|wxfile|ttfile):\\/\\//.test(v)",
         )
         inner_audio.write_text(ia_txt, encoding="utf-8")
+
+    # 加固 webgl.wasm.framework.unityweb.js：
+    # 1) jsCanvasSelector 对 canvas.id 为空的兜底保护
+    # 2) 还原抖音真机 TTWebAssembly 跨 WASM 栈改写的 'unwind' 与 IL2CPP C# 异常指针，避免 handleException / invoke_* 误判崩溃
+    fw_js = DY_OUT / "webgl.wasm.framework.unityweb.js"
+    if fw_js.exists():
+        fw_txt = fw_js.read_text(encoding="utf-8")
+        fw_txt = fw_txt.replace(
+            'var canvasId=Module["canvas"]?Module["canvas"].id:"tuanjie-canvas";',
+            'var canvasId=(Module["canvas"]&&Module["canvas"].id)?Module["canvas"].id:"canvas";',
+        )
+        tt_unwrap_helpers = (
+            'function __ttUnwrapMainEx(e){'
+            'var t=typeof GameGlobal!=="undefined"&&GameGlobal.__ttLastWasmThrow;'
+            'if(t&&t.has){var v=t.val;if(v==="unwind"||(v&&v.name==="ExitStatus")){t.has=false;return v}}'
+            'return e}'
+            'function __ttUnwrapInvokeEx(e){'
+            'if(e===e+0)return e;'
+            'var t=typeof GameGlobal!=="undefined"&&GameGlobal.__ttLastWasmThrow;'
+            'if(t&&t.has&&typeof t.val==="number"){var n=t.val;t.has=false;return n}'
+            'return e}\n'
+        )
+        if "function handleException(e){" not in fw_txt:
+            raise RuntimeError("webgl.wasm.framework.unityweb.js 未找到 handleException 签名")
+        fw_txt = tt_unwrap_helpers + fw_txt.replace(
+            "function handleException(e){",
+            "function handleException(e){e=__ttUnwrapMainEx(e);",
+            1,
+        ).replace(
+            "if(e!==e+0)throw e;",
+            "e=__ttUnwrapInvokeEx(e);if(e!==e+0)throw e;",
+        )
+        fw_js.write_text(fw_txt, encoding="utf-8")
 
     # 2. 拷贝 wasmcode 代码分包
     dy_wasm_dir = DY_OUT / "wasmcode"
