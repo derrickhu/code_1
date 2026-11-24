@@ -7,6 +7,7 @@
 /Logs/
 /UserSettings/
 /MemoryCaptures/
+/Captures/
 /wechat-minigame/
 /douyin-minigame/
 /tmp/
@@ -19,6 +20,9 @@
 .idea/
 node_modules/
 /Packages/com.qq.weixin.minigame/
+/Packages/com.coplaydev.unity-mcp/
+/Assets/UnityMCP/
+/Assets/UnityMCP.meta
 /Assets/WX-WASM-SDK-V3/
 /Assets/WX-WASM-SDK-V3.meta
 /TextToolDatas/

@@ -166,11 +166,12 @@ namespace Liangshan
             {
                 // 好汉碎片采用半身胸像裁切入框（不把全身小人缩成蚂蚁），辨识度与清晰度倍增
                 var mask = Ui.Rect(t, "bustMask");
-                mask.sizeDelta = Vector2.one * (size - 16f);
+                float mSz = size - 16f;
+                mask.sizeDelta = Vector2.one * mSz;
                 mask.anchoredPosition = new Vector2(0, 1f);
                 mask.gameObject.AddComponent<RectMask2D>();
-                Ui.Icon(mask, CurIcon(it), size * 1.14f, new Vector2(0, -size * 0.16f));
-                Ui.Icon(t, "ic_shard", size * 0.32f, new Vector2(-size * 0.29f, size * 0.29f));
+                Ui.Icon(mask, CurIcon(it), mSz * 0.96f, new Vector2(0, -mSz * 0.01f));
+                Ui.Icon(t, "ic_shard", size * 0.30f, new Vector2(-size * 0.30f, size * 0.30f));
             }
             else
             {
@@ -456,7 +457,7 @@ namespace Liangshan
                     mask7.sizeDelta = Vector2.one * 112f;
                     mask7.anchoredPosition = new Vector2(-280, -7);
                     mask7.gameObject.AddComponent<RectMask2D>();
-                    Ui.Icon(mask7, sd.Art, 134, new Vector2(0, -14));
+                    Ui.Icon(mask7, sd.Art, 108, new Vector2(0, -1));
                     Ui.SingleLine(Ui.GradOutlined(c, $"{sd.RarityName} · {sd.Nick} {sd.Name}", 36, Color.white, Pal.Hex("FFE27A"),
                         new Vector2(68, 18), new Vector2(500, 52), Pal.Hex("4E2C08"), 2.4f, TextAnchor.MiddleLeft), 24);
                     Ui.SingleLine(Ui.Label(c, "第七天大奖：未结识直接上阵，已结识转化 20 碎片", 24, WarmTitle,
@@ -468,7 +469,7 @@ namespace Liangshan
                 {
                     foreach (var img in c.GetComponentsInChildren<Image>())
                         if (img != face) img.color = img.color.Mul(0.80f);
-                    Ui.Icon(c, "ic_check", 66, last ? new Vector2(336, -8) : new Vector2(78, -62));
+                    Ui.Icon(c, "ic_check", last ? 52 : 46, last ? new Vector2(352, 8) : new Vector2(90, -76));
                 }
                 else if (today)
                 {
@@ -765,7 +766,7 @@ namespace Liangshan
                 var glow = Ui.Box(chestSlot, new Vector2(128, 128), Vector2.zero, Pal.Gold.A(0.45f), Art.SoftDot, "glow");
                 Tween.Run(glow, 999f, k => { if (glow) glow.color = Pal.Gold.A(0.30f + 0.20f * Mathf.Sin(k * 999f * 4.5f)); });
             }
-            string chestArt = boxTaken ? "ic_chest_open" : tab == 2 ? "ic_chest_gold" : tab == 1 ? "ic_chest_silver" : "ic_chest_wood";
+            string chestArt = boxTaken ? ChestOpenArt(tab) : ChestArt(tab);
             var chestIc = Ui.Icon(chestSlot, chestArt, 94, Vector2.zero, "chest");
             if (boxReady)
             {
@@ -817,19 +818,21 @@ namespace Liangshan
         static Image StandByHeight(Transform parent, string artName, float targetH, float footY, string objName = "art")
         {
             var sp = Art.Img(artName);
-            float w = targetH, h = targetH;
+            bool isHero = !string.IsNullOrEmpty(artName) && artName.StartsWith("hero_");
+            float drawH = isHero ? targetH * 1.12f : targetH;
+            float w = drawH, h = drawH;
             if (sp != null && sp.rect.height > 1f && sp.rect.width > 1f)
             {
                 float ratio = sp.rect.width / sp.rect.height;
-                w = targetH * ratio;
-                if (w > targetH * 1.25f) { w = targetH * 1.25f; h = w / ratio; }
+                w = drawH * ratio;
+                if (!isHero && w > drawH * 1.25f) { w = drawH * 1.25f; h = w / ratio; }
             }
             var img = Ui.Box(parent, new Vector2(w, h), Vector2.zero, Color.white, sp, objName);
             img.type = Image.Type.Simple;
             img.preserveAspect = true;
             img.raycastTarget = false;
             img.rectTransform.pivot = new Vector2(0.5f, 0f);
-            img.rectTransform.anchoredPosition = new Vector2(0f, footY);
+            img.rectTransform.anchoredPosition = new Vector2(0f, isHero ? footY - h * 0.015f : footY);
             return img;
         }
 
@@ -1369,8 +1372,8 @@ namespace Liangshan
                 mask.sizeDelta = Vector2.one * 100f;
                 mask.anchoredPosition = new Vector2(0, 17);
                 mask.gameObject.AddComponent<RectMask2D>();
-                Ui.Icon(mask, icon, 122, new Vector2(0, -14));
-                Ui.Icon(r, "ic_shard", 46, new Vector2(-42, 58));
+                Ui.Icon(mask, icon, 96, new Vector2(0, -1));
+                Ui.Icon(r, "ic_shard", 42, new Vector2(-42, 58));
             }
             else
             {
@@ -1399,9 +1402,26 @@ namespace Liangshan
             Ui.Box(p, new Vector2(940, 320), new Vector2(0, 680), rc.A(0.4f), Art.SoftDot, "headGlow");
             var medal = Ui.Icon(p, "ui/medal", 250, new Vector2(0, 776), "medal");
             medal.color = Color.Lerp(rc, Color.white, 0.3f);
-            var art = Ui.Icon(p, d.Art, 300, new Vector2(0, 805), "art");
+            float detDraw = 254f;
+            float detBaseY = 668f;
+            if (Art.Animated(d.Art) && AnimMeta.Info.TryGetValue(d.Art, out var detMeta))
+            {
+                detDraw = 224f / Mathf.Max(0.28f, detMeta.Body);
+                detBaseY = 672f - detDraw * detMeta.Foot;
+            }
+            var art = Ui.Icon(p, d.Art, detDraw, new Vector2(0, detBaseY), "art");
+            art.rectTransform.pivot = new Vector2(0.5f, 0f);
             if (!owned) art.color = new Color(0.3f, 0.3f, 0.34f);
-            Tween.Run(art, 999f, k => art.rectTransform.anchoredPosition = new Vector2(0, 805 + 5 * Mathf.Sin(k * 999f * 2f)));
+            if (Art.Animated(d.Art))
+            {
+                string detKey = d.Art;
+                Art.Late(art, detKey, () =>
+                {
+                    var fr = Art.Frames(detKey);
+                    if (fr != null && fr.Length > 0 && art) art.sprite = fr[0];
+                });
+            }
+            Tween.Run(art, 999f, k => art.rectTransform.anchoredPosition = new Vector2(0, detBaseY + 5 * Mathf.Sin(k * 999f * 2f)));
 
             var lvc = Ui.Icon(p, "ui/lv", 86, new Vector2(-150, 622), "lv");
             Ui.Outlined(lvc.transform, owned ? lv.ToString() : "-", 40, Color.white, new Vector2(0, 2), new Vector2(86, 60), Pal.Ink, 2f);
@@ -1490,11 +1510,9 @@ namespace Liangshan
             Ui.Tap(ct, () => GetPaths(layer, null), ct.transform.parent);
             bool can = shardOk && copperOk;
             var up = Ui.Btn(p, "升级", new Vector2(390, 138), new Vector2(200, cy), can ? Pal.Green : Pal.Slate, () => DoLevelUp(layer, h), 56);
-            var arrow = Ui.Icon(up.Find("body"), "ic_fast", 66, new Vector2(156, 42), "upArrow");
-            arrow.transform.localRotation = Quaternion.Euler(0, 0, 90);
+            var arrow = Ui.UpgradeMark(up.Find("body"), 66, new Vector2(156, 42), "upArrow");
             if (can)
             {
-                arrow.color = Pal.Hex("7CFF5A");
                 Ui.Breathe(arrow, 6f);
                 var glow = Ui.Box(up, new Vector2(540, 250), Vector2.zero, Pal.Gold.A(0.35f), Art.SoftDot, "glow");
                 glow.transform.SetAsFirstSibling();
@@ -1559,7 +1577,7 @@ namespace Liangshan
                 mask.sizeDelta = Vector2.one * 102f;
                 mask.anchoredPosition = new Vector2(-300, 1);
                 mask.gameObject.AddComponent<RectMask2D>();
-                Ui.Icon(mask, d.Art, 124, new Vector2(0, -14));
+                Ui.Icon(mask, d.Art, 98, new Vector2(0, -1));
                 Ui.Icon(head, "ic_shard", 48, new Vector2(-344, 44));
                 Ui.Label(head, d.Name + "碎片", 36, Pal.Ink, new Vector2(-50, 40), new Vector2(360, 50), TextAnchor.MiddleLeft, Fonts.Heavy);
                 Ui.Label(head, HeroText.OnLight($"拥有数量：{HeroText.O(S.Shards[(int)hero.Value])}"), 26, Pal.SubInk, new Vector2(240, 40), new Vector2(260, 40), TextAnchor.MiddleRight, Fonts.Heavy);
@@ -2273,7 +2291,7 @@ namespace Liangshan
                 Ui.Outlined(tile, $"+{slv}", 24, Color.white, new Vector2(22, -45), new Vector2(86, 30), Pal.Hex("142230"), 2.0f, TextAnchor.MiddleRight);
 
                 if (Meta.CanForge(S, s) && !on && !_forgeWash)
-                    Ui.Breathe(Ui.Box(tile, new Vector2(30, 30), new Vector2(49, 49), Color.white, Art.UpArrow));
+                    Ui.Breathe(Ui.UpgradeMark(tile, 30, new Vector2(49, 49)));
 
                 if (on)
                 {
@@ -2435,10 +2453,7 @@ namespace Liangshan
                 }
                 if (next)
                 {
-                    var up = Ui.Icon(hx, "ic_fast", 52, new Vector2(56, 52), "up");
-                    up.transform.localRotation = Quaternion.Euler(0, 0, 90);
-                    up.color = Pal.Hex("68F098");
-                    Ui.Breathe(up, 5f);
+                    Ui.Breathe(Ui.UpgradeMark(hx, 52, new Vector2(56, 52)), 5f);
                 }
                 var col = on ? Pal.Champagne : next ? Color.white : locked ? Pal.Hex("8CA2B8") : Pal.Hex("C8DAE8");
                 Ui.Outlined(top0, $"{i}. {Meta.TalentText(i)}", big ? 30 : 27, col, new Vector2(cx + 100 + 280, y + (next ? 18 : 0)), new Vector2(560, 50), Pal.Ink, 1.5f, TextAnchor.MiddleLeft);

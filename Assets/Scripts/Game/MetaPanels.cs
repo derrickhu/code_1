@@ -106,7 +106,7 @@ namespace Liangshan
                 mask.sizeDelta = Vector2.one * 104f;
                 mask.anchoredPosition = iconPos + new Vector2(0, 1);
                 mask.gameObject.AddComponent<RectMask2D>();
-                Ui.Icon(mask, CurIcon(it), 126, new Vector2(0, -14));
+                Ui.Icon(mask, CurIcon(it), 100, new Vector2(0, -1));
                 Ui.Icon(card, "ic_shard", 42, iconPos + new Vector2(-38, 38));
             }
             else
@@ -135,8 +135,18 @@ namespace Liangshan
             if (chapter > 1) ArrowIn(p, new Vector2(-396, top - 66), -1, () => LevelList(layer, chapter - 1));
             if (chapter < maxCh) ArrowIn(p, new Vector2(396, top - 66), 1, () => LevelList(layer, chapter + 1));
             int stars = Meta.ChapterStars(S, chapter);
-            Ui.Icon(p, "ic_star", 44, new Vector2(-248, top - 66));
-            Bar(p, new Vector2(18, top - 66), new Vector2(460, 26), stars / 30f, Pal.Gold, $"本章星数 {stars}/30");
+            Ui.Icon(p, "ic_star", 44, new Vector2(-284, top - 66));
+            Bar(p, new Vector2(-28, top - 66), new Vector2(436, 26), stars / 30f, Pal.Gold, $"本章星数 {stars}/30");
+            var chBoxBtn = Ui.Rect(p, "chapStarChest");
+            chBoxBtn.anchoredPosition = new Vector2(252, top - 66);
+            chBoxBtn.sizeDelta = new Vector2(78, 78);
+            var chBoxIc = Ui.Icon(chBoxBtn, "ic_chest_gold", 66, Vector2.zero);
+            bool chCan = false;
+            for (int k = 0; k < 3; k++) if (Meta.CanOpenChest(S, chapter, k)) chCan = true;
+            if (chCan) Dot(chBoxBtn, new Vector2(26, 26));
+            int chNo = chapter;
+            var chBoxHit = Ui.Box(chBoxBtn, new Vector2(88, 84), Vector2.zero, new Color(0, 0, 0, 0), Art.White, "hit");
+            Ui.Tap(chBoxHit, () => ChapterChests(layer, chNo), chBoxIc.transform);
 
             float wellTop = top - 116f;
             float wellBot = -top + 48f;
@@ -163,7 +173,7 @@ namespace Liangshan
                         bool got = Meta.LevelChestGot(S, n, k);
                         bool ready = Meta.CanOpenLevelChest(S, n, k);
                         float x = 204 + k * 76;
-                        var c = Ui.Icon(r, got ? "ic_chest_open" : ChestArt(k), 66, new Vector2(x, 4));
+                        var c = Ui.Icon(r, got ? ChestOpenArt(k) : ChestArt(k), 66, new Vector2(x, 4));
                         if (got) Check(r, new Vector2(x + 18, -18), 28);
                         else if (ready) Dot(c.transform, new Vector2(22, 22));
                         else c.color = new Color(1, 1, 1, 0.45f);
@@ -188,6 +198,13 @@ namespace Liangshan
         }
 
         public static string ChestArt(int k) => k == 0 ? "ic_chest_wood" : k == 1 ? "ic_chest_silver" : "ic_chest_gold";
+
+        public static string ChestOpenArt(int k) => k == 0 ? "ic_chest_wood_open" : k == 1 ? "ic_chest_silver_open" : "ic_chest_open";
+
+        public static string ChestOpenArt(string closedArt) =>
+            closedArt == "ic_chest_wood" ? "ic_chest_wood_open"
+            : closedArt == "ic_chest_silver" ? "ic_chest_silver_open"
+            : "ic_chest_open";
 
         /// <summary>已领取：绿底白勾，压在宝箱右下角。</summary>
         public static void Check(Transform p, Vector2 pos, float size)
@@ -219,7 +236,7 @@ namespace Liangshan
                 string boxSlot = k == 2 ? "slot_orange" : k == 1 ? "slot_blue" : "slot_wood";
                 var sl = Slot(c, boxSlot, 148, new Vector2(0, 18));
                 if (got) sl.color = new Color(0.84f, 0.84f, 0.84f, 0.85f);
-                var ic = Ui.Icon(c, got ? "ic_chest_open" : ChestArt(k), 106, new Vector2(0, 20));
+                var ic = Ui.Icon(c, got ? ChestOpenArt(k) : ChestArt(k), 106, new Vector2(0, 20));
                 Ui.Label(c, $"{Meta.ChestStars[k]} 星", 28, can ? Pal.Hex("B85C08") : WarmTitle, new Vector2(0, -82), new Vector2(160, 36), TextAnchor.MiddleCenter, Fonts.Heavy);
                 if (got) Check(c, new Vector2(46, -28), 38);
                 if (can)
@@ -268,8 +285,8 @@ namespace Liangshan
                 Ui.Label(r, $"体力 +{Meta.MealStamina}", 28, Pal.GreenDeep, new Vector2(126, 0), new Vector2(190, 44), TextAnchor.MiddleCenter, Fonts.Heavy);
                 if (taken)
                 {
-                    Check(r, new Vector2(272, 0), 34);
-                    Ui.Label(r, "已享用", 26, WarmSub, new Vector2(334, 0), new Vector2(120, 40), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    Check(r, new Vector2(248, 0), 34);
+                    Ui.Label(r, "已享用", 26, WarmSub, new Vector2(352, 0), new Vector2(108, 40), TextAnchor.MiddleLeft, Fonts.Heavy);
                 }
                 else if (ready)
                     Badge(r, "可开席", Pal.Gold, new Vector2(138, 54), new Vector2(308, 0), 25);
@@ -550,7 +567,7 @@ namespace Liangshan
                 mask.sizeDelta = Vector2.one * 74f;
                 mask.anchoredPosition = new Vector2(-372, 2);
                 mask.gameObject.AddComponent<RectMask2D>();
-                Ui.Icon(mask, d.Art, 92, new Vector2(0, -10));
+                Ui.Icon(mask, d.Art, 72, new Vector2(0, -1));
                 Ui.Label(r, $"{d.Name}  Lv.{lv}", 29, WarmTitle, new Vector2(-132, 26), new Vector2(310, 38), TextAnchor.MiddleLeft, Fonts.Heavy);
                 Bar(r, new Vector2(-178, -22), new Vector2(216, 22), Mathf.Clamp01(S.Shards[(int)h] / (float)Mathf.Max(1, need)), Pal.Azure, $"{S.Shards[(int)h]}/{need}");
                 Ui.Label(r, halfLeft > 0 ? $"本周半价剩 {halfLeft} 片" : "原价兑换", 21, halfLeft > 0 ? Pal.GreenDeep : WarmSub,
@@ -631,8 +648,8 @@ namespace Liangshan
                     Ui.Outlined(tg.transform, text, 18, Color.white, new Vector2(0, 1), new Vector2(tw, 32), color.Mul(0.45f), 1.2f);
                     tagLeft += tw + 6f;
                 }
-                var body = Ui.Label(r, EnemyText.SheetBody(d), 22, Pal.SubInk, new Vector2(textLeft + 340f, -26), new Vector2(680, 56), TextAnchor.UpperLeft, Fonts.Heavy);
-                body.verticalOverflow = VerticalWrapMode.Truncate;
+                var body = Ui.Label(r, EnemyText.SheetBody(d), 22, Pal.SubInk, new Vector2(textLeft + 340f, -36), new Vector2(680, 76), TextAnchor.UpperLeft, Fonts.Heavy);
+                body.lineSpacing = 0.92f;
             }
         }
 

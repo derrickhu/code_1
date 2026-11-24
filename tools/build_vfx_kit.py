@@ -404,6 +404,89 @@ def make_book_lit():
     return Image.fromarray(out)
 
 
+def make_buff_pill():
+    """好汉头顶增益小Buff条底图：圆润斜切金属胶囊 + 鎏金亮边 + 左侧暖金微光，精致不呆板。"""
+    bw, bh = 224, 80
+    W, H = bw * SS, bh * SS
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    # 中心归一化坐标，带轻微右上斜切动感 (italic shear)
+    cx = (xx - W * 0.5) + (yy - H * 0.5) * (-0.14)
+    cy = (yy - H * 0.5)
+    hw, hh = W * 0.43, H * 0.36
+    rad = hh  # 半圆胶囊端头
+    dx = np.maximum(np.abs(cx) - (hw - rad), 0.0)
+    dy = np.maximum(np.abs(cy) - (hh - rad), 0.0)
+    dist = np.sqrt(dx * dx + dy * dy) - rad  # SDF in supersampled pixels
+
+    aa = 1.6 * SS
+    # 柔和底影
+    dx_s = np.maximum(np.abs(cx - 1.5 * SS) - (hw - rad), 0.0)
+    dy_s = np.maximum(np.abs(cy - 3.5 * SS) - (hh - rad), 0.0)
+    dist_s = np.sqrt(dx_s * dx_s + dy_s * dy_s) - rad
+    sh_a = np.clip(1.0 - dist_s / (5.5 * SS), 0.0, 1.0) ** 1.8 * 0.45
+
+    outer_a = np.clip(0.5 - dist / aa, 0.0, 1.0)
+    rim_in = np.clip(0.5 - (dist + 3.6 * SS) / aa, 0.0, 1.0)
+    inner_bevel = np.clip(0.5 - (dist + 5.8 * SS) / aa, 0.0, 1.0)
+
+    vy = np.clip((yy / H - 0.14) / 0.72, 0.0, 1.0)
+    ux = np.clip((xx / W - 0.08) / 0.84, 0.0, 1.0)
+
+    # 外圈鎏金渐变边（上亮金 #FFF0A6 -> 下琥珀金 #C87E1E）
+    rim_col = rgb("FFF2AA")[None, None, :] * (1 - vy[..., None]) + rgb("C47A1C")[None, None, :] * vy[..., None]
+    # 内圈高光细线
+    bevel_col = rgb("6E4B26")[None, None, :] * (1 - vy[..., None]) + rgb("2A1B10")[None, None, :] * vy[..., None]
+    # 内膛深色温润底（深褐靛 #2B1D14 -> #16100D），左侧图标区泛一团柔和暖金光晕
+    body_col = rgb("362316")[None, None, :] * (1 - vy[..., None]) + rgb("17100C")[None, None, :] * vy[..., None]
+    left_glow = np.exp(-((ux - 0.24) / 0.26) ** 2) * np.exp(-((vy - 0.5) / 0.48) ** 2)
+    body_col = body_col + rgb("8C5414")[None, None, :] * (left_glow[..., None] * 0.55)
+    # 顶部玻璃高光带
+    gloss = np.clip(1.0 - np.abs(vy - 0.22) / 0.14, 0.0, 1.0) ** 1.5 * inner_bevel * 0.22
+    body_col = np.clip(body_col + 255.0 * gloss[..., None], 0, 255)
+
+    pill_col = rim_col * (1 - rim_in[..., None]) + bevel_col * rim_in[..., None]
+    pill_col = pill_col * (1 - inner_bevel[..., None]) + body_col * inner_bevel[..., None]
+
+    # 叠合投影与本体
+    out_a = outer_a + sh_a * (1.0 - outer_a)
+    sh_col = rgb("090604")[None, None, :]
+    out_col = (pill_col * outer_a[..., None] + sh_col * sh_a[..., None] * (1.0 - outer_a[..., None])) / np.maximum(out_a, 1e-5)[..., None]
+    return finish(out_col, out_a * 0.96, (bw, bh))
+
+
+def make_buff_wing():
+    """增益小Buff条左侧精致双翼疾风徽标（鎏金渐变 + 深褐描边，一眼表达攻速/加持）。"""
+    n = 96
+    W = H = n * SS
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u = (xx / W - 0.5) * 2.0   # -1..1
+    v = (0.5 - yy / H) * 2.0   # +1(top)..-1(bottom)
+    ax = np.abs(u)
+
+    def chevron(v_off, span, thick, slope):
+        yc = v - v_off + ax * slope
+        return (ax < span) & (np.abs(yc) < thick * (1.0 - 0.38 * (ax / span)))
+
+    c_top = chevron(0.30, 0.70, 0.21, 0.62)
+    c_bot = chevron(-0.16, 0.56, 0.18, 0.62)
+    diamond = (ax * 1.6 + np.abs(v + 0.44) * 1.1) < 0.24
+    shape = c_top | c_bot | diamond
+
+    im_mask = Image.fromarray((shape * 255).astype(np.uint8))
+    stroke = np.asarray(im_mask.filter(ImageFilter.MaxFilter(5 * SS + 1)).filter(ImageFilter.GaussianBlur(1.0 * SS)), np.float32) / 255.0
+    fill = np.asarray(im_mask.filter(ImageFilter.GaussianBlur(0.8 * SS)), np.float32) / 255.0
+
+    vy = np.clip((v + 0.7) / 1.4, 0.0, 1.0)
+    col_fill = rgb("FFFBE0")[None, None, :] * vy[..., None] + rgb("FFA81E")[None, None, :] * (1 - vy[..., None])
+    hi = np.clip(-u * 0.5 + 0.25, 0.0, 0.30)[..., None] * 255.0
+    col_fill = np.clip(col_fill + hi, 0, 255)
+    col_edge = rgb("3D1C04")[None, None, :]
+
+    col = col_edge * (1 - fill[..., None]) + col_fill * fill[..., None]
+    a = np.clip(stroke * 1.15, 0, 1)
+    return finish(col, a, (n, n))
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     jobs = [
@@ -420,6 +503,8 @@ def main():
         ("ui_crit_burst", make_crit_burst),
         ("ui_ink_strip", make_ink_strip),
         ("prop_book_lit", make_book_lit),
+        ("ui_buff_pill", make_buff_pill),
+        ("ui_buff_wing", make_buff_wing),
     ]
     for name, fn in jobs:
         im = fn()

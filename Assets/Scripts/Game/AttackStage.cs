@@ -95,21 +95,20 @@ namespace Liangshan
                 _views[i].Tick();
                 if (s.T < s.Dur) continue;
                 var at = new Vector2(s.To.X, s.To.Y);
-                var hd = Defs.Hero(s.Hero);
                 _views[i].Destroy();
                 _views.RemoveAt(i);
                 _shots.RemoveAt(i);
-                if (WorldFx.I != null)
+                var fx = WorldFx.I;
+                if (fx != null)
                 {
-                    Color hitCol = hd.Tint != null ? Pal.Hex(hd.Tint)
-                        : hd.Rarity >= 4 ? Pal.Gold
-                        : hd.Rarity == 3 ? Pal.Hex("B86CFF")
-                        : Color.white;
-                    float sc = hd.Rarity >= 4 ? 1.55f : hd.Rarity == 3 ? 1.25f : 0.95f;
-                    WorldFx.I.Flash(at, 1.2f * sc, hitCol.A(0.68f), 0.16f, 9300);
-                    WorldFx.I.Glint(at, 1.1f * sc, Color.Lerp(hitCol, Color.white, 0.55f), 0.16f, 9305);
+                    var hd = Defs.Hero(s.Hero);
+                    var tc = Pal.Hex(hd.Tint ?? "FFFFFF");
+                    fx.Flash(at, 1.4f, Color.Lerp(Color.white, tc, 0.35f).A(0.75f), 0.16f, 9300);
+                    fx.Glint(at, hd.Rarity >= 4 ? 1.9f : 1.4f, Color.Lerp(tc, Color.white, 0.5f), 0.18f, 9320);
                     if (hd.Rarity >= 3)
-                        WorldFx.I.SparkStreaks(at, hd.Rarity >= 4 ? 6 : 3, 0.32f * sc, 4.2f, hitCol, 0.20f, 9302, 4f);
+                        fx.SparkStreaks(at, hd.Rarity >= 4 ? 8 : 5, 0.4f, 5f, Color.Lerp(tc, Color.white, 0.4f), 0.24f, 9318, 6f);
+                    if (hd.Rarity >= 4)
+                        fx.Ring(at, 1.1f, Pal.Hex("FFD84A"), 0.3f, 9310);
                 }
                 Landed?.Invoke();
             }

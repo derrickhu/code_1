@@ -273,8 +273,8 @@ namespace Liangshan
             bool framed = Art.Animated(hd.Art);
             if (framed && AnimMeta.Info.TryGetValue(hd.Art, out var meta))
             {
-                float targetBody = isFirst ? 292f : 242f;
-                heroDraw = targetBody / Mathf.Max(0.58f, meta.Body);
+                float targetBody = isFirst ? 268f : 222f;
+                heroDraw = targetBody / Mathf.Max(0.28f, meta.Body);
                 standY = deckTopLocalY - heroDraw * (meta.Foot - 0.5f);
             }
 
@@ -441,11 +441,11 @@ namespace Liangshan
             av.anchoredPosition = new Vector2(-288f, 2f);
             av.sizeDelta = new Vector2(114, 114);
             var mask = Ui.Rect(av, "mask");
-            mask.sizeDelta = new Vector2(74, 78);
-            mask.anchoredPosition = new Vector2(0f, -4f);
+            mask.sizeDelta = new Vector2(72, 76);
+            mask.anchoredPosition = new Vector2(0f, 2f);
             mask.gameObject.AddComponent<RectMask2D>();
-            Ui.Box(mask, new Vector2(82, 86), Vector2.zero, Pal.Hex("234466"), Art.White);
-            var fallbackLord = Ui.Icon(mask, "lord_songjiang", 156, new Vector2(0, -32));
+            Ui.Box(mask, new Vector2(80, 84), Vector2.zero, Pal.Hex("234466"), Art.White);
+            var fallbackLord = Ui.Icon(mask, "lord_songjiang", 216, new Vector2(2f, -3f));
             if (!string.IsNullOrEmpty(me.Avatar))
             {
                 RankService.LoadAvatar(me.Avatar, spr =>
@@ -680,11 +680,11 @@ namespace Liangshan
             box.anchoredPosition = pos;
             box.sizeDelta = new Vector2(sz, sz);
 
-            float innerW = sz * (gold ? 0.61f : 0.65f);
+            float innerW = sz * 0.62f;
             float innerH = sz * 0.65f;
             var mask = Ui.Rect(box, "mask");
             mask.sizeDelta = new Vector2(innerW, innerH);
-            mask.anchoredPosition = new Vector2(gold ? 0f : -sz * 0.022f, -sz * (gold ? 0.036f : 0.018f));
+            mask.anchoredPosition = new Vector2(0f, sz * 0.018f);
             mask.gameObject.AddComponent<RectMask2D>();
             Ui.Box(mask, new Vector2(innerW + 6f, innerH + 6f), Vector2.zero,
                 gold ? Pal.Hex("2C4E72") : Pal.Hex("24486A"), Art.White, "bg");

@@ -841,7 +841,9 @@ namespace Liangshan
             var card = new Vector2(-386, 0);
             MetaUi.Card(_info, MetaUi.RarityCard(d.Rarity), new Vector2(226, 354), card);
             Ui.Box(_info, new Vector2(150, 30), card + new Vector2(0, -40), new Color(0.05f, 0.08f, 0.14f, 0.30f), Art.GroundShadow);
-            Ui.Icon(_info, d.Art, 204, card + new Vector2(0, 38));
+            var infoArt = Ui.Icon(_info, d.Art, 178, Vector2.zero);
+            infoArt.rectTransform.pivot = new Vector2(0.5f, 0f);
+            infoArt.rectTransform.anchoredPosition = card + new Vector2(0, -42);
             for (int i = 0; i < u.Star; i++)
                 Ui.Icon(_info, "ic_star", 34, card + new Vector2((i - (u.Star - 1) * 0.5f) * 30, -82));
             Ui.Box(_info, new Vector2(186, 50), card + new Vector2(0, -134), new Color(0.06f, 0.10f, 0.16f, 0.72f), Art.Pill);
@@ -1123,16 +1125,37 @@ namespace Liangshan
             var list = B.StageRoster();
             var seen = Profile.S.Seen;
             const float pw = 920f, header = 92f, footer = 56f;
-            float rowH = 142f;
-            float ph = header + list.Count * rowH + footer;
-            if (ph > 1280f)
-            {
-                rowH = (1280f - header - footer) / Mathf.Max(1, list.Count);
-                ph = header + list.Count * rowH + footer;
-            }
+            float iconX = -pw * 0.5f + 92f;
+            float textLeft = -pw * 0.5f + 176f;
+            float textRight = pw * 0.5f - 32f;
+            float textW = textRight - textLeft;
             var c = OpenModal("roster", 0.36f);
             var hit = _modal.GetComponentInChildren<Image>();
             Ui.Tap(hit, () => CloseModal(), null, false);
+
+            float Measure(string s)
+            {
+                var probe = Ui.Label(c, s, 24, Color.white, new Vector2(0, 4000f), new Vector2(textW, 40), TextAnchor.UpperLeft);
+                probe.lineSpacing = 0.92f;
+                Canvas.ForceUpdateCanvases();
+                float h = Mathf.Ceil(probe.preferredHeight);
+                Destroy(probe.gameObject);
+                return Mathf.Max(34f, h + 2f);
+            }
+            var descH = new float[list.Count];
+            var rowH = new float[list.Count];
+            float listH = 0f;
+            for (int i = 0; i < list.Count; i++)
+            {
+                descH[i] = Measure(EnemyText.SheetBody(Defs.Enemy(list[i])));
+                rowH[i] = Mathf.Max(128f, 64f + descH[i]);
+                listH += rowH[i];
+            }
+            float maxPh = Mathf.Min(1200f, Ui.Height - 160f);
+            float viewH = Mathf.Min(listH, Mathf.Max(160f, maxPh - header - footer));
+            float ph = header + viewH + footer;
+            bool scroll = listH > viewH + 1f;
+
             var panel = Ui.Rect(c, "sheet");
             panel.sizeDelta = new Vector2(pw, ph);
             panel.anchoredPosition = new Vector2(0, 48);
@@ -1147,25 +1170,44 @@ namespace Liangshan
             Ui.Box(panel, new Vector2(168, 3), new Vector2(196, titleY), Pal.Hex("D5CBB8"), Art.Pill);
             Ui.Label(panel, "本关外星军", 36, Pal.Hex("3B2E22"), new Vector2(0, titleY), new Vector2(220, 52), TextAnchor.MiddleCenter, Fonts.Heavy);
 
-            float iconX = -pw * 0.5f + 92f;
-            float textLeft = -pw * 0.5f + 176f;
-            float textRight = pw * 0.5f - 32f;
-            float textW = textRight - textLeft;
+            float viewTop = top - header;
+            var view = Ui.Rect(panel, "rows");
+            view.sizeDelta = new Vector2(pw - 8f, viewH);
+            view.anchoredPosition = new Vector2(0, viewTop - viewH * 0.5f);
+            if (scroll) view.gameObject.AddComponent<RectMask2D>();
+            var content = Ui.Rect(view, "content");
+            content.anchorMin = content.anchorMax = new Vector2(0.5f, 1f);
+            content.pivot = new Vector2(0.5f, 1f);
+            content.sizeDelta = new Vector2(pw - 8f, listH);
+            content.anchoredPosition = Vector2.zero;
+            if (scroll)
+            {
+                var sr = view.gameObject.AddComponent<ScrollRect>();
+                sr.content = content;
+                sr.viewport = view;
+                sr.horizontal = false;
+                sr.movementType = ScrollRect.MovementType.Clamped;
+                sr.scrollSensitivity = 40f;
+                Ui.Fill(view, new Color(0, 0, 0, 0.001f), true, "grab").transform.SetAsFirstSibling();
+            }
+
+            float walked = 0f;
             for (int i = 0; i < list.Count; i++)
             {
                 var d = Defs.Enemy(list[i]);
-                float rowTop = top - header - i * rowH;
-                float mid = rowTop - rowH * 0.5f;
+                float h = rowH[i];
+                float mid = listH * 0.5f - walked - h * 0.5f;
+                float rowTop = mid + h * 0.5f;
+                walked += h;
                 if (i > 0)
-                    Ui.Box(panel, new Vector2(pw - 48, 2), new Vector2(0, rowTop), Pal.Hex("E6E0D4"), Art.White);
-                Ui.Icon(panel, d.Art, 108, new Vector2(iconX, mid + 2));
+                    Ui.Box(content, new Vector2(pw - 48, 2), new Vector2(0, rowTop), Pal.Hex("E6E0D4"), Art.White);
+                Ui.Icon(content, d.Art, 108, new Vector2(iconX, mid + 2));
 
                 const int nameSize = 32;
                 float nameW = nameSize * d.Name.Length + 6f;
-                float nameY = mid + 30f;
-                var name = Ui.Label(panel, d.Name, nameSize, Pal.Hex("1E2D3D"), new Vector2(textLeft + nameW * 0.5f, nameY), new Vector2(nameW, 42), TextAnchor.MiddleLeft, Fonts.Heavy);
+                float nameY = rowTop - 32f;
+                var name = Ui.Label(content, d.Name, nameSize, Pal.Hex("1E2D3D"), new Vector2(textLeft + nameW * 0.5f, nameY), new Vector2(nameW, 42), TextAnchor.MiddleLeft, Fonts.Heavy);
                 name.horizontalOverflow = HorizontalWrapMode.Overflow;
-                name.verticalOverflow = VerticalWrapMode.Truncate;
 
                 var tags = EnemyText.Tags(d);
                 if (d.Big) tags.Insert(0, (EnemyText.RankName(d), EnemyText.RankColor(d)));
@@ -1176,17 +1218,15 @@ namespace Liangshan
                 {
                     float tw = 26f * text.Length + 28f;
                     if (tagLeft + tw > textRight) break;
-                    var tg = Ui.Box(panel, new Vector2(tw, 32), new Vector2(tagLeft + tw * 0.5f, nameY), color, Art.RoundedSmall);
+                    var tg = Ui.Box(content, new Vector2(tw, 32), new Vector2(tagLeft + tw * 0.5f, nameY), color, Art.RoundedSmall);
                     Ui.Outlined(tg.transform, text, 20, Color.white, new Vector2(0, 1), new Vector2(tw, 32), color.Mul(0.45f), 1.2f);
                     tagLeft += tw + 8f;
                 }
 
-                float descTop = nameY - 28f;
-                float descBottom = mid - rowH * 0.5f + 14f;
-                float descH = Mathf.Max(48f, descTop - descBottom);
-                var body = Ui.Label(panel, EnemyText.SheetBody(d), 24, Pal.Hex("5C6B78"),
-                    new Vector2(textLeft + textW * 0.5f, (descTop + descBottom) * 0.5f), new Vector2(textW, descH), TextAnchor.UpperLeft);
-                body.verticalOverflow = VerticalWrapMode.Truncate;
+                float dTop = nameY - 26f;
+                float dH = descH[i];
+                var body = Ui.Label(content, EnemyText.SheetBody(d), 24, Pal.Hex("5C6B78"),
+                    new Vector2(textLeft + textW * 0.5f, dTop - dH * 0.5f), new Vector2(textW, dH), TextAnchor.UpperLeft);
                 body.lineSpacing = 0.92f;
             }
             Ui.Box(panel, new Vector2(pw - 64, 2), new Vector2(0, -top + footer), Pal.Hex("E6E0D4"), Art.White);
@@ -1757,15 +1797,13 @@ namespace Liangshan
             var bgTap = Ui.Fill(c, Color.clear, true, "tapBlank");
             Ui.Tap(bgTap.GetComponent<Graphic>(), collect, null, false);
 
-            // 上半区：停轮后弹出的横向白底金头奖励详情卡容器 + 特效层
-            var fxLayer = Ui.Rect(c, "reelFx");
-            fxLayer.sizeDelta = new Vector2(1080, 1920);
-            var cardsLayer = Ui.Rect(c, "reelCards");
-            cardsLayer.sizeDelta = new Vector2(1080, 1920);
+            // 背景柔光层在摇奖机后，前景徽标与彩带层压在摇奖机前（防止「超爽!!!」被摇奖机顶梁遮挡）
+            var backFxLayer = Ui.Rect(c, "reelBackFx");
+            backFxLayer.sizeDelta = new Vector2(1080, 1920);
 
-            // 中下区：古风木架赤金摇奖机箱体（不再用大白板盖住滚轮，也不让大字糊标题）
+            // 中下区：摇奖机箱体
             var machine = Ui.Rect(c, "reelMachine");
-            machine.anchoredPosition = new Vector2(0, -136);
+            machine.anchoredPosition = new Vector2(0, -196);
             float mw = gold5 ? 984f : 908f;
             const float mh = 316f;
             machine.sizeDelta = new Vector2(mw, mh + 96f);
@@ -1827,26 +1865,33 @@ namespace Liangshan
                 windows[i] = w;
             }
 
-            var closeHint = Ui.Outlined(c, "点击空白处关闭", 30, Pal.Hex("E8EEF5"), new Vector2(0, -390), new Vector2(520, 46), Pal.Hex("0E1824"), 2.2f);
+            // 前景层：停轮后弹出的横向奖励详情卡 + 顶层「超爽!!!」大字与彩带
+            var cardsLayer = Ui.Rect(c, "reelCards");
+            cardsLayer.sizeDelta = new Vector2(1080, 1920);
+            var fxLayer = Ui.Rect(c, "reelFx");
+            fxLayer.sizeDelta = new Vector2(1080, 1920);
+
+            var closeHint = Ui.Outlined(c, "点击空白处关闭", 30, Pal.Hex("E8EEF5"), new Vector2(0, -442), new Vector2(520, 46), Pal.Hex("0E1824"), 2.2f);
             closeHint.gameObject.SetActive(false);
 
             RectTransform takeBtn = null, luckyBtn = null;
             Action showAfterSpin = () =>
             {
                 canClose = true;
+                foreach (Transform ch in backFxLayer) Destroy(ch.gameObject);
                 foreach (Transform ch in fxLayer) Destroy(ch.gameObject);
                 foreach (Transform ch in cardsLayer) Destroy(ch.gameObject);
 
                 bool all = Battle.IsAllSame(r);
                 bool big = Battle.IsBigReelWin(r);
-                if (big) Jackpot(fxLayer);
-                BuildReelRewardCards(cardsLayer, r);
+                if (big) Jackpot(backFxLayer, fxLayer);
+                BuildReelRewardCards(cardsLayer, r, big);
 
                 closeHint.gameObject.SetActive(true);
                 bool canLucky = !all && !usedLucky && _v.Auto == null;
                 if (takeBtn)
                 {
-                    takeBtn.anchoredPosition = new Vector2(canLucky ? -188 : 0, -492);
+                    takeBtn.anchoredPosition = new Vector2(canLucky ? -188 : 0, -536);
                     takeBtn.gameObject.SetActive(canLucky);
                     if (canLucky) Tween.Pop(takeBtn, 0.22f);
                 }
@@ -1858,9 +1903,9 @@ namespace Liangshan
                 if (_v.Auto != null) Tween.Run(c, 1.2f, k => { }, collect);
             };
 
-            takeBtn = Ui.Btn(c, "收下", new Vector2(310, 104), new Vector2(-188, -492), Pal.Orange, collect, 42);
+            takeBtn = Ui.Btn(c, "收下", new Vector2(310, 104), new Vector2(-188, -536), Pal.Orange, collect, 42);
             takeBtn.gameObject.SetActive(false);
-            luckyBtn = Ui.Btn(c, "鸿运重转", new Vector2(340, 104), new Vector2(188, -492), Pal.Gold, () =>
+            luckyBtn = Ui.Btn(c, "鸿运重转", new Vector2(340, 104), new Vector2(188, -536), Pal.Gold, () =>
             {
                 if (usedLucky) return;
                 FakeAd("reel_jackpot", () =>
@@ -1870,6 +1915,7 @@ namespace Liangshan
                     closeHint.gameObject.SetActive(false);
                     takeBtn.gameObject.SetActive(false);
                     luckyBtn.gameObject.SetActive(false);
+                    foreach (Transform ch in backFxLayer) Destroy(ch.gameObject);
                     foreach (Transform ch in fxLayer) Destroy(ch.gameObject);
                     foreach (Transform ch in cardsLayer) Destroy(ch.gameObject);
                     r = B.SpinReels(true);
@@ -1889,7 +1935,7 @@ namespace Liangshan
         }
 
         /// <summary>在摇奖机正上方依次弹出横向白底金头奖励卡：左图标 + 右标题与完整词条/银两说明。</summary>
-        void BuildReelRewardCards(RectTransform parent, Reel[] r)
+        void BuildReelRewardCards(RectTransform parent, Reel[] r, bool big)
         {
             var rows = new List<(string icon, float iconSz, string title, string desc)>();
             foreach (var p in B.ReelPerks)
@@ -1909,10 +1955,9 @@ namespace Liangshan
             if (rows.Count == 0) return;
 
             const float cw = 868f;
-            float ch = rows.Count >= 3 ? 126f : 140f;
-            const float gap = 16f;
-            // 从下往上排在摇奖机顶梁与「超爽!!!」上方（底边起于 y = +168，绝不与下方重叠）
-            float baseBottomY = 172f;
+            float ch = rows.Count >= 3 ? 122f : 136f;
+            const float gap = 14f;
+            float baseBottomY = big ? 188f : 48f;
             for (int i = 0; i < rows.Count; i++)
             {
                 var item = rows[rows.Count - 1 - i];
@@ -2005,15 +2050,16 @@ namespace Liangshan
             }, done);
         }
 
-        void Jackpot(RectTransform c)
+        void Jackpot(RectTransform backLayer, RectTransform frontLayer)
         {
             Sfx.Play(Snd.Jackpot);
-            var rays = Ui.Box(c, new Vector2(860, 620), new Vector2(0, -80), Pal.Gold.A(0.42f), Art.SoftDot);
+            var rays = Ui.Box(backLayer, new Vector2(880, 620), new Vector2(0, -140), Pal.Gold.A(0.42f), Art.SoftDot);
             rays.transform.SetAsFirstSibling();
-            var t = Ui.Outlined(c, "超爽!!!", 96, Pal.Hex("FFE15A"), new Vector2(0, 74), new Vector2(720, 128), Pal.Hex("982C0C"), 5f);
+            var t = Ui.GradOutlined(frontLayer, "超爽!!!", 84, Pal.Hex("FFF9A6"), Pal.Hex("FFA824"),
+                new Vector2(0, 98), new Vector2(720, 118), Pal.Hex("5E1804"), 4.4f);
             t.rectTransform.localRotation = Quaternion.Euler(0, 0, 4);
             Tween.Pop(t.transform, 0.32f);
-            Confetti(c, 36);
+            Confetti(frontLayer, 36);
         }
 
         void Confetti(RectTransform parent, int n)
@@ -2199,7 +2245,14 @@ namespace Liangshan
                 var r = rows[i];
                 Ui.Box(band, new Vector2(112, 112), new Vector2(x - 90, y), r.Art == "lord_songjiang" ? Pal.Gold : Color.white, Art.Rounded);
                 Ui.Box(band, new Vector2(100, 100), new Vector2(x - 90, y), Pal.Hex("8FB3D6"), Art.Rounded);
-                Ui.Icon(band, r.Art, 96, new Vector2(x - 90, y + 2));
+                var statMask = Ui.Rect(band, "statMask" + i);
+                statMask.sizeDelta = new Vector2(96, 96);
+                statMask.anchoredPosition = new Vector2(x - 90, y);
+                statMask.gameObject.AddComponent<RectMask2D>();
+                if (r.Art == "lord_songjiang")
+                    Ui.Icon(statMask, r.Art, 248, new Vector2(4f, -8f));
+                else
+                    Ui.Icon(statMask, r.Art, 92, new Vector2(0, -1));
                 if (i == 0)
                 {
                     var mvp = Ui.Outlined(band, "MVP", 30, Pal.Hex("FFD84A"), new Vector2(x - 110, y + 50), new Vector2(110, 44), Pal.Hex("8A3A0A"), 2.5f);

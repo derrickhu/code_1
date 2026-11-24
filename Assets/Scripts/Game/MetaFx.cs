@@ -244,8 +244,8 @@ namespace Liangshan
             ic.rectTransform.sizeDelta = new Vector2(tw * scale, th * scale);
             if (locked)
             {
-                ic.color = new Color(0.40f, 0.42f, 0.48f, 0.90f);
-                Ui.Icon(r, "ic_lock", size * 0.36f, new Vector2(0, -2f), "lock");
+                ic.color = new Color(0.62f, 0.66f, 0.74f, 0.88f);
+                Ui.Icon(r, "ic_lock", size * 0.28f, new Vector2(size * 0.24f, -size * 0.24f), "lock");
             }
             return r;
         }

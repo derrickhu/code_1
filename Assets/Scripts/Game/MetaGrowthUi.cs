@@ -121,9 +121,12 @@ namespace Liangshan
             switch (st)
             {
                 case RowState.Taken:
-                    var chk = Ui.Icon(r, "ic_check", 42f, bpos + new Vector2(-46f, 0f));
-                    chk.color = new Color(1f, 1f, 1f, 0.85f);
-                    Ui.Label(r, "已领取", 28, Pal.Hex("8A8276"), bpos + new Vector2(20f, 0f), new Vector2(120, 48), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    const float mark = 40f, gap = 16f, wordW = 112f;
+                    float left = btnCenterX - (mark + gap + wordW) * 0.5f;
+                    Ui.Icon(r, "ic_check", mark, new Vector2(left + mark * 0.5f, 1f));
+                    var done = Ui.Label(r, "已领取", 26, Pal.Hex("8A8276"),
+                        new Vector2(left + mark + gap + wordW * 0.5f, 1f), new Vector2(wordW, 44f), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    done.horizontalOverflow = HorizontalWrapMode.Overflow;
                     break;
                 case RowState.Claim:
                     var cb = Ui.Btn(r, "领取", new Vector2(btnW, 80f), bpos, Claim, claim, 32);
@@ -209,7 +212,8 @@ namespace Liangshan
                     Tween.Run(glow, 999f, t => glow.color = Pal.Gold.A(0.28f + 0.22f * Mathf.Sin(t * 999f * 5f)));
                 }
 
-                var ic = Ui.Icon(c, o ? "ic_chest_open" : icons[Mathf.Min(k, icons.Length - 1)], 74f, new Vector2(0, 10f));
+                string closedIc = icons[Mathf.Min(k, icons.Length - 1)];
+                var ic = Ui.Icon(c, o ? ChestOpenArt(closedIc) : closedIc, 74f, new Vector2(0, 10f));
                 if (o) ic.color = new Color(0.9f, 0.9f, 0.9f, 0.72f);
 
                 // 箱底清晰门槛数字（暖深棕粗体，如同参考图 20 / 50 / 80 / 100）

@@ -19,11 +19,13 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT.parent / "game_assets/code_1/assets/raw"
 if not RAW.exists():
-    RAW = ROOT.parent / "game_assets/code_2/assets/raw"
-KEY = RAW / "loading_key_hd.jpg"
+    RAW = ROOT / "tools/src"
+KEY = (ROOT / "tools/src/loading_key_hd.jpg") if (ROOT / "tools/src/loading_key_hd.jpg").exists() else (RAW / "loading_key_hd.jpg")
 if not KEY.exists():
     KEY = RAW / "loading_key.jpg"
 LOGO = RAW / "loading_logo.jpg"
+if not LOGO.exists():
+    LOGO = ROOT / "tools/src/loading_logo.png"
 OUT = ROOT / "Assets/Resources/Art/loading.jpg"
 LOGO_OUT = ROOT / "Assets/Resources/Art/logo.png"
 BRUSH = ROOT / "Assets/Resources/Fonts/Brush.ttf"
@@ -74,6 +76,10 @@ def is_magenta(r, g, b):
 
 
 def key_logo():
+    if LOGO.suffix.lower() == ".png":
+        rgba = Image.open(LOGO).convert("RGBA")
+        bbox = rgba.getbbox()
+        return rgba.crop(bbox) if bbox else rgba
     im = Image.open(LOGO).convert("RGB")
     out = Image.new("RGBA", im.size)
     src, dst = im.load(), out.load()
@@ -179,24 +185,27 @@ def bottom_shade(base):
 def export_logo():
     """主界面顶上用的同一枚标题，透明底。"""
     lg = key_logo()
-    box = seal_box(lg)
+    has_raw_seal = LOGO.suffix.lower() != ".png"
+    box = seal_box(lg) if has_raw_seal else None
     w = 900
     scale = w / lg.width
     lg = lg.resize((w, round(lg.height * scale)), Image.Resampling.LANCZOS)
-    paint_seal(lg, tuple(round(v * scale) for v in box))
+    if box is not None:
+        paint_seal(lg, tuple(round(v * scale) for v in box))
     lg.save(LOGO_OUT, optimize=True)
     print(f"标题 {LOGO_OUT}  {lg.width}x{lg.height}")
 
 
 def logo(base):
     lg = key_logo()
-    box = seal_box(lg)
+    has_raw_seal = LOGO.suffix.lower() != ".png"
+    box = seal_box(lg) if has_raw_seal else None
     w = px(LOGO_W)
     h = round(lg.height * w / lg.width)
     scale = w / lg.width
     lg = lg.resize((w, h), Image.Resampling.LANCZOS)
-    box = tuple(round(v * scale) for v in box)
-    paint_seal(lg, box)
+    if box is not None:
+        paint_seal(lg, tuple(round(v * scale) for v in box))
     cx, cy = W // 2, px(LOGO_CY)
     glow = Image.new("L", (W, H), 0)
     ImageDraw.Draw(glow).ellipse((cx - w * 0.55, cy - h * 0.7, cx + w * 0.55, cy + h * 0.7), fill=255)
