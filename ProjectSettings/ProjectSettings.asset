@@ -42,7 +42,7 @@ PlayerSettings:
     height: 1
   m_SplashScreenLogos: []
   m_VirtualRealitySplashScreen: {fileID: 0}
-  expectedBundleIdentifier: com.rosagames.liangshan
+  expectedBundleIdentifier: com.Luckygua.CunKou
   integrityHash: 
   m_HolographicTrackingLossScreen: {fileID: 0}
   defaultScreenWidth: 540
@@ -198,11 +198,11 @@ PlayerSettings:
   androidSupportedAspectRatio: 2
   androidMaxAspectRatio: 2.1
   applicationIdentifier:
-    Android: com.rosagames.liangshan
-    Lumin: com.rosagames.liangshan
-    Standalone: com.rosagames.liangshan
-    iPhone: com.rosagames.liangshan
-    tvOS: com.DefaultCompany.com.unity.template.mobile2D
+    Android: com.Luckygua.CunKou
+    Lumin: com.Luckygua.CunKou
+    Standalone: com.Luckygua.CunKou
+    iPhone: com.Luckygua.CunKou
+    tvOS: com.Luckygua.CunKou
   buildNumber:
     Standalone: 0
     VisionOS: 0
