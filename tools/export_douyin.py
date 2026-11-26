@@ -1563,8 +1563,8 @@ export default class DouyinUnityManager {
       const Module = {
         canvas: GameGlobal.canvas,
         IsWxGame: true,
-        companyName: 'RosaGames',
-        productName: 'cunkou',
+        companyName: 'Luckygua',
+        productName: 'CunKou',
         productVersion: '1.0.0',
         streamingAssetsUrl: `${String(this.config.DATA_CDN || '').replace(/\\/$/, '')}/StreamingAssets`,
         webglContextAttributes: {
