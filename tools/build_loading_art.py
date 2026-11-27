@@ -40,13 +40,13 @@ BAR_W, BAR_H, BAR_BOTTOM = 400, 10, 214
 TEXT_BOTTOM, TEXT_H = 232, 20
 ADVICE_TITLE_Y = 162
 ADVICE_BOTTOM, ADVICE_STEP = 36, 26
-LOGO_W, LOGO_CY = 600, 292
+LOGO_W, LOGO_CY = 580, 210
 BADGE_X, BADGE_Y, BADGE_SIZE = 92, 100, 58
 
-GOLD = (222, 186, 112)
-GOLD_DEEP = (176, 132, 62)
-PAPER = (236, 225, 202)
-NIGHT = (20, 13, 9)
+GOLD = (255, 200, 61)
+GOLD_DEEP = (212, 148, 28)
+PAPER = (234, 242, 255)
+NIGHT = (7, 11, 24)
 
 ADVICE_TITLE = "健康游戏忠告"
 ADVICE = [
@@ -296,7 +296,8 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     im.convert("RGB").save(OUT, "JPEG", quality=92, optimize=True, subsampling=0)
     print(f"启动页 {OUT}  {W}x{H}  {OUT.stat().st_size // 1024}KB")
-    export_logo()
+    if LOGO.suffix.lower() != ".png":
+        export_logo()
 
 
 if __name__ == "__main__":
