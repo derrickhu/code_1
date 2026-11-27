@@ -10,9 +10,9 @@ namespace Liangshan
     public static partial class MetaUi
     {
         static readonly Color Claim = Pal.Gold;
-        static readonly Color Grass = Pal.Green;
-        static readonly Color WarmTitle = Pal.Hex("443322");
-        static readonly Color WarmSub = Pal.Hex("7C6852");
+        static readonly Color Grass = Pal.Hex("00F57A");
+        static readonly Color WarmTitle = Pal.Hex("EAF2FF");
+        static readonly Color WarmSub = Pal.Hex("8CA6C6");
 
         // ---------------- 通用部件 ----------------
 
@@ -110,11 +110,11 @@ namespace Liangshan
             float midW = Mathf.Max(180f, textRight - textLeft);
             float midCenterX = textLeft + midW * 0.5f;
 
-            Color titleCol = st == RowState.Taken ? Pal.Hex("8C8274") : WarmTitle;
+            Color titleCol = st == RowState.Taken ? Pal.Hex("6E86A6") : WarmTitle;
             Fit(Ui.Label(r, title, 30, titleCol, new Vector2(midCenterX, 24f), new Vector2(midW, 44f), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
 
             float frac = cur / (float)Mathf.Max(1, need);
-            Color barFill = st == RowState.Claim || cur >= need ? Pal.Hex("58C2EE") : Grass;
+            Color barFill = st == RowState.Claim || cur >= need ? Pal.Hex("00E5FF") : Grass;
             Bar(r, new Vector2(midCenterX, -24f), new Vector2(midW, 24f), frac, barFill, $"{Mathf.Min(cur, need)}/{need}");
 
             var bpos = new Vector2(btnCenterX, 1f);
@@ -124,7 +124,7 @@ namespace Liangshan
                     const float mark = 40f, gap = 16f, wordW = 112f;
                     float left = btnCenterX - (mark + gap + wordW) * 0.5f;
                     Ui.Icon(r, "ic_check", mark, new Vector2(left + mark * 0.5f, 1f));
-                    var done = Ui.Label(r, "已领取", 26, Pal.Hex("8A8276"),
+                    var done = Ui.Label(r, "已领取", 26, Pal.Hex("6E86A6"),
                         new Vector2(left + mark + gap + wordW * 0.5f, 1f), new Vector2(wordW, 44f), TextAnchor.MiddleLeft, Fonts.Heavy);
                     done.horizontalOverflow = HorizontalWrapMode.Overflow;
                     break;
@@ -224,7 +224,7 @@ namespace Liangshan
                 }
                 else
                 {
-                    Ui.Label(c, need[k].ToString(), 24, ok ? Pal.Hex("B85C08") : WarmTitle,
+                    Ui.Label(c, need[k].ToString(), 24, ok ? Pal.Hex("FFC83D") : WarmTitle,
                         new Vector2(0, -52f), new Vector2(96, 30), TextAnchor.MiddleCenter, Fonts.Heavy);
                 }
 
@@ -319,7 +319,7 @@ namespace Liangshan
             float top = ph * 0.5f;
 
             var hd = Defs.Hero(Meta.SevenHero);
-            Ui.Label(p, $"完成目标攒积分，集满 350 积分请出传说猛将 <color=#C85A14>{hd.Nick}·{hd.Name}</color>", 26, WarmTitle,
+            Ui.Label(p, $"完成目标攒积分，集满 350 积分请出传说猛将 <color=#FFB800>{hd.Nick}·{hd.Name}</color>", 26, WarmTitle,
                 new Vector2(0, top - 82f), new Vector2(900, 38), TextAnchor.MiddleCenter, Fonts.Heavy);
 
             // 1. 顶部木栓暖米黄七日积分挂板（50 / 100 / 175 / 250 / 350 等间距大气排布！）
@@ -361,7 +361,7 @@ namespace Liangshan
                 {
                     Ui.Label(tab, $"第{d}天", 28, WarmTitle, new Vector2(0, d == now ? 14f : 2f), new Vector2(132, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
                     if (d == now)
-                        Ui.Label(tab, "今天", 20, Pal.Hex("C86E14"), new Vector2(0, -22f), new Vector2(110, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
+                        Ui.Label(tab, "今天", 20, Pal.Hex("FFC83D"), new Vector2(0, -22f), new Vector2(110, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
                 }
                 else
                 {
@@ -549,7 +549,7 @@ namespace Liangshan
             Ui.SingleLine(Ui.Label(p, "侧边栏复访有礼（每日零点刷新）", 30, WarmTitle, new Vector2(-12, 368), new Vector2(760, 42), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
             Ui.SingleLine(Ui.Label(p, "① 点击下方「去侧边栏」直达抖音首页侧边栏", 22, WarmSub, new Vector2(0, 318), new Vector2(770, 32), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
             Ui.SingleLine(Ui.Label(p, "② 在侧边栏最近使用中点击「村口大战外星人」卡片返回", 22, WarmSub, new Vector2(0, 282), new Vector2(770, 32), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
-            Ui.SingleLine(Ui.Label(p, "③ 从侧边栏进入后，按钮自动切换为「领取奖励」", 22, Pal.GreenDeep, new Vector2(0, 246), new Vector2(770, 32), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
+            Ui.SingleLine(Ui.Label(p, "③ 从侧边栏进入后，按钮自动切换为「领取奖励」", 22, Pal.Hex("00F57A"), new Vector2(0, 246), new Vector2(770, 32), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
 
             ItemRow(p, new List<Item>(Meta.DySidebarRewards), new Vector2(-150, 92), 116);
             bool canSb = Meta.CanDySidebar(S, today);

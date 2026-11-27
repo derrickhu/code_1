@@ -35,8 +35,8 @@ namespace Liangshan
             root.offsetMin = root.offsetMax = Vector2.zero;
             root.SetAsLastSibling();
 
-            // 宽幅底衬遮罩（与外层面板 #2F5678 同色）
-            Ui.Box(root, new Vector2(1280, 3200), Vector2.zero, Pal.Hex("2F5678"), Art.White, "backdrop").raycastTarget = true;
+            // 宽幅底衬遮罩（与外层面板 #090E1E 同色）
+            Ui.Box(root, new Vector2(1280, 3200), Vector2.zero, Pal.Hex("090E1E"), Art.White, "backdrop").raycastTarget = true;
 
             float sp = Ui.Spare;
             float st = Ui.SafeTop;
@@ -74,7 +74,7 @@ namespace Liangshan
             // 顶边定在 panelTopY + 76，而 arch 覆盖 [panelTopY, panelTopY + 112]，重叠 36px 保证 0 缝隙！
             bodyFill.offsetMax = new Vector2(100f, -(panelTopY + 76f));
             var bodyImg = bodyFill.gameObject.AddComponent<Image>();
-            bodyImg.color = Pal.Hex("2F5678");
+            bodyImg.color = Pal.Hex("0B1224");
             bodyImg.sprite = Art.White;
             bodyImg.raycastTarget = true;
 
@@ -396,16 +396,16 @@ namespace Liangshan
             // 2) 手绘宝剑雕花头像框（优先展示微信真实头像，未授权回退最强好汉立绘）
             BuildOrnateAvatar(row, e.Hero, e.Avatar, rank <= 6 || e.Cleared >= 36, new Vector2(-288f, 2f), 116f);
 
-            // 3) 性别徽记 + 深棕粗体昵称 + 下方美术级雕花称号徽章
+            // 3) 性别徽记 + 冷白粗体昵称 + 下方美术级雕花称号徽章
             string genderPrefix = e.Gender == 2 ? "<color=#FF6EA8>♀</color>" : e.Gender == 1 ? "<color=#3B9EFF>♂</color>" : "";
-            Ui.SingleLine(Ui.Label(row, genderPrefix + Truncate(e.Name, 8), 29, Pal.Hex("5A473A"),
+            Ui.SingleLine(Ui.Label(row, genderPrefix + Truncate(e.Name, 8), 29, Pal.Hex("EAF2FF"),
                 new Vector2(-58f, 30f), new Vector2(304, 42), TextAnchor.MiddleLeft, Fonts.Heavy, "name"), 20);
 
             var (titleTxt, titleTier) = Meta.HonorTitle(rank, e.Cleared, e.Power);
             BuildTitleBadge(row, titleTxt, titleTier, new Vector2(-114f, -22f), 0.90f);
 
             // 4) 中右醒目单一主成绩大字（去掉底下零碎副字，与参考图一样清爽高对比！）
-            Ui.Label(row, ScoreLabel(e), 34, Pal.Hex("4D3D30"),
+            Ui.Label(row, ScoreLabel(e), 34, Pal.Hex("FFC83D"),
                 new Vector2(204f, 2f), new Vector2(246, 52), TextAnchor.MiddleCenter, Fonts.Heavy, "score");
 
             // 5) 最右侧金色点赞勋章 + 获赞数
@@ -496,7 +496,7 @@ namespace Liangshan
                 ? $"{Truncate(me.Name, 5)} · 战力 {Ui.Num(me.Power)}"
                 : (me.Cleared > 0 ? $"{Truncate(me.Name, 5)} · 第{me.Cleared}关" : $"{Truncate(me.Name, 5)} · 第1关前");
 
-            Ui.SingleLine(Ui.Label(meSlot, myMain, 31, Pal.Hex("4A3219"),
+            Ui.SingleLine(Ui.Label(meSlot, myMain, 31, Pal.Hex("EAF2FF"),
                 new Vector2(-18f, 18f), new Vector2(392, 46), TextAnchor.MiddleLeft, Fonts.Heavy), 21);
 
             string chaseTxt;
@@ -523,7 +523,7 @@ namespace Liangshan
             else
                 chaseTxt = DouyinBridge.IsDouyin ? "点击左侧头像可同步抖音或修改名号" : "点击左侧头像可同步微信或修改名号";
 
-            Ui.SingleLine(Ui.Label(meSlot, chaseTxt, 22, needSocialSync ? Pal.Hex("1D7A3A") : Pal.Hex("7C5526"),
+            Ui.SingleLine(Ui.Label(meSlot, chaseTxt, 22, needSocialSync ? Pal.Hex("00F57A") : Pal.Hex("FFC83D"),
                 new Vector2(-18f, -22f), new Vector2(400, 32), TextAnchor.MiddleLeft, Fonts.Bold), 17);
 
             // 右侧大范围暖金放射光晕 + 发光宝箱【进度奖励】（完全还原参考图右下高光宝箱！）
@@ -564,15 +564,15 @@ namespace Liangshan
 
             float halfH = TabBarH * 0.5f;
             float extDown = Ui.SafeBottom + 48f;
-            var under = Ui.Box(bar, new Vector2(1280, TabBarH + extDown), new Vector2(0, -extDown * 0.5f), Pal.Hex("234360"), Art.White, "bg");
+            var under = Ui.Box(bar, new Vector2(1280, TabBarH + extDown), new Vector2(0, -extDown * 0.5f), Pal.Hex("090E1E"), Art.White, "bg");
             under.raycastTarget = true;
 
-            // 顶沿冷铁铆钉锯齿压边（与参考图底部导航栏压边完全一致）
-            Ui.Box(bar, new Vector2(1280, 7), new Vector2(0, halfH - 3.5f), Pal.Hex("3E688E"), Art.White);
-            Ui.Box(bar, new Vector2(1280, 3), new Vector2(0, halfH + 0.5f), Pal.Hex("14283C"), Art.White);
+            // 顶沿 04 黑曜霓虹绿双细线 + 青蓝菱铆钉压边
+            Ui.Box(bar, new Vector2(1280, 5), new Vector2(0, halfH - 4.5f), Pal.Hex("142840"), Art.White);
+            Ui.Box(bar, new Vector2(1280, 2.5f), new Vector2(0, halfH - 0.5f), Pal.Hex("00F57A"), Art.White);
             for (int i = 0; i < 24; i++)
             {
-                var cog = Ui.Box(bar, new Vector2(12, 12), new Vector2((i - 11.5f) * 48f, halfH - 3.5f), Pal.Hex("3E688E"), Art.RoundedSmall);
+                var cog = Ui.Box(bar, new Vector2(8, 8), new Vector2((i - 11.5f) * 48f, halfH - 0.5f), Pal.Hex("00E5FF").A(0.75f), Art.White);
                 cog.rectTransform.localRotation = Quaternion.Euler(0, 0, 45);
             }
 
@@ -733,7 +733,7 @@ namespace Liangshan
             }
             else
             {
-                Color cntFg = liked ? Pal.Hex("C46A10") : Pal.Hex("5A4A3A");
+                Color cntFg = liked ? Pal.Hex("FFC83D") : Pal.Hex("8CA6C6");
                 Ui.Label(wrap, e.Likes.ToString(), 22, cntFg,
                     new Vector2(0, -sz * 0.42f), new Vector2(120, 30), TextAnchor.MiddleCenter, Fonts.Heavy);
             }
@@ -783,7 +783,7 @@ namespace Liangshan
                     ShowProgressRewards(layer, changed);
                     changed?.Invoke();
                     MetaUi.ShowRewards(layer, "冲榜进度大奖", items);
-                }, 32, null, Pal.Hex("543008"));
+                }, 32, null, Pal.Hex("1E1002"));
                 MetaUi.Dot(claimAll, new Vector2(96, 30));
             }
 
@@ -830,17 +830,17 @@ namespace Liangshan
                 float textLeft = -362f + d.Items.Length * 98f - 28f;
                 float midW = 224f - textLeft;
                 float midCx = textLeft + midW * 0.5f;
-                Ui.SingleLine(Ui.Label(r, $"通关第 {d.Stage} 关 · {d.Name}", 27, got ? Pal.Hex("8A8276") : Pal.Hex("443322"),
+                Ui.SingleLine(Ui.Label(r, $"通关第 {d.Stage} 关 · {d.Name}", 27, got ? Pal.Hex("6E86A6") : Pal.Hex("EAF2FF"),
                     new Vector2(midCx, 22f), new Vector2(midW, 40), TextAnchor.MiddleLeft, Fonts.Heavy), 20);
                 float frac = Mathf.Clamp01(S.Cleared / (float)Mathf.Max(1, d.Stage));
-                MetaUi.Bar(r, new Vector2(midCx, -22f), new Vector2(midW, 24f), frac, can || got ? Pal.Hex("58C2EE") : Pal.Green,
+                MetaUi.Bar(r, new Vector2(midCx, -22f), new Vector2(midW, 24f), frac, can || got ? Pal.Hex("00E5FF") : Pal.Green,
                     $"{Mathf.Min(S.Cleared, d.Stage)}/{d.Stage}");
 
                 int idx = i;
                 if (got)
                 {
                     MetaUi.Check(r, new Vector2(284f, 0f), 34f);
-                    Ui.Label(r, "已领取", 26, Pal.Hex("8A8276"), new Vector2(348f, 0f), new Vector2(120, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    Ui.Label(r, "已领取", 26, Pal.Hex("6E86A6"), new Vector2(348f, 0f), new Vector2(120, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
                 }
                 else if (can)
                 {
@@ -853,7 +853,7 @@ namespace Liangshan
                         ShowProgressRewards(layer, changed);
                         changed?.Invoke();
                         MetaUi.ShowRewards(layer, $"通关第{d.Stage}关奖励", items);
-                    }, 30, null, Pal.Hex("543008"));
+                    }, 30, null, Pal.Hex("1E1002"));
                     MetaUi.Dot(btn, new Vector2(72, 28));
                 }
                 else
@@ -889,7 +889,7 @@ namespace Liangshan
             Ui.SingleLine(Ui.Outlined(p, $"第 {rank} 名  ·  主线 第{Mathf.Max(1, e.Cleared)}关  ·  总战力 {Ui.Num(e.Power)}",
                 24, Pal.Hex("CBE2F6"), new Vector2(88f, 148f), new Vector2(586, 36), Pal.Ink, 1.5f, TextAnchor.MiddleLeft), 18);
 
-            Ui.Label(p, "主力出战阵容", 28, Pal.Ink, new Vector2(0, 68f), new Vector2(400, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
+            Ui.Label(p, "主力出战阵容", 28, Pal.Hex("EAF2FF"), new Vector2(0, 68f), new Vector2(400, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
 
             var lu = e.Lineup ?? Meta.Starters;
             for (int i = 0; i < lu.Length && i < 4; i++)
@@ -917,7 +917,7 @@ namespace Liangshan
                     });
                 }
                 Ui.Outlined(cell, $"Lv.{hlv}", 21, Pal.Hex("FFE684"), new Vector2(0, -48f), new Vector2(140, 30), Pal.Ink, 1.6f);
-                Ui.Label(cell, hd.Name, 25, Pal.Ink, new Vector2(0, -92f), new Vector2(170, 34), TextAnchor.MiddleCenter, Fonts.Heavy);
+                Ui.Label(cell, hd.Name, 25, Pal.Hex("EAF2FF"), new Vector2(0, -92f), new Vector2(170, 34), TextAnchor.MiddleCenter, Fonts.Heavy);
             }
 
             bool liked = RankService.HasLikedToday(e.Id);
@@ -934,7 +934,7 @@ namespace Liangshan
                         Ui.Toast($"点赞成功！星钻 +10 · 金币 +200（今日 {S.RankLikes}/{Meta.RankLikesMax}）", 260f);
                     ShowPlayerCard(layer, e, rank, refresh);
                     refresh?.Invoke();
-                }, 34, null, liked ? (Color?)null : Pal.Hex("543008"));
+                }, 34, null, liked ? (Color?)null : Pal.Hex("1E1002"));
         }
 
         // ---------------- 玩家微信头像昵称同步与自定义榜上名号 ----------------
@@ -1028,7 +1028,7 @@ namespace Liangshan
                 MetaUi.Close(m);
                 refresh?.Invoke();
                 Ui.Toast("名号已更新：" + curName, 240f);
-            }, 32, null, Pal.Hex("543008"));
+            }, 32, null, Pal.Hex("1E1002"));
         }
 
         static string ScoreLabel(RankService.Entry e)

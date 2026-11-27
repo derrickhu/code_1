@@ -10,7 +10,7 @@ namespace Liangshan
     /// <summary>关卡宝箱卡片、道具说明、关卡列表、章节宝箱、聚义宴、天书、杏黄旗、装备箱。</summary>
     public static partial class MetaUi
     {
-        static readonly Color CardFace = Pal.Hex("FCF8F0"), CardEdge = Pal.Hex("587E99"), CardInk = Pal.Hex("3B2F24");
+        static readonly Color CardFace = Pal.Hex("0D1528"), CardEdge = Pal.Hex("00E5FF"), CardInk = Pal.Hex("EAF2FF");
 
         /// <summary>轻量浮层：全屏透明挡板点一下就收起，卡片挂在 card 下。</summary>
         static RectTransform Popover(Transform layer, string key, out RectTransform card, Vector2 size, Vector2 pos)
@@ -65,7 +65,7 @@ namespace Liangshan
             float top = size.y * 0.5f;
             Ui.Label(card, "宝箱奖励", 32, CardInk, new Vector2(0, top - 34), new Vector2(size.x, 44), TextAnchor.MiddleCenter, Fonts.Heavy);
             bool got = Meta.LevelChestGot(S, level, k);
-            Ui.Label(card, $"条件：{Meta.LevelChestCond[k]}" + (got ? "  <color=#1E8A48>已获得</color>" : ""), 24, Pal.SubInk,
+            Ui.Label(card, $"条件：{Meta.LevelChestCond[k]}" + (got ? "  <color=#00F57A>已获得</color>" : ""), 24, Pal.SubInk,
                 new Vector2(0, top - 74), new Vector2(size.x, 36), TextAnchor.MiddleCenter, Fonts.Heavy);
             float gx = -(cols - 1) * (cell + gap) * 0.5f, gy = top - 104 - cell * 0.5f;
             var layerT = layer;
@@ -88,14 +88,16 @@ namespace Liangshan
 
             string sk = SlotSkin(it);
             int tier = sk == "slot_red" ? 4 : sk == "slot_orange" ? 3 : sk == "slot_purple" ? 2 : sk == "slot_blue" ? 1 : 0;
-            Color headCol = sk == "slot_wood" ? Pal.Hex("B8874D") : QualBanner(tier);
+            Color headCol = sk == "slot_wood" ? Pal.Hex("C88A32") : QualBanner(tier);
             Color strokeCol = sk == "slot_wood" ? Pal.Hex("3B240E") : QualStroke(tier);
-            Ui.Box(card, size + new Vector2(8, 8), Vector2.zero, Pal.Hex("FAF8F2"), Art.Rounded);
-            Ui.Box(card, new Vector2(size.x, 168), new Vector2(0, size.y * 0.5f - 84), headCol, Art.Rounded);
-            Ui.Box(card, new Vector2(size.x, 36), new Vector2(0, size.y * 0.5f - 150), headCol, Art.White);
-            Ui.Box(card, new Vector2(size.x, size.y - 168), new Vector2(0, -84), Pal.Hex("F6F3EC"), Art.Rounded);
-            Ui.Box(card, new Vector2(size.x, 24), new Vector2(0, size.y * 0.5f - 180), Pal.Hex("F6F3EC"), Art.White);
-            Ui.Box(card, new Vector2(size.x, 3), new Vector2(0, size.y * 0.5f - 168), headCol.Mul(0.82f), Art.White);
+            Color rimCol = sk == "slot_wood" ? Pal.Hex("FFB800") : QualGlow(tier);
+            Ui.Box(card, size + new Vector2(8, 8), Vector2.zero, rimCol.A(0.75f), Art.Rounded);
+            Ui.Box(card, size + new Vector2(2, 2), Vector2.zero, Pal.Hex("0D1528"), Art.Rounded);
+            Ui.Box(card, new Vector2(size.x, 168), new Vector2(0, size.y * 0.5f - 84), headCol.Mul(0.72f), Art.Rounded);
+            Ui.Box(card, new Vector2(size.x, 36), new Vector2(0, size.y * 0.5f - 150), headCol.Mul(0.72f), Art.White);
+            Ui.Box(card, new Vector2(size.x, size.y - 168), new Vector2(0, -84), Pal.Hex("101B34"), Art.Rounded);
+            Ui.Box(card, new Vector2(size.x, 24), new Vector2(0, size.y * 0.5f - 180), Pal.Hex("101B34"), Art.White);
+            Ui.Box(card, new Vector2(size.x, 3), new Vector2(0, size.y * 0.5f - 168), rimCol, Art.White);
 
             // 左侧统一雕花品质方框图标
             var iconPos = new Vector2(-size.x * 0.5f + 104, size.y * 0.5f - 84);
@@ -117,8 +119,8 @@ namespace Liangshan
             Ui.SingleLine(Ui.Outlined(card, CurName(it), 40, Color.white, new Vector2(56, size.y * 0.5f - 62), new Vector2(450, 52), strokeCol, 2.4f, TextAnchor.MiddleLeft), 24);
             Ui.Outlined(card, it.Cur == Cur.Shard ? "乡亲碎片" : "物资", 26, Color.white, new Vector2(56, size.y * 0.5f - 110), new Vector2(450, 38), strokeCol, 1.8f, TextAnchor.MiddleLeft);
 
-            Ui.Label(card, info.Desc, 27, Pal.Hex("3C3A36"), new Vector2(0, -56), new Vector2(size.x - 68, 96), TextAnchor.UpperLeft, Fonts.Bold);
-            Ui.SingleLine(Ui.Label(card, $"获取途径：{info.From}", 23, Pal.Hex("2B6E9E"), new Vector2(0, -134), new Vector2(size.x - 68, 36), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
+            Ui.Label(card, info.Desc, 27, Pal.Hex("EAF2FF"), new Vector2(0, -56), new Vector2(size.x - 68, 96), TextAnchor.UpperLeft, Fonts.Bold);
+            Ui.SingleLine(Ui.Label(card, $"获取途径：{info.From}", 23, Pal.Hex("00E5FF"), new Vector2(0, -134), new Vector2(size.x - 68, 36), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
         }
 
         // ---------------- 关卡列表 ----------------
@@ -237,7 +239,7 @@ namespace Liangshan
                 var sl = Slot(c, boxSlot, 148, new Vector2(0, 18));
                 if (got) sl.color = new Color(0.84f, 0.84f, 0.84f, 0.85f);
                 var ic = Ui.Icon(c, got ? ChestOpenArt(k) : ChestArt(k), 106, new Vector2(0, 20));
-                Ui.Label(c, $"{Meta.ChestStars[k]} 星", 28, can ? Pal.Hex("B85C08") : WarmTitle, new Vector2(0, -82), new Vector2(160, 36), TextAnchor.MiddleCenter, Fonts.Heavy);
+                Ui.Label(c, $"{Meta.ChestStars[k]} 星", 28, can ? Pal.Hex("FFC83D") : WarmTitle, new Vector2(0, -82), new Vector2(160, 36), TextAnchor.MiddleCenter, Fonts.Heavy);
                 if (got) Check(c, new Vector2(46, -28), 38);
                 if (can)
                 {
@@ -269,7 +271,7 @@ namespace Liangshan
             Ui.Icon(p, "ic_feast", 120, new Vector2(-300, 318));
             Ui.Label(p, "幸福村每日四顿大锅饭", 26, WarmTitle, new Vector2(78, 362), new Vector2(560, 36), TextAnchor.MiddleLeft, Fonts.Heavy);
             Ui.Label(p, "错过的饭点当天均可免费补领", 26, WarmTitle, new Vector2(78, 322), new Vector2(560, 36), TextAnchor.MiddleLeft, Fonts.Heavy);
-            Ui.Label(p, $"每顿补充体力 +{Meta.MealStamina}", 24, Pal.GreenDeep, new Vector2(78, 280), new Vector2(560, 34), TextAnchor.MiddleLeft, Fonts.Heavy);
+            Ui.Label(p, $"每顿补充体力 +{Meta.MealStamina}", 24, Pal.Hex("00F57A"), new Vector2(78, 280), new Vector2(560, 34), TextAnchor.MiddleLeft, Fonts.Heavy);
 
             Ui.Skin(p, "modal_well", new Vector2(820, 514), new Vector2(0, -40), 1f);
             for (int i = 0; i < Meta.MealHours.Length; i++)
@@ -282,7 +284,7 @@ namespace Liangshan
                 Slot(r, "slot_wood", 86, new Vector2(-334, 0));
                 Ui.Icon(r, "ic_feast", 68, new Vector2(-334, 2));
                 Ui.Label(r, $"{MealNames[i]}  {Meta.MealHours[i]:00}:00", 31, taken ? WarmSub : WarmTitle, new Vector2(-106, 0), new Vector2(320, 48), TextAnchor.MiddleLeft, Fonts.Heavy);
-                Ui.Label(r, $"体力 +{Meta.MealStamina}", 28, Pal.GreenDeep, new Vector2(126, 0), new Vector2(190, 44), TextAnchor.MiddleCenter, Fonts.Heavy);
+                Ui.Label(r, $"体力 +{Meta.MealStamina}", 28, Pal.Hex("00F57A"), new Vector2(126, 0), new Vector2(190, 44), TextAnchor.MiddleCenter, Fonts.Heavy);
                 if (taken)
                 {
                     Check(r, new Vector2(248, 0), 34);
@@ -320,7 +322,7 @@ namespace Liangshan
 
             // 上卷：手稿研读
             float y = top - 250;
-            Ui.Label(p, "上卷 · 研读", 32, Pal.Ink, new Vector2(-300, y), new Vector2(300, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
+            Ui.Label(p, "上卷 · 研读", 32, WarmTitle, new Vector2(-300, y), new Vector2(300, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
             Ui.Label(p, $"Lv.{S.PageLv}/{Meta.PageMax}", 30, Pal.Azure, new Vector2(340, y), new Vector2(200, 44), TextAnchor.MiddleRight, Fonts.Heavy);
             var up = Ui.Rect(p, "upper");
             up.anchoredPosition = new Vector2(0, y - 120);
@@ -328,13 +330,13 @@ namespace Liangshan
             Ui.Skin(up, "row", new Vector2(880, 180), Vector2.zero);
             Slot(up, "slot_wood", 130, new Vector2(-360, 10));
             Ui.Icon(up, "ic_page", 94, new Vector2(-360, 12));
-            Ui.SingleLine(Ui.Label(up, $"每级：{Defs.LordSkillName}伤害 +{Meta.PageLord * 100:0}%，全村伤害 +{Meta.PageDmg * 100:0.#}%", 26, Pal.Ink, new Vector2(64, 46), new Vector2(688, 40), TextAnchor.MiddleLeft, Fonts.Heavy), 19);
+            Ui.SingleLine(Ui.Label(up, $"每级：{Defs.LordSkillName}伤害 +{Meta.PageLord * 100:0}%，全村伤害 +{Meta.PageDmg * 100:0.#}%", 26, WarmTitle, new Vector2(64, 46), new Vector2(688, 40), TextAnchor.MiddleLeft, Fonts.Heavy), 19);
             Ui.SingleLine(Ui.Label(up, $"当前：声波 +{S.PageLv * Meta.PageLord * 100:0}%，全村 +{S.PageLv * Meta.PageDmg * 100:0.#}%", 24, Pal.SubInk, new Vector2(-20, 6), new Vector2(520, 36), TextAnchor.MiddleLeft), 18);
             if (S.PageLv < Meta.PageMax)
             {
                 int pc = Meta.PageCost(S.PageLv), cc = Meta.PageCopper(S.PageLv);
                 Ui.SingleLine(Ui.Label(up, $"广播手稿 {Ui.Num(S.Pages)}/{pc}    金币 {Ui.Num(S.Copper)}/{Ui.Num(cc)}", 24,
-                    S.Pages >= pc && S.Copper >= cc ? Pal.GreenDeep : Pal.Hex("D04848"), new Vector2(-20, -40), new Vector2(520, 36), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
+                    S.Pages >= pc && S.Copper >= cc ? Pal.Hex("00F57A") : Pal.Hex("FF5E54"), new Vector2(-20, -40), new Vector2(520, 36), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
                 bool can = Meta.CanPage(S);
                 var b = Ui.Btn(up, "研读", new Vector2(170, 84), new Vector2(340, -30), can ? Pal.Azure : Pal.Slate, () =>
                 {
@@ -352,7 +354,7 @@ namespace Liangshan
 
             // 下卷：守村秘籍参悟
             y -= 300;
-            Ui.Label(p, "下卷 · 参悟", 32, Pal.Ink, new Vector2(-300, y), new Vector2(300, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
+            Ui.Label(p, "下卷 · 参悟", 32, WarmTitle, new Vector2(-300, y), new Vector2(300, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
             Ui.Label(p, $"守村秘籍 {S.Tomes}", 28, Pal.Azure, new Vector2(320, y), new Vector2(260, 44), TextAnchor.MiddleRight, Fonts.Heavy);
             float rowH = Mathf.Min(150, (y + top - 60) / Meta.TomeNodes.Length);
             for (int i = 0; i < Meta.TomeNodes.Length; i++)
@@ -364,12 +366,12 @@ namespace Liangshan
                 r.sizeDelta = new Vector2(880, rowH - 12);
                 Ui.Skin(r, on ? "row_claim" : next ? "row" : "row_done", new Vector2(880, rowH - 12), Vector2.zero, 1f);
                 var hx = MetaFx.Hex(r, "ic_tome", rowH - 30, new Vector2(-370, 0), !on && !next, on ? 4 : 2);
-                Ui.SingleLine(Ui.Label(r, nd.Name, 30, on ? Pal.Hex("9E580C") : WarmTitle, new Vector2(-60, 18), new Vector2(460, 44), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
+                Ui.SingleLine(Ui.Label(r, nd.Name, 30, on ? Pal.Hex("FFC83D") : WarmTitle, new Vector2(-60, 18), new Vector2(460, 44), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
                 Ui.SingleLine(Ui.Label(r, nd.Desc, 23, WarmSub, new Vector2(-60, -20), new Vector2(460, 36), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
                 if (on)
                 {
                     Check(r, new Vector2(292, 0), 34);
-                    Ui.Label(r, "已参悟", 26, Pal.Hex("9E580C"), new Vector2(354, 0), new Vector2(120, 40), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    Ui.Label(r, "已参悟", 26, Pal.Hex("00F57A"), new Vector2(354, 0), new Vector2(120, 40), TextAnchor.MiddleLeft, Fonts.Heavy);
                 }
                 else if (next)
                 {
@@ -387,7 +389,7 @@ namespace Liangshan
                     }, 30, "ic_tome");
                     if (can) Dot(b, new Vector2(86, 34));
                 }
-                else Ui.Label(r, $"需 {nd.Cost} 本", 26, Pal.Hex("8A8A90"), new Vector2(340, 0), new Vector2(180, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
+                else Ui.Label(r, $"需 {nd.Cost} 本", 26, Pal.Hex("6E86A6"), new Vector2(340, 0), new Vector2(180, 40), TextAnchor.MiddleCenter, Fonts.Heavy);
             }
         }
 
@@ -410,7 +412,7 @@ namespace Liangshan
             Ui.Label(p, $"词条位 {Meta.FlagSlots(lv)}/{Meta.FlagSlotsMax}（升阶解锁）", 24, Pal.Hex("FFE7B0"), new Vector2(120, top - 284), new Vector2(520, 36), TextAnchor.MiddleLeft, Fonts.Heavy);
 
             float y = top - 390;
-            Ui.Label(p, "锦旗词条", 32, Pal.Ink, new Vector2(-300, y), new Vector2(300, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
+            Ui.Label(p, "锦旗词条", 32, WarmTitle, new Vector2(-300, y), new Vector2(300, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
             Ui.Label(p, "点锁头锁定，洗练时保留", 22, Pal.SubInk, new Vector2(240, y), new Vector2(400, 36), TextAnchor.MiddleRight);
             float rowH = Mathf.Min(110, (y + top - 330) / Meta.FlagSlotsMax);
             int slots = Meta.FlagSlots(lv);
@@ -439,7 +441,7 @@ namespace Liangshan
             if (lv < Meta.FlagMax)
             {
                 int mc = Meta.FlagMeteor(lv), cc = Meta.FlagCopper(lv);
-                Ui.Label(p, $"飞碟核心 {S.Meteor}/{mc}  金币 {Ui.Num(S.Copper)}/{Ui.Num(cc)}", 22, S.Meteor >= mc && S.Copper >= cc ? Pal.GreenDeep : Pal.Hex("D04848"),
+                Ui.Label(p, $"飞碟核心 {S.Meteor}/{mc}  金币 {Ui.Num(S.Copper)}/{Ui.Num(cc)}", 22, S.Meteor >= mc && S.Copper >= cc ? Pal.Hex("00F57A") : Pal.Hex("FF5E54"),
                     new Vector2(-230, by + 82), new Vector2(420, 32), TextAnchor.MiddleCenter, Fonts.Heavy);
                 bool can = Meta.CanFlagUp(S);
                 var b = Ui.Btn(p, lv <= 0 ? "打造" : "升阶", new Vector2(300, 112), new Vector2(-230, by), can ? Pal.Green : Pal.Slate, () =>
@@ -456,7 +458,7 @@ namespace Liangshan
             }
             else Ui.Outlined(p, "已升到顶阶", 36, Pal.Champagne, new Vector2(-230, by), new Vector2(300, 60), Pal.Ink, 2f);
             int rc = Meta.RerollCost(S);
-            Ui.Label(p, $"防弹布 {Ui.Num(S.Silk)}/{rc}", 22, S.Silk >= rc ? Pal.GreenDeep : Pal.Hex("D04848"), new Vector2(230, by + 82), new Vector2(360, 32), TextAnchor.MiddleCenter, Fonts.Heavy);
+            Ui.Label(p, $"防弹布 {Ui.Num(S.Silk)}/{rc}", 22, S.Silk >= rc ? Pal.Hex("00F57A") : Pal.Hex("FF5E54"), new Vector2(230, by + 82), new Vector2(360, 32), TextAnchor.MiddleCenter, Fonts.Heavy);
             bool cr = Meta.CanReroll(S);
             Ui.Btn(p, "洗练", new Vector2(300, 112), new Vector2(230, by), cr ? Pal.Azure : Pal.Slate, () =>
             {
@@ -491,7 +493,7 @@ namespace Liangshan
             var qc = QualityColor(g.Quality);
             Ui.SingleLine(Ui.Outlined(p, $"{Meta.QualityName[g.Quality]} · {e.Name}", 46, qc, new Vector2(0, 0), new Vector2(700, 60), Pal.Ink, 3f), 28);
             Ui.SingleLine(Ui.Label(p, g.Upgraded ? $"已换上！{e.Name}属性 +{Meta.QualityBonus[g.Quality] * 100:0}%" : $"不如身上的{Meta.QualityName[S.EquipQ[g.Slot]]}{e.Name}，回收成合金钢 ×{g.Iron}",
-                30, Pal.Ink, new Vector2(0, -70), new Vector2(780, 50), TextAnchor.MiddleCenter, Fonts.Heavy), 20);
+                30, WarmTitle, new Vector2(0, -70), new Vector2(780, 50), TextAnchor.MiddleCenter, Fonts.Heavy), 20);
             Ui.SingleLine(Ui.Label(p, "品质：精良 +15% · 史诗 +30% · 传说 +50%（乘在强化属性上）", 22, Pal.SubInk, new Vector2(0, -130), new Vector2(780, 36)), 17);
             if (S.GearBoxes > 0)
                 Ui.Btn(p, $"再开一个（{S.GearBoxes}）", new Vector2(400, 110), new Vector2(0, -260), Pal.Gold, () => GearBox(layer, changed), 38, "ic_gearbox");
@@ -570,7 +572,7 @@ namespace Liangshan
                 Ui.Icon(mask, d.Art, 72, new Vector2(0, -1));
                 Ui.Label(r, $"{d.Name}  Lv.{lv}", 29, WarmTitle, new Vector2(-132, 26), new Vector2(310, 38), TextAnchor.MiddleLeft, Fonts.Heavy);
                 Bar(r, new Vector2(-178, -22), new Vector2(216, 22), Mathf.Clamp01(S.Shards[(int)h] / (float)Mathf.Max(1, need)), Pal.Azure, $"{S.Shards[(int)h]}/{need}");
-                Ui.Label(r, halfLeft > 0 ? $"本周半价剩 {halfLeft} 片" : "原价兑换", 21, halfLeft > 0 ? Pal.GreenDeep : WarmSub,
+                Ui.Label(r, halfLeft > 0 ? $"本周半价剩 {halfLeft} 片" : "原价兑换", 21, halfLeft > 0 ? Pal.Hex("00F57A") : WarmSub,
                     new Vector2(68, -22), new Vector2(210, 30), TextAnchor.MiddleLeft, Fonts.Heavy);
                 bool can1 = cred >= price && lv < Meta.MaxHeroLv;
                 var hCopy = h;
@@ -617,10 +619,10 @@ namespace Liangshan
                 if (!hd.Melee && hd.Carry) hasRange = true;
                 if (!hd.Physical && hd.Carry) hasMagic = true;
             }
-            string advice = hasFly && !hasRange ? "<color=#D94436>提示：本关有空中飞碟，建议至少上阵 1 位射手/奇人！</color>"
-                : hasArmor && !hasMagic ? "<color=#D67E18>提示：本关重甲减免物理伤害，上阵电/火/风系奇人更轻松！</color>"
-                : st.BuffRole.HasValue ? $"<color=#1E9438>本关推荐：{st.BuffText}</color>" : "阵容完备，可随时守村迎战！";
-            Ui.Label(p, advice, 25, Pal.Ink, new Vector2(0, top - 82), new Vector2(850, 42), TextAnchor.MiddleCenter, Fonts.Heavy);
+            string advice = hasFly && !hasRange ? "<color=#FF5E54>提示：本关有空中飞碟，建议至少上阵 1 位射手/奇人！</color>"
+                : hasArmor && !hasMagic ? "<color=#FFB800>提示：本关重甲减免物理伤害，上阵电/火/风系奇人更轻松！</color>"
+                : st.BuffRole.HasValue ? $"<color=#00F57A>本关推荐：{st.BuffText}</color>" : "阵容完备，可随时守村迎战！";
+            Ui.Label(p, advice, 25, WarmTitle, new Vector2(0, top - 82), new Vector2(850, 42), TextAnchor.MiddleCenter, Fonts.Heavy);
 
             for (int i = 0; i < list.Count; i++)
             {
@@ -635,7 +637,7 @@ namespace Liangshan
                 const int nameSize = 30;
                 float textLeft = -300f;
                 float nameW = nameSize * d.Name.Length + 4f;
-                var name = Ui.Label(r, d.Name, nameSize, Pal.Ink, new Vector2(textLeft + nameW * 0.5f, 28), new Vector2(nameW, 40), TextAnchor.MiddleLeft, Fonts.Heavy);
+                var name = Ui.Label(r, d.Name, nameSize, WarmTitle, new Vector2(textLeft + nameW * 0.5f, 28), new Vector2(nameW, 40), TextAnchor.MiddleLeft, Fonts.Heavy);
                 name.horizontalOverflow = HorizontalWrapMode.Overflow;
                 var tags = EnemyText.Tags(d);
                 if (d.Big) tags.Insert(0, (EnemyText.RankName(d), EnemyText.RankColor(d)));
@@ -675,9 +677,9 @@ namespace Liangshan
                 r.anchoredPosition = new Vector2(0, y);
                 r.sizeDelta = new Vector2(804, 84);
                 Ui.Skin(r, on ? "row_claim" : "row", new Vector2(804, 84), Vector2.zero, 0.6f);
-                Ui.SingleLine(Ui.Label(r, $"「{bd.Name}」{Defs.Hero(bd.A).Name} + {Defs.Hero(bd.B).Name}", 25, on ? Pal.Hex("9E580C") : WarmTitle,
+                Ui.SingleLine(Ui.Label(r, $"「{bd.Name}」{Defs.Hero(bd.A).Name} + {Defs.Hero(bd.B).Name}", 25, on ? Pal.Hex("FFC83D") : WarmTitle,
                     new Vector2(-190, 0), new Vector2(384, 44), TextAnchor.MiddleLeft, Fonts.Heavy), 19);
-                Ui.SingleLine(Ui.Label(r, bd.Desc + (on ? "  ★生效中" : ""), 22, on ? Pal.GreenDeep : WarmSub,
+                Ui.SingleLine(Ui.Label(r, bd.Desc + (on ? "  ★生效中" : ""), 22, on ? Pal.Hex("00F57A") : WarmSub,
                     new Vector2(194, 0), new Vector2(372, 44), TextAnchor.MiddleRight, Fonts.Heavy), 17);
             }
         }

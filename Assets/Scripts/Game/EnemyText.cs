@@ -10,7 +10,7 @@ namespace Liangshan
     {
         public static string RankName(EnemyDef d) => d.IsBoss ? "首领" : d.Big ? "精英" : "小怪";
 
-        public static Color RankColor(EnemyDef d) => d.IsBoss ? Pal.Hex("D8463A") : d.Big ? Pal.Hex("8E5CE0") : Pal.Hex("5B7C9E");
+        public static Color RankColor(EnemyDef d) => d.IsBoss ? Pal.Hex("FF4B40") : d.Big ? Pal.Hex("A84CFF") : Pal.Hex("5888B8");
 
         /// <summary>图鉴格卡与详情页左上角的主定位角标（对标参考图：肉盾怪橙、高速怪紫、远程怪绿、飞行怪蓝等；普通步卒留白更清爽）。</summary>
         public static (string text, Color color)? PrimaryBadge(EnemyDef d)
@@ -63,14 +63,14 @@ namespace Liangshan
 
         static readonly Regex KeyRx = new Regex(@"(减免物理伤害|大幅减免物理伤害|物理伤害减半|物理减伤|怕电火风奇人轰击|怕电火风奇人能量|怕电火风能量|怕奇人轰击|抓钩与奇人克制|战士打不到|战士够不着|近战够不着|射手克制|冲到防线下自爆|炸伤身边外星军|飘到防线上就炸|潜着时刀枪不入|周期光学潜行刀枪不入|挡下最先的两次攻击|给身边外星军回血并加速冲锋|给身边外星军回血|受伤减半，狂奔冲墙|远远停下抛射电浆巨弹砸墙|自带能量护盾|自带护盾|打不退|瞬移闪身躲开|藏着三个小灰人|藏着红温狂暴兵|打倒就跳出来狂奔冲墙|打倒就跳出来|掷出电磁飞锤砸晕守村乡亲|超光速冲锋突进|残血进入狂暴|不断折跃传送飞艇突击编队|抽射行星火球砸墙，带护盾|召唤相位潜行怪|张开金光护盾|扑跃突进|猛撞防线|展开密集副炮齐射防线|连射防线|跑得最快|跑得飞快)");
 
-        /// <summary>浅瓷底「本关敌情 / 敌军详情」用的机制高亮说明：关键机制词用醒目琥珀橙标出。</summary>
+        /// <summary>黑曜石暗底「本关敌情 / 敌军详情」用的机制高亮说明：关键机制词用醒目鎏金/霓虹翠绿标出。</summary>
         public static string SheetBody(EnemyDef d)
         {
-            string desc = KeyRx.Replace(d.Desc, "<color=#D66816>$1</color>");
+            string desc = KeyRx.Replace(d.Desc, "<color=#FFC83D>$1</color>");
             var parts = new List<string>();
-            if (d.PhysResist > 0) parts.Add($"对物理乡亲拥有 <color=#D66816>{d.PhysResist * 100:0}%</color> 伤害减免");
-            if (d.MagicWeak > 0) parts.Add($"受电/火/风奇人伤害 <color=#D66816>+{d.MagicWeak * 100:0}%</color>");
-            if (d.ArcherWeak > 0) parts.Add($"受射手乡亲伤害 <color=#D66816>+{d.ArcherWeak * 100:0}%</color>");
+            if (d.PhysResist > 0) parts.Add($"对物理乡亲拥有 <color=#FF6858>{d.PhysResist * 100:0}%</color> 伤害减免");
+            if (d.MagicWeak > 0) parts.Add($"受电/火/风奇人伤害 <color=#00F57A>+{d.MagicWeak * 100:0}%</color>");
+            if (d.ArcherWeak > 0) parts.Add($"受射手乡亲伤害 <color=#00F57A>+{d.ArcherWeak * 100:0}%</color>");
             return parts.Count > 0 ? desc + "；" + string.Join("，", parts) : desc;
         }
 

@@ -82,7 +82,7 @@ namespace Liangshan
             night.anchorMax = Vector2.one;
             night.offsetMin = night.offsetMax = Vector2.zero;
             var nightImg = night.gameObject.AddComponent<Image>();
-            nightImg.color = Pal.Hex("140D09");
+            nightImg.color = Pal.Hex("070B18");
             nightImg.raycastTarget = true;
 
             // 整张图等比铺满屏幕。长屏裁掉左右一点边，不再上下留黑边。
@@ -96,7 +96,7 @@ namespace Liangshan
             var img = _stage.gameObject.AddComponent<Image>();
             img.sprite = _boot ? Splash() : null;
             img.raycastTarget = false;
-            img.color = img.sprite == null ? Pal.Hex("140D09") : Color.white;
+            img.color = img.sprite == null ? Pal.Hex("070B18") : Color.white;
 
             BuildBar();
             Canvas.ForceUpdateCanvases();
@@ -104,26 +104,26 @@ namespace Liangshan
             _root.SetAsLastSibling();
         }
 
-        /// <summary>金色进度落在图上画好的黑漆槽里，前端一颗亮点；上面一行状态字。</summary>
+        /// <summary>霓虹进度落在图上画好的黑曜石槽里，前端一颗亮点；上面一行高对比亮白状态字。</summary>
         void BuildBar()
         {
-            var track = Ui.Box(_stage, new Vector2(BarW, BarH), Vector2.zero, Pal.Hex("000000").A(0.45f), Art.Rounded, "barTrack");
+            var track = Ui.Box(_stage, new Vector2(BarW, BarH), Vector2.zero, Pal.Hex("050914").A(0.72f), Art.Rounded, "barTrack");
             DockBottom(track.rectTransform, BarBottom, BarH);
-            var fill = Ui.Box(track.transform, new Vector2(BarH, BarH), Vector2.zero, Pal.Hex("E6B54A"), Art.Rounded, "barFill");
+            var fill = Ui.Box(track.transform, new Vector2(BarH, BarH), Vector2.zero, Pal.Hex("00F57A"), Art.Rounded, "barFill");
             _fill = fill.rectTransform;
             _fill.anchorMin = _fill.anchorMax = new Vector2(0f, 0.5f);
             _fill.pivot = new Vector2(0f, 0.5f);
             _fill.anchoredPosition = Vector2.zero;
-            var shine = Ui.Box(_fill, new Vector2(10, BarH * 0.32f), Vector2.zero, Color.white.A(0.35f), Art.Rounded, "shine");
+            var shine = Ui.Box(_fill, new Vector2(10, BarH * 0.32f), Vector2.zero, Color.white.A(0.45f), Art.Rounded, "shine");
             shine.rectTransform.anchorMin = new Vector2(0f, 0.5f);
             shine.rectTransform.anchorMax = new Vector2(1f, 0.5f);
             shine.rectTransform.sizeDelta = new Vector2(-BarH * 0.6f, BarH * 0.32f);
             shine.rectTransform.anchoredPosition = new Vector2(0f, BarH * 0.16f);
-            var head = Ui.Box(_fill, new Vector2(BarH * 3.2f, BarH * 3.2f), Vector2.zero, Pal.Hex("FFE7A8").A(0.85f), Art.SoftDot, "head");
+            var head = Ui.Box(_fill, new Vector2(BarH * 3.2f, BarH * 3.2f), Vector2.zero, Pal.Hex("C8FFE4").A(0.90f), Art.SoftDot, "head");
             _head = head.rectTransform;
             _head.anchorMin = _head.anchorMax = new Vector2(1f, 0.5f);
             _head.anchoredPosition = new Vector2(-BarH * 0.4f, 0f);
-            _status = Ui.Label(_stage, "正在加载资源", 26, Pal.Hex("EBDDBE"), Vector2.zero, new Vector2(BarW, 34), TextAnchor.MiddleCenter, Fonts.Heavy, "status");
+            _status = Ui.Label(_stage, "正在加载资源", 26, Pal.Hex("EAF2FF"), Vector2.zero, new Vector2(BarW, 34), TextAnchor.MiddleCenter, Fonts.Heavy, "status");
             DockBottom(_status.rectTransform, TextBottom, 34);
             foreach (var bar in new[] { track, fill, shine }) bar.pixelsPerUnitMultiplier = 18f / (BarH * 0.5f);
             shine.pixelsPerUnitMultiplier *= 2f;

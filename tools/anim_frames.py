@@ -64,7 +64,7 @@ def cutout(img):
     if n:
         areas = ndimage.sum(near_white, lab, range(1, n + 1))
         means = ndimage.mean(dark, lab, range(1, n + 1))
-        holes = [i + 1 for i in range(n) if i + 1 not in border and areas[i] > 320 and means[i] < 10]
+        holes = [i + 1 for i in range(n) if i + 1 not in border and areas[i] > 2800 and means[i] < 8]
         bg |= np.isin(lab, holes)
     # 背景像素彻底透明 (a=0)，仅对紧邻背景的 1px 前景轮廓边缘按暗度做干净去白混合，杜绝外圈白雾虚边
     edge = (~bg) & ndimage.binary_dilation(bg, iterations=1)

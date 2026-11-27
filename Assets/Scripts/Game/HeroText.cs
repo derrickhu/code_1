@@ -5,9 +5,9 @@ namespace Liangshan
     /// <summary>好汉技能说明：局内信息面板和局外好汉详情共用。传入 Battle 时带上本局强化后的数值。</summary>
     public static class HeroText
     {
-        public static string O(object s) => $"<color=#F5C84B>{s}</color>";
-        /// <summary>浅色瓷面底板上的高亮关键字（深霁蓝，避免浅底上黄/橙字发虚刺眼）。</summary>
-        public static string OnLight(string s) => s.Replace("<color=#F5C84B>", "<color=#1874B0>");
+        public static string O(object s) => $"<color=#FFC83D>{s}</color>";
+        /// <summary>黑曜石暗底面板上的次级战术高亮关键字（赛博冰青）。</summary>
+        public static string OnLight(string s) => s.Replace("<color=#FFC83D>", "<color=#00E5FF>").Replace("<color=#F5C84B>", "<color=#00E5FF>");
         static string P(float v) => $"{v * 100:0.#}%";
         static string Sec(float v) => O(v.ToString("0.#") + "秒");
 

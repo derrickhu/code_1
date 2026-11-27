@@ -380,14 +380,14 @@ namespace Liangshan
         {
             switch (skin)
             {
-                case "btn_gold": return Pal.Hex("5E3606");
-                case "btn_green": return Pal.Hex("124422");
-                case "btn_teal": return Pal.Hex("0E4246");
-                case "btn_blue": return Pal.Hex("143B5E");
-                case "btn_purple": return Pal.Hex("3D1666");
-                case "btn_orange": return Pal.Hex("5C2406");
-                case "btn_red": return Pal.Hex("561016");
-                default: return Pal.Hex("2C3C4C");
+                case "btn_gold": return Pal.Hex("4A2404");
+                case "btn_green": return Pal.Hex("063E20");
+                case "btn_teal": return Pal.Hex("06364A");
+                case "btn_blue": return Pal.Hex("082654");
+                case "btn_purple": return Pal.Hex("2C0C5E");
+                case "btn_orange": return Pal.Hex("521804");
+                case "btn_red": return Pal.Hex("4C080E");
+                default: return Pal.Hex("091020");
             }
         }
 
@@ -414,7 +414,7 @@ namespace Liangshan
             faceImg.raycastTarget = false;
 
             float iconW = icon != null ? Mathf.Min(size.y * 0.62f, 64f) : 0f;
-            Color textCol = fg ?? (skin == "btn_gold" ? Pal.Hex("542F06") : Color.white);
+            Color textCol = fg ?? (skin == "btn_gold" ? Pal.Hex("1E1002") : Color.white);
             float lum = textCol.r * 0.299f + textCol.g * 0.587f + textCol.b * 0.114f;
             float textOffX = icon != null ? iconW * 0.44f : 0f;
             Text label;
@@ -470,15 +470,15 @@ namespace Liangshan
             Text lbl;
             if (ornateStart)
             {
-                lbl = GradOutlined(body, title, titleSize, Pal.Hex("FFF6D4"), Pal.Hex("FFE08A"),
-                    new Vector2(0, titleY), new Vector2(size.x - 40f, size.y * 0.54f), Pal.Hex("8A4E12"), 4.2f);
+                lbl = GradOutlined(body, title, titleSize, Color.white, Pal.Hex("FFE268"),
+                    new Vector2(0, titleY), new Vector2(size.x - 40f, size.y * 0.54f), Pal.Hex("4A1C04"), 4.2f);
             }
             else if (goldFace)
             {
-                lbl = Label(body, title, titleSize, Pal.Hex("542F06"), new Vector2(0, titleY), new Vector2(size.x - 40f, size.y * 0.54f),
+                lbl = Label(body, title, titleSize, Pal.Hex("1E1002"), new Vector2(0, titleY), new Vector2(size.x - 40f, size.y * 0.54f),
                     TextAnchor.MiddleCenter, Fonts.Heavy, "text");
                 var sheen = lbl.gameObject.AddComponent<Shadow>();
-                sheen.effectColor = new Color(1f, 0.98f, 0.88f, 0.68f);
+                sheen.effectColor = new Color(1f, 0.96f, 0.78f, 0.68f);
                 sheen.effectDistance = new Vector2(0f, -1.5f);
             }
             else
@@ -601,8 +601,8 @@ namespace Liangshan
                 warm = !grey && h >= 0.04f && h <= 0.17f;
             }
             string skin = grey ? "banner_grey" : warm ? "banner_warm" : "banner";
-            Color stroke = grey ? Pal.Hex("2C3A48") : warm ? Pal.Hex("5E3408") : Pal.Hex("1D3C56");
-            Color botCol = grey ? Pal.Hex("E8F0F8") : warm ? Pal.Hex("FFEFA8") : Pal.Hex("E6F6FF");
+            Color stroke = grey ? Pal.Hex("0B1424") : warm ? Pal.Hex("381208") : Pal.Hex("07182E");
+            Color botCol = grey ? Pal.Hex("DCE8F6") : warm ? Pal.Hex("FFE478") : Pal.Hex("A8F4FF");
 
             float rw = Mathf.Clamp(width, 380f, 640f);
             var holder = Rect(parent, "ribbon");
@@ -670,13 +670,13 @@ namespace Liangshan
             if (titled)
             {
                 float titleY = th * 0.5f - padT - titleH * 0.5f;
-                Label(card, title, 40, Color.white, new Vector2(0, titleY), new Vector2(inner, titleH), TextAnchor.MiddleCenter, Fonts.Heavy, "title");
+                Label(card, title, 40, Pal.Hex("FFC83D"), new Vector2(0, titleY), new Vector2(inner, titleH), TextAnchor.MiddleCenter, Fonts.Heavy, "title");
                 float ruleY = titleY - titleH * 0.5f - 16f;
-                var rule = Box(card, new Vector2(tw - 64f, 2f), new Vector2(0, ruleY), Pal.Hex("D7E6F4"), Art.White, "rule");
-                rule.color = Pal.Hex("D7E6F4").A(0.72f);
+                var rule = Box(card, new Vector2(tw - 64f, 2f), new Vector2(0, ruleY), Pal.Hex("00E5FF"), Art.White, "rule");
+                rule.color = Pal.Hex("00E5FF").A(0.45f);
                 bodyTop = ruleY - 26f;
             }
-            var bodyText = Label(card, shown, 32, Pal.Hex("E7F1FA"), new Vector2(0, bodyTop - bodyH * 0.5f), new Vector2(inner, bodyH),
+            var bodyText = Label(card, shown, 32, Pal.Hex("EAF2FF"), new Vector2(0, bodyTop - bodyH * 0.5f), new Vector2(inner, bodyH),
                 TextAnchor.MiddleCenter, Fonts.Heavy, "text");
             bodyText.lineSpacing = 1.15f;
             root.SetAsLastSibling();
@@ -867,7 +867,7 @@ namespace Liangshan
         }
 
         static string TintNums(string s) =>
-            System.Text.RegularExpressions.Regex.Replace(s ?? "", @"[+\-×]?\d+(?:\.\d+)?(?:%|s|秒)?", m => "<color=#FF9A2E>" + m.Value + "</color>");
+            System.Text.RegularExpressions.Regex.Replace(s ?? "", @"[+\-×]?\d+(?:\.\d+)?(?:%|s|秒)?", m => "<color=#FFC83D>" + m.Value + "</color>");
 
         /// <summary>可升级角标：好汉升级原来那枚翠绿单箭头，朝上，颜色画在图里。</summary>
         public static Image UpgradeMark(Transform parent, float size, Vector2 pos, string name = "up")
@@ -895,12 +895,13 @@ namespace Liangshan
             if (bg.HasValue)
             {
                 plate = Box(Root, size, new Vector2(0, y), bg.Value, Art.Pill, "toast");
-                ink = Pal.Hex("543006");
+                float lum = bg.Value.r * 0.299f + bg.Value.g * 0.587f + bg.Value.b * 0.114f;
+                ink = lum > 0.55f ? Pal.Hex("1E1002") : Pal.Hex("EAF2FF");
             }
             else
             {
                 plate = Skin(Root, "pill", size, new Vector2(0, y), -1f, null, "toast");
-                ink = Pal.Cream;
+                ink = Pal.Hex("EAF2FF");
             }
             Label(plate.transform, s, 42, ink, Vector2.zero, new Vector2(960, 96));
             plate.transform.SetAsLastSibling();

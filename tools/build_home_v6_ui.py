@@ -1,11 +1,11 @@
-"""构建《村口大战外星人》主页 v6 现代守村扁平 2D 舞台组件 + 全套独立 UI 皮肤扁平化重制脚本。
+"""构建《村口大战外星人》主页 04 风格（45° 切角深黑曜石 #0C1326 战术装甲 + 霓虹翠绿/赛博青/鎏金双线框）舞台与独立 UI 套件。
 
-100% 纯 Python 4x 超采样 SDF 矢量生成（统一 #2B2338 暖深褐描边 + 清爽二阶赛璐珞色块 + 扁平实心立体底唇，零历史遗留古风/厚涂 3D 贴图）：
-1. 主页 v6 舞台套件：h_podium4, h_pad_0..4, h_chest_mat, h_start_hex{,_lip}, h_stage_arrow, fx_gold_sheen, fx_gold_star, h_podium_crest, h_bond_pill{,_lip}, ic_bond_knot, ic_bond_go
-2. 全量独立 UI 皮肤重制（严格保持原分辨率与 Art.SkinBorder 九宫格）：
-   tabbar, h_tabbar, h_tile, h_round, h_avatar, h_capsule, h_ribbon, h_plaque, h_pedestal, h_tab_on, h_arrow,
-   arrow, btn_arrow, btn_start, dot, flame_bar, plaque, plate, banner_gold, lv, medal, pill, hex, hint_tail,
-   tag, tag_intel, rank_badge_1..4, rank_av_azure, rank_av_gold
+严格保持全部 49 张 Assets/Resources/Art/ui/*.png 的原始像素尺寸与 Art.SkinBorder 九宫格：
+1. 主页舞台套件：h_podium4, h_pad_0..4, h_chest_mat, h_start_hex{,_lip}, h_stage_arrow, fx_gold_sheen, fx_gold_star,
+   h_podium_crest, h_bond_pill{,_lip}, ic_bond_knot, ic_bond_go
+2. 独立 UI 套件：tabbar, h_tabbar, h_tile, h_round, h_avatar, h_capsule, h_ribbon, h_plaque, h_pedestal, h_tab_on,
+   h_arrow, arrow, btn_arrow, btn_start, dot, flame_bar, plaque, plate, banner_gold, lv, medal, pill, hex,
+   hint_tail, tag, tag_intel, rank_badge_1..4, rank_av_azure, rank_av_gold
 """
 import os
 import math
@@ -18,10 +18,12 @@ SS = 4
 
 
 def rgb(h: str) -> np.ndarray:
+    h = h.lstrip("#")
     return np.array([int(h[i:i + 2], 16) for i in (0, 2, 4)], dtype=np.float32)
 
 
 def rgba_t(h: str, a: int = 255) -> tuple:
+    h = h.lstrip("#")
     return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), a)
 
 
@@ -30,19 +32,25 @@ def blend(dst: np.ndarray, col: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return dst * (1.0 - m) + col * m
 
 
-def sdf_rrect(x: np.ndarray, y: np.ndarray, cx: float, cy: float, hw: float, hh: float, r: float) -> np.ndarray:
-    dx = np.abs(x - cx) - (hw - r)
-    dy = np.abs(y - cy) - (hh - r)
-    outside = np.hypot(np.maximum(dx, 0.0), np.maximum(dy, 0.0))
-    inside = np.minimum(np.maximum(dx, dy), 0.0)
-    return outside + inside - r
-
-
 def sdf_segment(x: np.ndarray, y: np.ndarray, ax: float, ay: float, bx: float, by: float) -> np.ndarray:
     vx, vy = bx - ax, by - ay
     l2 = vx * vx + vy * vy + 1e-6
     t = np.clip(((x - ax) * vx + (y - ay) * vy) / l2, 0.0, 1.0)
     return np.hypot(x - (ax + t * vx), y - (ay + t * vy))
+
+
+def sdf_oct_box(x: np.ndarray, y: np.ndarray, cx: float, cy: float, hw: float, hh: float, ch: float, r_tiny: float = 0.0) -> np.ndarray:
+    W = max(2.0, hw - r_tiny)
+    H = max(2.0, hh - r_tiny)
+    C = np.clip(ch, 0.5, min(W, H) - 0.5)
+    ax = np.abs(x - cx)
+    ay = np.abs(y - cy)
+    d1 = sdf_segment(ax, ay, 0.0, H, W - C, H)
+    d2 = sdf_segment(ax, ay, W - C, H, W, H - C)
+    d3 = sdf_segment(ax, ay, W, H - C, W, 0.0)
+    min_d = np.minimum(np.minimum(d1, d2), d3)
+    m = np.maximum(np.maximum(ax - W, ay - H), (ax + ay - (W + H - C)) * 0.70710678)
+    return np.where(m <= 0.0, -min_d, min_d) - r_tiny
 
 
 def sdf_convex_poly(w: int, h: int, verts) -> np.ndarray:
@@ -71,31 +79,27 @@ def hex_plaque_sdf(w: int, h: int, pad_x: float, pad_y: float, tip_dx: float, ro
     return sdf_convex_poly(w, h, verts) - round_r
 
 
-# ==================== 1. 主页 v6 四连位现代守村点将石台 h_podium4.png ====================
+# ==================== 1. 主页 04 四连位黑曜石青钢防御桥台 h_podium4.png ====================
 
 def build_podium4():
-    """760x240 扁平 2D 矢量四连位现代守村青白石防御台：
-    严格对齐 HomeScreen.cs 站位中心 [0.1508, 0.3869, 0.6134, 0.8483] 与顶面中心 y=72px (padY=0.20*podH)。
-    """
+    """760x240 04 风格四连位黑曜石青钢切角点将台（严格对齐 style04_page_home.png 与 HomeScreen 4 槽坐标）。"""
     bw, bh = 760, 240
     S = 3
     W, H = bw * S, bh * S
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     dr = ImageDraw.Draw(im)
 
-    ink = rgba_t("2B2338")
-    top_rim = rgba_t("DFE6EC")
-    top_slab = rgba_t("BDC7D0")
-    groove_c = rgba_t("8E9AA6")
-    front_lip = rgba_t("9AA6B2")
-    wall_face = rgba_t("727F8C")
-    wall_side = rgba_t("606C78")
-    base_trim = rgba_t("8E8576")
-    tab_hi = rgba_t("F0E4CA")
-    tab_face = rgba_t("AE9E84")
+    ink = rgba_t("040710")
+    top_rim = rgba_t("285272")
+    top_slab = rgba_t("0D182C")
+    groove_c = rgba_t("00E5FF", 150)
+    front_lip = rgba_t("182D4A")
+    wall_face = rgba_t("0E192E")
+    wall_side = rgba_t("091020")
+    base_trim = rgba_t("162642")
+    clasp_face = rgba_t("0A1224")
+    clasp_hi = rgba_t("FFB800")
 
-    # 四座并联梯形墩台参数（透视微外扩，完美贴合 1 点透视地面）
-    # slot centers at 760px: 114.6, 294.0, 466.2, 644.7
     bays = [
         (36, 200, 14, 198),
         (206, 376, 199, 377),
@@ -103,15 +107,15 @@ def build_podium4():
         (560, 724, 562, 746),
     ]
 
-    # 1) 底部干净 2D 接触投影
-    sh_pts = [(10 * S, 214 * S), (750 * S, 214 * S), (754 * S, 232 * S), (6 * S, 232 * S)]
-    dr.polygon(sh_pts, fill=(24, 28, 38, 68))
+    # 1) 底部硬朗接触暗影
+    sh_pts = [(10 * S, 214 * S), (750 * S, 214 * S), (754 * S, 234 * S), (6 * S, 234 * S)]
+    dr.polygon(sh_pts, fill=(2, 5, 12, 145))
 
-    # 2) 前壁主体与底座脚线（每格微切角，四连一体）
+    # 2) 前壁黑曜石桥墩与底座护脚
     for tx0, tx1, bx0, bx1 in bays:
         y_mid = 132 * S
         y_bot = 224 * S
-        ch = 12 * S
+        ch = 14 * S
         wall_poly = [
             (bx0 * S, y_mid),
             (bx1 * S, y_mid),
@@ -121,10 +125,14 @@ def build_podium4():
             (bx0 * S, y_bot - ch),
         ]
         dr.polygon(wall_poly, fill=wall_face, outline=ink, width=int(3.0 * S))
-        # 两侧斜切暗面
-        dr.polygon([(bx0 * S + 3 * S, y_mid), (bx0 * S + 22 * S, y_mid), (bx0 * S + 22 * S, y_bot - 3 * S), (bx0 * S + ch, y_bot - 3 * S), (bx0 * S + 3 * S, y_bot - ch)], fill=wall_side)
-        dr.polygon([(bx1 * S - 22 * S, y_mid), (bx1 * S - 3 * S, y_mid), (bx1 * S - 3 * S, y_bot - ch), (bx1 * S - ch, y_bot - 3 * S), (bx1 * S - 22 * S, y_bot - 3 * S)], fill=wall_side)
-        # 底部暖灰护脚边
+        dr.polygon([(bx0 * S + 3 * S, y_mid), (bx0 * S + 24 * S, y_mid), (bx0 * S + 24 * S, y_bot - 3 * S), (bx0 * S + ch, y_bot - 3 * S), (bx0 * S + 3 * S, y_bot - ch)], fill=wall_side)
+        dr.polygon([(bx1 * S - 24 * S, y_mid), (bx1 * S - 3 * S, y_mid), (bx1 * S - 3 * S, y_bot - ch), (bx1 * S - ch, y_bot - 3 * S), (bx1 * S - 24 * S, y_bot - 3 * S)], fill=wall_side)
+
+        # 前壁竖向青绿能量刻槽
+        mcx = 0.5 * (bx0 + bx1) * S
+        for ox in (-36 * S, 36 * S):
+            dr.line([(mcx + ox, y_mid + 18 * S), (mcx + ox, y_bot - 22 * S)], fill=rgba_t("1E3D5E"), width=int(2.4 * S))
+
         y_trim = 208 * S
         trim_poly = [
             (bx0 * S + 2 * S, y_trim),
@@ -136,14 +144,13 @@ def build_podium4():
         ]
         dr.polygon(trim_poly, fill=base_trim, outline=ink, width=int(2.4 * S))
 
-    # 3) 顶面透视石台盖板 + 内凹台面槽 + 前沿小铭扣
-    for idx, (tx0, tx1, bx0, bx1) in enumerate(bays):
+    # 3) 顶面透视黑曜石盖板 + 霓虹导流槽 + 前沿鎏金战术卡扣
+    for tx0, tx1, bx0, bx1 in bays:
         yt, yb = 14 * S, 128 * S
         lip_b = 150 * S
-        ct = 12 * S
-        cb = 15 * S
+        ct = 14 * S
+        cb = 16 * S
 
-        # 前立面石檐
         eave_poly = [
             (bx0 * S, yb - cb),
             (bx1 * S, yb - cb),
@@ -154,7 +161,6 @@ def build_podium4():
         ]
         dr.polygon(eave_poly, fill=front_lip, outline=ink, width=int(3.0 * S))
 
-        # 顶面外亮沿
         deck_poly = [
             (tx0 * S + ct, yt),
             (tx1 * S - ct, yt),
@@ -166,85 +172,95 @@ def build_podium4():
             (tx0 * S, yt + ct),
         ]
         dr.polygon(deck_poly, fill=top_rim, outline=ink, width=int(3.0 * S))
+        # 前沿翠绿/冰青细高光棱
+        dr.line([(bx0 * S + cb, yb - 2 * S), (bx1 * S - cb, yb - 2 * S)], fill=rgba_t("00F57A", 190), width=int(2.2 * S))
 
-        # 顶面内凹平涂浅槽（供运行时叠加 h_pad_0..4）
-        pad_in = 14 * S
+        pad_in = 13 * S
         in_poly = [
-            (tx0 * S + pad_in + 6 * S, yt + pad_in),
-            (tx1 * S - pad_in - 6 * S, yt + pad_in),
-            (tx1 * S - pad_in, yt + pad_in + 6 * S),
-            (bx1 * S - pad_in, yb - pad_in - 6 * S),
-            (bx1 * S - pad_in - 6 * S, yb - pad_in),
-            (bx0 * S + pad_in + 6 * S, yb - pad_in),
-            (bx0 * S + pad_in, yb - pad_in - 6 * S),
-            (tx0 * S + pad_in, yt + pad_in + 6 * S),
+            (tx0 * S + pad_in + 7 * S, yt + pad_in),
+            (tx1 * S - pad_in - 7 * S, yt + pad_in),
+            (tx1 * S - pad_in, yt + pad_in + 7 * S),
+            (bx1 * S - pad_in, yb - pad_in - 7 * S),
+            (bx1 * S - pad_in - 7 * S, yb - pad_in),
+            (bx0 * S + pad_in + 7 * S, yb - pad_in),
+            (bx0 * S + pad_in, yb - pad_in - 7 * S),
+            (tx0 * S + pad_in, yt + pad_in + 7 * S),
         ]
-        dr.polygon(in_poly, fill=top_slab, outline=groove_c, width=int(2.4 * S))
+        dr.polygon(in_poly, fill=top_slab, outline=groove_c, width=int(2.2 * S))
 
-        # 前沿中心扁平 2D 装饰卡扣
         mcx = 0.5 * (bx0 + bx1) * S
-        tw, th_t = 31 * S, 13 * S
+        tw, th_t = 32 * S, 12 * S
         ty0 = yb - 5 * S
-        dr.rounded_rectangle([mcx - tw, ty0, mcx + tw, ty0 + th_t * 2], radius=int(5 * S), fill=tab_face, outline=ink, width=int(2.6 * S))
-        dr.rounded_rectangle([mcx - tw + 3 * S, ty0 + 2 * S, mcx + tw - 3 * S, ty0 + 9 * S], radius=int(3 * S), fill=tab_hi)
+        clasp_pts = [
+            (mcx - tw + 6 * S, ty0),
+            (mcx + tw - 6 * S, ty0),
+            (mcx + tw, ty0 + 6 * S),
+            (mcx + tw, ty0 + th_t * 2 - 6 * S),
+            (mcx + tw - 6 * S, ty0 + th_t * 2),
+            (mcx - tw + 6 * S, ty0 + th_t * 2),
+            (mcx - tw, ty0 + th_t * 2 - 6 * S),
+            (mcx - tw, ty0 + 6 * S),
+        ]
+        dr.polygon(clasp_pts, fill=clasp_face, outline=ink, width=int(2.6 * S))
+        dr.line([(mcx - tw + 10 * S, ty0 + 7 * S), (mcx + tw - 10 * S, ty0 + 7 * S)], fill=clasp_hi, width=int(3.0 * S))
 
     im.resize((bw, bh), Image.Resampling.LANCZOS).save(os.path.join(UI_DIR, "h_podium4.png"), optimize=True)
-    print("Saved flat-2D h_podium4.png (760x240)")
+    print("Saved 04-style h_podium4.png (760x240)")
 
 
 def build_podium_crest_suite():
     # h_podium_crest.png (540x64)
     bw, bh = 540, 64
     w, h = bw * SS, bh * SS
-    d = hex_plaque_sdf(w, h, 4.0 * SS, 5.0 * SS, 16.0 * SS, 12.0 * SS)
+    d = hex_plaque_sdf(w, h, 4.0 * SS, 5.0 * SS, 18.0 * SS, 4.0 * SS)
     alpha = np.clip(0.5 - d, 0.0, 1.0)
-    m_rim = np.clip(0.5 - (d + 2.6 * SS), 0.0, 1.0)
-    m_in = np.clip(0.5 - (d + 5.2 * SS), 0.0, 1.0)
-    col = rgb("2B2338")[None, None, :] * (1.0 - m_rim[:, :, None]) + (
-        rgb("B4D4EA")[None, None, :] * (1.0 - m_in[:, :, None]) + rgb("254056")[None, None, :] * m_in[:, :, None]
+    m_rim = np.clip(0.5 - (d + 2.4 * SS), 0.0, 1.0)
+    m_in = np.clip(0.5 - (d + 4.8 * SS), 0.0, 1.0)
+    col = rgb("050914")[None, None, :] * (1.0 - m_rim[:, :, None]) + (
+        rgb("00E5FF")[None, None, :] * (1.0 - m_in[:, :, None]) + rgb("0C1528")[None, None, :] * m_in[:, :, None]
     ) * m_rim[:, :, None]
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
     rgba[:, :, :3] = np.clip(np.round(col), 0, 255).astype(np.uint8)
-    rgba[:, :, 3] = np.clip(np.round(alpha * 242.0), 0, 255).astype(np.uint8)
+    rgba[:, :, 3] = np.clip(np.round(alpha * 246.0), 0, 255).astype(np.uint8)
     Image.fromarray(rgba).resize((bw, bh), Image.Resampling.LANCZOS).save(os.path.join(UI_DIR, "h_podium_crest.png"), optimize=True)
 
     # h_bond_pill.png (260x42) & h_bond_pill_lip.png (264x46)
     pw, ph = 260, 42
     W2, H2 = pw * SS, ph * SS
     y2, x2 = np.mgrid[0:H2, 0:W2].astype(np.float32)
-    d2 = sdf_rrect(x2, y2, (W2 - 1) * 0.5, (H2 - 1) * 0.5, (pw * 0.5 - 1.5) * SS, (ph * 0.5 - 1.5) * SS, 18.5 * SS)
+    d2 = sdf_oct_box(x2, y2, (W2 - 1) * 0.5, (H2 - 1) * 0.5, (pw * 0.5 - 1.5) * SS, (ph * 0.5 - 1.5) * SS, 11.0 * SS, 0.8 * SS)
     a2 = np.clip(0.5 - d2, 0.0, 1.0)
-    m2_rim = np.clip(0.5 - (d2 + 2.2 * SS), 0.0, 1.0)
-    m2_in = np.clip(0.5 - (d2 + 4.2 * SS), 0.0, 1.0)
-    col2 = rgb("2B2338")[None, None, :] * (1.0 - m2_rim[:, :, None]) + (
-        rgb("A8CCE0")[None, None, :] * (1.0 - m2_in[:, :, None]) + rgb("2F4D64")[None, None, :] * m2_in[:, :, None]
+    m2_rim = np.clip(0.5 - (d2 + 2.0 * SS), 0.0, 1.0)
+    m2_in = np.clip(0.5 - (d2 + 3.8 * SS), 0.0, 1.0)
+    col2 = rgb("050914")[None, None, :] * (1.0 - m2_rim[:, :, None]) + (
+        rgb("00F57A")[None, None, :] * (1.0 - m2_in[:, :, None]) + rgb("0C1528")[None, None, :] * m2_in[:, :, None]
     ) * m2_rim[:, :, None]
     p_rgba = np.zeros((H2, W2, 4), dtype=np.uint8)
     p_rgba[:, :, :3] = np.clip(np.round(col2), 0, 255).astype(np.uint8)
-    p_rgba[:, :, 3] = np.clip(np.round(a2 * 244.0), 0, 255).astype(np.uint8)
+    p_rgba[:, :, 3] = np.clip(np.round(a2 * 246.0), 0, 255).astype(np.uint8)
     Image.fromarray(p_rgba).resize((pw, ph), Image.Resampling.LANCZOS).save(os.path.join(UI_DIR, "h_bond_pill.png"), optimize=True)
 
     lpw, lph = 264, 46
     LW2, LH2 = lpw * SS, lph * SS
     ly2, lx2 = np.mgrid[0:LH2, 0:LW2].astype(np.float32)
-    ld2 = sdf_rrect(lx2, ly2, (LW2 - 1) * 0.5, (LH2 - 1) * 0.5, (pw - 3.0) * 0.5 * SS, (ph - 3.0) * 0.5 * SS, 18.5 * SS)
+    ld2 = sdf_oct_box(lx2, ly2, (LW2 - 1) * 0.5, (LH2 - 1) * 0.5, (pw - 3.0) * 0.5 * SS, (ph - 3.0) * 0.5 * SS, 11.0 * SS, 0.8 * SS)
     lp_rgba = np.zeros((LH2, LW2, 4), dtype=np.uint8)
-    lp_rgba[:, :, :3] = [43, 35, 56]
-    lp_rgba[:, :, 3] = np.clip(np.round(np.clip(0.5 - ld2, 0.0, 1.0) * 180.0), 0, 255).astype(np.uint8)
+    lp_rgba[:, :, :3] = [4, 7, 16]
+    lp_rgba[:, :, 3] = np.clip(np.round(np.clip(0.5 - ld2, 0.0, 1.0) * 210.0), 0, 255).astype(np.uint8)
     Image.fromarray(lp_rgba).resize((lpw, lph), Image.Resampling.LANCZOS).save(os.path.join(UI_DIR, "h_bond_pill_lip.png"), optimize=True)
 
     # ic_bond_knot.png (64x64) & ic_bond_go.png (40x40)
     ks = 64 * SS
     ky, kx = np.mgrid[0:ks, 0:ks].astype(np.float32)
     ku, kv = (kx + 0.5) / ks * 2.0 - 1.0, (ky + 0.5) / ks * 2.0 - 1.0
-    d_rg = np.abs(np.hypot(ku + 0.21, kv - 0.02) - 0.42) - 0.115
-    d_rj = np.abs(np.hypot(ku - 0.21, kv + 0.02) - 0.42) - 0.115
+    d_rg = np.abs((np.abs(ku + 0.20) + np.abs(kv - 0.02)) - 0.50) - 0.115
+    d_rj = np.abs((np.abs(ku - 0.20) + np.abs(kv + 0.02)) - 0.50) - 0.115
     ag = np.clip(0.5 - d_rg * (ks * 0.5), 0.0, 1.0)
     mg = np.clip(0.5 - (d_rg + 0.05) * (ks * 0.5), 0.0, 1.0)
     aj = np.clip(0.5 - d_rj * (ks * 0.5), 0.0, 1.0)
     mj = np.clip(0.5 - (d_rj + 0.05) * (ks * 0.5), 0.0, 1.0)
-    cg = rgb("2B2338")[None, None, :] * (1.0 - mg[:, :, None]) + rgb("FFE078")[None, None, :] * mg[:, :, None]
-    cj = rgb("2B2338")[None, None, :] * (1.0 - mj[:, :, None]) + rgb("7CE4CA")[None, None, :] * mj[:, :, None]
+    cg = rgb("050914")[None, None, :] * (1.0 - mg[:, :, None]) + rgb("FFB800")[None, None, :] * mg[:, :, None]
+    cj = rgb("050914")[None, None, :] * (1.0 - mj[:, :, None]) + rgb("00F57A")[None, None, :] * mj[:, :, None]
     gold_over = kv < 0.0
     a_out = np.clip(ag + aj - ag * aj, 0.0, 1.0)
     over_a = np.where(gold_over, ag, aj)[:, :, None]
@@ -256,59 +272,58 @@ def build_podium_crest_suite():
     Image.fromarray(k_rgba).resize((64, 64), Image.Resampling.LANCZOS).save(os.path.join(UI_DIR, "ic_bond_knot.png"), optimize=True)
 
     gs = 40 * SS
-    d_tri = sdf_convex_poly(gs, gs, [(15.0 * SS, 10.5 * SS), (27.5 * SS, 20.0 * SS), (15.0 * SS, 29.5 * SS)]) - 1.8 * SS
+    d_tri = sdf_convex_poly(gs, gs, [(14.5 * SS, 10.0 * SS), (28.0 * SS, 20.0 * SS), (14.5 * SS, 30.0 * SS)]) - 1.2 * SS
     a_tri = np.clip(0.5 - d_tri, 0.0, 1.0)
     m_tri = np.clip(0.5 - (d_tri + 2.0 * SS), 0.0, 1.0)
-    g_col = rgb("2B2338")[None, None, :] * (1.0 - m_tri[:, :, None]) + rgb("DCF2FA")[None, None, :] * m_tri[:, :, None]
+    g_col = rgb("050914")[None, None, :] * (1.0 - m_tri[:, :, None]) + rgb("00F57A")[None, None, :] * m_tri[:, :, None]
     g_rgba = np.zeros((gs, gs, 4), dtype=np.uint8)
     g_rgba[:, :, :3] = np.clip(np.round(g_col), 0, 255).astype(np.uint8)
-    g_rgba[:, :, 3] = np.clip(np.round(a_tri * 240.0), 0, 255).astype(np.uint8)
+    g_rgba[:, :, 3] = np.clip(np.round(a_tri * 250.0), 0, 255).astype(np.uint8)
     Image.fromarray(g_rgba).resize((40, 40), Image.Resampling.LANCZOS).save(os.path.join(UI_DIR, "ic_bond_go.png"), optimize=True)
 
 
 def build_chest_mat():
-    """744x140 扁平 2D 透视六角三宝箱红毯托盘（#2B2338 暖深描边 + 暖米金内嵌边 + 利落扁平赛璐珞箱影）。"""
+    """744x140 04 风格深黑曜石切角六角三宝箱战术托盘（对齐 style04_page_home.png）。"""
     bw, bh = 372, 70
     w, h = bw * SS, bh * SS
     y, x = np.mgrid[0:h, 0:w].astype(np.float32)
 
-    pad_x, top_y, bot_y, round_r, tip_dx = 10.0 * SS, 5.0 * SS, 61.0 * SS, 7.5 * SS, 15.5 * SS
+    pad_x, top_y, bot_y, round_r, tip_dx = 10.0 * SS, 5.0 * SS, 61.0 * SS, 2.5 * SS, 18.5 * SS
     L, R = pad_x + round_r, (w - 1) - pad_x - round_r
     T, B = top_y + round_r, bot_y - round_r
     my = 0.5 * (T + B)
     verts = [(L + tip_dx, T), (R - tip_dx, T), (R, my), (R - tip_dx, B), (L + tip_dx, B), (L, my)]
     d = sdf_convex_poly(w, h, verts) - round_r
-    d_lip = np.roll(d, int(2.6 * SS), axis=0)
-    d_lip[:int(2.6 * SS), :] = 1e9
+    d_lip = np.roll(d, int(2.8 * SS), axis=0)
+    d_lip[:int(2.8 * SS), :] = 1e9
     d_u = np.minimum(d, d_lip)
 
     a_out = np.clip(0.5 - d_u, 0.0, 1.0)
     m_lip = np.clip(0.5 - (d_lip + 2.2 * SS), 0.0, 1.0)
-    m_piping = np.clip(0.5 - (d + 2.4 * SS), 0.0, 1.0)
-    m_surf = np.clip(0.5 - (d + 4.4 * SS), 0.0, 1.0)
+    m_piping = np.clip(0.5 - (d + 2.2 * SS), 0.0, 1.0)
+    m_surf = np.clip(0.5 - (d + 4.2 * SS), 0.0, 1.0)
     m_shadow_clip = np.clip(0.5 - (d + 5.0 * SS), 0.0, 1.0)
 
-    c_surf = np.broadcast_to(rgb("B45252"), (h, w, 3)).copy()
+    yn = np.clip((y - T) / max(1.0, B - T), 0.0, 1.0)
+    c_surf = rgb("13203A")[None, None, :] * (1.0 - yn[:, :, None]) + rgb("0B1326")[None, None, :] * yn[:, :, None]
     cx_mid = (w - 1) * 0.5
     cast_mask = np.zeros((h, w), dtype=np.float32)
+    rim_slot = np.zeros((h, w), dtype=np.float32)
     for k in (-1, 0, 1):
         bx = cx_mid + k * 114.0 * SS
         sy_top, sy_bot = 18.0 * SS, 52.5 * SS
-        st = np.clip((y - sy_top) / (sy_bot - sy_top), 0.0, 1.0)
-        scx = bx + (6.0 + 6.0 * st) * SS
         scy = 0.5 * (sy_top + sy_bot)
-        half_w = (42.5 + 3.0 * st) * SS
-        sh_r = 8.5 * SS
-        sd = sdf_rrect(x, y, scx, scy, half_w, 0.5 * (sy_bot - sy_top), sh_r)
+        sd = sdf_oct_box(x, y, bx, scy, 44.0 * SS, 0.5 * (sy_bot - sy_top), 8.0 * SS, 0.6 * SS)
         cast_mask = np.maximum(cast_mask, np.clip(0.5 - sd / (1.2 * SS), 0.0, 1.0))
+        rim_slot = np.maximum(rim_slot, np.clip(1.0 - np.abs(sd) / (1.1 * SS), 0.0, 1.0) * 0.45)
 
-    cast_mask *= m_shadow_clip
-    c_surf = blend(c_surf, rgb("823638")[None, None, :], cast_mask)
+    c_surf = blend(c_surf, rgb("060A16")[None, None, :], cast_mask * m_shadow_clip)
+    c_surf = blend(c_surf, rgb("00E5FF")[None, None, :], rim_slot * m_shadow_clip)
 
-    col = np.broadcast_to(rgb("2B2338"), (h, w, 3)).copy()
-    col = blend(col, rgb("783034")[None, None, :], m_lip)
-    col = blend(col, rgb("2B2338")[None, None, :], np.clip(0.5 - d, 0.0, 1.0))
-    col = blend(col, rgb("E8BEA4")[None, None, :], m_piping)
+    col = np.broadcast_to(rgb("040710"), (h, w, 3)).copy()
+    col = blend(col, rgb("08182E")[None, None, :], m_lip)
+    col = blend(col, rgb("040710")[None, None, :], np.clip(0.5 - d, 0.0, 1.0))
+    col = blend(col, rgb("3E72A4")[None, None, :], m_piping)
     col = blend(col, c_surf, m_surf)
 
     out = np.zeros((h, w, 4), dtype=np.uint8)
@@ -316,15 +331,15 @@ def build_chest_mat():
     out[:, :, 3] = np.clip(np.round(a_out * 255.0), 0, 255).astype(np.uint8)
     im = Image.fromarray(out).resize((bw * 2, bh * 2), Image.Resampling.LANCZOS)
     im.save(os.path.join(UI_DIR, "h_chest_mat.png"), optimize=True)
-    print("Saved flat-2D h_chest_mat.png (744x140)")
+    print("Saved 04-style h_chest_mat.png (744x140)")
 
 
 def build_hex_start_button():
-    """468x142 扁平 2D 鎏金六角主行动按钮 + 484x158 实心立体底沿 + fx_gold_sheen/star。"""
+    """468x142 04 风格锐利闪电切角鎏金『摇人守村』主行动按钮 + 484x158 黑曜石暗金底唇。"""
     bw, bh = 468, 142
-    margin, tip_dx, round_r = 8, 30.0, 12.0
+    margin, tip_dx, round_r = 8, 34.0, 4.0
     w, h = bw * SS, bh * SS
-    pad, stroke_w, rim_w = 2.2 * SS, 3.0 * SS, 8.5 * SS
+    pad, stroke_w, rim_w = 2.2 * SS, 3.0 * SS, 7.5 * SS
 
     d_outer = hex_plaque_sdf(w, h, pad, pad, tip_dx * SS, round_r * SS)
     alpha = np.clip(0.5 - d_outer, 0.0, 1.0)
@@ -335,21 +350,28 @@ def build_hex_start_button():
 
     y_idx, x_idx = np.mgrid[0:h, 0:w].astype(np.float32)
     yn = y_idx / (h - 1)
-    cel = np.clip((yn - 0.45) / 0.045, 0.0, 1.0)[:, :, None]
+    cel = np.clip((yn - 0.46) / 0.03, 0.0, 1.0)[:, :, None]
 
-    rim_col = rgb("FFF4AA")[None, None, :] * (1.0 - cel) + rgb("F2BD38")[None, None, :] * cel
-    in_col = rgb("FFE268")[None, None, :] * (1.0 - cel) + rgb("F4B224")[None, None, :] * cel
+    rim_col = rgb("FFF4A8")[None, None, :] * (1.0 - cel) + rgb("F29E0B")[None, None, :] * cel
+    in_col = rgb("FFD838")[None, None, :] * (1.0 - cel) + rgb("EA8C08")[None, None, :] * cel
 
-    # 顶沿内侧利落高光丝
-    d_dn = np.roll(d_frame, int(round(2.4 * SS)), axis=0)
-    d_dn[:int(round(2.4 * SS)), :] = 999.0
+    d_dn = np.roll(d_frame, int(round(2.6 * SS)), axis=0)
+    d_dn[:int(round(2.6 * SS)), :] = 999.0
     top_hi = frame_mask * np.clip(d_dn + 0.5, 0.0, 1.0) * np.clip(1.0 - yn * 3.0, 0.0, 1.0)
     face_col = rim_col * (1.0 - inner_mask[:, :, None]) + in_col * inner_mask[:, :, None]
-    groove = np.clip(1.0 - np.abs(d_inner) / (1.1 * SS), 0.0, 1.0)
-    face_col = blend(face_col, rgb("C98412")[None, None, :], groove * 0.62)
-    face_col = blend(face_col, rgb("FFFFFF")[None, None, :], top_hi * 0.82)
+    groove = np.clip(1.0 - np.abs(d_inner) / (1.2 * SS), 0.0, 1.0)
+    face_col = blend(face_col, rgb("B83C08")[None, None, :], groove * 0.72)
+    face_col = blend(face_col, rgb("FFFFFF")[None, None, :], top_hi * 0.88)
 
-    c_stroke = rgb("2B2338")
+    # 左右尖角闪电形绯红能量刻痕（落在左右 56px 内）
+    cx = (w - 1) * 0.5
+    cy = (h - 1) * 0.5
+    ax = np.abs(x_idx - cx)
+    bolt = sdf_segment(ax, y_idx, (bw * 0.5 - 38) * SS, cy - 16 * SS, (bw * 0.5 - 18) * SS, cy)
+    bolt = np.minimum(bolt, sdf_segment(ax, y_idx, (bw * 0.5 - 18) * SS, cy, (bw * 0.5 - 38) * SS, cy + 16 * SS))
+    face_col = blend(face_col, rgb("FF3B30")[None, None, :], np.clip(0.5 - (bolt - 2.2 * SS), 0.0, 1.0) * inner_mask * 0.85)
+
+    c_stroke = rgb("050914")
     full_col = c_stroke[None, None, :] * (1.0 - frame_mask[:, :, None]) + face_col * frame_mask[:, :, None]
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
     rgba[:, :, :3] = np.clip(np.round(full_col), 0, 255).astype(np.uint8)
@@ -361,37 +383,37 @@ def build_hex_start_button():
     lw, lh = tw * SS, th * SS
     lpad = (margin + 2.2) * SS
     d_lip = hex_plaque_sdf(lw, lh, lpad, lpad, tip_dx * SS, round_r * SS)
-    d_sh = np.roll(d_lip, int(2.4 * SS), axis=0)
-    d_sh[:int(2.4 * SS), :] = 1e9
+    d_sh = np.roll(d_lip, int(2.8 * SS), axis=0)
+    d_sh[:int(2.8 * SS), :] = 1e9
     l_alpha = np.clip(0.5 - d_lip, 0.0, 1.0)
-    sh_a = np.clip(0.5 - d_sh, 0.0, 1.0) * 0.18
+    sh_a = np.clip(0.5 - d_sh, 0.0, 1.0) * 0.45
     tot_a = np.maximum(l_alpha, sh_a)
     l_body = np.clip(0.5 - (d_lip + stroke_w), 0.0, 1.0)
     l_col = np.zeros((lh, lw, 3), dtype=np.float32)
-    l_col = blend(l_col, rgb("1E1A28")[None, None, :], sh_a)
-    l_col = blend(l_col, c_stroke[None, None, :] * (1.0 - l_body[:, :, None]) + rgb("BD7810")[None, None, :] * l_body[:, :, None], l_alpha)
+    l_col = blend(l_col, rgb("02040A")[None, None, :], sh_a)
+    l_col = blend(l_col, c_stroke[None, None, :] * (1.0 - l_body[:, :, None]) + rgb("783804")[None, None, :] * l_body[:, :, None], l_alpha)
     l_rgba = np.zeros((lh, lw, 4), dtype=np.uint8)
     l_rgba[:, :, :3] = np.clip(np.round(l_col), 0, 255).astype(np.uint8)
     l_rgba[:, :, 3] = np.clip(np.round(tot_a * 255.0), 0, 255).astype(np.uint8)
     Image.fromarray(l_rgba).resize((tw, th), Image.Resampling.LANCZOS).save(os.path.join(UI_DIR, "h_start_hex_lip.png"), optimize=True)
 
-    # fx_gold_sheen.png (180x220) & fx_gold_star.png (128x128) for AttachStartGlint
+    # fx_gold_sheen.png (180x220) & fx_gold_star.png (128x128)
     sw, sh = 180, 220
     sy, sx = np.mgrid[0:sh, 0:sw].astype(np.float32)
     su = (sx - sw * 0.5) + (sy - sh * 0.5) * 0.48
-    sa = np.clip(np.clip(1.0 - np.abs(su) / 22.0, 0.0, 1.0) * 0.85 + np.clip(1.0 - np.abs(su - 32.0) / 8.0, 0.0, 1.0) * 0.45, 0.0, 1.0)
+    sa = np.clip(np.clip(1.0 - np.abs(su) / 20.0, 0.0, 1.0) * 0.88 + np.clip(1.0 - np.abs(su - 30.0) / 7.0, 0.0, 1.0) * 0.48, 0.0, 1.0)
     s_out = np.zeros((sh, sw, 4), dtype=np.uint8)
-    s_out[:, :, :3] = [255, 252, 232]
+    s_out[:, :, :3] = [255, 252, 224]
     s_out[:, :, 3] = np.clip(np.round(sa * 255.0), 0, 255).astype(np.uint8)
     Image.fromarray(s_out).save(os.path.join(UI_DIR, "fx_gold_sheen.png"), optimize=True)
 
     zn = 128 * 2
     zy, zx = np.mgrid[0:zn, 0:zn].astype(np.float32)
     zu, zv = np.abs(zx - (zn - 1) * 0.5) / (zn * 0.42), np.abs(zy - (zn - 1) * 0.5) / (zn * 0.42)
-    z_star = np.clip(0.5 - ((zu ** 0.52 + zv ** 0.52) - 1.0) * 28.0, 0.0, 1.0)
-    z_glow = np.exp(-((zu * zu + zv * zv) * 4.2)) * 0.45
+    z_star = np.clip(0.5 - ((zu ** 0.48 + zv ** 0.48) - 1.0) * 30.0, 0.0, 1.0)
+    z_glow = np.exp(-((zu * zu + zv * zv) * 4.5)) * 0.42
     za = np.clip(z_star + z_glow, 0.0, 1.0)
-    z_col = rgb("FFE882")[None, None, :] * (1.0 - z_star[:, :, None]) + 255.0 * z_star[:, :, None]
+    z_col = rgb("FFD84C")[None, None, :] * (1.0 - z_star[:, :, None]) + 255.0 * z_star[:, :, None]
     z_out = np.zeros((zn, zn, 4), dtype=np.uint8)
     z_out[:, :, :3] = np.clip(np.round(z_col), 0, 255).astype(np.uint8)
     z_out[:, :, 3] = np.clip(np.round(za * 255.0), 0, 255).astype(np.uint8)
@@ -399,11 +421,12 @@ def build_hex_start_button():
 
 
 def build_stage_arrow():
+    """74x84 04 风格锐利鎏金选关三角钮（对齐 style04_page_home.png 摇人守村右侧金色箭头）。"""
     bw, bh = 74, 84
     w, h = bw * SS, bh * SS
-    round_r, stroke_w = 8.5 * SS, 2.6 * SS
+    round_r, stroke_w = 3.5 * SS, 2.6 * SS
     sink = int(round(4.4 * SS))
-    verts_face = [(15.0 * SS, (bh * 0.5 - 2.5) * SS), (57.0 * SS, 14.0 * SS), (57.0 * SS, (bh - 19.0) * SS)]
+    verts_face = [(14.0 * SS, (bh * 0.5 - 2.5) * SS), (58.0 * SS, 13.0 * SS), (58.0 * SS, (bh - 18.0) * SS)]
     verts_lip = [(vx, vy + sink) for vx, vy in verts_face]
 
     d_face = sdf_convex_poly(w, h, verts_face) - round_r
@@ -415,12 +438,12 @@ def build_stage_arrow():
     m_face = np.clip(0.5 - (d_face + stroke_w), 0.0, 1.0)
 
     y_idx, _ = np.mgrid[0:h, 0:w].astype(np.float32)
-    cel = np.clip((y_idx / (h - 1) - 0.48) / 0.06, 0.0, 1.0)[:, :, None]
-    face_fill = rgb("F7F9FA")[None, None, :] * (1.0 - cel) + rgb("DCE4EC")[None, None, :] * cel
+    cel = np.clip((y_idx / (h - 1) - 0.48) / 0.05, 0.0, 1.0)[:, :, None]
+    face_fill = rgb("FFE260")[None, None, :] * (1.0 - cel) + rgb("F0980C")[None, None, :] * cel
 
-    col = np.broadcast_to(rgb("2B2338"), (h, w, 3)).copy()
-    col = blend(col, rgb("8898A8")[None, None, :], m_lip)
-    col = blend(col, rgb("2B2338")[None, None, :], np.clip(0.5 - d_face, 0.0, 1.0))
+    col = np.broadcast_to(rgb("050914"), (h, w, 3)).copy()
+    col = blend(col, rgb("783A06")[None, None, :], m_lip)
+    col = blend(col, rgb("050914")[None, None, :], np.clip(0.5 - d_face, 0.0, 1.0))
     col = blend(col, face_fill, m_face)
 
     out = np.zeros((h, w, 4), dtype=np.uint8)
@@ -430,82 +453,80 @@ def build_stage_arrow():
 
 
 def build_quality_pads():
-    """276x176 扁平 2D 五阶品质站位光盘 h_pad_0..4.png（#2B2338 内嵌边 + 利落二阶赛璐珞彩盘 + 几何星环）。"""
+    """276x176 04 风格透视 45° 切角五阶霓虹发光站位盘 h_pad_0..4.png（对齐 style04_page_home.png）。"""
     bw, bh = 276, 176
     S2 = 3
     w, h = bw * S2, bh * S2
     y, x = np.mgrid[0:h, 0:w].astype(np.float32)
     cx, cy = (w - 1) * 0.5, (h - 1) * 0.5
-    rx, ry = 96.0 * S2, 55.0 * S2
-    ux, uy = (x - cx) / rx, (y - cy) / ry
-    r = np.hypot(ux, uy)
-    ang = np.arctan2(uy, ux)
-    aa = 1.4 / rx
+    # 将纵横比压缩为透视八角方形盘面
+    sx = (x - cx)
+    sy = (y - cy) * (102.0 / 56.0)
+    d = sdf_oct_box(sx + cx, sy + cy, cx, cy, 102.0 * S2, 102.0 * S2, 28.0 * S2, 2.0 * S2)
 
     tiers = [
-        (0, "288E68", "56D6A6", "C8FCEC", 0),
-        (1, "2474CC", "58B8FC", "D6F4FF", 1),
-        (2, "6E38D0", "A86CFC", "F0DCFF", 2),
-        (3, "CF7A0E", "FFC438", "FFF8C4", 3),
-        (4, "BD2822", "FA5848", "FFE0D4", 3),
+        (0, "142A3A", "2C6E7C", "8CC4DC", "00F57A"),  # Silver-Emerald
+        (1, "0B223E", "0E68A8", "00E5FF", "BDF8FF"),  # Cyan
+        (2, "1A103C", "5C24B4", "A84CFF", "ECC8FF"),  # Violet
+        (3, "2A1808", "965808", "FFB800", "FFF4B0"),  # Gold
+        (4, "2E0A12", "9E1A20", "FF3B30", "FFD0B8"),  # Crimson
     ]
 
-    for tid, h_top, h_bot, h_rim, plv in tiers:
-        c_top, c_bot, c_rim = rgb(h_top), rgb(h_bot), rgb(h_rim)
-        m_outer = np.clip((1.03 - r) / aa, 0.0, 1.0)
-        m_pool = np.clip((0.97 - r) / aa, 0.0, 1.0)
+    for tid, h_core, h_mid, h_rim, h_hi in tiers:
+        c_core, c_mid, c_rim, c_hi = rgb(h_core), rgb(h_mid), rgb(h_rim), rgb(h_hi)
+        m_outer = np.clip(0.5 - d / 1.4, 0.0, 1.0)
+        m_rim = np.clip(0.5 - (d + 3.0 * S2) / 1.4, 0.0, 1.0)
+        m_pool = np.clip(0.5 - (d + 8.5 * S2) / 1.4, 0.0, 1.0)
 
-        cel = np.clip((uy + 0.15) / 0.25, 0.0, 1.0)[:, :, None]
-        pool_col = c_top[None, None, :] * (1.0 - cel) + c_bot[None, None, :] * cel
+        rad_norm = np.clip(1.0 + d / (96.0 * S2), 0.0, 1.0)
+        pool_col = c_core[None, None, :] * (1.0 - rad_norm[:, :, None] ** 1.4) + c_mid[None, None, :] * (rad_norm[:, :, None] ** 1.4)
 
-        ring1 = np.clip(1.0 - np.abs(r - 0.78) / 0.024, 0.0, 1.0) * 0.65
-        insig = ring1.copy()
-        if plv == 2:
-            pips = (np.abs(np.cos(2.0 * ang)) ** 18.0) * np.clip(1.0 - np.abs(r - 0.86) / 0.055, 0.0, 1.0) * 0.82
-            insig = np.maximum(insig, pips)
-        elif plv >= 3:
-            ring2 = np.clip(1.0 - np.abs(r - 0.87) / 0.018, 0.0, 1.0) * 0.58
-            ticks = (np.abs(np.cos(4.0 * ang)) ** 22.0) * np.clip(1.0 - np.abs(r - 0.825) / 0.052, 0.0, 1.0) * 0.88
-            insig = np.maximum(insig, np.maximum(ring2, ticks))
+        in_ring = np.clip(1.0 - np.abs(d + 20.0 * S2) / (2.2 * S2), 0.0, 1.0) * 0.85
+        pool_col = blend(pool_col, c_hi[None, None, :], in_ring * m_pool)
 
-        rim_ring = np.clip(1.0 - np.abs(r - 0.945) / 0.026, 0.0, 1.0) * 0.85
-        hi_m = np.clip(insig + rim_ring, 0.0, 1.0) * m_pool
-        pool_col = blend(pool_col, c_rim[None, None, :], hi_m)
+        rim_col = c_hi[None, None, :] * 0.45 + c_rim[None, None, :] * 0.55
+        col = np.broadcast_to(rgb("040710"), (h, w, 3)).copy()
+        col = blend(col, rim_col, m_rim)
+        col = blend(col, rgb("050914")[None, None, :], np.clip(0.5 - (d + 6.4 * S2) / 1.4, 0.0, 1.0))
+        col = blend(col, pool_col, m_pool)
 
-        col = blend(np.broadcast_to(rgb("2B2338"), (h, w, 3)).copy(), pool_col, m_pool)
+        # 外圈柔和霓虹底座辉光
+        glow_a = np.exp(-np.maximum(d, 0.0) / (9.0 * S2)) * 0.36
+        tot_a = np.clip(np.maximum(m_outer * 0.96, glow_a), 0.0, 1.0)
+        col = np.where((m_outer > 0.02)[:, :, None], col, c_rim[None, None, :])
+
         out = np.zeros((h, w, 4), dtype=np.uint8)
         out[:, :, :3] = np.clip(np.round(col), 0, 255).astype(np.uint8)
-        out[:, :, 3] = np.clip(np.round(m_outer * 238.0), 0, 255).astype(np.uint8)
+        out[:, :, 3] = np.clip(np.round(tot_a * 255.0), 0, 255).astype(np.uint8)
         Image.fromarray(out).resize((bw, bh), Image.Resampling.LANCZOS).save(os.path.join(UI_DIR, f"h_pad_{tid}.png"), optimize=True)
-    print("Saved flat-2D h_pad_0..4.png")
+    print("Saved 04-style h_pad_0..4.png")
 
 
-# ==================== 2. 29 张独立 UI 皮肤全量扁平 2D 矢量重制 ====================
+# ==================== 2. 独立 UI 皮肤全量 04 切角重制 ====================
 
 def save_ui(name: str, im: Image.Image):
     im.save(os.path.join(UI_DIR, name), optimize=True)
-    print(f"wrote standalone flat-2D {name:22s} {im.size[0]}x{im.size[1]}")
+    print(f"wrote 04-style {name:22s} {im.size[0]}x{im.size[1]}")
 
 
-def flat_pill_box(bw: int, bh: int, r: float, pad: float, c_fill_top: str, c_fill_bot: str, c_rim: str, c_lip: str = None, alpha_mul: float = 1.0) -> Image.Image:
+def oct_pill_box(bw: int, bh: int, ch: float, pad: float, c_fill_top: str, c_fill_bot: str, c_rim: str, c_lip: str = None, alpha_mul: float = 1.0) -> Image.Image:
     w, h = bw * SS, bh * SS
     y, x = np.mgrid[0:h, 0:w].astype(np.float32)
     cx, cy = (w - 1) * 0.5, (h - 1) * 0.5 - (1.4 * SS if c_lip else 0.0)
     hw, hh = (bw * 0.5 - pad) * SS, (bh * 0.5 - pad - (1.4 if c_lip else 0.0)) * SS
-    d_face = sdf_rrect(x, y, cx, cy, hw, hh, r * SS)
-    d_u = np.minimum(d_face, sdf_rrect(x, y - 2.8 * SS, cx, cy, hw, hh, r * SS)) if c_lip else d_face
+    d_face = sdf_oct_box(x, y, cx, cy, hw, hh, ch * SS, 0.9 * SS)
+    d_u = np.minimum(d_face, sdf_oct_box(x, y - 2.8 * SS, cx, cy, hw, hh, ch * SS, 0.9 * SS)) if c_lip else d_face
     a = np.clip(0.5 - d_u, 0.0, 1.0) * alpha_mul
-    st = 2.4 * SS
+    st = 2.2 * SS
 
-    col = np.broadcast_to(rgb("2B2338"), (h, w, 3)).copy()
+    col = np.broadcast_to(rgb("050914"), (h, w, 3)).copy()
     if c_lip:
-        col = blend(col, rgb(c_lip)[None, None, :], np.clip(0.5 - (sdf_rrect(x, y - 2.8 * SS, cx, cy, hw, hh, r * SS) + st), 0.0, 1.0))
-        col = blend(col, rgb("2B2338")[None, None, :], np.clip(0.5 - d_face, 0.0, 1.0))
+        col = blend(col, rgb(c_lip)[None, None, :], np.clip(0.5 - (sdf_oct_box(x, y - 2.8 * SS, cx, cy, hw, hh, ch * SS, 0.9 * SS) + st), 0.0, 1.0))
+        col = blend(col, rgb("050914")[None, None, :], np.clip(0.5 - d_face, 0.0, 1.0))
     col = blend(col, rgb(c_rim)[None, None, :], np.clip(0.5 - (d_face + st), 0.0, 1.0))
     yn = np.clip((y - (cy - hh)) / max(1.0, 2.0 * hh), 0.0, 1.0)
-    cel = np.clip((yn - 0.45) / 0.08, 0.0, 1.0)[:, :, None]
-    fill = rgb(c_fill_top)[None, None, :] * (1.0 - cel) + rgb(c_fill_bot)[None, None, :] * cel
-    col = blend(col, fill, np.clip(0.5 - (d_face + 4.4 * SS), 0.0, 1.0))
+    fill = rgb(c_fill_top)[None, None, :] * (1.0 - yn[:, :, None]) + rgb(c_fill_bot)[None, None, :] * yn[:, :, None]
+    col = blend(col, fill, np.clip(0.5 - (d_face + 4.2 * SS), 0.0, 1.0))
 
     out = np.zeros((h, w, 4), dtype=np.uint8)
     out[:, :, :3] = np.clip(np.round(col), 0, 255).astype(np.uint8)
@@ -513,22 +534,24 @@ def flat_pill_box(bw: int, bh: int, r: float, pad: float, c_fill_top: str, c_fil
     return Image.fromarray(out).resize((bw, bh), Image.Resampling.LANCZOS)
 
 
-def flat_circle_badge(bw: int, bh: int, c_top: str, c_bot: str, c_rim: str, c_lip: str) -> Image.Image:
+def oct_badge(bw: int, bh: int, ch_ratio: float, c_top: str, c_bot: str, c_rim: str, c_lip: str) -> Image.Image:
     w, h = bw * SS, bh * SS
     y, x = np.mgrid[0:h, 0:w].astype(np.float32)
     cx, cy = (w - 1) * 0.5, (h - 1) * 0.5 - 2.0 * SS
-    R = (min(bw, bh) * 0.5 - 4.0) * SS
-    d_face = np.hypot(x - cx, y - cy) - R
-    d_lip = np.hypot(x - cx, y - (cy + 3.6 * SS)) - R
+    hw = (bw * 0.5 - 4.0) * SS
+    hh = (bh * 0.5 - 5.5) * SS
+    ch = min(hw, hh) * ch_ratio
+    d_face = sdf_oct_box(x, y, cx, cy, hw, hh, ch, 1.2 * SS)
+    d_lip = sdf_oct_box(x, y - 3.6 * SS, cx, cy, hw, hh, ch, 1.2 * SS)
     d_u = np.minimum(d_face, d_lip)
     a = np.clip(0.5 - d_u, 0.0, 1.0)
     st = 2.6 * SS
 
-    col = np.broadcast_to(rgb("2B2338"), (h, w, 3)).copy()
+    col = np.broadcast_to(rgb("050914"), (h, w, 3)).copy()
     col = blend(col, rgb(c_lip)[None, None, :], np.clip(0.5 - (d_lip + st), 0.0, 1.0))
-    col = blend(col, rgb("2B2338")[None, None, :], np.clip(0.5 - d_face, 0.0, 1.0))
+    col = blend(col, rgb("050914")[None, None, :], np.clip(0.5 - d_face, 0.0, 1.0))
     col = blend(col, rgb(c_rim)[None, None, :], np.clip(0.5 - (d_face + st), 0.0, 1.0))
-    yn = np.clip((y - (cy - R)) / (2.0 * R), 0.0, 1.0)
+    yn = np.clip((y - (cy - hh)) / max(1.0, 2.0 * hh), 0.0, 1.0)
     cel = np.clip((yn - 0.46) / 0.06, 0.0, 1.0)[:, :, None]
     fill = rgb(c_top)[None, None, :] * (1.0 - cel) + rgb(c_bot)[None, None, :] * cel
     col = blend(col, fill, np.clip(0.5 - (d_face + 5.2 * SS), 0.0, 1.0))
@@ -541,44 +564,46 @@ def flat_circle_badge(bw: int, bh: int, c_top: str, c_bot: str, c_rim: str, c_li
 
 def build_all_standalone_ui():
     # 1. h_capsule (216x56), pill (240x54), plate (396x45), h_plaque (260x88), h_tile (168x124)
-    save_ui("h_capsule.png", flat_pill_box(216, 56, 25.0, 2.0, "2B4862", "1F364C", "7EB0D2", None, 0.94))
-    save_ui("pill.png", flat_pill_box(240, 54, 24.0, 2.0, "28435C", "1C3246", "6EA2C6", None, 0.95))
-    save_ui("plate.png", flat_pill_box(396, 45, 19.5, 2.0, "58B4F0", "3A8ED0", "BCE8FF", None, 0.98))
-    save_ui("h_plaque.png", flat_pill_box(260, 88, 22.0, 3.0, "31526E", "223C54", "86B8DA", "182B3E"))
-    save_ui("h_tile.png", flat_pill_box(168, 124, 22.0, 3.0, "2C4B66", "1F374E", "7AAED0", "16283A"))
+    save_ui("h_capsule.png", oct_pill_box(216, 56, 13.0, 2.0, "101B32", "0A1122", "4274A6", None, 0.95))
+    save_ui("pill.png", oct_pill_box(240, 54, 12.5, 2.0, "101B32", "0A1122", "3C6B9C", None, 0.96))
+    save_ui("plate.png", oct_pill_box(396, 45, 11.0, 2.0, "142C52", "0D1E3A", "00E5FF", None, 0.98))
+    save_ui("h_plaque.png", oct_pill_box(260, 88, 15.0, 3.0, "13223E", "0B1428", "00E5FF", "071020"))
+    save_ui("h_tile.png", oct_pill_box(168, 124, 16.0, 3.0, "13223E", "0B1428", "3E6EA2", "071020"))
 
-    # 2. h_round (108x108), lv (130x135), medal (156x160), dot (44x44)
-    save_ui("h_round.png", flat_circle_badge(108, 108, "2E4E6A", "20384E", "8AC0E2", "162838"))
-    save_ui("lv.png", flat_circle_badge(130, 135, "5AC0FA", "3490DC", "DCF6FF", "1E64A8"))
-    save_ui("medal.png", flat_circle_badge(156, 160, "CBE6FA", "9CC4E4", "FFFFFF", "6E98BC"))
+    # 2. h_round (108x108: 侧边栏八角黑曜石金框徽章！), lv (130x135), medal (156x160), dot (44x44)
+    save_ui("h_round.png", oct_badge(108, 108, 0.44, "14203A", "0B1326", "FFB800", "4E3006"))
+    save_ui("lv.png", oct_badge(130, 135, 0.42, "16325C", "0D1E3A", "00E5FF", "082848"))
+    save_ui("medal.png", oct_badge(156, 160, 0.42, "1C3050", "111E36", "DCEEFF", "162844"))
 
-    # dot.png (44x44) 扁平 2D 珊瑚红提醒圆点 + 左上小白高光点
+    # dot.png (44x44) 04 风格锐利八角绯红警示点
     dw = dh = 44 * SS
     dy, dx = np.mgrid[0:dh, 0:dw].astype(np.float32)
     dcx, dcy = (dw - 1) * 0.5, (dh - 1) * 0.5
-    dd = np.hypot(dx - dcx, dy - dcy) - 18.5 * SS
+    dd = sdf_oct_box(dx, dy, dcx, dcy, 18.5 * SS, 18.5 * SS, 7.0 * SS, 1.0 * SS)
     da = np.clip(0.5 - dd, 0.0, 1.0)
-    dcol = np.broadcast_to(rgb("2B2338"), (dh, dw, 3)).copy()
-    dcol = blend(dcol, rgb("FF5248")[None, None, :], np.clip(0.5 - (dd + 2.8 * SS), 0.0, 1.0))
-    dcol = blend(dcol, rgb("FFFFFF")[None, None, :], np.clip(0.5 - (np.hypot(dx - (dcx - 6 * SS), dy - (dcy - 6 * SS)) - 3.6 * SS), 0.0, 1.0))
+    dcol = np.broadcast_to(rgb("050914"), (dh, dw, 3)).copy()
+    dcol = blend(dcol, rgb("FFB800")[None, None, :], np.clip(0.5 - (dd + 2.2 * SS), 0.0, 1.0))
+    dcol = blend(dcol, rgb("FF3B30")[None, None, :], np.clip(0.5 - (dd + 4.0 * SS), 0.0, 1.0))
+    dcol = blend(dcol, rgb("FFFFFF")[None, None, :], np.clip(0.5 - (np.hypot(dx - (dcx - 5.5 * SS), dy - (dcy - 5.5 * SS)) - 3.2 * SS), 0.0, 1.0))
     dout = np.zeros((dh, dw, 4), dtype=np.uint8)
     dout[:, :, :3] = np.clip(np.round(dcol), 0, 255).astype(np.uint8)
     dout[:, :, 3] = np.clip(np.round(da * 255.0), 0, 255).astype(np.uint8)
     save_ui("dot.png", Image.fromarray(dout).resize((44, 44), Image.Resampling.LANCZOS))
 
-    # 3. h_avatar.png (124x124) 扁平 2D 香槟金+深靛头像框
+    # 3. h_avatar.png (124x124) 04 风格 45° 切角鎏金+霓虹青黑曜石头像框
     aw = ah = 124 * SS
     ay, ax = np.mgrid[0:ah, 0:aw].astype(np.float32)
     acx, acy = (aw - 1) * 0.5, (ah - 1) * 0.5 - 1.5 * SS
-    ad_f = sdf_rrect(ax, ay, acx, acy, 56 * SS, 56 * SS, 20 * SS)
-    ad_l = sdf_rrect(ax, ay - 3.0 * SS, acx, acy, 56 * SS, 56 * SS, 20 * SS)
+    ad_f = sdf_oct_box(ax, ay, acx, acy, 56 * SS, 56 * SS, 16 * SS, 1.0 * SS)
+    ad_l = sdf_oct_box(ax, ay - 3.0 * SS, acx, acy, 56 * SS, 56 * SS, 16 * SS, 1.0 * SS)
     ad_u = np.minimum(ad_f, ad_l)
-    acol = np.broadcast_to(rgb("2B2338"), (ah, aw, 3)).copy()
-    acol = blend(acol, rgb("B47A18")[None, None, :], np.clip(0.5 - (ad_l + 2.8 * SS), 0.0, 1.0))
-    acol = blend(acol, rgb("2B2338")[None, None, :], np.clip(0.5 - ad_f, 0.0, 1.0))
-    acol = blend(acol, rgb("FFE27A")[None, None, :], np.clip(0.5 - (ad_f + 2.8 * SS), 0.0, 1.0))
-    acol = blend(acol, rgb("2B2338")[None, None, :], np.clip(0.5 - (ad_f + 7.2 * SS), 0.0, 1.0))
-    acol = blend(acol, rgb("223C54")[None, None, :], np.clip(0.5 - (ad_f + 9.4 * SS), 0.0, 1.0))
+    acol = np.broadcast_to(rgb("050914"), (ah, aw, 3)).copy()
+    acol = blend(acol, rgb("6E4206")[None, None, :], np.clip(0.5 - (ad_l + 2.6 * SS), 0.0, 1.0))
+    acol = blend(acol, rgb("050914")[None, None, :], np.clip(0.5 - ad_f, 0.0, 1.0))
+    acol = blend(acol, rgb("FFB800")[None, None, :], np.clip(0.5 - (ad_f + 2.6 * SS), 0.0, 1.0))
+    acol = blend(acol, rgb("050914")[None, None, :], np.clip(0.5 - (ad_f + 6.4 * SS), 0.0, 1.0))
+    acol = blend(acol, rgb("00E5FF")[None, None, :], np.clip(0.5 - (ad_f + 8.0 * SS), 0.0, 1.0))
+    acol = blend(acol, rgb("0C1528")[None, None, :], np.clip(0.5 - (ad_f + 9.6 * SS), 0.0, 1.0))
     aout = np.zeros((ah, aw, 4), dtype=np.uint8)
     aout[:, :, :3] = np.clip(np.round(acol), 0, 255).astype(np.uint8)
     aout[:, :, 3] = np.clip(np.round(np.clip(0.5 - ad_u, 0.0, 1.0) * 255.0), 0, 255).astype(np.uint8)
@@ -596,51 +621,54 @@ def build_all_standalone_ui():
         (cx - 104.0 * SS, cy + 60.0 * SS),
         (cx - 104.0 * SS, cy - 60.0 * SS),
     ]
-    d_hex = sdf_convex_poly(W, H, verts_o) - 18.0 * SS
+    d_hex = sdf_convex_poly(W, H, verts_o) - 10.0 * SS
     a_hex = np.clip(0.5 - d_hex, 0.0, 1.0)
     m_gold = np.clip(0.5 - (d_hex + 3.0 * SS), 0.0, 1.0)
-    m_in_ink = np.clip(0.5 - (d_hex + 11.5 * SS), 0.0, 1.0)
-    m_core = np.clip(0.5 - (d_hex + 14.2 * SS), 0.0, 1.0)
+    m_in_ink = np.clip(0.5 - (d_hex + 10.5 * SS), 0.0, 1.0)
+    m_cyan = np.clip(0.5 - (d_hex + 12.8 * SS), 0.0, 1.0)
+    m_core = np.clip(0.5 - (d_hex + 14.8 * SS), 0.0, 1.0)
     hy, _ = np.mgrid[0:H, 0:W].astype(np.float32)
     hcel = np.clip((hy / (H - 1) - 0.46) / 0.06, 0.0, 1.0)[:, :, None]
-    gfill = rgb("FFE67C")[None, None, :] * (1.0 - hcel) + rgb("EAA624")[None, None, :] * hcel
-    hcol = np.broadcast_to(rgb("2B2338"), (H, W, 3)).copy()
+    gfill = rgb("FFE260")[None, None, :] * (1.0 - hcel) + rgb("EA940C")[None, None, :] * hcel
+    hcol = np.broadcast_to(rgb("050914"), (H, W, 3)).copy()
     hcol = blend(hcol, gfill, m_gold)
-    hcol = blend(hcol, rgb("2B2338")[None, None, :], m_in_ink)
-    hcol = blend(hcol, rgb("9EC4E2")[None, None, :], m_core)
+    hcol = blend(hcol, rgb("050914")[None, None, :], m_in_ink)
+    hcol = blend(hcol, rgb("00E5FF")[None, None, :], m_cyan)
+    hcol = blend(hcol, rgb("0D162C")[None, None, :], m_core)
     hout = np.zeros((H, W, 4), dtype=np.uint8)
     hout[:, :, :3] = np.clip(np.round(hcol), 0, 255).astype(np.uint8)
     hout[:, :, 3] = np.clip(np.round(a_hex * 255.0), 0, 255).astype(np.uint8)
     save_ui("hex.png", Image.fromarray(hout).resize((hw_i, hh_i), Image.Resampling.LANCZOS))
 
-    # 5. h_tab_on.png (227x230) 现代扁平 2D 鎏金青蓝盾章（零古风卷云！）
+    # 5. h_tab_on.png (227x230) — 04 风格鎏金琥珀切角聚光选中底座（对齐 style04_page_roster『乡亲』高亮卡！）
     tw, th = 227, 230
     W, H = tw * SS, th * SS
-    sh_pts = [
-        (W * 0.50, 12 * SS),
-        (W * 0.88, 34 * SS),
-        (W * 0.90, 118 * SS),
-        (W * 0.50, 218 * SS),
-        (W * 0.10, 118 * SS),
-        (W * 0.12, 34 * SS),
-    ]
-    d_sh = sdf_convex_poly(W, H, sh_pts) - 14.0 * SS
-    a_sh = np.clip(0.5 - d_sh, 0.0, 1.0)
-    m_rim = np.clip(0.5 - (d_sh + 3.2 * SS), 0.0, 1.0)
-    m_ink2 = np.clip(0.5 - (d_sh + 11.5 * SS), 0.0, 1.0)
-    m_in = np.clip(0.5 - (d_sh + 14.2 * SS), 0.0, 1.0)
     sy, sx = np.mgrid[0:H, 0:W].astype(np.float32)
-    scel = np.clip((sy / (H - 1) - 0.45) / 0.07, 0.0, 1.0)[:, :, None]
-    s_gold = rgb("FFE882")[None, None, :] * (1.0 - scel) + rgb("EAA624")[None, None, :] * scel
-    s_cyan = rgb("58D4F6")[None, None, :] * (1.0 - scel) + rgb("2A98CC")[None, None, :] * scel
-    scol = np.broadcast_to(rgb("2B2338"), (H, W, 3)).copy()
-    scol = blend(scol, s_gold, m_rim)
-    scol = blend(scol, rgb("2B2338")[None, None, :], m_ink2)
-    scol = blend(scol, s_cyan, m_in)
-    # 顶冠精致扁平小菱钻
-    dia = (np.abs(sx - W * 0.5) / (14 * SS) + np.abs(sy - 24 * SS) / (10 * SS)) - 1.0
-    scol = blend(scol, rgb("2B2338")[None, None, :], np.clip(0.5 - (dia - 0.22) * 12 * SS, 0.0, 1.0))
-    scol = blend(scol, rgb("FFF8CE")[None, None, :], np.clip(0.5 - dia * 12 * SS, 0.0, 1.0))
+    sh_pts = [
+        (26 * SS, 14 * SS),
+        ((tw - 26) * SS, 14 * SS),
+        ((tw - 10) * SS, 32 * SS),
+        ((tw - 14) * SS, (th - 18) * SS),
+        ((tw - 30) * SS, (th - 8) * SS),
+        (30 * SS, (th - 8) * SS),
+        (14 * SS, (th - 18) * SS),
+        (10 * SS, 32 * SS),
+    ]
+    d_sh = sdf_convex_poly(W, H, sh_pts) - 3.0 * SS
+    a_sh = np.clip(0.5 - d_sh, 0.0, 1.0)
+    m_rim = np.clip(0.5 - (d_sh + 3.0 * SS), 0.0, 1.0)
+    m_ink2 = np.clip(0.5 - (d_sh + 9.0 * SS), 0.0, 1.0)
+    m_in = np.clip(0.5 - (d_sh + 11.5 * SS), 0.0, 1.0)
+    yn = sy / (H - 1)
+    s_rim = rgb("FFF6B8")[None, None, :] * (1.0 - yn[:, :, None] * 0.65) + rgb("EA9008")[None, None, :] * (yn[:, :, None] * 0.65)
+    s_core = rgb("FFB800")[None, None, :] * (1.0 - yn[:, :, None] * 0.78) + rgb("422208")[None, None, :] * (yn[:, :, None] * 0.78)
+    scol = np.broadcast_to(rgb("050914"), (H, W, 3)).copy()
+    scol = blend(scol, s_rim, m_rim)
+    scol = blend(scol, rgb("050914")[None, None, :], m_ink2)
+    scol = blend(scol, s_core, m_in)
+    # 顶沿超亮金色聚光灯条
+    top_bar = np.clip(1.0 - np.abs(sy - 20 * SS) / (4.5 * SS), 0.0, 1.0) * m_rim
+    scol = blend(scol, rgb("FFFFE0")[None, None, :], top_bar * 0.90)
     sout = np.zeros((H, W, 4), dtype=np.uint8)
     sout[:, :, :3] = np.clip(np.round(scol), 0, 255).astype(np.uint8)
     sout[:, :, 3] = np.clip(np.round(a_sh * 255.0), 0, 255).astype(np.uint8)
@@ -648,22 +676,26 @@ def build_all_standalone_ui():
 
     # 6. tabbar.png (950x133) & h_tabbar.png (512x176)
     for nm, bw, bh in [("tabbar.png", 950, 133), ("h_tabbar.png", 512, 176)]:
-        im = Image.new("RGBA", (bw, bh), (36, 62, 86, 255))
+        im = Image.new("RGBA", (bw, bh), (9, 14, 30, 255))
         dr = ImageDraw.Draw(im)
-        dr.rectangle([0, 0, bw, 4], fill=rgba_t("2B2338"))
-        dr.rectangle([0, 4, bw, 9], fill=rgba_t("7EB0D2"))
+        dr.rectangle([0, 0, bw, 2], fill=rgba_t("040710"))
+        dr.rectangle([0, 3, bw, 6], fill=rgba_t("00F57A"))
+        dr.rectangle([0, 7, bw, 9], fill=rgba_t("16384C"))
         save_ui(nm, im)
 
     # 7. arrow.png (144x146), h_arrow.png (211x215), btn_arrow.png (381x583), btn_start.png (1263x256)
-    for nm, bw, bh, ct, cb, cl in [("arrow.png", 144, 146, "66C4FA", "3A94DC", "2064A6"), ("h_arrow.png", 211, 215, "58DFCF", "2BB4A6", "187A72")]:
-        im = flat_circle_badge(bw, bh, ct, cb, "E8FAFF", cl)
+    for nm, bw, bh, ct, cb, cr, cl in [
+        ("arrow.png", 144, 146, "16325A", "0C1D38", "00E5FF", "071224"),
+        ("h_arrow.png", 211, 215, "0E3832", "092220", "00F57A", "051614"),
+    ]:
+        im = oct_badge(bw, bh, 0.42, ct, cb, cr, cl)
         W, H = bw * 2, bh * 2
         im2 = im.resize((W, H), Image.Resampling.LANCZOS)
         dr = ImageDraw.Draw(im2)
         cx, cy = W * 0.5, H * 0.49
         s = min(bw, bh) / 144.0 * 2.0
         pts = [(cx - 26 * s, cy), (cx + 12 * s, cy - 26 * s), (cx + 12 * s, cy - 10 * s), (cx + 28 * s, cy - 10 * s), (cx + 28 * s, cy + 10 * s), (cx + 12 * s, cy + 10 * s), (cx + 12 * s, cy + 26 * s)]
-        dr.polygon(pts, fill=rgba_t("FFFFFF"), outline=rgba_t("2B2338"), width=max(2, int(2.6 * s)))
+        dr.polygon(pts, fill=rgba_t("EAF6FF"), outline=rgba_t("050914"), width=max(2, int(2.6 * s)))
         save_ui(nm, im2.resize((bw, bh), Image.Resampling.LANCZOS))
 
     # btn_arrow.png (381x583)
@@ -671,77 +703,83 @@ def build_all_standalone_ui():
     im = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
     dr = ImageDraw.Draw(im)
     pts = [(68, bh // 2), (bw - 86, 56), (bw - 42, 108), (168, bh // 2), (bw - 42, bh - 108), (bw - 86, bh - 56)]
-    dr.polygon([(x, y + 12) for x, y in pts], fill=rgba_t("BA7612"), outline=rgba_t("2B2338"), width=8)
-    dr.polygon(pts, fill=rgba_t("FFD44E"), outline=rgba_t("2B2338"), width=8)
+    dr.polygon([(x, y + 12) for x, y in pts], fill=rgba_t("783A06"), outline=rgba_t("050914"), width=8)
+    dr.polygon(pts, fill=rgba_t("FFD438"), outline=rgba_t("050914"), width=8)
     save_ui("btn_arrow.png", im)
 
     # btn_start.png (1263x256)
     im = Image.new("RGBA", (1263, 256), (0, 0, 0, 0))
     dr = ImageDraw.Draw(im)
-    dr.rounded_rectangle([12, 22, 1251, 244], radius=56, fill=rgba_t("BA7612"), outline=rgba_t("2B2338"), width=7)
-    dr.rounded_rectangle([12, 10, 1251, 228], radius=56, fill=rgba_t("FFD44E"), outline=rgba_t("2B2338"), width=7)
-    dr.rounded_rectangle([28, 22, 1235, 112], radius=40, fill=(255, 248, 200, 110))
+    p_lip = [(48, 22), (1215, 22), (1251, 58), (1251, 208), (1215, 244), (48, 244), (12, 208), (12, 58)]
+    p_top = [(48, 10), (1215, 10), (1251, 46), (1251, 192), (1215, 228), (48, 228), (12, 192), (12, 46)]
+    dr.polygon(p_lip, fill=rgba_t("783A06"), outline=rgba_t("050914"), width=7)
+    dr.polygon(p_top, fill=rgba_t("FFD438"), outline=rgba_t("050914"), width=7)
+    dr.polygon([(56, 22), (1207, 22), (1235, 50), (1235, 112), (28, 112), (28, 50)], fill=(255, 248, 196, 115))
     save_ui("btn_start.png", im)
 
-    # 8. h_ribbon.png (303x100), plaque.png (753x160), banner_gold.png (760x231) — 扁平 2D 几何燕尾牌匾（零古风卷云）
-    def flat_swallowtail_plaque(bw: int, bh: int, pad_x: int, c_top: str, c_bot: str, c_rim: str, c_tail: str) -> Image.Image:
+    # 8. h_ribbon.png (303x100), plaque.png (753x160), banner_gold.png (760x231)
+    def oct_wing_plaque(bw: int, bh: int, pad_x: int, c_top: str, c_bot: str, c_rim: str, c_tail: str) -> Image.Image:
         S2 = 2
         W, H = bw * S2, bh * S2
         im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         dr = ImageDraw.Draw(im)
-        ink = rgba_t("2B2338")
-        # 左右燕尾
+        ink = rgba_t("050914")
         ty0, ty1 = int(H * 0.24), int(H * 0.88)
         tmy = (ty0 + ty1) // 2
         dr.polygon([(8 * S2, ty0), (pad_x * S2 + 20 * S2, ty0), (pad_x * S2 + 20 * S2, ty1), (8 * S2, ty1), (28 * S2, tmy)], fill=rgba_t(c_tail), outline=ink, width=int(2.8 * S2))
         dr.polygon([(W - pad_x * S2 - 20 * S2, ty0), (W - 8 * S2, ty0), (W - 28 * S2, tmy), (W - 8 * S2, ty1), (W - pad_x * S2 - 20 * S2, ty1)], fill=rgba_t(c_tail), outline=ink, width=int(2.8 * S2))
-        # 主体圆角牌匾
         mx0, mx1 = int(pad_x * 0.55 * S2), W - int(pad_x * 0.55 * S2)
         my0, my1 = int(H * 0.12), int(H * 0.82)
-        dr.rounded_rectangle([mx0, my0 + 5 * S2, mx1, my1 + 5 * S2], radius=int(14 * S2), fill=rgba_t(c_tail), outline=ink, width=int(2.8 * S2))
-        dr.rounded_rectangle([mx0, my0, mx1, my1], radius=int(14 * S2), fill=rgba_t(c_rim), outline=ink, width=int(2.8 * S2))
-        dr.rounded_rectangle([mx0 + 5 * S2, my0 + 5 * S2, mx1 - 5 * S2, my1 - 5 * S2], radius=int(10 * S2), fill=rgba_t(c_bot))
-        dr.rounded_rectangle([mx0 + 5 * S2, my0 + 5 * S2, mx1 - 5 * S2, (my0 + my1) // 2], radius=int(10 * S2), fill=rgba_t(c_top))
+        ch = int(14 * S2)
+        def oct_pts(x0, y0, x1, y1, c):
+            return [(x0 + c, y0), (x1 - c, y0), (x1, y0 + c), (x1, y1 - c), (x1 - c, y1), (x0 + c, y1), (x0, y1 - c), (x0, y0 + c)]
+        dr.polygon(oct_pts(mx0, my0 + 5 * S2, mx1, my1 + 5 * S2, ch), fill=rgba_t(c_tail), outline=ink, width=int(2.8 * S2))
+        dr.polygon(oct_pts(mx0, my0, mx1, my1, ch), fill=rgba_t(c_rim), outline=ink, width=int(2.8 * S2))
+        dr.polygon(oct_pts(mx0 + 5 * S2, my0 + 5 * S2, mx1 - 5 * S2, my1 - 5 * S2, max(4, ch - 4 * S2)), fill=rgba_t(c_bot))
+        dr.polygon([(mx0 + ch, my0 + 5 * S2), (mx1 - ch, my0 + 5 * S2), (mx1 - 5 * S2, my0 + ch), (mx1 - 5 * S2, (my0 + my1) // 2), (mx0 + 5 * S2, (my0 + my1) // 2), (mx0 + 5 * S2, my0 + ch)], fill=rgba_t(c_top))
         return im.resize((bw, bh), Image.Resampling.LANCZOS)
 
-    save_ui("h_ribbon.png", flat_swallowtail_plaque(303, 100, 64, "5AB0D8", "3B8BB4", "C8EEFF", "29688A"))
-    save_ui("plaque.png", flat_swallowtail_plaque(753, 160, 140, "66B4DC", "4892BC", "D8F2FF", "326E92"))
-    save_ui("banner_gold.png", flat_swallowtail_plaque(760, 231, 110, "FFE06B", "F2AE2C", "FFF8C8", "C88218"))
+    save_ui("h_ribbon.png", oct_wing_plaque(303, 100, 64, "162C52", "0D1B34", "00E5FF", "0A3C58"))
+    save_ui("plaque.png", oct_wing_plaque(753, 160, 140, "162C52", "0D1B34", "00E5FF", "0A3C58"))
+    save_ui("banner_gold.png", oct_wing_plaque(760, 231, 110, "361420", "1E0B16", "FFB800", "7C3C08"))
 
-    # 9. h_pedestal.png (234x170) 扁平 2D 村口石台圆盘
+    # 9. h_pedestal.png (234x170) 04 风格八角黑曜石能量底座
     pw, ph = 234, 170
     W, H = pw * 2, ph * 2
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     dr = ImageDraw.Draw(im)
-    dr.ellipse([14, 28, W - 14, H - 12], fill=rgba_t("6E7C8A"), outline=rgba_t("2B2338"), width=6)
-    dr.ellipse([14, 14, W - 14, H - 26], fill=rgba_t("DCE4EC"), outline=rgba_t("2B2338"), width=6)
-    dr.ellipse([34, 28, W - 34, H - 40], fill=rgba_t("B6C2CE"), outline=rgba_t("8C9AA8"), width=4)
+    def ped_oct(y_off, fill_c, out_c, w_st):
+        pts = [(74, 18 + y_off), (W - 74, 18 + y_off), (W - 16, H // 2 - 8 + y_off), (W - 74, H - 30 + y_off), (74, H - 30 + y_off), (16, H // 2 - 8 + y_off)]
+        dr.polygon(pts, fill=fill_c, outline=out_c, width=w_st)
+    ped_oct(16, rgba_t("0A1628"), rgba_t("050914"), 6)
+    ped_oct(0, rgba_t("162A48"), rgba_t("00E5FF"), 5)
+    dr.polygon([(92, 34), (W - 92, 34), (W - 42, H // 2 - 8), (W - 92, H - 46), (92, H - 46), (42, H // 2 - 8)], fill=rgba_t("0D182C"), outline=rgba_t("FFB800"), width=3)
     save_ui("h_pedestal.png", im.resize((pw, ph), Image.Resampling.LANCZOS))
 
-    # 10. flame_bar.png (560x324, 9-slice 60,60,230,130) 扁平 2D 庆典火苗横条
+    # 10. flame_bar.png (560x324, 9-slice 60,60,230,130)
     fw, fh = 560, 324
     im = Image.new("RGBA", (fw * 2, fh * 2), (0, 0, 0, 0))
     dr = ImageDraw.Draw(im)
-    ink = rgba_t("2B2338")
-    # 右侧扁平 2D 卡通双色火焰簇（落在右 230px 九宫格区）
-    flames_outer = [(820, 190), (920, 70), (950, 160), (1040, 48), (1085, 195), (1095, 360), (990, 520), (820, 520)]
-    flames_inner = [(850, 230), (930, 140), (960, 210), (1025, 125), (1055, 240), (1055, 360), (970, 480), (850, 480)]
-    dr.polygon(flames_outer, fill=rgba_t("FF6428"), outline=ink, width=6)
-    dr.polygon(flames_inner, fill=rgba_t("FFD23C"))
-    dr.rounded_rectangle([24, 178, 996, 536], radius=56, fill=rgba_t("B83214"), outline=ink, width=6)
-    dr.rounded_rectangle([24, 164, 996, 520], radius=56, fill=rgba_t("FA6E24"), outline=ink, width=6)
-    dr.rounded_rectangle([40, 180, 980, 320], radius=42, fill=(255, 214, 120, 96))
+    ink = rgba_t("050914")
+    flames_outer = [(820, 190), (920, 64), (952, 160), (1044, 44), (1090, 195), (1098, 360), (990, 520), (820, 520)]
+    flames_inner = [(850, 230), (930, 136), (960, 210), (1028, 122), (1058, 240), (1058, 360), (970, 480), (850, 480)]
+    dr.polygon(flames_outer, fill=rgba_t("FF3B30"), outline=ink, width=6)
+    dr.polygon(flames_inner, fill=rgba_t("FFB800"))
+    bar_pts = [(56, 164), (964, 164), (996, 196), (996, 488), (964, 520), (56, 520), (24, 488), (24, 196)]
+    bar_lip = [(x, y + 14) for x, y in bar_pts]
+    dr.polygon(bar_lip, fill=rgba_t("5E0E14"), outline=ink, width=6)
+    dr.polygon(bar_pts, fill=rgba_t("220D1A"), outline=rgba_t("FFB800"), width=6)
     save_ui("flame_bar.png", im.resize((fw, fh), Image.Resampling.LANCZOS))
 
     # 11. hint_tail.png (542x452), tag.png (154x107), tag_intel.png (701x462)
     im = Image.new("RGBA", (542, 452), (0, 0, 0, 0))
     dr = ImageDraw.Draw(im)
-    dr.polygon([(271, 26), (510, 428), (32, 428)], fill=rgba_t("213E58"), outline=rgba_t("2B2338"), width=8)
+    dr.polygon([(271, 26), (510, 428), (32, 428)], fill=rgba_t("0B1326"), outline=rgba_t("00E5FF"), width=8)
     save_ui("hint_tail.png", im)
 
-    for nm, bw, bh, c_main, c_hi, c_lip in [
-        ("tag.png", 154, 107, "38C268", "84F2A8", "1E8640"),
-        ("tag_intel.png", 701, 462, "E2463A", "FF9286", "9E241E"),
+    for nm, bw, bh, c_main, c_rim, c_lip in [
+        ("tag.png", 154, 107, "0D2E24", "00F57A", "061C16"),
+        ("tag_intel.png", 701, 462, "2E0E18", "FF3B30", "1A060C"),
     ]:
         S2 = 2
         W, H = bw * S2, bh * S2
@@ -749,61 +787,59 @@ def build_all_standalone_ui():
         dr = ImageDraw.Draw(im)
         pts = [(12 * S2, 14 * S2), (W - 14 * S2, 14 * S2), (W - int(bw * 0.18 * S2), H // 2), (W - 14 * S2, H - 18 * S2), (12 * S2, H - 18 * S2)]
         lw = max(3, int(min(bw, bh) * 0.028 * S2))
-        dr.polygon([(x, y + lw) for x, y in pts], fill=rgba_t(c_lip), outline=rgba_t("2B2338"), width=lw)
-        dr.polygon(pts, fill=rgba_t(c_main), outline=rgba_t("2B2338"), width=lw)
-        dr.rectangle([12 * S2, 10 * S2, 24 * S2, H - 14 * S2], fill=rgba_t("FFE27A"), outline=rgba_t("2B2338"), width=lw)
+        dr.polygon([(x, y + lw) for x, y in pts], fill=rgba_t(c_lip), outline=rgba_t("050914"), width=lw)
+        dr.polygon(pts, fill=rgba_t(c_main), outline=rgba_t(c_rim), width=lw)
+        dr.rectangle([12 * S2, 10 * S2, 24 * S2, H - 14 * S2], fill=rgba_t("FFB800"), outline=rgba_t("050914"), width=lw)
         save_ui(nm, im.resize((bw, bh), Image.Resampling.LANCZOS))
 
-    # 12. rank_badge_1..4.png (264x84, 9-slice 76,0,76,0) 扁平 2D 几何翼钻段位铭牌（零古风盘龙）
+    # 12. rank_badge_1..4.png (264x84, 9-slice 76,0,76,0)
     rb_themes = [
-        ("rank_badge_1.png", "FFE478", "DE3832", "FF6E62", "FF4236"),
-        ("rank_badge_2.png", "F0D4FF", "7E42D4", "B880FF", "C66EFF"),
-        ("rank_badge_3.png", "DCF2FF", "3488D4", "72C4FA", "42B6FF"),
-        ("rank_badge_4.png", "FFE898", "2EA25A", "66DC8E", "46DC78"),
+        ("rank_badge_1.png", "FFB800", "2C0E18", "4A1422", "FF3B30"),
+        ("rank_badge_2.png", "C47DFF", "1A1038", "2C1A58", "A84CFF"),
+        ("rank_badge_3.png", "00E5FF", "0C1D38", "143058", "00E5FF"),
+        ("rank_badge_4.png", "00F57A", "0A241E", "123C30", "00F57A"),
     ]
     for nm, c_rim, c_bot, c_top, c_gem in rb_themes:
         bw, bh = 264, 84
         W, H = bw * 3, bh * 3
         im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         dr = ImageDraw.Draw(im)
-        ink = rgba_t("2B2338")
-        # 左右扁平双翼（严格在左右 76px 九宫格端区内）
+        ink = rgba_t("050914")
         for sgn in (-1, 1):
             cx_e = (46 if sgn < 0 else bw - 46) * 3
             dr.polygon([(cx_e, 24 * 3), (cx_e + sgn * 36 * 3, 14 * 3), (cx_e + sgn * 28 * 3, 42 * 3), (cx_e + sgn * 34 * 3, 68 * 3), (cx_e, 60 * 3)], fill=rgba_t(c_rim), outline=ink, width=7)
-        # 中央八角圆润横牌
-        dr.rounded_rectangle([38 * 3, 16 * 3, (bw - 38) * 3, (bh - 14) * 3], radius=24, fill=rgba_t(c_rim), outline=ink, width=8)
-        dr.rounded_rectangle([44 * 3, 22 * 3, (bw - 44) * 3, (bh - 20) * 3], radius=18, fill=rgba_t(c_bot), outline=ink, width=6)
-        dr.rounded_rectangle([46 * 3, 24 * 3, (bw - 46) * 3, 42 * 3], radius=12, fill=rgba_t(c_top))
+        p_out = [(52 * 3, 16 * 3), ((bw - 52) * 3, 16 * 3), ((bw - 38) * 3, 30 * 3), ((bw - 38) * 3, (bh - 28) * 3), ((bw - 52) * 3, (bh - 14) * 3), (52 * 3, (bh - 14) * 3), (38 * 3, (bh - 28) * 3), (38 * 3, 30 * 3)]
+        p_in = [(56 * 3, 22 * 3), ((bw - 56) * 3, 22 * 3), ((bw - 44) * 3, 34 * 3), ((bw - 44) * 3, (bh - 32) * 3), ((bw - 56) * 3, (bh - 20) * 3), (56 * 3, (bh - 20) * 3), (44 * 3, (bh - 32) * 3), (44 * 3, 34 * 3)]
+        dr.polygon(p_out, fill=rgba_t(c_rim), outline=ink, width=8)
+        dr.polygon(p_in, fill=rgba_t(c_bot), outline=ink, width=6)
+        dr.polygon([(56 * 3, 24 * 3), ((bw - 56) * 3, 24 * 3), ((bw - 46) * 3, 42 * 3), (46 * 3, 42 * 3)], fill=rgba_t(c_top))
         for gx in (38 * 3, (bw - 38) * 3):
             gy = 42 * 3
             dr.polygon([(gx, gy - 21), (gx + 21, gy), (gx, gy + 21), (gx - 21, gy)], fill=ink)
             dr.polygon([(gx, gy - 14), (gx + 14, gy), (gx, gy + 14), (gx - 14, gy)], fill=rgba_t(c_gem))
         save_ui(nm, im.resize((bw, bh), Image.Resampling.LANCZOS))
 
-    # 13. rank_av_gold.png & rank_av_azure.png (220x220) 扁平 2D 荣耀翼冠头像框（零古风刀剑祥云！）
+    # 13. rank_av_gold.png & rank_av_azure.png (220x220)
     for nm, c_main, c_hi, c_gem in [
-        ("rank_av_gold.png", "FFC83C", "FFF6BE", "FF4E3E"),
-        ("rank_av_azure.png", "6EC2F6", "EEFAFF", "38A8FF"),
+        ("rank_av_gold.png", "FFB800", "FFF6BE", "FF3B30"),
+        ("rank_av_azure.png", "00E5FF", "E0FCFF", "00F57A"),
     ]:
         bw = bh = 220
         S3 = 3
         W = H = bw * S3
         im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         dr = ImageDraw.Draw(im)
-        ink = rgba_t("2B2338")
-        # 左右扁平荣耀双翼
+        ink = rgba_t("050914")
         for sgn in (-1, 1):
             bx = W // 2 + sgn * 72 * S3
             for dy_w, ext, w_h in [(-32, 34, 20), (0, 38, 20), (32, 30, 18)]:
                 by = H // 2 + dy_w * S3
                 pts = [(bx, by - w_h * S3 // 2), (bx + sgn * ext * S3, by - (w_h - 4) * S3 // 2), (bx + sgn * (ext - 8) * S3, by + w_h * S3 // 2), (bx, by + w_h * S3 // 2)]
                 dr.polygon(pts, fill=rgba_t(c_main), outline=ink, width=7)
-        # 外框圆角方环 + 中央镂空透明区（供头像完美露出）
         y, x = np.mgrid[0:H, 0:W].astype(np.float32)
         cx = cy = (W - 1) * 0.5
-        d_out = sdf_rrect(x, y, cx, cy, 78 * S3, 78 * S3, 24 * S3)
-        d_hole = sdf_rrect(x, y, cx, cy, 62 * S3, 62 * S3, 14 * S3)
+        d_out = sdf_oct_box(x, y, cx, cy, 78 * S3, 78 * S3, 22 * S3, 1.5 * S3)
+        d_hole = sdf_oct_box(x, y, cx, cy, 62 * S3, 62 * S3, 14 * S3, 1.5 * S3)
         ring_d = np.maximum(d_out, -d_hole)
 
         arr = np.array(im, dtype=np.float32)
@@ -811,9 +847,8 @@ def build_all_standalone_ui():
         m_ring_fill = np.clip(0.5 - (ring_d + 2.8 * S3), 0.0, 1.0)
         cel = np.clip((y / (H - 1) - 0.45) / 0.08, 0.0, 1.0)[:, :, None]
         rfill = rgb(c_hi)[None, None, :] * (1.0 - cel) + rgb(c_main)[None, None, :] * cel
-        rcol = rgb("2B2338")[None, None, :] * (1.0 - m_ring_fill[:, :, None]) + rfill * m_ring_fill[:, :, None]
+        rcol = rgb("050914")[None, None, :] * (1.0 - m_ring_fill[:, :, None]) + rfill * m_ring_fill[:, :, None]
 
-        # Alpha-over onto wing base, punching out inner hole cleanly
         hole_keep = np.clip(0.5 + d_hole, 0.0, 1.0)
         arr[:, :, 3] *= hole_keep
         sa = a_ring[:, :, None]
@@ -823,7 +858,6 @@ def build_all_standalone_ui():
         arr[:, :, 3:4] = na * 255.0
         im = Image.fromarray(np.clip(np.round(arr), 0, 255).astype(np.uint8))
 
-        # 顶冠扁平星钻徽章
         dr = ImageDraw.Draw(im)
         tcx, tcy = W // 2, 26 * S3
         dr.polygon([(tcx - 24 * S3, tcy + 6 * S3), (tcx - 10 * S3, tcy - 10 * S3), (tcx, tcy - 16 * S3), (tcx + 10 * S3, tcy - 10 * S3), (tcx + 24 * S3, tcy + 6 * S3), (tcx, tcy + 14 * S3)], fill=rgba_t(c_hi), outline=ink, width=7)
@@ -840,4 +874,4 @@ if __name__ == "__main__":
     build_stage_arrow()
     build_quality_pads()
     build_all_standalone_ui()
-    print("Completed full flat-2D Home v6 & standalone UI suite!")
+    print("Completed full 04-style Home & standalone UI suite!")

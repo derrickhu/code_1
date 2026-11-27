@@ -824,7 +824,7 @@ PlayerSettings:
   weixinMiniGameEmscriptenArgs: ' -s EXPORTED_FUNCTIONS=_main,_sbrk,_emscripten_stack_get_base,_emscripten_stack_get_end
     -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s TOTAL_MEMORY=256MB -s EXPORTED_RUNTIME_METHODS=''["ccall","cwrap","stackTrace","addRunDependency","removeRunDependency","FS_createPath","FS_createDataFile","stackTrace","writeStackCookie","checkStackCookie","lengthBytesUTF8","stringToUTF8"]'''
   weixinMiniGameModulesDirectory: 
-  weixinMiniGameTemplate: PATH:/Users/huyi/dk_proj/code_2/Packages/com.qq.weixin.minigame/WebGLTemplates/WXTemplate2022TJ
+  weixinMiniGameTemplate: PATH:/Users/rosa/rosa_games/code_1/Packages/com.qq.weixin.minigame/WebGLTemplates/WXTemplate2022TJ
   weixinMiniGameAnalyzeBuildSize: 0
   weixinMiniGameUseEmbeddedResources: 0
   weixinMiniGameCompressionFormat: 2

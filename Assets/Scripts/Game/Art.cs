@@ -5,33 +5,33 @@ namespace Liangshan
 {
     public static class Pal
     {
-        public static readonly Color Ink = Hex("1A2938");
-        public static readonly Color SubInk = Hex("4A6278");
-        public static readonly Color Muted = Hex("748CA2");
-        public static readonly Color Edge = Hex("22364A");
-        public static readonly Color Cream = Hex("F4F8FC");
-        public static readonly Color Parchment = Hex("EAF1F8");
-        public static readonly Color ParchmentDeep = Hex("D5E2EE");
-        public static readonly Color Gold = Hex("FFD042");
-        public static readonly Color GoldDeep = Hex("C48A14");
-        public static readonly Color Amber = Hex("F5BA36");
-        public static readonly Color Champagne = Hex("FFE699");
-        public static readonly Color Orange = Hex("F29B2E");
-        public static readonly Color Red = Hex("E54545");
-        public static readonly Color RedDeep = Hex("841C22");
-        public static readonly Color Green = Hex("3CC468");
-        public static readonly Color GreenDeep = Hex("1E7A40");
-        public static readonly Color Teal = Hex("2EB8A6");
-        public static readonly Color TealDeep = Hex("196B68");
-        public static readonly Color Azure = Hex("2B88C4");
-        public static readonly Color Blue = Hex("3E8CE4");
-        public static readonly Color Purple = Hex("8E5CE0");
+        public static readonly Color Ink = Hex("0B1220");
+        public static readonly Color SubInk = Hex("8CA6C6");
+        public static readonly Color Muted = Hex("6E86A4");
+        public static readonly Color Edge = Hex("1E3658");
+        public static readonly Color Cream = Hex("EAF2FF");
+        public static readonly Color Parchment = Hex("DCE8F8");
+        public static readonly Color ParchmentDeep = Hex("B8CCE4");
+        public static readonly Color Gold = Hex("FFC838");
+        public static readonly Color GoldDeep = Hex("B8740C");
+        public static readonly Color Amber = Hex("FFB800");
+        public static readonly Color Champagne = Hex("FFE898");
+        public static readonly Color Orange = Hex("FF8E24");
+        public static readonly Color Red = Hex("FF463C");
+        public static readonly Color RedDeep = Hex("781218");
+        public static readonly Color Green = Hex("00E672");
+        public static readonly Color GreenDeep = Hex("00B85A");
+        public static readonly Color Teal = Hex("00D8F0");
+        public static readonly Color TealDeep = Hex("0A6C82");
+        public static readonly Color Azure = Hex("1E98F5");
+        public static readonly Color Blue = Hex("2898FF");
+        public static readonly Color Purple = Hex("A84CFF");
         /// <summary>禁用按钮等冷灰蓝。饱和度低于 0.35，Ui.BtnSkin 会选灰色皮肤。</summary>
-        public static readonly Color Slate = Hex("6E7E8E");
-        public static readonly Color SlateDeep = Hex("182838");
+        public static readonly Color Slate = Hex("5E7082");
+        public static readonly Color SlateDeep = Hex("0D1628");
         /// <summary>局外彩色底、铭牌上的深海蓝描边。</summary>
-        public static readonly Color Navy = Hex("14304D");
-        public static readonly Color Shadow = new Color(0.04f, 0.08f, 0.14f, 0.36f);
+        public static readonly Color Navy = Hex("081224");
+        public static readonly Color Shadow = new Color(0.01f, 0.03f, 0.08f, 0.52f);
 
         /// <summary>星级色：一星白、二星绿、三星蓝紫、满星金。</summary>
         public static readonly Color[] Star = { Hex("F4F1EA"), Hex("7BE36A"), Hex("8FA8FF"), Hex("FFD24A") };

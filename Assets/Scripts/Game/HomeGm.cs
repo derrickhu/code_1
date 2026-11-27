@@ -53,9 +53,9 @@ namespace Liangshan
             const float H = 1620f;
             MetaUi.Modal(Layer, "gm", "GM", new Vector2(860, H), out var card, Pal.Slate);
             float y = H * 0.5f - 118f;
-            _gmStatus = Ui.Label(card, GmFrontier(), 36, Pal.Ink, new Vector2(0, y), new Vector2(740, 56), TextAnchor.MiddleCenter, Fonts.Heavy);
+            _gmStatus = Ui.Label(card, GmFrontier(), 36, Pal.Hex("EAF2FF"), new Vector2(0, y), new Vector2(740, 56), TextAnchor.MiddleCenter, Fonts.Heavy);
             y -= 60f;
-            Ui.Label(card, "只在编辑器和微信/抖音开发者工具里出现。跳过按三星通关结算。", 24, Pal.SubInk, new Vector2(0, y), new Vector2(760, 44));
+            Ui.Label(card, "只在编辑器和微信/抖音开发者工具里出现。跳过按三星通关结算。", 24, Pal.Hex("8CA6C6"), new Vector2(0, y), new Vector2(760, 44));
             y -= 86f;
             void Big(string name, Color c, Action act)
             {
@@ -76,7 +76,7 @@ namespace Liangshan
             }
             Big("清档", Pal.Red, () => MetaUi.Confirm(Layer, "本地和云端都换成新档\n金币、进度、乡亲都没了，不能恢复", WipeAll));
             y -= 6f;
-            Ui.Label(card, "发物资，直接写进存档", 26, Pal.SubInk, new Vector2(0, y), new Vector2(740, 40));
+            Ui.Label(card, "发物资，直接写进存档", 26, Pal.Hex("8CA6C6"), new Vector2(0, y), new Vector2(740, 40));
             y -= 72f;
             Ui.Btn(card, "发一套常用", new Vector2(560, 88), new Vector2(0, y), Pal.Gold, GmPack, 36);
             y -= 96f;

@@ -139,8 +139,8 @@ namespace Liangshan
             {
                 _root = new GameObject("gate").transform;
                 _root.SetParent(parent, false);
-                _void = WorldFx.Spr(_root, Art.SoftDot, Vector2.zero, 1f, -92, new Color(0.03f, 0.04f, 0.07f, 0.65f), "void");
-                _glow = WorldFx.Additive(WorldFx.Spr(_root, Art.SoftDot, Vector2.zero, 1f, -90, new Color(1f, 0.62f, 0.24f, 0f), "glow"));
+                _void = WorldFx.Spr(_root, Art.SoftDot, Vector2.zero, 1f, -92, new Color(0.02f, 0.04f, 0.08f, 0.72f), "void");
+                _glow = WorldFx.Additive(WorldFx.Spr(_root, Art.SoftDot, Vector2.zero, 1f, -90, new Color(0f, 0.96f, 0.48f, 0f), "glow"));
             }
 
             public void Place(Vector2 bottom, float w, float h)
@@ -163,7 +163,7 @@ namespace Liangshan
                 float prev = _open;
                 _open = Mathf.MoveTowards(_open, want ? 1f : 0f, Time.deltaTime * (want ? 3.4f : 1.8f));
                 float pulse = 0.85f + 0.15f * Mathf.Sin(Time.time * 9f);
-                _glow.color = new Color(0.38f, 0.86f, 1f, 0.28f * _open * pulse);
+                _glow.color = new Color(0f, 0.96f, 0.48f, 0.34f * _open * pulse);
                 if (prev > 0.02f && _open <= 0f)
                     WorldFx.I.Dust(_bottom + new Vector2(0, -0.05f), _w * 0.95f, DustCol.A(0.38f), 0.45f, 95);
             }
@@ -174,10 +174,10 @@ namespace Liangshan
             _bg = WorldFx.Spr(_world, Art.Img(B.Stage.Bg), Vector2.zero, 1, -100, null, "bg");
             const float camW = 22f;
 
-            // 防线后方现代乡村水泥晒场/公路坪：采用明亮暖灰混凝土板块+伸缩缝+黄黑安全警戒线，告别古风玄青城砖。
+            // 防线后方 04 风格午夜黑曜石战术地坪（#0A1020 / #111A30 切面装甲砖 + #1D2C4E 微青接缝 + #FFB800 高亮安全警戒条）
             float floorTop = -5.85f;
             float floorBottom = Bottom - 0.5f;
-            WorldFx.Block(_world, Art.White, new Vector2(0, (floorTop + floorBottom) * 0.5f), new Vector2(camW + 1, floorTop - floorBottom), 40, Pal.Hex("5E6872"), "floor");
+            WorldFx.Block(_world, Art.White, new Vector2(0, (floorTop + floorBottom) * 0.5f), new Vector2(camW + 1, floorTop - floorBottom), 40, Pal.Hex("0A1020"), "floor");
             var rng = new System.Random(7);
             int row = 0;
             for (float y = floorTop - 0.52f; y > floorBottom - 0.6f; y -= 1.18f, row++)
@@ -185,16 +185,16 @@ namespace Liangshan
                 for (float x = -camW * 0.5f - 1.2f; x < camW * 0.5f + 1.2f; x += 2.24f)
                 {
                     float v = 0.96f + (float)rng.NextDouble() * 0.07f;
-                    WorldFx.Block(_world, Art.RoundedSmall, new Vector2(x, y), new Vector2(2.16f, 1.10f), 41, Pal.Hex("76818B").Mul(v), "slab");
-                    WorldFx.Block(_world, Art.RoundedSmall, new Vector2(x, y + 0.48f), new Vector2(2.08f, 0.05f), 41, Pal.Hex("8D99A4").Mul(v), "slabLit");
+                    WorldFx.Block(_world, Art.RoundedSmall, new Vector2(x, y), new Vector2(2.16f, 1.10f), 41, Pal.Hex("111A30").Mul(v), "slab");
+                    WorldFx.Block(_world, Art.RoundedSmall, new Vector2(x, y + 0.48f), new Vector2(2.08f, 0.05f), 41, Pal.Hex("1D2C4E").Mul(v), "slabLit");
                 }
             }
-            // 防线内侧联防黄黑安全警戒标线
-            WorldFx.Block(_world, Art.White, new Vector2(0, floorTop - 0.06f), new Vector2(WallW * 0.96f, 0.11f), 42, Pal.Hex("23272C"), "warnBase");
+            // 防线内侧联防鎏金黑曜石安全警戒标线
+            WorldFx.Block(_world, Art.White, new Vector2(0, floorTop - 0.06f), new Vector2(WallW * 0.96f, 0.11f), 42, Pal.Hex("070B16"), "warnBase");
             for (float sx = -WallW * 0.46f; sx <= WallW * 0.46f; sx += 0.64f)
-                WorldFx.Block(_world, Art.RoundedSmall, new Vector2(sx, floorTop - 0.06f), new Vector2(0.36f, 0.08f), 43, Pal.Hex("F2BA2C"), "warnStripe");
+                WorldFx.Block(_world, Art.RoundedSmall, new Vector2(sx, floorTop - 0.06f), new Vector2(0.36f, 0.08f), 43, Pal.Hex("FFB800"), "warnStripe");
             var shade = WorldFx.Block(_world, Art.VGrad, new Vector2(0, floorTop - 0.65f), new Vector2(camW + 1, 1.3f), 44, new Color(0, 0, 0, 0.0f), "shade");
-            shade.color = new Color(0.06f, 0.09f, 0.13f, 0.32f);
+            shade.color = new Color(0.02f, 0.04f, 0.09f, 0.45f);
             shade.flipY = true;
 
             // 寨墙：玄青条石城垣 + 两侧角楼，走道对齐基础格那一行。
