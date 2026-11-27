@@ -286,6 +286,12 @@ namespace Liangshan
             string[] icons = { "tab_shop", "tab_hero", "tab_battle", "tab_forge", "tab_fort" };
             // 降噪原则：当前激活页签不重复挂红点；山寨有可领收益或图鉴新怪时轻提示
             bool[] dots = { ShopBadge(), HeroBadge(), false, ForgeBadge(), FortBadge() };
+            for (int d = 0; d < 4; d++)
+            {
+                if (d == _tab || d + 1 == _tab) continue;
+                var sep = Ui.Box(bar, new Vector2(2f, 64f), new Vector2((d - 1.5f) * 212f, -8f), Pal.Hex("233A56").A(0.48f), Art.White, "sep" + d);
+                sep.raycastTarget = false;
+            }
             for (int i = 0; i < 5; i++)
             {
                 float x = (i - 2) * 212;
@@ -297,14 +303,15 @@ namespace Liangshan
                 face.raycastTarget = true;
                 if (on)
                 {
-                    Ui.Box(tab, new Vector2(250, 190), new Vector2(0, 34), Pal.Hex("FFB800").A(0.30f), Art.SoftDot, "glow");
-                    Ui.Icon(tab, "ui/h_tab_on", 178, new Vector2(0, 28), "badge");
+                    Ui.Box(tab, new Vector2(236, 178), new Vector2(0, 18), Pal.Hex("FFB800").A(0.26f), Art.SoftDot, "glow");
+                    var badge = Ui.Box(tab, new Vector2(188, 172), new Vector2(0, 10), Color.white, Art.Img("ui/h_tab_on"), "badge");
+                    badge.type = Image.Type.Simple;
                 }
-                var ic = Ui.Icon(tab, icons[i], on ? 128 : 94, new Vector2(0, on ? 44 : 16));
-                if (on) Tween.Run(ic, 999f, k => ic.rectTransform.anchoredPosition = new Vector2(0, 44 + 4 * Mathf.Sin(k * 999f * 3f)));
-                if (on) Ui.Outlined(tab, names[i], 30, Pal.Hex("FFF2A8"), new Vector2(0, -48), new Vector2(210, 40), GoldStroke, 2.2f);
-                else Ui.Outlined(tab, names[i], 26, Pal.Hex("9BB2C8"), new Vector2(0, -50), new Vector2(210, 40), Ink, 1.5f);
-                if (dots[i] && !on) MetaUi.Dot(tab, new Vector2(54, 48));
+                var ic = Ui.Icon(tab, icons[i], on ? 118 : 96, new Vector2(0, on ? 30 : 16));
+                if (on) Tween.Run(ic, 999f, k => ic.rectTransform.anchoredPosition = new Vector2(0, 30 + 3.5f * Mathf.Sin(k * 999f * 3f)));
+                if (on) Ui.GradOutlined(tab, names[i], 30, Pal.Hex("FFFDF0"), Pal.Hex("FFE070"), new Vector2(0, -46), new Vector2(210, 40), Pal.Hex("361804"), 2.4f);
+                else Ui.Outlined(tab, names[i], 26, Pal.Hex("BDD0E4"), new Vector2(0, -49), new Vector2(210, 40), Ink, 1.8f);
+                if (dots[i] && !on) MetaUi.Dot(tab, new Vector2(44, 46));
                 int ti = i;
                 Ui.Tap(face, () => SetTab(ti), tab, false);
             }
