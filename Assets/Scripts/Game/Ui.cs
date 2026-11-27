@@ -4,6 +4,9 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+#if UNITY_WEIXINMINIGAME && !UNITY_EDITOR
+using WeChatWASM;
+#endif
 
 namespace Liangshan
 {
@@ -177,6 +180,29 @@ namespace Liangshan
         static bool WxSafe(out float top, out float bottom)
         {
             top = bottom = 0f;
+#if UNITY_WEIXINMINIGAME && !UNITY_EDITOR
+            try
+            {
+                var info = WX.GetWindowInfo();
+                if (info == null) return false;
+                float wxW = (float)info.screenWidth, wxH = (float)info.screenHeight;
+                if (wxW < 1f) wxW = (float)info.windowWidth;
+                if (wxH < 1f) wxH = (float)info.windowHeight;
+                if (wxW < 1f || wxH < 1f || info.safeArea == null) return false;
+                float sy = Screen.height / wxH;
+                top = (float)info.safeArea.top * sy;
+                bottom = Mathf.Max(0f, wxH - (float)info.safeArea.bottom) * sy;
+
+                var rect = WX.GetMenuButtonBoundingClientRect();
+                float menuBottom = rect != null ? (float)rect.bottom : 0f;
+                if (menuBottom > 0f)
+                    top = Mathf.Max(top, (menuBottom + 10f) * sy);
+                else if (top > 0.5f)
+                    top = Mathf.Max(top, 92f * sy);
+                return top > 0.5f || bottom > 0.5f;
+            }
+            catch (Exception) { return false; }
+#else
             var wx = Type.GetType("WeChatWASM.WX, Wx") ?? Type.GetType("WeChatWASM.WX");
             if (wx == null) return false;
             var get = wx.GetMethod("GetWindowInfo", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
@@ -201,11 +227,12 @@ namespace Liangshan
                 try
                 {
                     float menuBottom = Number(menu.Invoke(null, null), "bottom");
-                    if (menuBottom > 0f) top = Mathf.Max(top, (menuBottom + 6f) * sy);
+                    if (menuBottom > 0f) top = Mathf.Max(top, (menuBottom + 10f) * sy);
                 }
                 catch (Exception) { }
             }
             return top > 0.5f || bottom > 0.5f;
+#endif
         }
 
         static object Member(object o, string name)

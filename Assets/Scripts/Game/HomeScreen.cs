@@ -411,22 +411,14 @@ namespace Liangshan
             SideBtn(468, colY + colStep * side++, "tab_sprint", "冲刺", SprintBadge(), () => MetaUi.Sprint(Layer));
             SideBtn(468, colY + colStep * side, "ic_rank_stage", "排行榜", RankBadge(), () => RankUi.Open(Layer, -1, () => Rebuild(false)));
 
-            // 远景村口公路尽头：晴空悬主标题，本关主统领稳踩收窄路面的最终平坝
+            // 远景村口公路尽头：本关主统领稳踩收窄路面的最终平坝（首页不叠放游戏名称图片，保持飞碟光束通透）
             float roadEndScreenY = Ui.Height * 0.5f + (0.418f - 0.5f) * roadSize.y;
-            float logoTop = Ui.SafeTop + 128f + sp * 0.04f;
-            float logoH = Mathf.Clamp((roadEndScreenY - logoTop) * 0.24f, 122f, 158f);
-            float logoW = logoH * 900f / 268f;
-            var logo = Ui.Top(_page, 0f, logoTop + logoH * 0.5f, new Vector2(logoW, logoH), "logo");
-            Ui.Box(logo, new Vector2(logoW * 1.08f, logoH * 1.30f), Vector2.zero, Color.white.A(0.30f), Art.SoftDot, "glow");
-            Ui.Icon(logo, "logo", logoW, Vector2.zero, "art");
-            if (anim) Tween.Pop(logo, 0.35f);
-
+            float topClear = Ui.SafeTop + 148f + sp * 0.04f;
             var bd = Defs.Enemy(st.LeaderKind);
             var bossSpr = Art.Img(bd.Art);
             float aspect = bossSpr != null && bossSpr.rect.height > 1f ? bossSpr.rect.width / bossSpr.rect.height : 0.85f;
-            float logoBottom = logoTop + logoH;
-            float maxBossH = Mathf.Max(268f, roadEndScreenY - (logoBottom + 22f));
-            float bossH = Mathf.Min(st.IsChapterBoss ? 384f : 356f, maxBossH);
+            float maxBossH = Mathf.Max(280f, roadEndScreenY - topClear);
+            float bossH = Mathf.Min(st.IsChapterBoss ? 396f : 368f, maxBossH);
             float bossW = Mathf.Clamp(bossH * aspect, 196f, 410f);
             bossH = bossW / Mathf.Max(0.25f, aspect);
 
@@ -1126,10 +1118,11 @@ namespace Liangshan
                 {
                     Tween.Run(art, 999f, k => art.rectTransform.localScale = new Vector3(1f, 1f + 0.012f * Mathf.Sin(k * 999f * 2.2f + ph), 1f));
                 }
-                // 右下精致职业圆章
-                Ui.Box(g, Vector2.one * 44, new Vector2(66, -86), Color.white, Art.Circle, "rRing");
-                Ui.Box(g, Vector2.one * 37, new Vector2(66, -86), MetaUi.RoleColor(d.Kind), Art.Circle, "rBg");
-                Ui.Icon(g, MetaUi.RoleArt(d.Kind), 28, new Vector2(66, -85));
+                // 右下 04 切角黑曜金边职业徽章
+                Ui.Box(g, Vector2.one * 48, new Vector2(66, -87), new Color(0.02f, 0.04f, 0.09f, 0.45f), Art.SoftDot, "rSh");
+                Ui.Icon(g, "ui/h_round", 46, new Vector2(66, -86), "rBadge");
+                Ui.Box(g, Vector2.one * 34, new Vector2(66, -86), MetaUi.RoleColor(d.Kind).A(0.35f), Art.SoftDot, "rGlow");
+                Ui.Icon(g, MetaUi.RoleArt(d.Kind), 28, new Vector2(66, -86));
                 var plate = Ui.Skin(g, "h_capsule", new Vector2(206, 46), new Vector2(0, -134), -1f);
                 Ui.SingleLine(Ui.Outlined(plate.transform, $"Lv.{S.HeroLv[(int)h]} {d.Name}", 23, d.Rarity >= 4 ? Pal.Hex("FFF0B2") : Paper, new Vector2(0, 1), new Vector2(194, 42), Ink, 1.5f), 18);
                 int slot = i;
@@ -1377,11 +1370,12 @@ namespace Liangshan
             art.rectTransform.anchoredPosition = new Vector2(0, -50);
             if (!owned) art.color = new Color(0.16f, 0.22f, 0.32f, 0.90f);
 
-            // 左上角立体白瓷镶边职业徽章（对标参考图左上压角圆章）
-            Ui.Box(c, Vector2.one * 60, new Vector2(-87, 117), new Color(0.05f, 0.09f, 0.15f, 0.32f), Art.Circle, "roleSh");
-            Ui.Box(c, Vector2.one * 56, new Vector2(-87, 119), Color.white, Art.Circle, "roleRing");
-            Ui.Box(c, Vector2.one * 46, new Vector2(-87, 119), owned ? MetaUi.RoleColor(d.Kind) : Pal.Slate, Art.Circle, "roleBg");
-            Ui.Icon(c, MetaUi.RoleArt(d.Kind), 35, new Vector2(-87, 120));
+            // 左上角 04 切角黑曜金边职业徽章（替代白圈，沉稳有质感）
+            Ui.Box(c, Vector2.one * 62, new Vector2(-87, 118), new Color(0.02f, 0.04f, 0.09f, 0.48f), Art.SoftDot, "roleSh");
+            var roleBadge = Ui.Icon(c, "ui/h_round", 56, new Vector2(-87, 119), "roleBadge");
+            if (!owned) roleBadge.color = new Color(0.72f, 0.78f, 0.88f, 0.90f);
+            Ui.Box(c, Vector2.one * 42, new Vector2(-87, 119), (owned ? MetaUi.RoleColor(d.Kind) : Pal.Slate).A(owned ? 0.36f : 0.22f), Art.SoftDot, "roleGlow");
+            Ui.Icon(c, MetaUi.RoleArt(d.Kind), 34, new Vector2(-87, 119));
 
             // 卡框正下方清晰名牌（传说好汉暖香槟金字，其余纯白描边字）
             Color nameCol = !owned ? Pal.Hex("9EB2C6") : tier >= 3 ? Pal.Hex("FFF1B4") : Color.white;
