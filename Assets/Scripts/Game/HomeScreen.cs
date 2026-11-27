@@ -1644,14 +1644,8 @@ namespace Liangshan
 
         void BuildForge(bool anim)
         {
-            Cover("forge_bg", new Vector2(1080, 1920), Color.white, 0.25f);
-            var fbg = _page.Find("body/bg") as RectTransform ?? _page.Find("bg") as RectTransform;
-            if (fbg != null)
-            {
-                fbg.sizeDelta *= 1.16f;
-                fbg.anchoredPosition += new Vector2(0, 138f);
-            }
-            Shade(0.24f, 0f);
+            Cover("forge_bg", new Vector2(1080, 1920), Color.white, 0.5f);
+            Shade(0.16f, 0f);
             float sp = Ui.Spare;
             Action re = () => Rebuild(false);
 
