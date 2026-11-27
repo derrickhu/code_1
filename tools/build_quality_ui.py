@@ -315,13 +315,6 @@ def render_quality_box(
         edge_vignette = np.clip(1.0 - (-sd_bg) / (18.0 * SS), 0.0, 1.0) ** 2.0 * 0.22
         bg_rgb = bg_rgb * (1.0 - edge_vignette[..., None]) + hex_rgb(th["rim_top"]) * edge_vignette[..., None]
 
-    # 04 硬边几何斜向折光条
-    diag = (xx - cx) / (2.0 * hw) + (yy - cy) / (2.0 * hh)
-    band1 = np.clip((1.0 - np.abs(diag + 0.18) / 0.09 - 0.30) / 0.10, 0.0, 1.0) * (0.22 if tier >= 0 else 0.08)
-    band2 = np.clip((1.0 - np.abs(diag - 0.04) / 0.045 - 0.30) / 0.12, 0.0, 1.0) * (0.14 if tier >= 0 else 0.05)
-    sheen_m = np.clip(band1 + band2, 0.0, 0.30)[..., None]
-    bg_rgb = bg_rgb * (1.0 - sheen_m) + hex_rgb(th["sheen"]) * sheen_m
-
     canvas = over(canvas, bg_rgb, a_bg)
 
     # 内侧第二道明亮霓虹刻线
