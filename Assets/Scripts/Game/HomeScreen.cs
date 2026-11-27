@@ -2101,55 +2101,88 @@ namespace Liangshan
             }
         }
 
-        // ---------------- 山寨地图 ----------------
+        // ---------------- 村委五建筑全景领地 ----------------
 
-        // 去芜存菁（对标参考图领地主页）：移除与底栏/商城/寨主页重复的山门、铁匠铺、酒馆及啰嗦的副标题小字，
-        // 仅保留 5 座高辨识度核心地标，东侧护城河魁首石雕广场独占「排行榜」C位！
-        static readonly (string Name, float X, float Y, string Icon, bool Heroic)[] Buildings =
+        struct FortBld
         {
-            ("档案室", 0.52f, 0.27f, "tab_codex",     false),
-            ("训练场", 0.23f, 0.42f, "ic_medal",      false),
-            ("风云榜", 0.69f, 0.54f, "ic_rank_stage", true),
-            ("拦截点", 0.24f, 0.70f, "ic_cart",       false),
-            ("联防队", 0.73f, 0.76f, "tab_idle",      false),
+            public string Name, Sub, Icon, Skin, AccentHex;
+            public float X, Y, HitW, HitH, TagX, TagY;
+            public bool Heroic;
+            public FortBld(string name, string sub, float x, float y, float hw, float hh, float tx, float ty, string icon, string skin, string accent, bool heroic = false)
+            {
+                Name = name; Sub = sub; X = x; Y = y; HitW = hw; HitH = hh;
+                TagX = tx; TagY = ty; Icon = icon; Skin = skin; AccentHex = accent; Heroic = heroic;
+            }
+        }
+
+        // 对应 map_fort.jpg 五座独立 3/4 等轴测 04 风格村口建筑，整栋建筑轮廓均可点击触发对应功能
+        static readonly FortBld[] Buildings =
+        {
+            new FortBld("档案室", "异星图鉴", 0.500f, 0.248f, 444f, 456f,  0f, -190f, "tab_codex",     "h_bond_pill",     "1FF088"),
+            new FortBld("训练场", "民兵比武", 0.215f, 0.432f, 400f, 412f,  0f, -168f, "ic_medal",      "btn_orange_well", "FF7A38"),
+            new FortBld("风云榜", "守村排行", 0.802f, 0.418f, 360f, 436f, -4f, -178f, "ic_rank_stage", "row_claim",       "FFD447", true),
+            new FortBld("拦截点", "截获补给", 0.220f, 0.690f, 396f, 456f, 12f, -190f, "ic_cart",       "btn_purple_well", "B56BFF"),
+            new FortBld("联防队", "巡逻挂机", 0.775f, 0.695f, 414f, 464f,  6f, -190f, "tab_idle",      "h_plaque",        "2CE0FF"),
         };
 
         void BuildFort(bool anim)
         {
             var size = Cover("map_fort", new Vector2(1080, 1920), Color.white, 0.5f);
-            Shade(0.24f, 0.16f);
+            Shade(0.14f, 0.10f);
             bool dOpen = S.Cleared >= MetaUi.DailyUnlock, eOpen = S.Cleared >= MetaUi.EscortUnlock;
 
             for (int i = 0; i < Buildings.Length; i++)
             {
                 var b = Buildings[i];
+                var accent = Pal.Hex(b.AccentHex);
+                bool locked = (i == 1 && !dOpen) || (i == 3 && !eOpen);
                 var pos = new Vector2((b.X - 0.5f) * size.x, (0.5f - b.Y) * size.y);
+
                 var c = Ui.Rect(_page, "bld" + i);
-                c.anchoredPosition = pos + new Vector2(0, -36);
-                float pw = b.Heroic ? 248f : 206f;
-                float ph = b.Heroic ? 68f : 60f;
-                c.sizeDelta = new Vector2(pw + 20f, ph + 44f);
+                c.anchoredPosition = pos;
+                c.sizeDelta = new Vector2(b.HitW, b.HitH);
+
+                // 建筑呼吸微光：与五座建筑各自霓虹色呼应，增强可交互实感且不遮挡建筑细节
+                float baseA = locked ? 0.04f : (b.Heroic ? 0.15f : 0.08f);
+                float pulseA = locked ? 0.02f : (b.Heroic ? 0.07f : 0.04f);
+                float phase = i * 1.15f;
+                var glow = Ui.Box(c, new Vector2(b.HitW * 0.74f, b.HitH * 0.62f), new Vector2(0f, 20f), accent.A(baseA), Art.SoftDot, "glow");
+                Tween.Run(glow, 999f, k => glow.color = accent.A(baseA + pulseA * Mathf.Sin(k * 999f * 2.6f + phase)));
+
+                // 建筑门檐铭牌：锚定在每栋建筑正门基座处，顶部菱形指示针指向建筑主体
+                float pw = b.Heroic ? 252f : 232f;
+                float ph = b.Heroic ? 76f : 72f;
+                var tag = Ui.Rect(c, "tag");
+                tag.anchoredPosition = new Vector2(b.TagX, b.TagY);
+                tag.sizeDelta = new Vector2(pw, ph);
+
+                var pinRim = Ui.Box(tag, new Vector2(16f, 16f), new Vector2(0f, ph * 0.5f + 5f), Pal.Hex("091120"), null, "pinRim");
+                pinRim.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 45f);
+                var pinCore = Ui.Box(tag, new Vector2(10f, 10f), new Vector2(0f, ph * 0.5f + 5f), locked ? Pal.Hex("6E8299") : accent, null, "pinCore");
+                pinCore.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 45f);
+
+                var plate = Ui.Skin(tag, locked ? "h_capsule" : b.Skin, new Vector2(pw, ph), Vector2.zero, -1f);
+                if (locked) plate.color = new Color(0.82f, 0.86f, 0.92f, 0.92f);
+                var ic = Ui.Icon(tag, b.Icon, b.Heroic ? 72f : 64f, new Vector2(-pw * 0.5f + 35f, 2f));
+                if (locked) ic.color = new Color(0.75f, 0.80f, 0.88f, 1f);
 
                 if (b.Heroic)
-                {
-                    var glow = Ui.Box(c, new Vector2(pw + 46f, ph + 38f), Vector2.zero, Pal.Gold.A(0.26f), Art.SoftDot, "glow");
-                    Tween.Run(glow, 999f, k => glow.color = Pal.Gold.A(0.18f + 0.10f * Mathf.Sin(k * 999f * 2.8f)));
-                }
-
-                var plate = Ui.Skin(c, "h_capsule", new Vector2(pw, ph), Vector2.zero, -1f);
-                Ui.Icon(c, b.Icon, b.Heroic ? 76f : 64f, new Vector2(-pw * 0.5f + 28f, 4f));
-
-                if (b.Heroic)
-                    Ui.GradOutlined(c, b.Name, 34, Pal.Hex("FFFBE0"), Pal.Hex("FFD458"), new Vector2(22f, 2f), new Vector2(168, 52), Pal.Hex("3E2206"), 2.8f);
+                    Ui.GradOutlined(tag, b.Name, 31, Pal.Hex("FFFBE0"), Pal.Hex("FFD458"), new Vector2(22f, 12f), new Vector2(166, 40), Pal.Hex("3E2206"), 2.5f);
                 else
-                    Ui.Outlined(c, b.Name, 31, Paper, new Vector2(20f, 1f), new Vector2(146, 48), Ink, 2.0f);
+                    Ui.Outlined(tag, b.Name, 29, locked ? Pal.Hex("DCE6F2") : Paper, new Vector2(22f, 12f), new Vector2(154, 38), Ink, 2.0f);
+
+                string sub = i == 1 && !dOpen ? $"第{MetaUi.DailyUnlock}关开放"
+                    : i == 3 && !eOpen ? $"第{MetaUi.EscortUnlock}关开放"
+                    : b.Sub;
+                Color subCol = locked ? Pal.Hex("9EB2C8") : b.Heroic ? Pal.Hex("FFE28A") : Color.Lerp(accent, Color.white, 0.52f);
+                Ui.Outlined(tag, sub, 19, subCol, new Vector2(22f, -16f), new Vector2(158, 26), Ink, 1.4f);
 
                 bool dot = i == 0 ? Meta.CodexBadge(S) > 0
                     : i == 1 ? (dOpen && S.DailyTries < Meta.DailyTriesMax)
                     : i == 2 ? RankBadge()
                     : i == 3 ? (eOpen && S.EscortTries < Meta.EscortTriesMax)
                     : IdleBadge();
-                if (dot) MetaUi.Dot(c, new Vector2(pw * 0.5f - 8f, ph * 0.5f - 2f));
+                if (dot) MetaUi.Dot(tag, new Vector2(pw * 0.5f - 8f, ph * 0.5f - 4f));
 
                 if (i == 4)
                 {
@@ -2157,15 +2190,19 @@ namespace Liangshan
                     int copper = r.Get(Cur.Copper);
                     if (copper > 0)
                     {
-                        var bub = Ui.Skin(c, "row", new Vector2(182, 54), new Vector2(0, 74));
+                        var bub = Ui.Skin(c, "row_claim", new Vector2(186, 54), new Vector2(8f, 188f));
                         Ui.Icon(bub.transform, "ic_coins", 48, new Vector2(-62, 2));
                         Ui.Label(bub.transform, Ui.Num(copper), 26, Pal.Hex("FFC83D"), new Vector2(16, 0), new Vector2(124, 46), TextAnchor.MiddleCenter, Fonts.Heavy);
-                        Tween.Run(bub, 999f, k => bub.rectTransform.anchoredPosition = new Vector2(0, 72 + 5 * Mathf.Sin(k * 999f * 3f)));
+                        Tween.Run(bub, 999f, k => bub.rectTransform.anchoredPosition = new Vector2(8f, 186f + 5f * Mathf.Sin(k * 999f * 3f)));
                     }
                 }
+
+                // 整栋建筑全区域透明点击热区（覆盖屋顶、建筑主体、道具与门牌），点击建筑任意位置即触发对应功能
+                var hit = Ui.Fill(c, new Color(0f, 0f, 0f, 0.001f), true, "buildingHit").GetComponent<Image>();
+                hit.transform.SetAsLastSibling();
                 int bi = i;
-                Ui.Tap(plate, () => OnBuilding(bi), c);
-                if (anim) Tween.Pop(c, 0.3f, 0.08f + i * 0.05f);
+                Ui.Tap(hit, () => OnBuilding(bi), tag);
+                if (anim) Tween.Pop(tag, 0.3f, 0.08f + i * 0.05f);
             }
         }
 
