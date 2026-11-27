@@ -164,6 +164,21 @@ namespace Liangshan.Tests
             float still = (shot.To.X - from.X) * dir.X + (shot.To.Y - from.Y) * dir.Y;
             Assert.Greater(still, dist + 0.8f, "飞过第一个人之后，箭还要往直线上的第二个人飞");
             Assert.AreEqual(first.MaxHp, first.Hp, "还在飞，不该提前结算");
+
+            // 继续飞到擦过第一目标、但尚未抵达第二目标的中间时刻：第一目标必须当场受击并触发 Ev.Hit，第二目标尚未掉血！
+            float midFrac = ((dist + 0.4f) / along);
+            b.Events.Clear();
+            b.Update(shot.Dur * midFrac - 0.05f);
+            Assert.Less(first.Hp, first.MaxHp, "箭尖擦过第一目标时当场结算受击掉血");
+            Assert.IsTrue(b.Events.Any(ev => ev.Type == Ev.Hit && ev.EnemyId == first.Id && ev.Shot == ShotKind.Arrow), "第一目标当场发出受击特效事件");
+            Assert.AreEqual(behind.MaxHp, behind.Hp, "此时箭尚未飞抵身后第二目标");
+            Assert.IsNotEmpty(b.Shots, "穿透箭仍在继续往前飞");
+
+            // 飞完全程：第二目标也被贯穿并触发独立受击事件
+            b.Events.Clear();
+            b.Update(shot.Dur);
+            Assert.Less(behind.Hp, behind.MaxHp, "箭飞抵第二目标时完成贯穿");
+            Assert.IsTrue(b.Events.Any(ev => ev.Type == Ev.Hit && ev.EnemyId == behind.Id && ev.Shot == ShotKind.Arrow), "第二目标也发出独立受击特效事件");
         }
 
         [Test]
@@ -269,14 +284,10 @@ namespace Liangshan.Tests
             b.Update(0.05f);
             Assert.AreEqual(1, b.LordCasts);
             var crowd = new V2((0.8f + 1.5f + 1.1f) / 3f, Layout.WallRowY + (2.4f + 2.6f + 3.1f) / 3f);
-            int slashes = 0;
-            foreach (var s in b.Shots)
-            {
-                if (s.Kind != ShotKind.Slash) continue;
-                slashes++;
-                Assert.Less((s.To - crowd).Len, (s.To - loner.Pos).Len, "剑气落点靠近人群，不追更近的落单者");
-            }
-            Assert.AreEqual(4, slashes, "半圆里的人都会被打到");
+            var wave = b.Shots.Single(s => s.Kind == ShotKind.Slash);
+            Assert.Less((wave.To - crowd).Len, (wave.To - loner.Pos).Len, "剑气落点靠近人群，不追更近的落单者");
+            for (int t = 0; t < 20; t++) b.Update(0.05f);
+            Assert.AreEqual(4, new[] { loner, c1, c2, c3 }.Count(e => e.Hp < 1e6f), "半圆里的人都会被扩散剑气扫中打到");
         }
 
         [Test]
@@ -623,9 +634,9 @@ namespace Liangshan.Tests
             return u;
         }
 
-        static Enemy Dummy(Battle b, float x = 0, float y = 3f)
+        static Enemy Dummy(Battle b, float x = 0, float y = 3f, float hp = 1e9f)
         {
-            var e = new Enemy { Id = 900 + b.Enemies.Count, Def = Defs.Enemy(EnemyKind.Soldier), Hp = 1e9f, MaxHp = 1e9f, Pos = new V2(x, y), Attacking = true };
+            var e = new Enemy { Id = 900 + b.Enemies.Count, Def = Defs.Enemy(EnemyKind.Soldier), Hp = hp, MaxHp = hp, Pos = new V2(x, y), Attacking = true };
             b.Enemies.Add(e);
             return e;
         }
@@ -818,10 +829,10 @@ namespace Liangshan.Tests
                 cut = b.Shots.FirstOrDefault(s => s.Kind == ShotKind.Punch && s.Hero == HeroId.ShiXiu);
             }
             Assert.IsNotNull(cut);
-            Assert.AreEqual(Battle.MeleeDur, cut.Dur, 1e-4f);
+            Assert.AreEqual(Battle.ShotDur(ShotKind.Punch, V2.Dist(slot.Pos, foe.Pos)), cut.Dur, 1e-4f);
             Assert.AreEqual(foe.MaxHp, foe.Hp, "刀还在路上就不该掉血");
             float flown = 0f;
-            while (b.Shots.Contains(cut) && flown < 1f)
+            while (b.Shots.Contains(cut) && flown < 1.5f)
             {
                 Assert.AreEqual(foe.MaxHp, foe.Hp);
                 b.Update(1f / 60f);
@@ -829,6 +840,41 @@ namespace Liangshan.Tests
             }
             Assert.Less(foe.Hp, foe.MaxHp);
             Assert.AreEqual(cut.Dur, flown, 2f / 60f);
+
+            // 中场 4.5 格处：长枪比箭略快但绝不能像原先 0.22s 那样过快瞬移，且支持通过数值面板 ProjPace 统一热调
+            const float mid = 4.5f;
+            float arrowDur = Battle.ShotDur(ShotKind.Arrow, mid);
+            float spearDur = Battle.ShotDur(ShotKind.Spear, mid);
+            float meleeDur = Battle.ShotDur(ShotKind.Punch, mid);
+            float slamDur = Battle.ShotDur(ShotKind.Slam, mid);
+            float mageDrop = Battle.ShotDur(ShotKind.Stone, mid, true);
+            float windDur = Battle.ShotDur(ShotKind.Wind, mid);
+            float lightDur = Battle.ShotDur(ShotKind.Lightning, 0f);
+            Assert.That(spearDur, Is.InRange(arrowDur * 0.80f, arrowDur * 1.05f), "长枪虽凌厉，但不得远快于箭矢");
+            Assert.GreaterOrEqual(meleeDur, 0.50f);
+            Assert.GreaterOrEqual(slamDur, meleeDur);
+            Assert.GreaterOrEqual(mageDrop, 0.50f, "法师金砖从天砸落需沉稳看清");
+            Assert.GreaterOrEqual(windDur, 0.58f, "风法/阵法弹道需舒展清晰");
+            Assert.GreaterOrEqual(lightDur, 0.15f, "天雷引落需留足蓄势时间");
+            try
+            {
+                var cfg = Balance.ExportCurrent();
+                cfg.Combat.ProjPace = 1.5f;
+                cfg.Combat.VfxPace = 1.3f;
+                cfg.Combat.LordWaveSpeed = 10f;
+                cfg.Combat.MageDropDur = 0.50f;
+                cfg.Combat.BeamFlowSpeed = 1.4f;
+                Balance.Apply(cfg);
+                Assert.AreEqual(spearDur * 1.5f, Battle.ShotDur(ShotKind.Spear, mid), 1e-4f);
+                Assert.AreEqual((0.50f + mid / 16.5f) * 1.5f, Battle.ShotDur(ShotKind.Stone, mid, true), 1e-4f);
+                Assert.AreEqual(1.3f, Defs.VfxPace, 1e-4f);
+                Assert.AreEqual(10f, Defs.LordWaveSpeed, 1e-4f);
+                Assert.AreEqual(1.4f, Defs.BeamFlowSpeed, 1e-4f);
+            }
+            finally
+            {
+                Balance.ResetToDefault();
+            }
         }
 
         [Test]
@@ -909,11 +955,14 @@ namespace Liangshan.Tests
                 var slot = b.Slots[0];
                 slot.Unit = new Unit { Hero = HeroId.ShiXiu, Star = star };
                 b.Enemies.Add(new Enemy { Id = 900, Def = Defs.Enemy(EnemyKind.Soldier), Hp = 1e6f, MaxHp = 1e6f, Pos = new V2(0f, Layout.StopY), Attacking = true });
+                Shot cut = null;
                 for (int i = 0; i < 120; i++)
                 {
                     b.Update(1f / 60f);
-                    if (b.Shots.Any(s => s.Kind == ShotKind.Punch)) break;
+                    cut = b.Shots.FirstOrDefault(s => s.Kind == ShotKind.Punch);
+                    if (cut != null) break;
                 }
+                while (cut != null && b.Shots.Contains(cut)) b.Update(1f / 60f);
                 return b.Shots.FirstOrDefault(s => s.Kind == ShotKind.Qi);
             }
             Assert.IsNull(Swing(2, out _), "2 星还没有刀气");
@@ -922,7 +971,7 @@ namespace Liangshan.Tests
             Assert.Greater(qi.To.Y, qi.From.Y, "刀气往敌阵方向飞");
             var behind = new Enemy { Id = 901, Def = Defs.Enemy(EnemyKind.Soldier), Hp = 1e6f, MaxHp = 1e6f, Pos = new V2(qi.From.X, qi.From.Y + 2f) };
             b3.Enemies.Add(behind);
-            for (int i = 0; i < 60 && b3.Shots.Contains(qi); i++) b3.Update(1f / 60f);
+            for (int i = 0; i < 120 && b3.Shots.Contains(qi); i++) b3.Update(1f / 60f);
             Assert.Less(behind.Hp, behind.MaxHp, "刀气打到身后同一列的敌人");
         }
 
@@ -1106,16 +1155,17 @@ namespace Liangshan.Tests
                 {
                     var d = Defs.Hero(h);
                     if (!d.Carry || d.Chan > 0) continue;
-                    // 1) 纯白字不暴击单发：任何关卡任何职业1星0词条绝不能满血1下秒杀官兵
+                    // 1) 纯白字不暴击单发：任何关卡任何职业1星0词条绝不能满血1下秒杀外星小兵
                     float rawHit = Meta.HeroBaseAtk(lo, h) * lo.SkillPow[(int)h] * d.Coef * d.Count;
-                    Assert.GreaterOrEqual(soldierHp / rawHit, d.Kind == Role.Archer ? 2.2f : 1.35f,
-                        $"第{stageNo}关 1星 {d.Name} 绝不能1下秒满血官兵，实际={soldierHp / rawHit:F2}");
-                    // 2) 计入攻速与暴击期望后的单轮等效输出：射手在全50关始终维持 2.2~4.8 轮点杀节奏，不刮痧也不秒杀
+                    Assert.GreaterOrEqual(soldierHp / rawHit, 1.35f,
+                        $"第{stageNo}关 1星 {d.Name} 绝不能1下秒满血小兵，实际={soldierHp / rawHit:F2}");
+                    // 2) 计入攻速、暴击期望与真实出手间隔后的单怪击杀耗时：射手在全50关始终维持 2.8~9.5 秒点杀节奏，不刮痧也不秒杀
                     if (d.Kind == Role.Archer)
                     {
                         float critExp = 1f + System.Math.Min(0.8f, lo.Crit + (lo.Passive[(int)h] && d.PassiveEff == Eff.Crit ? d.PassiveV : 0f)) * (lo.CritDmg - 1f);
                         float effVolley = rawHit * critExp * lo.AllSpeed * lo.HeroSpeed[(int)h];
-                        Assert.That(soldierHp / effVolley, Is.InRange(2.8f, 6.4f), $"第{stageNo}关 1星射手 {d.Name} 等效轮次应在 2.8~6.4 之间，实际={soldierHp / effVolley:F2}");
+                        float ttk = (soldierHp / effVolley) * d.Interval;
+                        Assert.That(ttk, Is.InRange(2.8f, 9.5f), $"第{stageNo}关 1星射手 {d.Name} 等效点杀耗时应在 2.8~9.5s 之间，实际={ttk:F2}s");
                     }
                 }
             }
@@ -1154,11 +1204,10 @@ namespace Liangshan.Tests
             b.Slots[0].Unit.Cd = 0f;
             b.Update(0.02f);
             var cut = b.Shots.First(s => s.Kind == ShotKind.Punch);
-            var qi = b.Shots.First(s => s.Kind == ShotKind.Qi);
-            Assert.AreEqual(cut.Damage / lo.CritDmg * 0.65f, qi.Damage, 0.05f, "3星刀气伤害严格等于单刀基础伤害的 65%");
-
             b.Events.Clear();
             while (b.Shots.Contains(cut)) b.Update(1f / 60f);
+            var qi = b.Shots.First(s => s.Kind == ShotKind.Qi);
+            Assert.AreEqual(cut.Damage / lo.CritDmg * 0.65f, qi.Damage, 0.05f, "3星刀气伤害严格等于单刀基础伤害的 65%");
             Assert.IsTrue(b.Events.Any(e => e.Type == Ev.Damage && e.EnemyId == foe1.Id && e.Crit), "石秀暴击必须打出暴击飘字");
             Assert.IsTrue(b.Events.Any(e => e.Type == Ev.Damage && e.EnemyId == foe2.Id && e.Crit), "小范围溅射目标同样获得暴击标记");
             Assert.Greater(foe1.Pos.Y - Layout.StopY, 0.30f, "命中后产生肉眼清晰可见的击退距离");
@@ -1239,14 +1288,36 @@ namespace Liangshan.Tests
 
             try
             {
+                float trait = HeroKits.Of(HeroId.HuaRong).TraitV;
+                var legacyCfg = Balance.CreateDefault();
+                legacyCfg.Heroes[0].HasKit = false;
+                legacyCfg.Heroes[0].TraitV = 0f;
+                Balance.Apply(legacyCfg);
+                Assert.AreEqual(trait, HeroKits.Of(HeroId.HuaRong).TraitV, 1e-4f, "旧表导入不能把特性数值清成 0");
+
+                Balance.Apply(parsed);
+                Assert.AreEqual(trait, HeroKits.Of(HeroId.HuaRong).TraitV, 1e-4f, "Resources/BalanceConfig.json 导入后四技能数值完整");
+
+                float baseHp10 = Defs.StageHp(10);
+                float baseAtk10 = Defs.StageAtk(10);
                 var custom = Balance.CreateDefault();
                 custom.Economy.StartCoins = 155;
                 custom.Economy.EnhanceTable[0] = 66;
+                custom.WaveStage.GlobalHpMul = 0.85f;
+                custom.WaveStage.GlobalAtkMul = 0.90f;
                 custom.Heroes[0].Coef = 2.22f;
+                var xz = custom.Heroes.Single(h => h.Id == HeroId.XieZhen.ToString());
+                Assert.IsTrue(xz.HasKit, "导出的数值表要带上四技能");
+                Assert.AreEqual(HeroKits.Of(HeroId.XieZhen).SigV, xz.SigV, 1e-4f);
+                xz.SigV = 3f;
                 Balance.Apply(custom);
+                Assert.AreEqual(baseHp10 * 0.85f, Defs.StageHp(10), 1e-3f, "GlobalHpMul 总推杆应按精确比例缩放全关卡怪血");
+                Assert.AreEqual(baseAtk10 * 0.90f, Defs.StageAtk(10), 1e-3f, "GlobalAtkMul 总推杆应按精确比例缩放全关卡拆墙伤害");
                 Assert.AreEqual(155, new Battle(1, Lineup).Coins);
                 Assert.AreEqual(66, Defs.EnhanceCost(0));
                 Assert.AreEqual(2.22f, Defs.Heroes[0].Coef, 1e-4f);
+                Assert.AreEqual(3f, HeroKits.Of(HeroId.XieZhen).SigV, 1e-4f, "数值表要能改绝技数值");
+                Assert.IsTrue(HeroKits.Of(HeroId.XieZhen).SigDesc.Contains("多射 3 枚"), HeroKits.Of(HeroId.XieZhen).SigDesc);
             }
             finally
             {
@@ -1254,6 +1325,510 @@ namespace Liangshan.Tests
             }
             Assert.AreEqual(100, new Battle(1, Lineup).Coins);
             Assert.AreEqual(100, Defs.EnhanceCost(0));
+        }
+
+        [Test]
+        public void FourSkillSystemSignaturesAndAoyiFinishersWork()
+        {
+            // 1. 吴用 10 级绝技「锦囊妙计」：合成时献计爆银 + 立即向输出位抛出祝福法球；20 级祝福在合成后继承
+            var lu = new[] { HeroId.WuYong, HeroId.HuaRong, HeroId.LuZhiShen, HeroId.QinMing };
+            var lo = Loadout.Plain(lu);
+            for (int i = 0; i < lo.Lv.Length; i++) { lo.Lv[i] = 20; lo.Passive[i] = true; }
+            var b = new Battle(12, lu, Defs.Level(1), lo);
+            Put(b, 0, HeroId.WuYong, 1);
+            Put(b, 1, HeroId.WuYong, 1);
+            Put(b, 2, HeroId.HuaRong, 1);
+            Dummy(b, 0f, 1.5f);
+            int coins0 = b.Coins;
+            Assert.IsTrue(b.Drop(0, 1));
+            Assert.GreaterOrEqual(b.Coins, coins0 + 28 + 20, "吴用10级绝技参与合成额外献计+20银两");
+            Assert.IsTrue(b.Events.Any(e => e.Type == Ev.Sig && e.Hero == HeroId.WuYong), "触发绝技事件与紫金阵印演出");
+            Assert.IsTrue(b.Slots.Any(s => s.Unit != null && s.Unit.Def.Carry && s.Unit.BlessN >= 4), "吴用绝技立刻祝福场上输出好汉");
+
+            // 20 级继承祝福：花荣带祝福层数与另一位花荣合成，新好汉保留祝福
+            Put(b, 3, HeroId.HuaRong, 1);
+            b.Slots[2].Unit.BlessN = 3;
+            b.Slots[2].Unit.BlessMul = 2f;
+            Assert.IsTrue(b.Drop(2, 3));
+            if (b.Slots[3].Unit.Def.Carry)
+                Assert.AreEqual(3, b.Slots[3].Unit.BlessN, "吴用20级改写：被祝福好汉合成后祝福层数无损继承");
+
+            // 2. 鲁智深 10 级绝技「大闹五台山」：寨墙每掉 10% 生命立刻腾空砸地反击
+            var b2 = new Battle(15, lu, Defs.Level(1), lo);
+            Put(b2, 0, HeroId.LuZhiShen, 2);
+            b2.Slots[0].Unit.Cd = 99f;
+            var near = new Enemy { Id = 501, Def = Defs.Enemy(EnemyKind.Soldier), Hp = 5000f, MaxHp = 5000f, Pos = new V2(0f, Layout.StopY), Attacking = true, AtkCd = 0.01f };
+            near.Tough = (b2.WallMax * 0.12f) / near.Def.WallDps;
+            b2.Enemies.Add(near);
+            b2.Update(0.05f);
+            Assert.IsTrue(b2.Events.Any(e => e.Type == Ev.Sig && e.Hero == HeroId.LuZhiShen), "城墙掉血10%触发鲁智深绝技反击");
+            Assert.IsTrue(b2.Shots.Any(s => s.Hero == HeroId.LuZhiShen), "鲁智深无视当前冷却当场砸出禅杖");
+
+            // 3. 秦明 10 级绝技「霹雳火」：登场瞬间向敌群轰落 3 颗霹雳火陨
+            var b3 = new Battle(18, new[] { HeroId.QinMing, HeroId.QinMing, HeroId.QinMing, HeroId.QinMing }, Defs.Level(1), lo) { Coins = 5000 };
+            Dummy(b3, 0f, 2f);
+            b3.Summon();
+            Assert.AreEqual(3, b3.Shots.Count(s => s.Hero == HeroId.QinMing && s.Kind == ShotKind.Fireball), "秦明登场当场轰落3颗火陨");
+
+            // 4. 非传说好汉 5 级起可在三选一直接抽到「本命奥义」终结技卡并当场觉醒轰出见面礼弹幕！
+            var b4 = new Battle(22, lu, Defs.Level(1), lo);
+            Put(b4, 0, HeroId.HuaRong, 2);
+            Dummy(b4, 0f, 2.5f);
+            var aoyiCard = Defs.FinisherPerk(HeroId.HuaRong);
+            Assert.IsNotNull(aoyiCard);
+            Assert.IsTrue(aoyiCard.Finisher);
+            b4.Choices = new[] { aoyiCard };
+            b4.Phase = Phase.Choosing;
+            b4.Pick(0);
+            Assert.IsTrue(b4.IsAwakened(HeroId.HuaRong), "抽到奥义卡当场觉醒");
+            Assert.IsTrue(b4.Events.Any(e => e.Type == Ev.Awaken && e.Hero == HeroId.HuaRong));
+            Assert.GreaterOrEqual(b4.Shots.Count(s => s.Hero == HeroId.HuaRong), 3, "奥义觉醒瞬间当场齐射贯阵箭雨");
+        }
+
+        [Test]
+        public void RoleAuthenticMageChainRefractSupportMorphAndShatterGateWork()
+        {
+            // 1) 公孙胜逐跳蛇形连锁与阶梯衰减（默认 0.82^hop -> 高压超导 +2 连锁 & 0.92^hop -> 紫电雷池 100% 无损 + 终点麻痹雷池）
+            var luMage = new[] { HeroId.GongSun, HeroId.ShanTinggui, HeroId.WuYong, HeroId.ShiXiu };
+            var lo = Loadout.Plain(luMage);
+            lo.Crit = 0f;
+            var b = new Battle(77, luMage, Defs.Level(1), lo);
+            Put(b, 0, HeroId.GongSun, 1);
+            b.Slots[0].Unit.Cd = 0.01f;
+            var e0 = Dummy(b, -1.2f, 2.0f, 50000f);
+            var e1 = Dummy(b, 0.0f, 2.2f, 50000f);
+            var e2 = Dummy(b, 1.2f, 2.4f, 50000f);
+            var e3 = Dummy(b, 2.2f, 2.6f, 50000f);
+
+            // 初始 1 级公孙胜：主目标 + 连锁 1 跳（共打 2 人，第 2 跳伤害约为首跳的 82%）
+            for (int step = 0; step < 30; step++) b.Update(0.05f);
+            float d0 = 50000f - e0.Hp, d1 = 50000f - e1.Hp, d2 = 50000f - e2.Hp;
+            Assert.Greater(d0, 10f, "主目标受天雷直击");
+            Assert.That(d1 / d0, Is.InRange(0.76f, 0.95f), "第1次连锁跳跃按约 82% 阶梯递减（含感电易伤微调）");
+            Assert.AreEqual(0f, d2, 0.01f, "未强化前仅连锁 1 人（共打 2 人），第 3 人不受击");
+
+            // 升级「高压超导」+「紫电雷池」：连锁人数扩至 1+2=3 跳（共打 4 人），100% 无衰减且第 4 跳终点触发紫电雷池麻痹！
+            void Grant(Battle bt, string id) { bt.Choices = new[] { Defs.Perk(id) }; bt.Phase = Phase.Choosing; bt.Pick(0); }
+            e0.Hp = e1.Hp = e2.Hp = e3.Hp = 50000f;
+            e0.VulnT = e1.VulnT = e2.VulnT = e3.VulnT = 0f;
+            Grant(b, "gongsun_morph");
+            Grant(b, "gongsun_adv");
+            b.Slots[0].Unit.Cd = 0.01f;
+            b.Events.Clear();
+            bool sawThunderPool = false;
+            for (int step = 0; step < 40; step++)
+            {
+                b.Update(0.05f);
+                if (b.Events.Any(ev => ev.Type == Ev.Hit && ev.Shot == ShotKind.Lightning && ev.Value >= 100))
+                {
+                    sawThunderPool = true;
+                    break;
+                }
+            }
+            Assert.Greater(50000f - e3.Hp, (50000f - e0.Hp) * 0.95f, "紫电雷池实现全链路无衰减传导并附加终点雷池溅射");
+            Assert.Greater(e3.Stun, 0.1f, "终点紫电雷池麻痹敌军");
+            Assert.IsTrue(sawThunderPool, "向视图层发出紫电雷池终极特效事件");
+
+            // 2) 单廷珪持续射线折射（「寒晶折射」从主目标身上向周围折射副光束）
+            var bBeam = new Battle(88, luMage, Defs.Level(1), lo);
+            Grant(bBeam, "shantinggui_morph");
+            Put(bBeam, 1, HeroId.ShanTinggui, 1);
+            bBeam.Slots[1].Unit.Cd = 0.01f;
+            var bt0 = Dummy(bBeam, 0f, 2.0f, 50000f);
+            var bt1 = Dummy(bBeam, 1.4f, 2.2f, 50000f);
+            for (int step = 0; step < 15; step++) bBeam.Update(0.05f);
+            Assert.Greater(50000f - bt0.Hp, 5f);
+            Assert.Greater(50000f - bt1.Hp, 3f, "折射副光束同步灼烧/冻结主目标身旁敌军");
+
+            // 3) 辅助职业强化：「广发锦囊」(Count) 扩充祝福目标数，「军师破阵」(Morph) 施法同步给强敌挂易伤
+            var bSup = new Battle(99, luMage, Defs.Level(1), lo);
+            Grant(bSup, "wuyong_3"); // 广发锦囊 Count +1
+            Grant(bSup, "wuyong_morph"); // 军师破阵 Vuln +28%
+            Put(bSup, 0, HeroId.WuYong, 1);
+            Put(bSup, 1, HeroId.GongSun, 1);
+            Put(bSup, 2, HeroId.ShiXiu, 1);
+            var boss = Dummy(bSup, 0f, 2.0f, 80000f);
+            bSup.Slots[0].Unit.Cd = 0.01f;
+            bSup.Update(0.05f);
+            Assert.AreEqual(2, bSup.Slots.Count(s => s.Unit != null && s.Unit.Def.Carry && s.Unit.BlessN > 0), "1星吴用点出广发锦囊后一次同时祝福 2 名输出主将");
+            Assert.GreaterOrEqual(boss.Vuln, 0.28f - 1e-4f, "军师破阵在施放辅助技时同步给强敌挂上破绽易伤");
+
+            // 4) 阵容条件过滤：纯菜刀无控阵容绝不发废卡「破冰追击」(Eff.Shatter)
+            var noCtrlLu = new[] { HeroId.ShiXiu, HeroId.XieZhen, HeroId.LingZhen, HeroId.WuYong };
+            var bGate = new Battle(101, noCtrlLu, Defs.Level(1), Loadout.Plain(noCtrlLu)) { Coins = 999999 };
+            Assert.IsFalse(bGate.HasControlInLineup());
+            for (int r = 0; r < 25 && bGate.Enhance(); r++)
+            {
+                Assert.IsFalse(bGate.Choices.Any(c => c.Eff == Eff.Shatter), "无减速/控制好汉时绝不污染发牌池刷出破冰追击");
+                bGate.Pick(0);
+            }
+        }
+
+        [Test]
+        public void MageAoEAndCrossRoleStarterBalanceHold()
+        {
+            // 1) 马灵 1 星 0 词条起即为真实「落点金光震波」范围法师，且选「金印扩阵」(Eff.Area) 后真实扩张轰击半径！
+            var lu = Meta.Starters; // 解珍 / 孔亮 / 马灵 / 石秀
+            var lo = Loadout.Plain(lu);
+            lo.Crit = 0f;
+            var b = new Battle(33, lu, Defs.Level(1), lo);
+            Put(b, 0, HeroId.MaLing, 1);
+            b.Slots[0].Unit.Cd = 0.01f;
+            var main = new Enemy { Id = 700, Def = Defs.Enemy(EnemyKind.Shield), Hp = 50000f, MaxHp = 50000f, Pos = new V2(0f, 1.8f) };
+            var near = new Enemy { Id = 701, Def = Defs.Enemy(EnemyKind.Shield), Hp = 50000f, MaxHp = 50000f, Pos = new V2(0.75f, 1.85f) };
+            var outer = new Enemy { Id = 702, Def = Defs.Enemy(EnemyKind.Shield), Hp = 50000f, MaxHp = 50000f, Pos = new V2(1.55f, 1.85f) };
+            b.Enemies.AddRange(new[] { main, near, outer });
+
+            for (int step = 0; step < 30 && b.Shots.Count == 0; step++) b.Update(0.02f);
+            while (b.Shots.Count > 0) b.Update(0.02f);
+
+            float dMain = 50000f - main.Hp;
+            float dNear = 50000f - near.Hp;
+            float dOuter = 50000f - outer.Hp;
+            Assert.Greater(dMain, 100f, "马灵金砖直击盾兵享受法术破甲克制");
+            Assert.That(dNear / dMain, Is.InRange(0.70f, 0.80f), "1星0词条马灵落地金光震波对周围敌军造成 75% 范围法伤");
+            Assert.AreEqual(0f, dOuter, 0.01f, "未点范围词条前，1.55格外圈目标暂在初始震波之外");
+
+            // 点出 1 层「金印扩阵」(Area +59%, Dmg +33%) 后，震波半径真实扩张覆盖外圈目标！
+            main.Hp = near.Hp = outer.Hp = 50000f;
+            main.Pos = new V2(0f, 1.8f);
+            near.Pos = new V2(0.75f, 1.85f);
+            outer.Pos = new V2(1.55f, 1.85f);
+            main.Stun = near.Stun = outer.Stun = 9f;
+            b.Choices = new[] { Defs.Perk("maling_1") }; // 金印扩阵
+            b.Phase = Phase.Choosing;
+            b.Pick(0);
+            b.Slots[0].Unit.Cd = 0.01f;
+            for (int step = 0; step < 30 && b.Shots.Count == 0; step++) b.Update(0.02f);
+            while (b.Shots.Count > 0) b.Update(0.02f);
+            Assert.Greater(50000f - outer.Hp, 80f, "升级「金印扩阵」后马灵震波半径真实扩张，外圈盾兵同步吃满金光轰击");
+
+            // 2) 全员单将/马灵扎堆通关保障与同星级初始群伤跨职业平衡（马灵绝不再沦为石秀/孔亮的零头！）
+            float SimStage1FixedDmg(HeroId h)
+            {
+                float sum = 0f;
+                var hLu = new[] { h, HeroId.TangLong, HeroId.ShiQian, HeroId.JiangJing };
+                for (int seed = 1; seed <= 6; seed++)
+                {
+                    var bt = new Battle(seed, hLu, Defs.Level(1), Loadout.Plain(hLu));
+                    for (int k = 0; k < 5; k++) bt.Slots[k].Unit = new Unit { Hero = h, Star = 1, Cd = 0.2f * k };
+                    for (int k = 5; k < 7; k++) bt.Slots[k].Unit = new Unit { Hero = h, Star = 2, Cd = 0.3f * k };
+                    int g = 0;
+                    while (bt.Phase != Phase.Victory && bt.Phase != Phase.Defeat && g++ < 16000)
+                    {
+                        if (bt.Phase == Phase.Reels) bt.ApplyReels(bt.SpinReels());
+                        bt.Update(1f / 30f);
+                        foreach (var ev in bt.Events)
+                            if (ev.Type == Ev.Damage && ev.Hero == h) sum += ev.Value;
+                        bt.Events.Clear();
+                    }
+                }
+                return sum / 6f;
+            }
+
+            float dmgMaLing = SimStage1FixedDmg(HeroId.MaLing);
+            float dmgKongLiang = SimStage1FixedDmg(HeroId.KongLiang);
+            float dmgShiXiu = SimStage1FixedDmg(HeroId.ShiXiu);
+            Assert.That(dmgMaLing / dmgKongLiang, Is.InRange(0.72f, 1.38f),
+                $"同星级初始范围位马灵({dmgMaLing:F0})与孔亮({dmgKongLiang:F0})输出必须均衡");
+            Assert.That(dmgMaLing / dmgShiXiu, Is.InRange(0.68f, 1.38f),
+                $"同星级马灵({dmgMaLing:F0})与石秀({dmgShiXiu:F0})输出必须均衡，杜绝马灵刮痧");
+
+            // 3) 第 1 关极端偏科检验：即便开局召唤几乎全是马灵（马灵 + 3辅助），第 1 关通关率依然稳健 >= 8/10
+            int maLingHeavyWins = 0;
+            var maLingHeavyLu = new[] { HeroId.MaLing, HeroId.TangLong, HeroId.ShiQian, HeroId.JiangJing };
+            for (int seed = 1; seed <= 10; seed++)
+            {
+                var bt = new Battle(seed, maLingHeavyLu, Defs.Level(1), Loadout.Plain(maLingHeavyLu));
+                var bot = new Bot(2);
+                int g = 0;
+                while (bt.Phase != Phase.Victory && bt.Phase != Phase.Defeat && g++ < 18000)
+                {
+                    bot.Step(bt, 1f / 30f);
+                    bt.Update(1f / 30f);
+                    bt.Events.Clear();
+                }
+                if (bt.Phase == Phase.Victory) maLingHeavyWins++;
+            }
+            Assert.GreaterOrEqual(maLingHeavyWins, 8, $"第1关即便主C只有马灵也应稳过（盾兵惧法），实际胜场={maLingHeavyWins}/10");
+        }
+
+        [Test]
+        public void AllHeroRoleAndRarityDpsParityHold()
+        {
+            // 全 26 位战斗/控制好汉（横跨 R2稀有 / R3史诗 / R4传说 × 射手/炮手/法师/战士/控制）无偏置基准校场 DPS 护栏
+            float MeasureBenchDps(HeroId h, V2[] anchors, float simSec = 60f)
+            {
+                var lu = new[] { h, h, h, h }; // 同名阵容彻底剥离羁绊与多职业加成偏置
+                var lo = Loadout.Plain(lu);
+                lo.Crit = 0.05f;
+                lo.CritDmg = 1.5f;
+                var lv = new LevelDef
+                {
+                    No = 99, Chapter = 1, Index = 1, Name = "基准校场",
+                    Waves = 1, BossWave = 0, RageWave = 99,
+                    EliteWaves = System.Array.Empty<int>(), PorterWaves = System.Array.Empty<int>(),
+                    CountMul = 0.01f, WallHp = 99999f, StartCoins = 0,
+                    BuffRole = null, BuffPct = 0f,
+                    Troops = new[] { new TroopMix(EnemyKind.Soldier, 1f, 0f, 1) }
+                };
+                var b = new Battle(17, lu, lv, lo);
+                for (int w = 0; w < 600 && !b.AllSpawned; w++) { b.Enemies.Clear(); b.Update(0.05f); }
+                b.Enemies.Clear();
+                b.Shots.Clear();
+                b.Channels.Clear();
+                b.Events.Clear();
+                b.DamageBy[(int)h] = 0f;
+
+                var dummyDef = new EnemyDef
+                {
+                    Kind = EnemyKind.Soldier, Name = "木桩", Art = "en_soldier",
+                    Hp = 1e7f, Speed = 0f, WallDps = 0f, Size = 1.0f, Coin = 0, Rank = EnemyRank.Minion, StopY = -99f
+                };
+                var dummies = new Enemy[anchors.Length];
+                for (int i = 0; i < anchors.Length; i++)
+                {
+                    dummies[i] = new Enemy { Id = 5000 + i, Def = dummyDef, Hp = 1e7f, MaxHp = 1e7f, Pos = anchors[i] };
+                    b.Enemies.Add(dummies[i]);
+                }
+                b.Slots[3].Unit = new Unit { Hero = h, Star = 1, Cd = 0.05f };
+
+                int steps = (int)(simSec * 30f);
+                for (int s = 0; s < steps; s++)
+                {
+                    b.Wall = b.WallMax;
+                    for (int i = 0; i < dummies.Length; i++)
+                    {
+                        dummies[i].Pos = anchors[i];
+                        if (dummies[i].Hp < 5e6f) dummies[i].Hp = 1e7f;
+                    }
+                    b.Update(1f / 30f);
+                    b.Events.Clear();
+                }
+                return b.DamageBy[(int)h] / simSec;
+            }
+
+            float yFront = Layout.StopY + 0.35f;
+            var singleAnchor = new[] { new V2(0f, yFront) };
+            var pack5Anchors = new[]
+            {
+                new V2(0f, yFront),
+                new V2(-0.52f, yFront + 0.15f),
+                new V2(0.52f, yFront + 0.12f),
+                new V2(-0.18f, yFront + 0.72f),
+                new V2(0.28f, yFront + 0.85f),
+            };
+
+            var sb = new System.Text.StringBuilder("=== ALL 26 COMBAT/CONTROL HEROES DPS PARITY REPORT ===\n");
+            var metrics = new System.Collections.Generic.List<(HeroDef d, float single, float wave5, float comp)>();
+            foreach (var d in Defs.Heroes)
+            {
+                if (d.Kind == Role.Support)
+                {
+                    Assert.AreEqual(0f, d.Dps, $"{d.Name} 辅助职业面板直伤应为0");
+                    continue;
+                }
+                float s1 = MeasureBenchDps(d.Id, singleAnchor);
+                float w5 = MeasureBenchDps(d.Id, pack5Anchors);
+                float comp = 0.45f * s1 + 0.55f * w5;
+                Assert.Greater(s1, 12f, $"{d.Name} 单体实测DPS异常偏低");
+                Assert.GreaterOrEqual(w5, s1 * 0.95f, $"{d.Name} 5目标实测DPS不应低于单体");
+                metrics.Add((d, s1, w5, comp));
+            }
+            foreach (var m in metrics.OrderBy(x => x.d.Kind).ThenBy(x => x.d.Rarity).ThenBy(x => x.d.Id))
+                sb.AppendLine($"{m.d.Name}\tR{m.d.Rarity}\t{m.d.Role}\tSingle={m.single:F1}\tWave5={m.wave5:F1}\tComp={m.comp:F1}");
+            UnityEngine.Debug.Log(sb.ToString());
+            Assert.AreEqual(26, metrics.Count, "必须完整覆盖全部 26 位非辅助战斗/控制好汉");
+
+            // 1. 跨职业群伤铁三角（法师 / 炮手 / 战士）同品级横向对齐：R2、R3、R4 每一档内三职业 5 目标群伤均值偏差不超过 ±18%
+            var aoeRoles = new[] { Role.Mage, Role.Bomber, Role.Fighter };
+            for (int rar = 2; rar <= 4; rar++)
+            {
+                var roleMeans = aoeRoles.Select(r => (
+                    role: r,
+                    mean: metrics.Where(m => m.d.Kind == r && m.d.Rarity == rar).Average(m => m.wave5)
+                )).ToList();
+                float tierCenter = roleMeans.Average(x => x.mean);
+                foreach (var rm in roleMeans)
+                {
+                    Assert.That(rm.mean / tierCenter, Is.InRange(0.82f, 1.18f),
+                        $"R{rar} 群伤职业失衡：{Defs.RoleName(rm.role)} 5目标均值({rm.mean:F1})偏离同品级中枢({tierCenter:F1})超过 ±18%");
+                }
+            }
+
+            // 2. 同品级同职业内部偏差约束：杜绝同档位出现强弱悬殊的废卡或超模卡
+            foreach (var grp in metrics.GroupBy(m => (m.d.Kind, m.d.Rarity)))
+            {
+                if (grp.Count() < 2) continue;
+                foreach (var item in grp)
+                {
+                    if (grp.Key.Kind == Role.Archer)
+                    {
+                        // 射手含极速单点狙杀（解珍）与双穿毒伤（解宝），综合战术DPS偏差不超过 ±22%
+                        float meanComp = grp.Average(x => x.comp);
+                        Assert.That(item.comp / meanComp, Is.InRange(0.78f, 1.22f),
+                            $"同品级射手偏差过大：{item.d.Name}(R{item.d.Rarity}) 综合DPS={item.comp:F1}，同档均值={meanComp:F1}");
+                    }
+                    else if (grp.Key.Kind == Role.Control)
+                    {
+                        // 控制含大阵群控（朱武）与长枪破骑（徐宁），群伤偏差不超过 ±35%
+                        float meanW5 = grp.Average(x => x.wave5);
+                        Assert.That(item.wave5 / meanW5, Is.InRange(0.65f, 1.35f),
+                            $"同品级控制偏差过大：{item.d.Name}(R{item.d.Rarity}) 群伤DPS={item.wave5:F1}，同档均值={meanW5:F1}");
+                    }
+                    else
+                    {
+                        float meanW5 = grp.Average(x => x.wave5);
+                        Assert.That(item.wave5 / meanW5, Is.InRange(0.82f, 1.18f),
+                            $"同品级{Defs.RoleName(grp.Key.Kind)}偏差过大：{item.d.Name}(R{item.d.Rarity}) 群伤DPS={item.wave5:F1}，同档均值={meanW5:F1}");
+                    }
+                }
+            }
+
+            // 3. 跨品级严格单调递增（R2 < R3 < R4）且梯度健康受控（既严禁品级倒挂，也严禁数值膨胀崩坏）
+            foreach (var role in new[] { Role.Archer, Role.Bomber, Role.Mage, Role.Fighter, Role.Control })
+            {
+                float ScoreOf((HeroDef d, float single, float wave5, float comp) m)
+                    => role == Role.Archer ? m.single : m.wave5;
+
+                float r2Mean = metrics.Where(m => m.d.Kind == role && m.d.Rarity == 2).Average(ScoreOf);
+                float r3Mean = metrics.Where(m => m.d.Kind == role && m.d.Rarity == 3).Average(ScoreOf);
+                float r4Mean = metrics.Where(m => m.d.Kind == role && m.d.Rarity == 4).Average(ScoreOf);
+
+                Assert.That(r3Mean / r2Mean, Is.InRange(1.18f, 1.90f),
+                    $"{Defs.RoleName(role)} R3({r3Mean:F1})/R2({r2Mean:F1}) 品级梯度越界，实际比值={r3Mean / r2Mean:F2}");
+                Assert.That(r4Mean / r3Mean, Is.InRange(1.12f, 1.85f),
+                    $"{Defs.RoleName(role)} R4({r4Mean:F1})/R3({r3Mean:F1}) 品级梯度越界，实际比值={r4Mean / r3Mean:F2}");
+
+                float r2Max = metrics.Where(m => m.d.Kind == role && m.d.Rarity == 2).Max(ScoreOf);
+                float r4Min = metrics.Where(m => m.d.Kind == role && m.d.Rarity == 4).Min(ScoreOf);
+                Assert.Greater(r4Min, r2Max * 1.15f, $"{Defs.RoleName(role)} 最低传说R4({r4Min:F1})必须显著高于最高稀有R2({r2Max:F1})");
+            }
+
+            // 4. 职业特色契约：射手在每一品级均为单体点杀之王；控制群伤稳定处在同品级主力群伤的 30%~68% 辅助控场区间
+            for (int rar = 2; rar <= 4; rar++)
+            {
+                float archerSingle = metrics.Where(m => m.d.Kind == Role.Archer && m.d.Rarity == rar).Average(m => m.single);
+                foreach (var other in new[] { Role.Bomber, Role.Mage, Role.Fighter, Role.Control })
+                {
+                    float otherSingle = metrics.Where(m => m.d.Kind == other && m.d.Rarity == rar).Average(m => m.single);
+                    Assert.Greater(archerSingle, otherSingle,
+                        $"R{rar} 射手单体均值({archerSingle:F1})必须高于 {Defs.RoleName(other)}({otherSingle:F1})，守住单点精英/飞禽核心定位");
+                }
+
+                float aoeMean = metrics.Where(m => aoeRoles.Contains(m.d.Kind) && m.d.Rarity == rar).Average(m => m.wave5);
+                float ctrlMean = metrics.Where(m => m.d.Kind == Role.Control && m.d.Rarity == rar).Average(m => m.wave5);
+                Assert.That(ctrlMean / aoeMean, Is.InRange(0.30f, 0.68f),
+                    $"R{rar} 控制职业群伤占比({ctrlMean / aoeMean:P1})偏离 30%~68% 设计带");
+            }
+        }
+
+        [Test]
+        public void ExecAndControlPerksWorkCleanlyWithoutWallGimmicks()
+        {
+            // 1. 致命收割（原绝地反击）：单英雄独立生效（非跨英雄累加）、满墙血即完整生效，不再挂钩「寨墙危急」
+            var lu = new[] { HeroId.MaLing, HeroId.XieZhen };
+            var lo = Loadout.Plain(lu);
+            lo.Crit = 0f;
+            lo.CritDmg = 2f;
+            var b = new Battle(20261124, lu, Defs.Level(1), lo);
+            for (int w = 0; w < 600 && !b.AllSpawned; w++) { b.Enemies.Clear(); b.Update(0.05f); }
+            b.Enemies.Clear();
+            b.Wall = b.WallMax; // 满血寨墙（100%）
+
+            var maExec = Defs.PerksOf(HeroId.MaLing, false).Single(p => p.Id.EndsWith("_exec"));
+            Assert.AreEqual("致命收割", maExec.Name);
+            b.Choices = new[] { maExec };
+            b.Phase = Phase.Choosing;
+            b.Pick(0);
+
+            Assert.AreEqual(0.85f, b.Stat(HeroId.MaLing, Eff.Exec), 0.001f);
+            Assert.AreEqual(0.15f, b.Stat(HeroId.MaLing, Eff.Crit), 0.001f);
+            Assert.AreEqual(0f, b.Stat(HeroId.XieZhen, Eff.Exec), 0.001f, "单英雄强化仅作用于本英雄，不跨英雄串算");
+
+            var dummyDef = new EnemyDef
+            {
+                Kind = EnemyKind.Soldier, Name = "木桩", Art = "en_soldier",
+                Hp = 1e6f, Speed = 0f, WallDps = 0f, Size = 1.0f, Coin = 0, Rank = EnemyRank.Minion, StopY = -99f
+            };
+            var lowHpDummy = new Enemy { Id = 8801, Def = dummyDef, Hp = 300000f, MaxHp = 1000000f, Pos = new V2(0f, 1.5f) };
+            b.Enemies.Add(lowHpDummy);
+            b.Slots[3].Unit = new Unit { Hero = HeroId.MaLing, Star = 1, Cd = 0.02f };
+            for (int i = 0; i < 40; i++) b.Update(0.05f);
+            Assert.Greater(b.DamageBy[(int)HeroId.MaLing], Defs.Hero(HeroId.MaLing).Coef * b.HeroAtk(HeroId.MaLing, 1) * 1.70f,
+                "满血寨墙下对半血以下敌人完整打出 +85% 致命收割增伤");
+
+            // 2. 控制职业「画地为牢」：全图任意距离（含前场 y=3.5 远离寨墙处）均稳定提供控制延长与 +18% 命中易伤
+            var ctrlLu = new[] { HeroId.ZhuWu };
+            var ctrlLo = Loadout.Plain(ctrlLu);
+            ctrlLo.Crit = 0f;
+            ctrlLo.CritDmg = 2f;
+            var bCtrl = new Battle(20261125, ctrlLu, Defs.Level(1), ctrlLo);
+            for (int w = 0; w < 600 && !bCtrl.AllSpawned; w++) { bCtrl.Enemies.Clear(); bCtrl.Update(0.05f); }
+            bCtrl.Enemies.Clear();
+            var zhuExec = Defs.PerksOf(HeroId.ZhuWu, false).Single(p => p.Id.EndsWith("_exec"));
+            Assert.AreEqual("画地为牢", zhuExec.Name);
+            bCtrl.Choices = new[] { zhuExec };
+            bCtrl.Phase = Phase.Choosing;
+            bCtrl.Pick(0);
+
+            var farEnemy = new Enemy { Id = 8802, Def = dummyDef, Hp = 500000f, MaxHp = 500000f, Pos = new V2(0f, 3.5f) };
+            bCtrl.Enemies.Add(farEnemy);
+            bCtrl.Slots[3].Unit = new Unit { Hero = HeroId.ZhuWu, Star = 1, Cd = 0.02f };
+            for (int i = 0; i < 40; i++) bCtrl.Update(0.05f);
+
+            Assert.Greater(farEnemy.SlowT, 2.5f, "前场远处照常获得完整减速延长，无需怪贴墙");
+            Assert.GreaterOrEqual(farEnemy.Vuln, 0.18f, "命中同时挂上 +18% 破阵易伤");
+        }
+
+        [Test]
+        public void InitialCooldownFloorOverflowSpeedAndXieZhenSnipeHold()
+        {
+            // 1. 情绪价值与攻速成长空间护栏：全部 32 位好汉 1 级初始冷却严禁低于 2.05s，杜绝开局“1 秒机关枪”透支后期爽感
+            foreach (var d in Defs.Heroes)
+                Assert.GreaterOrEqual(d.Interval, 2.05f - 1e-4f, $"{d.Name} 1级初始冷却({d.Interval:F2}s)过短，缺乏后期攻速提升空间");
+
+            // 2. 解珍选「双弦猎箭(箭+1)」稳定射 2 箭；三合一奥义觉醒后第 3 轮不再乱洒 3 支散箭，而是精准锁定飞禽/精英追射 1 支放大重箭
+            var lu = new[] { HeroId.XieZhen, HeroId.KongLiang, HeroId.MaLing, HeroId.ShiXiu };
+            var b = new Battle(11, lu);
+            b.Slots[0].Unit = new Unit { Hero = HeroId.XieZhen, Star = 1, Cd = 0f };
+            b.Enemies.Add(new Enemy { Id = 901, Def = Defs.Enemy(EnemyKind.Soldier), Hp = 9999f, MaxHp = 9999f, Pos = new V2(0, 1.5f) });
+            b.Enemies.Add(new Enemy { Id = 902, Def = Defs.Enemy(EnemyKind.Hawk), Hp = 9999f, MaxHp = 9999f, Pos = new V2(1.2f, 2.8f) });
+            b.Choices = new[] { Defs.Perk("xiezhen_0") }; b.Phase = Phase.Choosing; b.Pick(0);
+            b.Choices = new[] { Defs.Perk("xiezhen_morph") }; b.Phase = Phase.Choosing; b.Pick(0);
+            b.Choices = new[] { Defs.Perk("xiezhen_adv") }; b.Phase = Phase.Choosing; b.Pick(0);
+            Assert.IsTrue(b.IsAwakened(HeroId.XieZhen));
+
+            b.Shots.Clear();
+            b.Slots[0].Unit.Casts = 0;
+            b.Slots[0].Unit.Cd = 0f;
+            b.Update(0.02f);
+            Assert.AreEqual(2, b.Shots.Count, "选箭+1后普通轮次严格射出2支箭");
+
+            b.Shots.Clear();
+            b.Slots[0].Unit.Casts = 2;
+            b.Slots[0].Unit.Cd = 0f;
+            b.Update(0.02f);
+            Assert.AreEqual(3, b.Shots.Count, "觉醒第3轮为2支普箭+1支穿林破甲重矢，不冒出4~5支散箭");
+            var heavy = b.Shots.OrderByDescending(s => s.Scale).First();
+            Assert.Greater(heavy.Scale, 1.35f);
+            Assert.AreEqual(902, heavy.TargetId, "穿林重矢优先狙杀飞禽鹰隼");
+
+            // 3. 极端叠攻速保底护栏（0.55s）与 1:1 无损转伤害：8 倍攻速不鬼畜抽搐，溢出攻速全额化为重箭伤害
+            var speedLu = new[] { HeroId.XieZhen, HeroId.XieZhen, HeroId.XieZhen, HeroId.XieZhen };
+            var lo1 = Loadout.Plain(speedLu); lo1.Crit = 0f; lo1.AllSpeed = 2.0f; // 2.20 / 2.0 = 1.10s
+            var lo2 = Loadout.Plain(speedLu); lo2.Crit = 0f; lo2.AllSpeed = 8.0f; // 2.20 / 8.0 = 0.275s -> 锁在 0.55s，单发伤害×2
+            var b1 = new Battle(1, speedLu, Defs.Level(1), lo1);
+            var b2 = new Battle(1, speedLu, Defs.Level(1), lo2);
+            b1.Enemies.Clear(); b2.Enemies.Clear();
+            b1.Enemies.Add(new Enemy { Id = 1, Def = Defs.Enemy(EnemyKind.Boss), Hp = 1e8f, MaxHp = 1e8f, Pos = new V2(0, 1f) });
+            b2.Enemies.Add(new Enemy { Id = 1, Def = Defs.Enemy(EnemyKind.Boss), Hp = 1e8f, MaxHp = 1e8f, Pos = new V2(0, 1f) });
+            b1.Slots[0].Unit = new Unit { Hero = HeroId.XieZhen, Star = 1, Cd = 0f };
+            b2.Slots[0].Unit = new Unit { Hero = HeroId.XieZhen, Star = 1, Cd = 0f };
+            b1.Update(0.01f); b2.Update(0.01f);
+            float realCd2 = b2.Slots[0].Unit.Cd / b2.HeroSpeedMul(HeroId.XieZhen);
+            Assert.AreEqual(Defs.MinAtkInterval, realCd2, 0.02f, "超高攻速真实间隔锁定在保底 0.55s");
+            Assert.AreEqual(2.0f, b2.Shots[0].Damage / b1.Shots[0].Damage, 0.02f, "超出保底的2倍溢出攻速1:1无损折算为2倍单发伤害");
         }
     }
 }

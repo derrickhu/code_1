@@ -76,13 +76,40 @@ namespace Liangshan
             }
         }
 
-        /// <summary>对标参考图3「洗炼石」暖金顶栏圆角道具详情卡：上层品质色横幅（框住图标+名称+道具副标），下层白瓷底说明与来源。</summary>
+        /// <summary>道具详情卡：顶栏图标与名字，下方说明按字宽排满再断行，获取途径跟在说明下面，两段互不重叠。</summary>
         public static void ItemTip(Transform layer, Item it, Transform anchor)
         {
             var info = CurInfo(it);
-            var size = new Vector2(740, 340);
+            const float maxTextW = 760f;
+            const float headH = 168f;
+            const float padX = 40f;
+            const float bodyTop = 26f;
+            const float gap = 18f;
+            const float bodyBot = 28f;
+            const int descSize = 30;
+            const int fromSize = 26;
+            const float descLead = 1.08f;
+            const float fromLead = 1.05f;
+
+            string desc = Ui.WrapBody(layer, info.Desc, descSize, Fonts.Bold, maxTextW);
+            string from = Ui.WrapBody(layer, "获取途径：" + info.From, fromSize, Fonts.Heavy, maxTextW);
+            float contentW = Mathf.Max(Ui.WidestLine(layer, desc, descSize, Fonts.Bold), Ui.WidestLine(layer, from, fromSize, Fonts.Heavy));
+            if (contentW < 120f) contentW = maxTextW;
+            contentW = Mathf.Min(Mathf.Ceil(contentW + 4f), maxTextW);
+            float nameNeed = 42f * Mathf.Max(2, CurName(it).Length);
+            float cardW = Mathf.Max(contentW, 136f + 24f + nameNeed) + padX * 2f;
+            float descH = Ui.BlockHeight(layer, desc, descSize, Fonts.Bold, contentW, descLead);
+            float fromH = Ui.BlockHeight(layer, from, fromSize, Fonts.Heavy, contentW, fromLead);
+            float cardH = headH + bodyTop + descH + gap + fromH + bodyBot;
+
             var at = anchor != null ? LocalOf(layer, anchor) : Vector2.zero;
-            var pos = ClampX(layer, new Vector2(at.x * 0.35f, Mathf.Clamp(at.y + 230f, -220f, 340f)), size.x * 0.5f);
+            var layerRt = (RectTransform)layer;
+            float halfW = layerRt.rect.width * 0.5f - 16f;
+            float halfH = layerRt.rect.height * 0.5f - 20f;
+            var pos = new Vector2(at.x * 0.35f, at.y + cardH * 0.5f + 28f);
+            pos.x = Mathf.Clamp(pos.x, -halfW + cardW * 0.5f, halfW - cardW * 0.5f);
+            pos.y = Mathf.Clamp(pos.y, -halfH + cardH * 0.5f, halfH - cardH * 0.5f);
+            var size = new Vector2(cardW, cardH);
             var root = Popover(layer, "tip", out var card, size, pos);
             root.Find("hit").GetComponent<Image>().color = new Color(0.02f, 0.05f, 0.1f, 0.42f);
 
@@ -90,17 +117,21 @@ namespace Liangshan
             int tier = sk == "slot_red" ? 4 : sk == "slot_orange" ? 3 : sk == "slot_purple" ? 2 : sk == "slot_blue" ? 1 : 0;
             Color headCol = sk == "slot_wood" ? Pal.Hex("C88A32") : QualBanner(tier);
             Color strokeCol = sk == "slot_wood" ? Pal.Hex("3B240E") : QualStroke(tier);
+            float top = cardH * 0.5f;
+            float seam = top - headH;
             Color rimCol = sk == "slot_wood" ? Pal.Hex("FFB800") : QualGlow(tier);
             Ui.Box(card, size + new Vector2(8, 8), Vector2.zero, rimCol.A(0.75f), Art.Rounded);
             Ui.Box(card, size + new Vector2(2, 2), Vector2.zero, Pal.Hex("0D1528"), Art.Rounded);
-            Ui.Box(card, new Vector2(size.x, 168), new Vector2(0, size.y * 0.5f - 84), headCol.Mul(0.72f), Art.Rounded);
-            Ui.Box(card, new Vector2(size.x, 36), new Vector2(0, size.y * 0.5f - 150), headCol.Mul(0.72f), Art.White);
-            Ui.Box(card, new Vector2(size.x, size.y - 168), new Vector2(0, -84), Pal.Hex("101B34"), Art.Rounded);
-            Ui.Box(card, new Vector2(size.x, 24), new Vector2(0, size.y * 0.5f - 180), Pal.Hex("101B34"), Art.White);
-            Ui.Box(card, new Vector2(size.x, 3), new Vector2(0, size.y * 0.5f - 168), rimCol, Art.White);
+            Ui.Box(card, new Vector2(cardW, headH), new Vector2(0, top - headH * 0.5f), headCol.Mul(0.72f), Art.Rounded);
+            Ui.Box(card, new Vector2(cardW, 36), new Vector2(0, seam + 18f), headCol.Mul(0.72f), Art.White);
+            Ui.Box(card, new Vector2(cardW, cardH - headH), new Vector2(0, seam - (cardH - headH) * 0.5f), Pal.Hex("101B34"), Art.Rounded);
+            Ui.Box(card, new Vector2(cardW, 24), new Vector2(0, seam - 12f), Pal.Hex("101B34"), Art.White);
+            float textLeft = -cardW * 0.5f + padX;
+            float textCenter = textLeft + contentW * 0.5f;
+            Ui.Box(card, new Vector2(cardW, 3), new Vector2(0, seam), rimCol, Art.White);
 
-            // 左侧统一雕花品质方框图标
-            var iconPos = new Vector2(-size.x * 0.5f + 104, size.y * 0.5f - 84);
+            float iconX = -cardW * 0.5f + padX + 68f;
+            var iconPos = new Vector2(iconX, top - headH * 0.5f);
             Slot(card, sk, 136, iconPos);
             if (it.Cur == Cur.Shard)
             {
@@ -116,11 +147,22 @@ namespace Liangshan
                 Ui.Icon(card, CurIcon(it), 96, iconPos + new Vector2(0, 2));
             }
 
-            Ui.SingleLine(Ui.Outlined(card, CurName(it), 40, Color.white, new Vector2(56, size.y * 0.5f - 62), new Vector2(450, 52), strokeCol, 2.4f, TextAnchor.MiddleLeft), 24);
-            Ui.Outlined(card, it.Cur == Cur.Shard ? "乡亲碎片" : "物资", 26, Color.white, new Vector2(56, size.y * 0.5f - 110), new Vector2(450, 38), strokeCol, 1.8f, TextAnchor.MiddleLeft);
+            float nameLeft = iconX + 68f + 22f;
+            float nameW = cardW * 0.5f - padX - nameLeft;
+            float nameX = nameLeft + nameW * 0.5f;
+            Ui.Outlined(card, CurName(it), 40, Color.white, new Vector2(nameX, iconPos.y + 24f), new Vector2(nameW, 52), strokeCol, 2.4f, TextAnchor.MiddleLeft);
+            Ui.Outlined(card, it.Cur == Cur.Shard ? "乡亲碎片" : "物资", 26, Color.white, new Vector2(nameX, iconPos.y - 26f), new Vector2(nameW, 38), strokeCol, 1.8f, TextAnchor.MiddleLeft);
 
-            Ui.Label(card, info.Desc, 27, Pal.Hex("EAF2FF"), new Vector2(0, -56), new Vector2(size.x - 68, 96), TextAnchor.UpperLeft, Fonts.Bold);
-            Ui.SingleLine(Ui.Label(card, $"获取途径：{info.From}", 23, Pal.Hex("00E5FF"), new Vector2(0, -134), new Vector2(size.x - 68, 36), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
+            float descTop = seam - bodyTop;
+            var descLabel = Ui.Label(card, desc, descSize, Pal.Hex("EAF2FF"), new Vector2(textCenter, descTop - descH * 0.5f), new Vector2(contentW, descH), TextAnchor.UpperLeft, Fonts.Bold);
+            descLabel.lineSpacing = descLead;
+            descLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            descLabel.verticalOverflow = VerticalWrapMode.Overflow;
+            float fromTop = descTop - descH - gap;
+            var fromLabel = Ui.Label(card, from, fromSize, Pal.Hex("00E5FF"), new Vector2(textCenter, fromTop - fromH * 0.5f), new Vector2(contentW, fromH), TextAnchor.UpperLeft, Fonts.Heavy);
+            fromLabel.lineSpacing = fromLead;
+            fromLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            fromLabel.verticalOverflow = VerticalWrapMode.Overflow;
         }
 
         // ---------------- 关卡列表 ----------------
@@ -497,6 +539,21 @@ namespace Liangshan
             Ui.SingleLine(Ui.Label(p, "品质：精良 +15% · 史诗 +30% · 传说 +50%（乘在强化属性上）", 22, Pal.SubInk, new Vector2(0, -130), new Vector2(780, 36)), 17);
             if (S.GearBoxes > 0)
                 Ui.Btn(p, $"再开一个（{S.GearBoxes}）", new Vector2(400, 110), new Vector2(0, -260), Pal.Gold, () => GearBox(layer, changed), 38, "ic_gearbox");
+            else if (S.AdGearBox < Meta.AdGearBoxMax)
+            {
+                int adLeft = Meta.AdGearBoxMax - S.AdGearBox;
+                Ui.Btn(p, "好的", new Vector2(280, 110), new Vector2(-178, -260), Pal.Azure, () => Close((RectTransform)layer.Find("modal_gearbox")), 40);
+                Ui.Btn(p, $"免费再开 ({adLeft})", new Vector2(340, 110), new Vector2(168, -260), Pal.Green, () =>
+                {
+                    Ads.Show("gear_box", () =>
+                    {
+                        S.AdGearBox++;
+                        S.GearBoxes++;
+                        Save();
+                        GearBox(layer, changed);
+                    });
+                }, 34, "ic_ad");
+            }
             else Ui.Btn(p, "好的", new Vector2(300, 110), new Vector2(0, -260), Pal.Azure, () => Close((RectTransform)layer.Find("modal_gearbox")), 40);
             Sfx.Play(g.Upgraded ? Snd.Unlock : Snd.Coin);
             if (g.Upgraded)
@@ -664,7 +721,7 @@ namespace Liangshan
             float roleB = Defs.RoleSynergyBonus(lineup);
             Ui.Skin(p, "dark", new Vector2(810, 130), new Vector2(0, 300), 1f);
             Ui.Outlined(p, $"异职同心（当前上阵 {roleN} 种职业）", 30, Pal.Champagne, new Vector2(0, 324), new Vector2(760, 42), Pal.Ink, 1.8f);
-            Ui.Label(p, $"2职 +3% · 3职 +7% · 4职 +12%   当前生效：<color=#7CF29A>+{(int)(roleB * 100)}%</color>",
+            Ui.Label(p, $"2职 +3% · 3职 +7% · 4职 +12%   当前生效：<color=#7CF29A>+{Mathf.RoundToInt(roleB * 100f)}%</color>",
                 24, Pal.Cream, new Vector2(0, 276), new Vector2(760, 38), TextAnchor.MiddleCenter, Fonts.Heavy);
 
             Ui.Skin(p, "modal_well", new Vector2(828, 680), new Vector2(0, -124), 1f);

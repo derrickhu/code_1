@@ -4,8 +4,7 @@ using System.Collections.Generic;
 namespace Liangshan
 {
     /// <summary>
-    /// 云上的游戏标识。gameKey 用 cunkou，沿用原《村口大战外星人》工程配置，CDN 目录、云函数和存档集合都按这个键隔离。
-    /// 云函数目录、网关路径、GAME_KEY 环境变量三处都是 cunkou。
+    /// 云上的游戏标识。gameKey 用 cunkou，沿用《村口大战外星人》工程配置，CDN 目录、云函数和存档集合都按这个键隔离。
     /// </summary>
     public static class CloudConfig
     {
@@ -14,6 +13,10 @@ namespace Liangshan
         public const string AppId = "wx4afec790790030e8";
         /// <summary>微信默认激励视频广告位 ID（体力+挂机巡村，未单独命中的场景回退此 ID）。</summary>
         public const string RewardedAdUnitId = "adunit-3e808f8ac0bd9209";
+        /// <summary>微信插屏广告位 ID（开通后填入即可启用战后低频插屏）。</summary>
+        public const string WeChatInterstitialAdUnitId = "";
+        /// <summary>微信主界面悬浮原生模板广告位 ID（可选，留空不展示）。</summary>
+        public const string WeChatCustomFloatAdUnitId = "";
 
         /// <summary>抖音小游戏 AppID。</summary>
         public const string DouyinAppId = "tt5b402dfdc53db6ff07";
@@ -22,14 +25,9 @@ namespace Liangshan
         /// <summary>抖音插屏广告位 ID（后续开通插屏广告位后填入即可启用）。</summary>
         public const string DouyinInterstitialAdUnitId = "";
 
-        /// <summary>
-        /// 抖音一次性订阅消息模板 ID（在抖音开放平台 -> 运营/互动能力 -> 订阅消息 选用模板后填入 MSG...）。
-        /// 注意：一次性模板单次最多传 3 个；版本更新提醒模板须单独请求，不可与普通一次性模板混传。
-        /// 也可在不重编 Unity 的情况下直接填入导出目录 douyin-minigame/game.js 的 SUBSCRIBE_TMPL_IDS。
-        /// </summary>
-        public const string DouyinSubscribePatrolTmplId = ""; // 巡村收益满仓 / 体力恢复提醒
-        public const string DouyinSubscribeSignTmplId = "";   // 每日签到 / 活动开启提醒
-        public const string DouyinSubscribeUpdateTmplId = ""; // 版本更新提醒（单独请求）
+        public const string DouyinSubscribePatrolTmplId = "";
+        public const string DouyinSubscribeSignTmplId = "";
+        public const string DouyinSubscribeUpdateTmplId = "";
 
         public static string GetDouyinSubscribeTmplCsv(string scene)
         {
@@ -44,7 +42,7 @@ namespace Liangshan
         }
 
         /// <summary>
-        /// 微信分场景激励视频广告位映射表（5 个分组广告位覆盖全部 13 个激励视频入口）：
+        /// 微信分场景激励视频广告位映射表（5 个已开通分组广告位覆盖全部 19 个激励视频细分入口）：
         /// - 体力+挂机巡村：adunit-3e808f8ac0bd9209
         /// - 局内强化+倍速：adunit-c5587bc19363af50
         /// - 胜利双倍+开局增援：adunit-6233ca9f96b05e36
@@ -53,19 +51,25 @@ namespace Liangshan
         /// </summary>
         static readonly Dictionary<string, string> WeChatSceneAdUnits = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            { "start_2star",  "adunit-6233ca9f96b05e36" }, // 胜利双倍+开局增援
-            { "double",       "adunit-6233ca9f96b05e36" }, // 胜利双倍+开局增援
-            { "shop_ingot",   "adunit-39a3bb98a95fc55c" }, // 抽卡+供销社星钻
-            { "recruit",      "adunit-39a3bb98a95fc55c" }, // 抽卡+供销社星钻
-            { "shop_stamina", "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
-            { "stamina",      "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
-            { "idle",         "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
-            { "speed2",       "adunit-c5587bc19363af50" }, // 局内强化+倍速
-            { "swap_unit",    "adunit-c5587bc19363af50" }, // 局内强化+倍速
-            { "reroll",       "adunit-c5587bc19363af50" }, // 局内强化+倍速
-            { "take_all",     "adunit-c5587bc19363af50" }, // 局内强化+倍速
-            { "reel_jackpot", "adunit-c5587bc19363af50" }, // 局内强化+倍速
-            { "revive",       "adunit-fe7a8a11e1ea7ee9" }, // 战败复活
+            { "start_2star",    "adunit-6233ca9f96b05e36" }, // 胜利双倍+开局增援
+            { "double",         "adunit-6233ca9f96b05e36" }, // 胜利双倍+开局增援
+            { "lose_double",    "adunit-6233ca9f96b05e36" }, // 二败抚恤双倍
+            { "shop_ingot",     "adunit-39a3bb98a95fc55c" }, // 抽卡+供销社星钻
+            { "recruit",        "adunit-39a3bb98a95fc55c" }, // 抽卡+供销社星钻
+            { "totem_pull",     "adunit-39a3bb98a95fc55c" }, // 徽章寻宝免费抽
+            { "gear_box",       "adunit-39a3bb98a95fc55c" }, // 装备箱免费开
+            { "shop_stamina",   "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
+            { "stamina",        "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
+            { "welfare_double", "adunit-3e808f8ac0bd9209" }, // 每日福利加领一份
+            { "idle",           "adunit-3e808f8ac0bd9209" }, // 体力+挂机巡村
+            { "daily_extra",    "adunit-3e808f8ac0bd9209" }, // 比武加次数
+            { "escort_extra",   "adunit-3e808f8ac0bd9209" }, // 拦截补给加次数
+            { "speed2",         "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "swap_unit",      "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "reroll",         "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "take_all",       "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "reel_jackpot",   "adunit-c5587bc19363af50" }, // 局内强化+倍速
+            { "revive",         "adunit-fe7a8a11e1ea7ee9" }, // 战败复活
         };
 
         public static string GetWeChatAdUnitId(string scene)
@@ -76,28 +80,29 @@ namespace Liangshan
         }
 
         /// <summary>
-        /// 抖音分场景激励视频广告位映射表（5 个分组广告位覆盖全部 13 个激励视频入口）：
-        /// - 抽卡 & 供销社星钻：al008pk72n23x56kq9
-        /// - 局内强化 & 倍速：1alnffp680mg2gdah1
-        /// - 胜利双倍 & 开局增援：1nbibg488beg3t4ahs
-        /// - 战败复活：3oengr4154u8nn45gn
-        /// - 体力（含巡村挂机）：mcs8desnlr2a80go8v
+        /// 抖音分场景激励视频广告位映射表（5 个分组广告位覆盖全部 19 个激励视频细分入口）。
         /// </summary>
         static readonly Dictionary<string, string> DouyinSceneAdUnits = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            { "start_2star",  "1nbibg488beg3t4ahs" }, // 胜利双倍 & 开局增援
-            { "double",       "1nbibg488beg3t4ahs" }, // 胜利双倍 & 开局增援
-            { "shop_ingot",   "al008pk72n23x56kq9" }, // 抽卡 & 供销社星钻
-            { "recruit",      "al008pk72n23x56kq9" }, // 抽卡 & 供销社星钻
-            { "shop_stamina", "mcs8desnlr2a80go8v" }, // 体力
-            { "stamina",      "mcs8desnlr2a80go8v" }, // 体力
-            { "idle",         "mcs8desnlr2a80go8v" }, // 体力（挂机巡村）
-            { "speed2",       "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
-            { "swap_unit",    "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
-            { "reroll",       "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
-            { "take_all",     "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
-            { "reel_jackpot", "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
-            { "revive",       "3oengr4154u8nn45gn" }, // 战败复活
+            { "start_2star",    "1nbibg488beg3t4ahs" }, // 胜利双倍 & 开局增援
+            { "double",         "1nbibg488beg3t4ahs" }, // 胜利双倍 & 开局增援
+            { "lose_double",    "1nbibg488beg3t4ahs" }, // 二败抚恤双倍
+            { "shop_ingot",     "al008pk72n23x56kq9" }, // 抽卡 & 供销社星钻
+            { "recruit",        "al008pk72n23x56kq9" }, // 抽卡 & 供销社星钻
+            { "totem_pull",     "al008pk72n23x56kq9" }, // 徽章寻宝免费抽
+            { "gear_box",       "al008pk72n23x56kq9" }, // 装备箱免费开
+            { "shop_stamina",   "mcs8desnlr2a80go8v" }, // 体力
+            { "stamina",        "mcs8desnlr2a80go8v" }, // 体力
+            { "welfare_double", "mcs8desnlr2a80go8v" }, // 每日福利加领一份
+            { "idle",           "mcs8desnlr2a80go8v" }, // 体力（挂机巡村）
+            { "daily_extra",    "mcs8desnlr2a80go8v" }, // 比武加次数
+            { "escort_extra",   "mcs8desnlr2a80go8v" }, // 拦截补给加次数
+            { "speed2",         "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "swap_unit",      "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "reroll",         "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "take_all",       "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "reel_jackpot",   "1alnffp680mg2gdah1" }, // 局内强化 & 倍速
+            { "revive",         "3oengr4154u8nn45gn" }, // 战败复活
         };
 
         public static string GetDouyinAdUnitId(string scene)
@@ -106,7 +111,7 @@ namespace Liangshan
                 return id;
             return DouyinDefaultAdUnitId;
         }
-        /// <summary>云存储上的按需资源，和别的游戏同一个桶。曲子在 cunkou/StreamingAssets/Music，用到哪首下哪首。</summary>
+
         public const string AssetCdn = "https://726f-rosa-env-d7grf78r5dbd37323-1414200063.tcb.qcloud.la/" + GameKey;
 
         public const string BaseUrl = "https://rosa-env-d7grf78r5dbd37323.service.tcloudbase.com";
@@ -118,6 +123,7 @@ namespace Liangshan
         public const string RankSubmitPath = Prefix + "/rank/submit";
         public const string RankListPath = Prefix + "/rank/list";
         public const string RankLikePath = Prefix + "/rank/like";
+        public const string GameClubSyncPath = Prefix + "/gameclub/sync";
 
         public const int RequestTimeoutSec = 10;
         public const int SchemaVersion = 1;

@@ -406,7 +406,7 @@ namespace Liangshan
             sr.flipX = flipX;
             var xy = scaleXY ?? Vector2.one;
             sr.transform.localScale = new Vector3(size * xy.x, size * xy.y, 1f);
-            dur *= Mathf.Max(0.35f, 1f);
+            dur *= Mathf.Max(0.35f, Defs.VfxPace);
             Anim(sr.gameObject, dur, k =>
             {
                 int fi = Mathf.Clamp(Mathf.FloorToInt(k * frames.Length), 0, frames.Length - 1);
@@ -478,7 +478,7 @@ namespace Liangshan
             var scroll = new Vector4(sweepDeg >= 0 ? -2.6f : 2.6f, 0.5f, sweepDeg >= 0 ? -1.4f : 1.4f, -0.9f);
             var nScale = new Vector2(2.2f, 1.2f);
 
-            float dScaled = dur * Mathf.Max(0.35f, 1f);
+            float dScaled = dur * Mathf.Max(0.35f, Defs.VfxPace);
             Anim(root, dScaled, k =>
             {
                 float rev = Tween.OutCubic(Mathf.Clamp01(k / 0.42f));
@@ -599,7 +599,7 @@ namespace Liangshan
         public void DissolveBurst(Sprite s, Vector2 pos, float size, float dur, int order, Color? tint = null,
             bool add = false, float from = 0.50f, float spin = 0f, float distort = 0.04f)
         {
-            dur *= Mathf.Max(0.35f, 1f);
+            dur *= Mathf.Max(0.35f, Defs.VfxPace);
             var col = tint ?? Color.white;
             var sr = Take(s, pos, size * from, order, col, add);
             sr.sharedMaterial = UberMat(add);
@@ -636,7 +636,7 @@ namespace Liangshan
         /// <summary>刀光：月牙从 fromDeg 扫到 toDeg，先亮后散。外圈一层兵器色的光，内芯是白的。</summary>
         public void Swing(Vector2 pos, float size, float fromDeg, float toDeg, Color c, float dur = 0.24f, bool flip = false, int order = 9515)
         {
-            dur *= Mathf.Max(0.35f, 1f);
+            dur *= Mathf.Max(0.35f, Defs.VfxPace);
             var spr = Art.Img("fx_swing");
             var tip = Color.Lerp(Color.white, c, 0.35f);
             var glow = Take(spr, pos, size, order - 1, c.A(0), true);
@@ -657,7 +657,7 @@ namespace Liangshan
         /// <summary>斩痕：一道细亮线从中间往两头瞬间拉开横过敌人身上，白芯外裹兵器色，随后变细消失。</summary>
         public void CutLine(Vector2 pos, float deg, float len, Color c, float dur = 0.24f, float thick = 0.09f, int order = 9530)
         {
-            dur *= Mathf.Max(0.35f, 1f);
+            dur *= Mathf.Max(0.35f, Defs.VfxPace);
             var glow = Take(Art.Beam, pos, 1f, order - 1, c.A(0), true);
             var core = Take(Art.Beam, pos, 1f, order, Color.white.A(0), true);
             var rot = Quaternion.Euler(0, 0, deg);
@@ -676,7 +676,7 @@ namespace Liangshan
         /// <summary>两点之间的光束：从 a 一头亮起扫到 b，再从 a 那头收掉，像枪芒捅穿过去。</summary>
         public void Streak(Vector2 a, Vector2 b, Color c, float width, float dur = 0.22f, int order = 9520)
         {
-            dur *= Mathf.Max(0.35f, 1f);
+            dur *= Mathf.Max(0.35f, Defs.VfxPace);
             var d = b - a;
             float len = d.magnitude;
             if (len < 0.01f) return;
@@ -700,7 +700,7 @@ namespace Liangshan
         /// </summary>
         public void SpearThrust(Vector2 a, Vector2 b, Color outer, Color core, float width = 0.72f, float dur = 0.30f, int order = 9524)
         {
-            dur *= Mathf.Max(0.35f, 1f);
+            dur *= Mathf.Max(0.35f, Defs.VfxPace);
             var d = b - a;
             float len = d.magnitude;
             if (len < 0.05f) return;
@@ -775,7 +775,7 @@ namespace Liangshan
         /// <summary>传说樊瑞立体螺旋龙卷风柱（对标《蔚蓝星球》暴风）：双层 FxUber 螺旋卷动风柱 + 环绕风流，速度沉稳清晰。</summary>
         public void Tornado(Vector2 pos, float radius, Color outer, Color core, float dur = 0.62f)
         {
-            float vp = Mathf.Max(0.35f, 1f);
+            float vp = Mathf.Max(0.35f, Defs.VfxPace);
             float dScaled = dur * vp;
             var spr = Art.Img("fx_tornado_lut");
             var deep = Color.Lerp(outer, new Color(0.04f, 0.14f, 0.16f, 1f), 0.58f);
@@ -951,7 +951,7 @@ namespace Liangshan
 
                 if (!allowSpawn) return;
 
-                // 5) 水幕尾摆内的纤细竖向电青针芒星（✦）+ 柔和冠弧余影
+                // 5) 水幕尾摆内的纤细竖向电青针芒星（★）+ 柔和冠弧余影
                 if (t - lastGlint >= 0.075f && tailK < 0.58f && t > 0.10f)
                 {
                     lastGlint = t;
@@ -1002,7 +1002,7 @@ namespace Liangshan
             });
         }
 
-        /// <summary>剑气尾流中的竖向修长针芒四芒星（✦），闪烁拉伸后消散。</summary>
+        /// <summary>剑气尾流中的竖向修长针芒四芒星（★），闪烁拉伸后消散。</summary>
         void WakeStarGlint(Vector2 pos, Vector2 dir, float size)
         {
             var sr = Take(Art.Img("fx_qi_flare_v"), pos, 1f, 9494, Color.white.A(0), true);
@@ -1141,7 +1141,7 @@ namespace Liangshan
         /// <summary>天雷：16帧狂暴分叉雷霆图集（fx_sheet_lightning）配地面电弧球与焦痕，底端锚在 pos。</summary>
         public void Strike(Vector2 pos, float height, int order = 9600, bool legendary = false)
         {
-            float vp = Mathf.Max(0.35f, 1f);
+            float vp = Mathf.Max(0.35f, Defs.VfxPace);
             float h = Mathf.Clamp(height, 1.35f, 2.55f);
             bool flip = UnityEngine.Random.value < 0.5f;
             var sheet = Sheet("fx_sheet_lightning", 4, 4, new Vector2(0.5f, 0.12f));
@@ -1178,7 +1178,7 @@ namespace Liangshan
         /// <summary>传说雷链双层折线电弧：外层紫蓝电晕 + 内芯炽白金跳电 + 首尾爆星。</summary>
         public void ThunderChain(Vector2 a, Vector2 b, Color outer, Color core, float width = 0.22f, float dur = 0.30f, int order = 9555)
         {
-            float vp = Mathf.Max(0.35f, 1f);
+            float vp = Mathf.Max(0.35f, Defs.VfxPace);
             Arc(a, b, outer, width, dur * vp, order);
             Arc(a, b, core, width * 0.46f, dur * 0.88f * vp, order + 1);
             Glint(b, 0.85f, core, 0.18f * vp, order + 2);
@@ -1289,7 +1289,7 @@ namespace Liangshan
         {
             for (int i = 0; i < n; i++)
             {
-                var spr = Art.Img("fx_rock" + UnityEngine.Random.Range(1, 6));
+                var spr = Art.Img("fx_rock" + UnityEngine.Random.Range(0, 6));
                 float ang = UnityEngine.Random.Range(0f, Mathf.PI * 2);
                 var vx = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang) * 0.45f) * speed * UnityEngine.Random.Range(0.4f, 1f);
                 float vz = speed * UnityEngine.Random.Range(0.9f, 1.6f);
@@ -1863,28 +1863,6 @@ namespace Liangshan
         }
 
         /// <summary>好汉头顶精致小增益Buff条：斜切鎏金立体胶囊底 + 双翼疾风金徽 + 层数渐变字。切关由 ClearAll 统一清场。</summary>
-
-        /// <summary>英雄头顶的增益角标：深色胶囊 + 上升箭头 + 层数。调用方每帧 Place、自己管显隐。</summary>
-        public RectTransform Badge(Color c, out Text label)
-        {
-            var rt = Ui.Rect(_textLayer, "badge");
-            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
-            rt.sizeDelta = new Vector2(118, 50);
-            Ui.Box(rt, new Vector2(118, 50), Vector2.zero, new Color(0.10f, 0.06f, 0.03f, 0.8f), Art.Pill, "bg");
-            var ic = Ui.Box(rt, new Vector2(38, 38), new Vector2(-33, 1), Color.white, Art.UpArrow, "ic");
-            ic.type = Image.Type.Simple;
-            ic.preserveAspect = true;
-            label = Ui.Label(rt, "", 40, Color.white, new Vector2(16, 0), new Vector2(100, 60), TextAnchor.MiddleCenter, Fonts.Number, "n");
-            label.horizontalOverflow = HorizontalWrapMode.Overflow;
-            var cs = label.gameObject.AddComponent<CrispStroke>();
-            cs.UseGradient = true;
-            cs.TopColor = Color.Lerp(c, Color.white, 0.72f);
-            cs.BottomColor = c;
-            cs.Color = Pal.Hex("3A2200");
-            cs.Radius = 2.4f;
-            return rt;
-        }
-
         public RectTransform BuffBar(out Text label)
         {
             var rt = Ui.Rect(_textLayer, "buffBar");

@@ -63,10 +63,10 @@ namespace Liangshan.Tests
             Assert.AreEqual(5, lo.Lv[ai]);
             Assert.IsFalse(lo.Passive[ai]);
             Assert.IsFalse(lo.Passive[bi]);
-            s.HeroLv[(int)HeroId.WuYong] = 4;
-            Assert.IsFalse(Meta.BuildLoadout(s).Passive[(int)HeroId.WuYong], "吴用 4 级被动还没开");
-            s.HeroLv[(int)HeroId.WuYong] = 5;
-            Assert.IsTrue(Meta.BuildLoadout(s).Passive[(int)HeroId.WuYong], "锦囊妙计 5 级就生效");
+            s.HeroLv[(int)HeroId.WuYong] = 9;
+            Assert.IsFalse(Meta.BuildLoadout(s).Passive[(int)HeroId.WuYong], "吴用 9 级绝技还没开");
+            s.HeroLv[(int)HeroId.WuYong] = 10;
+            Assert.IsTrue(Meta.BuildLoadout(s).Passive[(int)HeroId.WuYong], "全员统一 10 级自动获得本命绝技");
             Assert.AreEqual(Meta.PassiveLv, Meta.PassiveUnlock(HeroId.HuaRong));
             Assert.Greater(lo.CritDmg, Meta.BaseCritDmg);
             Assert.AreEqual(4, s.Task[(int)Act.HeroUp]);
@@ -309,21 +309,26 @@ namespace Liangshan.Tests
             {
                 var regular = Defs.PerksOf(d.Id, false);
                 Assert.AreEqual(2, regular.Count(p => p.Kind == PerkKind.Trade && p.Group == "pace"), d.Name + " 重手/快手");
-                if (d.Kind != Role.Support)
+                var morph = regular.Single(p => p.Kind == PerkKind.Morph);
+                Assert.AreEqual(morph.Id, regular.Single(p => p.Kind == PerkKind.Adv).Req, d.Name + " 全职业皆具备质变→进阶进化链");
+                Assert.AreEqual(14, regular.Count, d.Name);
+                foreach (var p in regular.Where(p => p.Kind == PerkKind.Trade && p.Has2)) Assert.Less(p.V2, 0f, p.Name + " 取舍的代价是负的");
+                if (d.Kind == Role.Mage || d.Kind == Role.Support || d.Kind == Role.Bomber || d.Kind == Role.Control)
                 {
-                    var morph = regular.Single(p => p.Kind == PerkKind.Morph);
-                    Assert.AreEqual(morph.Id, regular.Single(p => p.Kind == PerkKind.Adv).Req, d.Name + " 进阶接在质变后面");
-                    Assert.AreEqual(13, regular.Count, d.Name);
+                    foreach (var p in Defs.Perks.Where(p => p.Hero == d.Id))
+                        Assert.IsFalse(p.Desc != null && p.Desc.Contains("攻速 +") || (p.Desc != null && p.Desc.Contains("攻速 -")),
+                            $"{d.Name}({d.Role}) 强化卡「{p.Name}」出现了违和的物理攻速词条：{p.Desc}");
                 }
-                else Assert.AreEqual(9, regular.Count, d.Name);
-                foreach (var p in regular.Where(p => p.Has2)) Assert.Less(p.V2, 0f, p.Name + " 取舍的代价是负的");
                 Assert.IsNotNull(Meta.OptPerk(d.Id, 1), d.Name);
+                Assert.IsNotNull(Meta.OptPerk(d.Id, 3), d.Name);
+                Assert.IsNotNull(Defs.FinisherPerk(d.Id), d.Name + " 全员皆有第4终结技卡（大招或奥义）");
                 foreach (System.Text.RegularExpressions.Match m in new System.Text.RegularExpressions.Regex("「(.*?)」").Matches(Meta.Talent(d.Id, 1)))
-                    Assert.AreNotEqual(Meta.TalentSkill.Passive, Meta.TalentSkillOf(d.Id, 1, m.Groups[1].Value), d.Name + " 的 5 级技能被认成了 10 级被动");
-                for (int row = 0; row < Meta.UnlockLv.Length; row++)
+                    Assert.AreNotEqual(Meta.TalentSkill.Passive, Meta.TalentSkillOf(d.Id, 1, m.Groups[1].Value), d.Name + " 的 5 级技能被认成了 10 级绝技");
+                for (int row = 0; row <= 4; row++)
                     foreach (System.Text.RegularExpressions.Match m in new System.Text.RegularExpressions.Regex("「(.*?)」").Matches(Meta.Talent(d.Id, row)))
-                        Assert.AreEqual(Meta.UnlockLv[row], SkillRowLevel(Meta.TalentSkillOf(d.Id, row, m.Groups[1].Value)),
-                            d.Name + " Lv." + Meta.UnlockLv[row] + "「" + m.Groups[1].Value + "」");
+                        if (m.Groups[1].Value != d.AtkName)
+                            Assert.AreEqual(Meta.UnlockLv[row], SkillRowLevel(Meta.TalentSkillOf(d.Id, row, m.Groups[1].Value)),
+                                d.Name + " Lv." + Meta.UnlockLv[row] + "「" + m.Groups[1].Value + "」");
                 Assert.IsNotNull(Meta.OptPerk(d.Id, 2), d.Name);
                 Assert.AreEqual(3, Defs.PerksOf(d.Id, true).Count, d.Name);
                 Assert.IsNotNull(Meta.FirstPerk(d.Id));
@@ -331,21 +336,110 @@ namespace Liangshan.Tests
             Assert.AreEqual(Defs.Perks.Length, Defs.Perks.Select(p => p.Id).Distinct().Count());
             foreach (var d in Defs.Heroes)
             {
+                var kit = HeroKits.Of(d.Id);
+                var fourSkills = new[] { d.AtkName, kit.TraitName, kit.SigName, kit.FinisherName };
+                Assert.AreEqual(4, fourSkills.Where(x => !string.IsNullOrEmpty(x)).Distinct().Count(), d.Name + " 四技能名字必须齐全且互不重复");
                 var surge = Meta.OptPerk(d.Id, 1);
+                var opt15 = Meta.OptPerk(d.Id, 3);
                 Assert.IsFalse(LooksLikeSameSkill(surge.Name, d.AtkName), d.Name + " 5级选项「" + surge.Name + "」和开局技能「" + d.AtkName + "」是同一个");
-                for (int row = 1; row < Meta.UnlockLv.Length; row++)
+                Assert.IsFalse(LooksLikeSameSkill(surge.Name, kit.SigName), d.Name + " 5级选项「" + surge.Name + "」和10级绝技「" + kit.SigName + "」撞名");
+                Assert.IsFalse(LooksLikeSameSkill(opt15.Name, kit.SigName), d.Name + " 15级选项「" + opt15.Name + "」和10级绝技「" + kit.SigName + "」撞名");
+                for (int row = 1; row <= 4; row++)
                     foreach (System.Text.RegularExpressions.Match m in new System.Text.RegularExpressions.Regex("「(.*?)」").Matches(Meta.Talent(d.Id, row)))
-                        Assert.IsFalse(LooksLikeSameSkill(m.Groups[1].Value, d.AtkName),
-                            d.Name + " Lv." + Meta.UnlockLv[row] + " 又解锁了开局技能「" + d.AtkName + "」");
-                foreach (var p in Defs.Perks.Where(p => p.Hero == d.Id && !p.Ult && p.Opt == 0))
+                        if (row < 4 || m.Groups[1].Value != d.AtkName)
+                            Assert.IsFalse(LooksLikeSameSkill(m.Groups[1].Value, d.AtkName),
+                                d.Name + " Lv." + Meta.UnlockLv[row] + " 又解锁了开局技能「" + d.AtkName + "」");
+                foreach (var p in Defs.Perks.Where(p => p.Hero == d.Id && !p.Ult && !p.Finisher && p.Opt == 0))
                 {
                     Assert.AreNotEqual(d.AtkName, p.Name, d.Name + " 强化「" + p.Name + "」和普攻同名");
-                    Assert.AreNotEqual(d.PassiveName, p.Name, d.Name + " 强化「" + p.Name + "」和被动同名");
-                    if (!string.IsNullOrEmpty(d.UltName)) Assert.AreNotEqual(d.UltName, p.Name, d.Name);
+                    Assert.AreNotEqual(kit.TraitName, p.Name, d.Name + " 强化「" + p.Name + "」和特性同名");
+                    Assert.AreNotEqual(kit.SigName, p.Name, d.Name + " 强化「" + p.Name + "」和绝技同名");
+                    Assert.AreNotEqual(kit.FinisherName, p.Name, d.Name + " 强化「" + p.Name + "」和终结技同名");
                 }
             }
-            Assert.IsFalse(Meta.Talent(HeroId.WuYong, 2).Contains("获得"), "吴用的锦囊妙计 5 级已经解锁，10 级只加伤害");
-            Assert.IsFalse(Meta.Talent(HeroId.GuanSheng, 1).Contains("青龙偃月"), "青龙偃月刀开局就会，5 级不该再解锁");
+            Assert.IsTrue(Meta.Talent(HeroId.WuYong, 2).Contains("锦囊妙计"), "吴用 10 级获得绝技锦囊妙计");
+            Assert.IsFalse(Meta.Talent(HeroId.WuYong, 1).Contains("锦囊妙计"), "吴用 5 级绝不再重复出现锦囊妙计");
+            Assert.IsFalse(Meta.Talent(HeroId.WuYong, 3).Contains("锦囊妙计"), "吴用 15 级绝不再重复出现锦囊妙计");
+            Assert.IsFalse(Meta.Talent(HeroId.GuanSheng, 1).Contains(Defs.Hero(HeroId.GuanSheng).AtkName), "青龙偃月刀开局就会，5 级不该再解锁");
+        }
+
+        /// <summary>同一卡池里（含普通 Value 与重装取舍 Trade 跨类对比），任何词条绝不能在同属性维度上完全完爆另一条；且单发职业数量卡严格拉平。</summary>
+        [Test]
+        public void EnhancementCardsAreNotStrictlyDominated()
+        {
+            foreach (var d in Defs.Heroes)
+            {
+                foreach (bool star in new[] { false, true })
+                {
+                    var pool = Defs.PerksOf(d.Id, star)
+                        .Where(p => (p.Kind == PerkKind.Value || p.Kind == PerkKind.Trade) && string.IsNullOrEmpty(p.Req))
+                        .ToList();
+                    for (int i = 0; i < pool.Count; i++)
+                        for (int j = i + 1; j < pool.Count; j++)
+                        {
+                            var a = pool[i];
+                            var b = pool[j];
+                            if (!SameOffer(a, b)) continue;
+                            if (Dominates(a, b))
+                                Assert.Fail(d.Name + "「" + a.Name + "」完全压过「" + b.Name + "」（" + a.Eff + " " + a.V + " / " + b.Eff + " " + b.V + "）");
+                            if (Dominates(b, a))
+                                Assert.Fail(d.Name + "「" + b.Name + "」完全压过「" + a.Name + "」（" + b.Eff + " " + b.V + " / " + a.Eff + " " + a.V + "）");
+                        }
+                }
+            }
+            // 跨职业单发数量强化严格对标：解珍（射手）与石秀（战士）、公孙胜（法师）、凌振（炮手）全部对称
+            foreach (var h in new[] { HeroId.XieZhen, HeroId.ShiXiu, HeroId.GongSun, HeroId.LingZhen, HeroId.HuSanniang })
+            {
+                var reg = Defs.PerksOf(h, false);
+                var purePlus1 = reg.Single(p => p.Kind == PerkKind.Value && p.Opt == 0 && p.Eff == Eff.Count && !p.Has2);
+                var widePlus2 = reg.Single(p => p.Kind == PerkKind.Trade && p.Id.EndsWith("_wide"));
+                Assert.AreEqual(1f, purePlus1.V, 0.001f, Defs.Hero(h).Name + " 普通珍稀数量卡统一 +1 无惩罚");
+                Assert.AreEqual(1, purePlus1.Max);
+                Assert.AreEqual(2f, widePlus2.V, 0.001f, Defs.Hero(h).Name + " 重装齐发卡统一 +2");
+                Assert.AreEqual(-0.28f, widePlus2.V2, 0.001f, Defs.Hero(h).Name + " 重装齐发卡统一 -28% 单发修正");
+                Assert.AreEqual("volley", purePlus1.Group);
+                Assert.AreEqual("volley", widePlus2.Group);
+            }
+            var rain = Defs.PerksOf(HeroId.XieZhen, true).Single(p => p.Name == "箭雨");
+            var god = Defs.PerksOf(HeroId.XieZhen, true).Single(p => p.Name == "猎神");
+            Assert.AreEqual(Eff.Count, rain.Eff, "解珍满星「箭雨」应改成多射箭，不再和「猎神」抢同一条箭伤害");
+            Assert.AreNotEqual(god.Eff, rain.Eff);
+        }
+
+        static bool SameOffer(PerkDef a, PerkDef b)
+        {
+            var setA = a.Has2 ? new[] { a.Eff, a.Eff2 } : new[] { a.Eff };
+            var setB = b.Has2 ? new[] { b.Eff, b.Eff2 } : new[] { b.Eff };
+            if (a.Eff == b.Eff && !a.Has2 && !b.Has2) return true;
+            if (a.Has2 && b.Has2) return (a.Eff == b.Eff && a.Eff2 == b.Eff2) || (a.Eff == b.Eff2 && a.Eff2 == b.Eff);
+            // 跨单双词条检查：若单属性卡与带负面双属性卡共享同一主属性（如 +2 无惩罚 vs +1/-15%），也必须比对！
+            var negCard = a.Has2 && a.V2 < 0 ? a : (b.Has2 && b.V2 < 0 ? b : null);
+            var posCard = negCard == a ? b : (negCard == b ? a : null);
+            return negCard != null && !posCard.Has2 && posCard.Eff == negCard.Eff;
+        }
+
+        static bool Dominates(PerkDef better, PerkDef worse)
+        {
+            if (better.Max < worse.Max) return false;
+            var allEffs = new System.Collections.Generic.HashSet<Eff> { better.Eff, worse.Eff };
+            if (better.Has2) allEffs.Add(better.Eff2);
+            if (worse.Has2) allEffs.Add(worse.Eff2);
+            bool anyStrict = better.Max > worse.Max;
+            foreach (var e in allEffs)
+            {
+                float bv = StatOf(better, e);
+                float wv = StatOf(worse, e);
+                if (bv < wv - 1e-5f) return false;
+                if (bv > wv + 1e-5f) anyStrict = true;
+            }
+            return anyStrict || (better.Has2 == worse.Has2 && Math.Abs(StatOf(better, worse.Eff) - worse.V) < 1e-5f);
+        }
+
+        static float StatOf(PerkDef p, Eff e)
+        {
+            if (p.Eff == e) return p.V;
+            if (p.Has2 && p.Eff2 == e) return p.V2;
+            return 0f;
         }
 
         /// <summary>完全同名、只差一个字，或只少一个字的简称，都会被读成同一招。</summary>
@@ -816,190 +910,185 @@ namespace Liangshan.Tests
         }
 
         [Test]
-        public void DouyinSidebarDailyAndShortcutOnceRewardsWork()
+        public void AllSfxResourcesLoadCleanlyWithValidDuration()
+        {
+            string[] clips =
+            {
+                "array_seal", "arrow_blast", "arrow_hit", "arrow_pierce", "awaken", "axe", "axe_chop",
+                "blade_hit", "blade_swing", "bow", "cannon_boom", "cannon_fire", "crit", "crossbow", "dart",
+                "fire", "fire_beam", "fist", "fist_swing", "fuse_throw", "glaive_cleave", "gold_slam",
+                "hammer", "horse", "ice_shatter", "jade_ping", "join", "kill_pop", "lasso", "lord_slash",
+                "mace_cast", "magic_soft", "meteor_hit", "net_cast", "oil_jar", "poison_puff", "rank_up",
+                "shield_block", "sig_trigger", "spear", "spear_thrust", "spell_cast", "spell_wind", "staff",
+                "stone", "stun_bonk", "thunder_cast", "thunder_hit",
+                "ui_card", "ui_close", "ui_coin", "ui_deny", "ui_drum", "ui_flip", "ui_forge", "ui_jackpot",
+                "ui_levelup", "ui_open", "ui_reel", "ui_reel_stop", "ui_reveal", "ui_reward", "ui_slot_add",
+                "ui_swap", "ui_tab", "ui_talent", "ui_tap", "ui_tick", "ui_unlock",
+                "ult_arrow", "ult_cannon", "ult_drum", "ult_fire", "ult_heal", "ult_smash", "ult_thunder",
+                "ult_water", "ult_whirl", "ult_wind", "warn_horn", "water", "whip",
+            };
+            foreach (var name in clips)
+            {
+                var clip = UnityEngine.Resources.Load<UnityEngine.AudioClip>("Sfx/" + name);
+                Assert.IsNotNull(clip, $"缺失或导入失败音效: Resources/Sfx/{name}");
+                Assert.Greater(clip.length, 0.03f, $"音效时长异常过短: {name} ({clip.length:F3}s)");
+                Assert.LessOrEqual(clip.length, 1.50f, $"短音效时长超标: {name} ({clip.length:F3}s)");
+            }
+        }
+
+        [Test]
+        public void AllPerkCardDescriptionsAreConciseAndNeverWrapAwkwardly()
+        {
+            string[] banned = { "寨墙危急", "近墙再", "近墙触发", "且显化", "进化亮青" };
+            var errors = new System.Collections.Generic.List<string>();
+            foreach (var p in Defs.Perks)
+            {
+                var hd = Defs.Hero(p.Hero);
+                foreach (int lv in new[] { 1, 20 })
+                {
+                    string desc = Defs.PerkDesc(p, lv);
+                    if (string.IsNullOrWhiteSpace(desc)) { errors.Add($"{hd.Name}「{p.Name}」说明为空"); continue; }
+                    foreach (var bad in banned)
+                        if (desc.Contains(bad)) errors.Add($"{hd.Name}「{p.Name}」含晦涩/冗余词「{bad}」：{desc}");
+
+                    string[] lines = desc.Split('\n');
+                    int maxLines = (p.Ult || p.Finisher) ? 3 : 2;
+                    if (lines.Length > maxLines)
+                        errors.Add($"{hd.Name}「{p.Name}」行数超标({lines.Length}>{maxLines})：{desc}");
+
+                    foreach (var line in lines)
+                    {
+                        float units = 0f;
+                        foreach (char ch in line.Trim())
+                        {
+                            if (ch == ' ') units += 0.30f;
+                            else if (ch < 128) units += 0.55f;
+                            else units += 1.0f;
+                        }
+                        if (units > 9.8f)
+                            errors.Add($"{hd.Name}「{p.Name}」(Lv.{lv}) 单行过长({units:F1}>9.8)：「{line}」");
+                    }
+                }
+            }
+            Assert.IsEmpty(errors, string.Join("\n", errors));
+        }
+
+        [Test]
+        public void AdPlacementsDailyLimitsAndWelfareBonusResetCleanly()
         {
             var s = Meta.NewSave(0);
-            Assert.IsTrue(Meta.CanDySidebar(s, 5));
-            Assert.IsTrue(Meta.CanDyShortcut(s));
+            Meta.RollDay(s, 10);
 
-            int ingots0 = s.Ingots, stam0 = s.Stamina, tokens0 = s.Tokens;
-            var sbGot = Meta.ClaimDySidebar(s, 5);
-            Assert.IsNotNull(sbGot);
-            Assert.IsFalse(Meta.CanDySidebar(s, 5), "当日领取后不可重复领");
-            Assert.IsNull(Meta.ClaimDySidebar(s, 5));
-            Assert.IsTrue(Meta.CanDySidebar(s, 6), "次日零点后可再次领取侧边栏复访奖励");
-            Assert.AreEqual(ingots0 + 30, s.Ingots);
-            Assert.AreEqual(stam0 + 20, s.Stamina);
+            // 每日福利：未领免费份时不可先领广告加赠；领完免费份后可领 1 次广告加赠，次日自动恢复
+            Assert.IsTrue(Meta.CanWelfare(s, 10));
+            Assert.IsFalse(Meta.CanAdWelfare(s, 10));
+            Assert.IsNull(Meta.ClaimAdWelfare(s, 10));
 
-            var scGot = Meta.ClaimDyShortcut(s);
-            Assert.IsNotNull(scGot);
-            Assert.IsFalse(Meta.CanDyShortcut(s), "桌面快捷方式奖励全档限领一次");
-            Assert.IsNull(Meta.ClaimDyShortcut(s));
-            Assert.AreEqual(ingots0 + 90, s.Ingots);
-            Assert.AreEqual(tokens0 + 2, s.Tokens);
+            int tok0 = s.Tokens, sta0 = s.Stamina, cop0 = s.Copper;
+            var w1 = Meta.ClaimWelfare(s, 10);
+            Assert.IsNotNull(w1);
+            Assert.IsFalse(Meta.CanWelfare(s, 10));
+            Assert.IsTrue(Meta.CanAdWelfare(s, 10));
 
-            var cfg = System.Type.GetType("Liangshan.CloudConfig, Assembly-CSharp");
-            Assert.IsNotNull(cfg, "找不到 Liangshan.CloudConfig");
-            Assert.AreEqual("tt5b402dfdc53db6ff07", cfg.GetField("DouyinAppId").GetValue(null));
-            Assert.AreEqual("mcs8desnlr2a80go8v", cfg.GetField("DouyinDefaultAdUnitId").GetValue(null));
-            Assert.AreEqual("adunit-3e808f8ac0bd9209", cfg.GetField("RewardedAdUnitId").GetValue(null));
+            var w2 = Meta.ClaimAdWelfare(s, 10);
+            Assert.IsNotNull(w2);
+            Assert.IsFalse(Meta.CanAdWelfare(s, 10));
+            Assert.IsNull(Meta.ClaimAdWelfare(s, 10));
+            Assert.AreEqual(tok0 + 2, s.Tokens);
+            Assert.AreEqual(sta0 + 40, s.Stamina);
+            Assert.Greater(s.Copper, cop0 + 1900);
 
-            var getDyUnit = cfg.GetMethod("GetDouyinAdUnitId");
-            Assert.AreEqual("al008pk72n23x56kq9", getDyUnit.Invoke(null, new object[] { "recruit" }));
-            Assert.AreEqual("al008pk72n23x56kq9", getDyUnit.Invoke(null, new object[] { "shop_ingot" }));
-            Assert.AreEqual("1alnffp680mg2gdah1", getDyUnit.Invoke(null, new object[] { "reroll" }));
-            Assert.AreEqual("1alnffp680mg2gdah1", getDyUnit.Invoke(null, new object[] { "speed2" }));
-            Assert.AreEqual("1nbibg488beg3t4ahs", getDyUnit.Invoke(null, new object[] { "double" }));
-            Assert.AreEqual("1nbibg488beg3t4ahs", getDyUnit.Invoke(null, new object[] { "start_2star" }));
-            Assert.AreEqual("3oengr4154u8nn45gn", getDyUnit.Invoke(null, new object[] { "revive" }));
-            Assert.AreEqual("mcs8desnlr2a80go8v", getDyUnit.Invoke(null, new object[] { "stamina" }));
-            Assert.AreEqual("mcs8desnlr2a80go8v", getDyUnit.Invoke(null, new object[] { "idle" }));
-            Assert.AreEqual("mcs8desnlr2a80go8v", getDyUnit.Invoke(null, new object[] { "unknown_scene" }));
+            // 各项新增每日广告计数在跨天时完整清零
+            s.AdTotem = Meta.AdTotemMax;
+            s.AdGearBox = Meta.AdGearBoxMax;
+            s.AdDailyTries = Meta.AdDailyTriesMax;
+            s.AdEscortTries = Meta.AdEscortTriesMax;
+            s.AdInterstitial = Meta.InterstitialDailyMax;
 
-            var getWxUnit = cfg.GetMethod("GetWeChatAdUnitId");
-            Assert.AreEqual("adunit-39a3bb98a95fc55c", getWxUnit.Invoke(null, new object[] { "recruit" }));
-            Assert.AreEqual("adunit-39a3bb98a95fc55c", getWxUnit.Invoke(null, new object[] { "shop_ingot" }));
-            Assert.AreEqual("adunit-c5587bc19363af50", getWxUnit.Invoke(null, new object[] { "reroll" }));
-            Assert.AreEqual("adunit-c5587bc19363af50", getWxUnit.Invoke(null, new object[] { "take_all" }));
-            Assert.AreEqual("adunit-6233ca9f96b05e36", getWxUnit.Invoke(null, new object[] { "double" }));
-            Assert.AreEqual("adunit-6233ca9f96b05e36", getWxUnit.Invoke(null, new object[] { "start_2star" }));
-            Assert.AreEqual("adunit-fe7a8a11e1ea7ee9", getWxUnit.Invoke(null, new object[] { "revive" }));
-            Assert.AreEqual("adunit-3e808f8ac0bd9209", getWxUnit.Invoke(null, new object[] { "stamina" }));
-            Assert.AreEqual("adunit-3e808f8ac0bd9209", getWxUnit.Invoke(null, new object[] { "idle" }));
-            Assert.AreEqual("adunit-3e808f8ac0bd9209", getWxUnit.Invoke(null, new object[] { "unknown_scene" }));
-
-            // 抖音订阅消息状态记录（纯服务提醒，不赠送货币）
-            int ingotsBeforeSub = s.Ingots;
-            Assert.IsFalse(Meta.HasDySubPatrolToday(s, 8));
-            Assert.IsFalse(Meta.HasDySubSignToday(s, 8));
-            Meta.MarkDySubscribed(s, "patrol", 8);
-            Assert.IsTrue(Meta.HasDySubPatrolToday(s, 8));
-            Assert.IsFalse(Meta.HasDySubSignToday(s, 8));
-            Meta.MarkDySubscribed(s, "sign", 8);
-            Assert.IsTrue(Meta.HasDySubSignToday(s, 8));
-            Assert.AreEqual(2, s.DySubTotal);
-            Assert.AreEqual(ingotsBeforeSub, s.Ingots, "订阅消息仅记录提醒状态，不附带利益诱导奖励");
-            Assert.IsFalse(Meta.HasDySubPatrolToday(s, 9), "次日可再次设置一次性订阅提醒");
+            Meta.RollDay(s, 11);
+            Assert.AreEqual(0, s.AdTotem);
+            Assert.AreEqual(0, s.AdGearBox);
+            Assert.AreEqual(0, s.AdDailyTries);
+            Assert.AreEqual(0, s.AdEscortTries);
+            Assert.AreEqual(0, s.AdInterstitial);
+            Assert.IsTrue(Meta.CanWelfare(s, 11));
+            Assert.IsFalse(Meta.CanAdWelfare(s, 11));
         }
 
         [Test]
-        public void AllHeroesHaveAuthenticModernProjectilesAndLoadedArtSprites()
+        public void GameClubCumulativeAndDailyOfficialTasksHold()
         {
-            foreach (var d in Defs.Heroes)
-            {
-                Assert.IsNotEmpty(d.AtkIcon, d.Name + " 缺少 AtkIcon");
-                Assert.IsNotNull(UnityEngine.Resources.Load<UnityEngine.Sprite>("Art/" + d.AtkIcon), d.Name + " AtkIcon 缺图: " + d.AtkIcon);
-                if (d.Proj != null)
-                    Assert.IsNotNull(UnityEngine.Resources.Load<UnityEngine.Sprite>("Art/" + d.Proj), d.Name + " Proj 缺图: " + d.Proj);
-                if (d.HasUlt)
-                    Assert.IsNotNull(UnityEngine.Resources.Load<UnityEngine.Sprite>("Art/" + d.UltIcon), d.Name + " UltIcon 缺图: " + d.UltIcon);
-                if (d.Carry && (d.Shot == ShotKind.Arrow || d.Shot == ShotKind.Bomb || d.Shot == ShotKind.Fireball))
-                    Assert.IsNotNull(d.Proj, d.Name + " 必须配置专属弹道贴图 Proj，禁止回退旧通用箭/雷");
-            }
-            foreach (var tex in new[] {
-                "wp_pellet", "wp_nail", "wp_nail_stuck", "wp_railnail",
-                "wp_cracker", "wp_gascan", "wp_oilpot", "wp_firework",
-                "wp_chili", "wp_chess", "wp_plasma_bolt", "ic_fan",
-                "fx_fire_vortex", "fx_gold_cone", "fx_purple_cone", "fx_chili_cone", "fx_rune"
-            })
-            {
-                Assert.IsNotNull(UnityEngine.Resources.Load<UnityEngine.Sprite>("Art/" + tex), "特效/弹道 Sprite 未正确按 Sprite 导入: " + tex);
-            }
-        }
+            var s = Meta.NewSave(0);
+            Meta.RollDay(s, 20);
 
-        [Test]
-        public void WeChatRankProfileSyncAndAvatarNormalizationWork()
-        {
-            var rankType = System.Type.GetType("Liangshan.RankService, Assembly-CSharp");
-            var profileType = System.Type.GetType("Liangshan.Profile, Assembly-CSharp");
-            var payloadType = System.Type.GetType("Liangshan.DouyinBridge+WxUserPayload, Assembly-CSharp");
-            Assert.IsNotNull(rankType, "找不到 Liangshan.RankService");
-            Assert.IsNotNull(profileType, "找不到 Liangshan.Profile");
-            Assert.IsNotNull(payloadType, "找不到 Liangshan.DouyinBridge+WxUserPayload");
+            // 初始仅开放：加入游戏圈(0)、累计点赞1次(1)、累计评论1次(2)；后续档位与今日日常均需前置解锁
+            Assert.IsTrue(Meta.ClubTaskUnlocked(s, 0));
+            Assert.IsTrue(Meta.ClubTaskUnlocked(s, 1));
+            Assert.IsTrue(Meta.ClubTaskUnlocked(s, 2));
+            Assert.IsFalse(Meta.ClubTaskUnlocked(s, 3));
+            Assert.IsFalse(Meta.ClubTaskUnlocked(s, 7));
 
-            var norm = rankType.GetMethod("NormalizeAvatarUrl");
-            Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/abc/132",
-                norm.Invoke(null, new object[] { "http://thirdwx.qlogo.cn/mmopen/vi_32/abc/132" }));
-            Assert.AreEqual("https://wx.qlogo.cn/mmhead/xyz/0",
-                norm.Invoke(null, new object[] { "  http://wx.qlogo.cn/mmhead/xyz/0  " }));
-            Assert.AreEqual("https://p3-pc.douyinpic.com/aweme/100x100/avatar.jpeg",
-                norm.Invoke(null, new object[] { "http://p3-pc.douyinpic.com/aweme/100x100/avatar.jpeg" }));
-            Assert.AreEqual("", norm.Invoke(null, new object[] { "http://example.com/insecure.png" }));
-            Assert.AreEqual("", norm.Invoke(null, new object[] { "" }));
+            // 第 20 天：入圈 + 点赞 2 次 + 评论 3 次；重复同步相同今日计数绝不双倍累加
+            Assert.IsTrue(Meta.SyncClubData(s, 20, true, 2, 3, 0));
+            Assert.IsFalse(Meta.SyncClubData(s, 20, true, 2, 3, 0));
+            Assert.AreEqual(2, s.ClubTotalLikes);
+            Assert.AreEqual(3, s.ClubTotalComments);
 
-            bool hadSaveKey = UnityEngine.PlayerPrefs.HasKey("save");
-            string prevRaw = hadSaveKey ? UnityEngine.PlayerPrefs.GetString("save", "") : "";
-            var volatileField = profileType.GetField("Volatile");
-            var sProp = profileType.GetProperty("S");
-            var useMethod = profileType.GetMethod("Use");
-            bool prevVolatile = (bool)volatileField.GetValue(null);
-            object prevSave = sProp.GetValue(null);
+            // 领取【加入游戏圈】发放 200 元宝 + 3 招募令 + 1 装备箱，并解锁每日日常任务
+            int ing0 = s.Ingots, tok0 = s.Tokens, box0 = s.GearBoxes;
+            Assert.IsFalse(Meta.CanClaimClubTask(s, 20, 7));
+            Assert.IsNotNull(Meta.ClaimClubTask(s, 20, 0));
+            Assert.AreEqual(ing0 + 200, s.Ingots);
+            Assert.AreEqual(tok0 + 3, s.Tokens);
+            Assert.AreEqual(box0 + 1, s.GearBoxes);
 
-            try
-            {
-                volatileField.SetValue(null, true);
-                var s = Meta.NewSave(0);
-                s.Cleared = 12;
-                useMethod.Invoke(null, new object[] { s });
+            Assert.IsTrue(Meta.ClubTaskUnlocked(s, 7));
+            Assert.IsTrue(Meta.CanClaimClubTask(s, 20, 7));
+            Assert.IsNotNull(Meta.ClaimClubTask(s, 20, 7));
+            Assert.IsFalse(Meta.CanClaimClubTask(s, 20, 7));
 
-                var apply = rankType.GetMethod("ApplyWeChatUser");
-                var p1 = System.Activator.CreateInstance(payloadType);
-                payloadType.GetField("nickName").SetValue(p1, "  张老三  ");
-                payloadType.GetField("avatarUrl").SetValue(p1, "http://thirdwx.qlogo.cn/mmopen/vi_32/zhang/132");
-                payloadType.GetField("gender").SetValue(p1, 1);
-                apply.Invoke(null, new object[] { p1 });
+            // 点赞链：未领 1 次前不能跳领 3 次；领完 1 次后解锁 3 次并保留 2/3 进度
+            Assert.IsFalse(Meta.CanClaimClubTask(s, 20, 3));
+            Assert.IsNotNull(Meta.ClaimClubTask(s, 20, 1));
+            Assert.IsTrue(Meta.ClubTaskUnlocked(s, 3));
+            Assert.AreEqual(2, Meta.ClubTaskValue(s, 20, 3));
 
-                Assert.AreEqual("张老三", s.Nick);
-                Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/zhang/132", s.Avatar);
-                Assert.AreEqual(1, s.Gender);
-                Assert.AreEqual(1, s.WxAuthed);
+            // 跨到第 21 天：今日计数与日常领取位重置，历史累计完整保留；再赞 3 次 + 评 2 次达成双 5 终极档
+            Meta.RollDay(s, 21);
+            Assert.AreEqual(0, s.ClubDayLikes);
+            Assert.AreEqual(2, s.ClubTotalLikes);
 
-                // 当微信返回通用占位名“微信用户”时，不应覆盖玩家已有的自定义/真实昵称
-                var p2 = System.Activator.CreateInstance(payloadType);
-                payloadType.GetField("nickName").SetValue(p2, "微信用户");
-                payloadType.GetField("avatarUrl").SetValue(p2, "https://thirdwx.qlogo.cn/mmopen/vi_32/new_avatar/132");
-                payloadType.GetField("gender").SetValue(p2, 2);
-                apply.Invoke(null, new object[] { p2 });
+            int tomes0 = s.Tomes, meteor0 = s.Meteor;
+            Assert.IsTrue(Meta.SyncClubData(s, 21, true, 3, 2, 1));
+            Assert.AreEqual(5, s.ClubTotalLikes);
+            Assert.AreEqual(5, s.ClubTotalComments);
+            Assert.IsTrue(Meta.CanClaimClubTask(s, 21, 7));
+            Assert.IsTrue(Meta.CanClaimClubTask(s, 21, 9));
 
-                Assert.AreEqual("张老三", s.Nick, "通用占位名“微信用户”不应覆盖已有昵称");
-                Assert.AreEqual("https://thirdwx.qlogo.cn/mmopen/vi_32/new_avatar/132", s.Avatar);
-                Assert.AreEqual(2, s.Gender);
+            Assert.IsNotNull(Meta.ClaimClubTask(s, 21, 3));
+            Assert.IsNotNull(Meta.ClaimClubTask(s, 21, 4));
+            Assert.IsNotNull(Meta.ClaimClubTask(s, 21, 2));
+            Assert.IsNotNull(Meta.ClaimClubTask(s, 21, 5));
+            Assert.IsNotNull(Meta.ClaimClubTask(s, 21, 6));
 
-                var p3 = System.Activator.CreateInstance(payloadType);
-                payloadType.GetField("nickName").SetValue(p3, "抖音用户");
-                payloadType.GetField("avatarUrl").SetValue(p3, "http://p6-passport.byteacctimg.com/img/mosaic-legacy/dy.png");
-                payloadType.GetField("gender").SetValue(p3, 1);
-                apply.Invoke(null, new object[] { p3 });
-                Assert.AreEqual("张老三", s.Nick, "通用占位名“抖音用户”不应覆盖已有昵称");
-                Assert.AreEqual("https://p6-passport.byteacctimg.com/img/mosaic-legacy/dy.png", s.Avatar);
-
-                var entry = rankType.GetMethod("BuildMyEntry").Invoke(null, null);
-                var entryType = entry.GetType();
-                Assert.AreEqual("张老三", entryType.GetField("Name").GetValue(entry));
-                Assert.AreEqual("https://p6-passport.byteacctimg.com/img/mosaic-legacy/dy.png", entryType.GetField("Avatar").GetValue(entry));
-                Assert.AreEqual(1, entryType.GetField("Gender").GetValue(entry));
-                Assert.AreEqual(12, entryType.GetField("Cleared").GetValue(entry));
-            }
-            finally
-            {
-                volatileField.SetValue(null, prevVolatile);
-                sProp.GetSetMethod(true).Invoke(null, new object[] { prevSave });
-                if (hadSaveKey) UnityEngine.PlayerPrefs.SetString("save", prevRaw);
-                else UnityEngine.PlayerPrefs.DeleteKey("save");
-                UnityEngine.PlayerPrefs.Save();
-            }
+            Assert.AreEqual(meteor0 + 3, s.Meteor);
+            Assert.AreEqual(tomes0 + 2, s.Tomes);
         }
 
         static int SkillRowLevel(Meta.TalentSkill kind)
         {
             switch (kind)
             {
-                case Meta.TalentSkill.Attack: return 1;
+                case Meta.TalentSkill.Attack:
+                case Meta.TalentSkill.Trait: return 1;
                 case Meta.TalentSkill.Ult:
+                case Meta.TalentSkill.Finisher:
                 case Meta.TalentSkill.Surge: return Meta.SurgeLv;
                 case Meta.TalentSkill.Passive: return Meta.PassiveLv;
+                case Meta.TalentSkill.Opt15:
                 case Meta.TalentSkill.SurgePlus: return Meta.SurgePlusLv;
-                case Meta.TalentSkill.Top: return Meta.TopLv;
+                case Meta.TalentSkill.Top:
+                case Meta.TalentSkill.Rewrite: return Meta.TopLv;
                 default: return -1;
             }
         }

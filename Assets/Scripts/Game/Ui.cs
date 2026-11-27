@@ -497,6 +497,12 @@ namespace Liangshan
             Text lbl;
             if (ornateStart)
             {
+                lbl = GradOutlined(body, title, titleSize, Pal.Hex("FFF6D4"), Pal.Hex("FFE08A"),
+                    new Vector2(0, titleY), new Vector2(size.x - 40f, size.y * 0.54f), Pal.Hex("8A4E12"), 4.2f);
+            }
+            else if (goldFace)
+
+            {
                 lbl = GradOutlined(body, title, titleSize, Color.white, Pal.Hex("FFE268"),
                     new Vector2(0, titleY), new Vector2(size.x - 40f, size.y * 0.54f), Pal.Hex("4A1C04"), 4.2f);
             }
@@ -712,6 +718,22 @@ namespace Liangshan
             Tween.Run(c, 0.16f, k => { if (c) c.localScale = Vector3.one * Mathf.Lerp(0.94f, 1f, Tween.OutBack(k)); });
         }
 
+        /// <summary>多行文本里最宽的一行。卡片按它收左右边，避免右边空出一截。</summary>
+        public static float WidestLine(Transform host, string shown, int size, Font font)
+        {
+            if (string.IsNullOrEmpty(shown)) return 0f;
+            float w = 0f;
+            int start = 0;
+            for (int i = 0; i <= shown.Length; i++)
+            {
+                if (i < shown.Length && shown[i] != '\n') continue;
+                if (i > start)
+                    w = Mathf.Max(w, TextWidth(host, shown.Substring(start, i - start), size, font));
+                start = i + 1;
+            }
+            return w;
+        }
+
         /// <summary>单行排版宽度，用来决定说明卡要多宽才刚好盛下这段字。</summary>
         static float TextWidth(Transform host, string s, int size, Font font)
         {
@@ -800,7 +822,7 @@ namespace Liangshan
             }
             if (hasCd)
             {
-                var cdText = Label(card, "冷却：<color=#FF9A2E>" + cd + "</color>", 23, Pal.Hex("C5D4E4"),
+                var cdText = Label(card, "冷却：<color=#FFC83D>" + cd + "</color>", 23, Pal.Hex("C5D4E4"),
                     new Vector2(tw * 0.5f - padX - cdRaw * 0.5f, headerY + 23f), new Vector2(cdRaw + 10f, 38f), TextAnchor.MiddleRight, Fonts.Heavy, "cd");
                 cdText.raycastTarget = false;
             }
@@ -840,7 +862,31 @@ namespace Liangshan
             @"[+\-×]?\d+(?:\.\d+)?(?:%|s|秒|位|个|名|次|枚|点|级|星|格|波|层)?",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
-        /// <summary>按实际字宽排到 maxWidth 再断行。百分数、次数这类片段整段掉到下一行，不从中间拆开。</summary>
+        /// <summary>说明正文按字宽排满再断行，返回已插入换行的纯文本。数字和百分数整段不拆。</summary>
+        public static string WrapBody(Transform host, string s, int size, Font font, float maxWidth) =>
+            FlowText(host, FormatCjkBody(s), size, font ?? Fonts.Bold, maxWidth);
+
+        /// <summary>与 <see cref="WrapBody"/> 使用同一套字号、行距，量出排完后的真实高度。</summary>
+        public static float BlockHeight(Transform host, string shown, int size, Font font, float width, float spacing)
+        {
+            if (string.IsNullOrEmpty(shown)) return 0f;
+            var t = Label(host, shown, size, Color.white, new Vector2(0f, 6000f), new Vector2(width, 1200f), TextAnchor.UpperLeft, font, "probe");
+            t.lineSpacing = spacing;
+            t.horizontalOverflow = HorizontalWrapMode.Overflow;
+            t.verticalOverflow = VerticalWrapMode.Overflow;
+            t.supportRichText = false;
+            Canvas.ForceUpdateCanvases();
+            float h = t.preferredHeight;
+            int fontPx = t.fontSize;
+            UnityEngine.Object.DestroyImmediate(t.gameObject);
+            int lines = 1;
+            for (int i = 0; i < shown.Length; i++) if (shown[i] == '\n') lines++;
+            float floorH = lines * fontPx * Mathf.Max(1f, spacing) + 8f;
+            return Mathf.Max(floorH, Mathf.Ceil(h + 6f));
+        }
+
+        /// <summary>按实际字宽排到 maxWidth 再断行。百分数、次数整段不拆；闭括号和句读不掉到行首，开括号不留在行尾。</summary>
+
         static string FlowText(Transform host, string s, int size, Font font, float maxWidth)
         {
             if (string.IsNullOrEmpty(s)) return "";
@@ -859,42 +905,95 @@ namespace Liangshan
             if (got == 0) return s;
 
             float limit = Mathf.Max(fallback, maxWidth - 4f);
-            var sb = new System.Text.StringBuilder(n + 8);
-            float line = 0f;
+            var ranges = new List<(int a, int b)>(n);
+
             int at = 0;
             foreach (System.Text.RegularExpressions.Match m in FlowAtom.Matches(s))
             {
                 while (at < m.Index)
                 {
-                    line = AppendAtom(sb, s, widths, at, at + 1, line, limit);
+                    ranges.Add((at, at + 1));
                     at++;
                 }
-                line = AppendAtom(sb, s, widths, m.Index, m.Index + m.Length, line, limit);
+                ranges.Add((m.Index, m.Index + m.Length));
+
                 at = m.Index + m.Length;
             }
             while (at < n)
             {
-                line = AppendAtom(sb, s, widths, at, at + 1, line, limit);
+                ranges.Add((at, at + 1));
                 at++;
+            }
+
+            var sb = new System.Text.StringBuilder(n + 8);
+            var line = new List<(int a, int b, float w)>(32);
+            float lineW = 0f;
+            foreach (var (a, b) in ranges)
+            {
+                float w = 0f;
+                for (int i = a; i < b; i++) w += widths[i];
+                if (lineW > 0f && lineW + w > limit)
+                {
+                    bool close = HangClose(s, a, b);
+                    bool openTail = line.Count > 0 && HangOpen(s, line[line.Count - 1].a, line[line.Count - 1].b);
+                    int soft = close ? -1 : LastSoftBreak(s, line, limit);
+                    if (soft >= 0)
+                        BreakLine(sb, s, line, ref lineW, soft + 1);
+                    else if ((close || openTail) && line.Count >= 2)
+                        BreakLine(sb, s, line, ref lineW, line.Count - 1);
+                    else if (!(close || openTail))
+                        BreakLine(sb, s, line, ref lineW, line.Count);
+                }
+                sb.Append(s, a, b - a);
+                line.Add((a, b, w));
+                lineW += w;
             }
             return sb.ToString();
         }
 
-        static float AppendAtom(System.Text.StringBuilder sb, string s, float[] widths, int from, int to, float line, float limit)
+        /// <summary>把当前行从 keep 起的字挪到下一行。keep 等于行长时就是普通换行。</summary>
+        static void BreakLine(System.Text.StringBuilder sb, string s, List<(int a, int b, float w)> line, ref float lineW, int keep)
         {
-            float w = 0f;
-            for (int i = from; i < to; i++) w += widths[i];
-            if (line > 0f && line + w > limit)
+            var moved = new List<(int a, int b, float w)>();
+            int cut = 0;
+            for (int i = keep; i < line.Count; i++)
             {
-                sb.Append('\n');
-                line = 0f;
+                moved.Add(line[i]);
+                cut += line[i].b - line[i].a;
             }
-            sb.Append(s, from, to - from);
-            return line + w;
+            if (cut > 0) sb.Length -= cut;
+            if (keep < line.Count) line.RemoveRange(keep, line.Count - keep);
+            sb.Append('\n');
+            line.Clear();
+            lineW = 0f;
+            foreach (var r in moved)
+            {
+                sb.Append(s, r.a, r.b - r.a);
+                line.Add(r);
+                lineW += r.w;
+            }
         }
+
+        static int LastSoftBreak(string s, List<(int a, int b, float w)> line, float limit)
+        {
+            float acc = 0f;
+            int best = -1;
+            for (int i = 0; i < line.Count; i++)
+            {
+                acc += line[i].w;
+                if (i < line.Count - 1 && acc >= limit * 0.5f && HangSoft(s, line[i].a, line[i].b))
+                    best = i;
+            }
+            return best;
+        }
+
+        static bool HangOpen(string s, int a, int b) => b == a + 1 && "（【《「『([{｛".IndexOf(s[a]) >= 0;
+        static bool HangClose(string s, int a, int b) => b == a + 1 && "）】》」』，。、；：！？…·,.!?;:)]｝%".IndexOf(s[a]) >= 0;
+        static bool HangSoft(string s, int a, int b) => b == a + 1 && "，。、；：！？）】》".IndexOf(s[a]) >= 0;
 
         static string TintNums(string s) =>
             System.Text.RegularExpressions.Regex.Replace(s ?? "", @"[+\-×]?\d+(?:\.\d+)?(?:%|s|秒)?", m => "<color=#FFC83D>" + m.Value + "</color>");
+
 
         /// <summary>可升级角标：好汉升级原来那枚翠绿单箭头，朝上，颜色画在图里。</summary>
         public static Image UpgradeMark(Transform parent, float size, Vector2 pos, string name = "up")

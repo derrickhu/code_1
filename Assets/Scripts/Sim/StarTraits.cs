@@ -72,11 +72,18 @@ namespace Liangshan.Sim
             new StarTrait { Star = 4, Name = "漫天连弹", Desc = "再多弹跳 2 次", Pierce = 2 },
         };
 
+        static readonly StarTrait[] GoldSeal =
+        {
+            new StarTrait { Star = 2, Name = "扩磁", Desc = "电磁震波范围 +30%", Area = 0.30f },
+            new StarTrait { Star = 3, Name = "连环砖", Desc = "多弹跳 1 次，击晕几率 +15%", Pierce = 1, Stun = 0.8f, StunP = 0.15f },
+            new StarTrait { Star = 4, Name = "万砖压顶", Desc = "震波范围再 +25%，再多弹跳 1 次", Area = 0.25f, Pierce = 1 },
+        };
+
         static readonly StarTrait[] Lightning =
         {
             new StarTrait { Star = 2, Name = "并网", Desc = "电弧多连 1 个敌人", Pierce = 1 },
             new StarTrait { Star = 3, Name = "麻痹", Desc = "命中 20% 几率麻痹 0.4 秒", Stun = 0.4f, StunP = 0.2f },
-            new StarTrait { Star = 4, Name = "万伏超载", Desc = "施法时间 +1 秒", Chan = 1f },
+            new StarTrait { Star = 4, Name = "万伏超载", Desc = "每次多引 1 道电弧，多连 1 个敌人", Shots = 1, Pierce = 1 },
         };
 
         static readonly StarTrait[] Wind =
@@ -119,7 +126,7 @@ namespace Liangshan.Sim
                 case ShotKind.Punch: return Blade;
                 case ShotKind.Spear: return Spear;
                 case ShotKind.Slam: return Slam;
-                case ShotKind.Stone: return Stone;
+                case ShotKind.Stone: return d.Kind == Role.Mage ? GoldSeal : Stone;
                 case ShotKind.Lightning: return Lightning;
                 case ShotKind.Wind: return Wind;
                 case ShotKind.Beam: return Beam;

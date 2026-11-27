@@ -28,18 +28,32 @@ namespace Liangshan
             if (d.Chan > 0)
             {
                 float chan = d.Chan + (b != null ? Defs.ChanPerCount * b.Stat(h, Eff.Count) : 0);
-                string head = $"持续释放{Sec(chan)}，每{O(d.Tick.ToString("0.##"))}秒";
+                string head = $"持续施法{Sec(chan)}，每{O(d.Tick.ToString("0.##"))}秒";
+                float cond = b != null ? b.Stat(h, Eff.Conduct) : 0f;
+                int refN = b != null ? (int)System.Math.Round(b.Stat(h, Eff.Refract)) : 0;
                 switch (d.Shot)
                 {
-                    case ShotKind.Beam: t = $"{head}冲击射线上的敌人，目标受到{dmg}，射线路过的敌人受{O("60%")}"; break;
-                    case ShotKind.Lightning: t = $"{head}一道高压电弧劈向前排，造成{dmg}" + (chain > 0 ? $"并连锁{O(chain)}个敌人" : ""); break;
-                    case ShotKind.Wind: t = $"{head}在目标处卷起气旋绞杀，目标受到{dmg}，周围敌人受一半伤害"; break;
-                    default: t = $"{head}在敌人头顶召磁砖砸下，造成{dmg}" + (chain > 0 ? $"，再弹射{O(chain)}次（每次{O("80%")}）" : ""); break;
+                    case ShotKind.Beam:
+                        t = $"{head}灼烧射线上的敌人，目标受到{dmg}，沿途敌人受{O("80%")}"
+                            + (refN > 0 ? $"，并向周围折射{O(refN)}道副光束（{O("62%")}伤害）" : "");
+                        break;
+                    case ShotKind.Lightning:
+                        t = $"{head}一道高压电弧随机劈向前排，造成{dmg}" + (chain > 0 ? $"并逐跳连锁{O(chain)}个敌人" : "");
+                        break;
+                    case ShotKind.Wind:
+                        t = $"{head}在目标处绞杀，目标受到{dmg}，半径{O((d.Radius * area).ToString("0.##"))}内敌人受{O(d.Kind == Role.Mage ? "80%" : "55%")}伤害";
+                        break;
+                    default:
+                        string bNote = cond >= 0.8f ? "（弹跳不衰减并激起震波）" : $"（每跳保留{O("82%")}伤害）";
+                        t = $"{head}在敌人头顶结阵，召磁砖从天而降砸下，造成{dmg}" + (chain > 0 ? $"，再弹射{O(chain)}次{bNote}" : "");
+                        break;
+
                 }
             }
             else
             {
                 string noun = d.Noun ?? "攻击";
+                float cond = b != null ? b.Stat(h, Eff.Conduct) : 0f;
                 switch (d.Shot)
                 {
                     case ShotKind.Arrow:
@@ -56,10 +70,14 @@ namespace Liangshan
                         t = $"轰落{O(count)}颗{noun}，落地爆炸对半径{O((d.Radius * area).ToString("0.##"))}内的敌人造成{dmg}并震退";
                         break;
                     case ShotKind.Lightning:
+                    {
+                        string hopNote = cond >= 1.8f ? "（超导无衰减，终点爆紫电雷池）" : cond >= 0.8f ? $"（每跳保留{O("92%")}伤害）" : $"（每跳保留{O("82%")}递减）";
                         t = count <= 1
-                            ? $"引下一道高压电弧劈中敌人，造成{dmg}" + (chain > 0 ? $"，再连锁弹射{O(chain)}个敌人（{O("60%")}伤害）" : "")
-                            : $"引下{O(count)}道高压电弧劈中敌人，每道造成{dmg}" + (chain > 0 ? $"并连锁{O(chain)}个敌人（{O("60%")}伤害）" : "");
+                            ? $"召下一道高压电弧劈中敌人，造成{dmg}" + (chain > 0 ? $"，再逐跳连锁{O(chain)}个敌人{hopNote}" : "")
+                            : $"召下{O(count)}道高压电弧劈中敌人，每道造成{dmg}" + (chain > 0 ? $"并逐跳连锁{O(chain)}个敌人{hopNote}" : "");
+
                         break;
+                    }
                     case ShotKind.Punch:
                         t = count <= 1
                             ? $"向近身目标及身边外星军（半径{O((d.Radius * area).ToString("0.##"))}）挥出{O(1)}记{noun}，造成{dmg}并击退"
@@ -76,12 +94,26 @@ namespace Liangshan
                         break;
                     }
                     case ShotKind.Stone:
-                        t = d.Kind == Role.Mage
-                            ? $"甩出{O(count)}块{noun}从天砸落，造成{dmg}" + (chain > 0 ? $"，再弹射{O(chain)}次（每次{O("80%")}）" : "")
-                            : $"甩出{O(count)}枚{noun}造成{dmg}" + (chain > 0 ? $"，再弹射{O(chain)}次（每次{O("80%")}）" : "");
+                    {
+                        if (d.Kind == Role.Mage)
+                        {
+                            float wRad = (d.Radius * area) * (cond >= 1.8f ? 1.30f : cond >= 0.8f ? 1.15f : 1.0f);
+                            string wPct = cond >= 1.8f ? O("100%") : cond >= 0.8f ? O("88%") : O("75%");
+                            string bNote = cond >= 0.8f ? "（弹跳无衰减）" : $"（每跳保留{O("85%")}伤害）";
+                            t = $"祭出{O(count)}块{noun}从天砸落，造成{dmg}，并激起半径{O(wRad.ToString("0.##"))}的电磁震波轰击周围外星军（{wPct}伤害）"
+                                + (chain > 0 ? $"，再弹射{O(chain)}次{bNote}" : "");
+                        }
+                        else
+                        {
+                            string sNote = cond >= 0.8f ? "（弹跳无衰减并爆碎星）" : $"（每跳保留{O("80%")}伤害）";
+                            t = $"掷出{O(count)}枚{noun}造成{dmg}" + (chain > 0 ? $"，再弹射{O(chain)}次{sNote}" : "");
+                        }
+
                         break;
+                    }
                     case ShotKind.Lasso:
-                        t = $"甩出套索捆住{O(count)}个敌人，造成{dmg}，定身{Sec(stun)}";
+                        t = $"甩出套索缚住{O(count)}个敌人，造成{dmg}并定身{Sec(stun)}，高压电击余劲波及周围敌人（{O("65%")}伤害）";
+
                         break;
                     default:
                         t = $"气浪卷向敌群，对目标造成{dmg}，周围敌人受一半伤害";
@@ -189,7 +221,12 @@ namespace Liangshan
             return "";
         }
 
-        public static string Passive(HeroDef d) => Defs.EffText(d.Id, d.PassiveEff, d.PassiveV);
+        public static string Passive(HeroDef d) => HeroKits.Of(d.Id).SigDesc;
+
+        public static string Trait(HeroDef d) => HeroKits.Of(d.Id).TraitDesc;
+
+        public static string Finisher(HeroDef d, float pow = 1f)
+            => d.HasUlt ? Ult(d, pow) : HeroKits.Of(d.Id).FinisherDesc;
 
         public static string Tip(HeroDef d) =>
             d.Buff.HasValue ? "辅助：不打伤害，专给乡亲加持" :

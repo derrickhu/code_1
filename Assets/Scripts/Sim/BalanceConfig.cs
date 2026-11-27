@@ -81,10 +81,10 @@ namespace Liangshan.Sim
         public float PerkSpeedBoost = 1.38f;
         public float PerkCritBoost = 1.25f;
 
-        /// <summary>取舍卡【齐射】（数量+2）的单发伤害折减比例（负值）与【大开大合】的范围加成/攻速代价。</summary>
-        public float WideMultiDmgPenalty = -0.24f;
+        /// <summary>取舍卡【齐射/连斩】（数量+2）的单发伤害折减比例（负值）与【大开大合】的范围加成/频率代价。</summary>
+        public float WideMultiDmgPenalty = -0.28f;
         public float WideAreaBonus = 0.65f;
-        public float WideAreaSpeedPenalty = -0.12f;
+        public float WideAreaSpeedPenalty = -0.15f;
 
         /// <summary>5 级「爆发」、15 级「爆发进阶」、20 级「最强一击」参数。</summary>
         public float SurgeChance = 0.40f;
@@ -99,10 +99,65 @@ namespace Liangshan.Sim
         /// <summary>传说大招继承本好汉已选专属词条层数的每层增伤比例。</summary>
         public float UltPerkStackBonus = 0.12f;
 
-        /// <summary>统帅宋江「替天行道」基础伤害倍率、冷却秒数与开场首放秒数。</summary>
+        /// <summary>统帅宋江「替天行道」基础伤害倍率、冷却秒数、开场首放秒数与剑气推进速度(格/秒)。</summary>
         public float LordPctBase = 1.8f;
         public float LordCdBase = 40f;
         public float LordFirstCast = 21f;
+        public float LordWaveSpeed = 12.5f;
+
+        /// <summary>全局武器弹道耗时倍率（1.0=标准；调大整体放慢更看清神兵轨迹，调小整体加快）。</summary>
+        public float ProjPace = 1.0f;
+        /// <summary>全局刀剑枪斧特效时长倍率（1.0=标准；统一控制弧形刀光、破阵枪罡、月牙斩与旋转节奏）。</summary>
+        public float VfxPace = 1.0f;
+        /// <summary>普攻最短真实出手间隔下限(秒)：防止后期极端攻速把 4 帧动作压成鬼畜闪烁，超出下限的溢出攻速 1:1 无损折算为单发伤害。</summary>
+        public float MinAtkInterval = 0.55f;
+
+        /// <summary>箭矢弹道（花荣/燕青/解珍/解宝）：起手基础秒数 + 距离/飞行速度(格/秒)，4.5格约 0.55s。</summary>
+        public float ArrowBase = 0.26f;
+        public float ArrowSpeed = 15.5f;
+
+        /// <summary>长枪突刺弹道（林冲/卢俊义/徐宁/杨志）：比箭略凌厉但绝不瞬移，4.5格约 0.52s。</summary>
+        public float SpearBase = 0.26f;
+        public float SpearSpeed = 17.5f;
+
+        /// <summary>刀/剑/斧/拳近战飞掷弹道（李逵/石秀/杨雄/武松等）：近身利落、远投看清回旋，4.5格约 0.60s。</summary>
+        public float MeleeBase = 0.28f;
+        public float MeleeSpeed = 14.0f;
+
+        /// <summary>重兵腾空劈砸弹道（关胜青龙偃月刀/鲁智深禅杖）：势大力沉高高跃劈，4.5格约 0.71s。</summary>
+        public float SlamBase = 0.36f;
+        public float SlamSpeed = 13.0f;
+
+        /// <summary>刀气/剑气波贴地推进耗时(秒)。</summary>
+        public float QiDur = 0.52f;
+
+        /// <summary>飞石弹道（张清没羽飞石）：起手秒数 + 距离/飞行速度，4.5格约 0.53s。</summary>
+        public float StoneBase = 0.26f;
+        public float StoneSpeed = 16.5f;
+
+        /// <summary>法师·天雷引落耗时与雷链弹跳间隔（公孙胜）：配合 0.40s 雷霆劈落序列帧与双层跳跃电弧。</summary>
+        public float LightningDur = 0.16f;
+        public float LightningChainGap = 0.08f;
+
+        /// <summary>法师·镇魔金砖天降基础耗时（马灵，总耗时 = MageDropDur + 距离/StoneSpeed，4.5格约 0.53s）。</summary>
+        public float MageDropDur = 0.26f;
+
+        /// <summary>法师/控制·风咒/八阵图/迷烟/渔网弹道（樊瑞/朱武/孙二娘/阮小七）：4.5格约 0.59s。</summary>
+        public float WindBase = 0.30f;
+        public float WindSpeed = 15.5f;
+
+        /// <summary>法师·持续射线流光流速（乔道清火焰射线/单廷珪圣水射线，越小火舌水波越清晰）。</summary>
+        public float BeamFlowSpeed = 1.8f;
+
+        /// <summary>火器·重炮高抛与火陨坠落弹道（凌振/魏定国/孔亮/秦明）。</summary>
+        public float BombBase = 0.55f;
+        public float BombSpeed = 20.0f;
+        public float FireballBase = 0.40f;
+        public float FireballSpeed = 17.0f;
+
+        /// <summary>控制·缚龙索抛投弹道（扈三娘）：4.5格约 0.59s。</summary>
+        public float LassoBase = 0.32f;
+        public float LassoSpeed = 16.5f;
     }
 
     /// <summary>波次刷怪节奏、怪物波次肉度与 50 关推进曲线参数。</summary>
@@ -133,9 +188,13 @@ namespace Liangshan.Sim
         public float StageBuffNormal = 0.35f;
         public float StageBuffBoss = 0.50f;
 
-        /// <summary>50 关血量微调折线锚点与关间保底递增率。</summary>
+        /// <summary>全局难度总推杆：1.0 为校准标准值；调小（如 0.90）全关卡怪血/拆墙同步降低 10%，调大（如 1.10）全关卡同步提升 10%，不破坏关间斜率。</summary>
+        public float GlobalHpMul = 1.00f;
+        public float GlobalAtkMul = 1.00f;
+
+        /// <summary>50 关血量微调折线锚点与关间保底递增率（适度放宽约 8%~10% 容错，标准养成顺畅通关，跳过养成仍在第 4~5 关及各章受阻）。</summary>
         public float[] HpTuneStages = { 1f, 4f, 5f, 10f, 25f, 40f, 50f };
-        public float[] HpTuneValues = { 1.58f, 2.08f, 1.72f, 1.72f, 1.90f, 1.76f, 2.24f };
+        public float[] HpTuneValues = { 1.46f, 2.02f, 2.24f, 2.64f, 2.08f, 2.44f, 2.50f };
         public float StageMinStep1To5 = 1.18f;
         public float StageMinStep6To15 = 1.12f;
         public float StageMinStep16Plus = 1.075f;
@@ -170,6 +229,15 @@ namespace Liangshan.Sim
         public float UltStun;
         public int UltN;
         public float PassiveV;
+        /// <summary>旧 JSON 没有这列时为 false，导入时保留代码里的四技能出厂数值，避免被 0 清掉。</summary>
+        public bool HasKit;
+        public float TraitV;
+        public int TraitN;
+        public int SigN;
+        public float SigV;
+        public float SigV2;
+        public float Opt15V;
+        public float Opt15V2;
     }
 
     /// <summary>单种敌人/首领的可调战斗数值行。</summary>
@@ -284,10 +352,40 @@ namespace Liangshan.Sim
                 c.Combat.StarMul = new CombatBalance().StarMul;
             if (c.Combat.StarSpeed == null || c.Combat.StarSpeed.Length < 4)
                 c.Combat.StarSpeed = new CombatBalance().StarSpeed;
+            var cd = new CombatBalance();
+            if (c.Combat.LordWaveSpeed <= 0.5f) c.Combat.LordWaveSpeed = cd.LordWaveSpeed;
+            if (c.Combat.ProjPace <= 0.1f) c.Combat.ProjPace = cd.ProjPace;
+            if (c.Combat.VfxPace <= 0.1f) c.Combat.VfxPace = cd.VfxPace;
+            if (c.Combat.MinAtkInterval <= 0.15f) c.Combat.MinAtkInterval = cd.MinAtkInterval;
+            if (c.Combat.ArrowBase <= 0.02f) c.Combat.ArrowBase = cd.ArrowBase;
+            if (c.Combat.ArrowSpeed <= 0.5f) c.Combat.ArrowSpeed = cd.ArrowSpeed;
+            if (c.Combat.SpearBase <= 0.02f) c.Combat.SpearBase = cd.SpearBase;
+            if (c.Combat.SpearSpeed <= 0.5f) c.Combat.SpearSpeed = cd.SpearSpeed;
+            if (c.Combat.MeleeBase <= 0.02f) c.Combat.MeleeBase = cd.MeleeBase;
+            if (c.Combat.MeleeSpeed <= 0.5f) c.Combat.MeleeSpeed = cd.MeleeSpeed;
+            if (c.Combat.SlamBase <= 0.02f) c.Combat.SlamBase = cd.SlamBase;
+            if (c.Combat.SlamSpeed <= 0.5f) c.Combat.SlamSpeed = cd.SlamSpeed;
+            if (c.Combat.QiDur <= 0.05f) c.Combat.QiDur = cd.QiDur;
+            if (c.Combat.StoneBase <= 0.02f) c.Combat.StoneBase = cd.StoneBase;
+            if (c.Combat.StoneSpeed <= 0.5f) c.Combat.StoneSpeed = cd.StoneSpeed;
+            if (c.Combat.LightningDur <= 0.04f) c.Combat.LightningDur = cd.LightningDur;
+            if (c.Combat.LightningChainGap <= 0.03f) c.Combat.LightningChainGap = cd.LightningChainGap;
+            if (c.Combat.MageDropDur <= 0.10f) c.Combat.MageDropDur = cd.MageDropDur;
+            if (c.Combat.WindBase <= 0.02f) c.Combat.WindBase = cd.WindBase;
+            if (c.Combat.WindSpeed <= 0.5f) c.Combat.WindSpeed = cd.WindSpeed;
+            if (c.Combat.BeamFlowSpeed <= 0.1f) c.Combat.BeamFlowSpeed = cd.BeamFlowSpeed;
+            if (c.Combat.BombBase <= 0.05f) c.Combat.BombBase = cd.BombBase;
+            if (c.Combat.BombSpeed <= 0.5f) c.Combat.BombSpeed = cd.BombSpeed;
+            if (c.Combat.FireballBase <= 0.05f) c.Combat.FireballBase = cd.FireballBase;
+            if (c.Combat.FireballSpeed <= 0.5f) c.Combat.FireballSpeed = cd.FireballSpeed;
+            if (c.Combat.LassoBase <= 0.02f) c.Combat.LassoBase = cd.LassoBase;
+            if (c.Combat.LassoSpeed <= 0.5f) c.Combat.LassoSpeed = cd.LassoSpeed;
             if (c.WaveStage.WaveCounts == null || c.WaveStage.WaveCounts.Length == 0)
                 c.WaveStage.WaveCounts = new WaveStageBalance().WaveCounts;
             if (c.WaveStage.EarlyWaveTough == null)
                 c.WaveStage.EarlyWaveTough = new WaveStageBalance().EarlyWaveTough;
+            if (c.WaveStage.GlobalHpMul <= 0.05f) c.WaveStage.GlobalHpMul = 1.0f;
+            if (c.WaveStage.GlobalAtkMul <= 0.05f) c.WaveStage.GlobalAtkMul = 1.0f;
             if (c.WaveStage.HpTuneStages == null || c.WaveStage.HpTuneValues == null || c.WaveStage.HpTuneStages.Length != c.WaveStage.HpTuneValues.Length || c.WaveStage.HpTuneStages.Length == 0)
             {
                 var d = new WaveStageBalance();
@@ -346,6 +444,7 @@ namespace Liangshan.Sim
             for (int i = 0; i < Defs.Heroes.Length; i++)
             {
                 var d = Defs.Heroes[i];
+                var kit = HeroKits.Of(d.Id);
                 rows[i] = new HeroBalanceRow
                 {
                     Id = d.Id.ToString(),
@@ -373,6 +472,14 @@ namespace Liangshan.Sim
                     UltStun = d.UltStun,
                     UltN = d.UltN,
                     PassiveV = d.PassiveV,
+                    HasKit = true,
+                    TraitV = kit.TraitV,
+                    TraitN = kit.TraitN,
+                    SigN = kit.SigN,
+                    SigV = kit.SigV,
+                    SigV2 = kit.SigV2,
+                    Opt15V = kit.Opt15V,
+                    Opt15V2 = kit.Opt15V2,
                 };
             }
             return rows;
@@ -409,6 +516,15 @@ namespace Liangshan.Sim
                 d.UltStun = Math.Max(0f, r.UltStun);
                 if (r.UltN >= 1) d.UltN = r.UltN;
                 d.PassiveV = r.PassiveV;
+                if (!r.HasKit) continue;
+                var kit = HeroKits.Of(d.Id);
+                kit.TraitV = r.TraitV;
+                kit.TraitN = r.TraitN;
+                kit.SigN = Math.Max(0, r.SigN);
+                kit.SigV = r.SigV;
+                kit.SigV2 = r.SigV2;
+                kit.Opt15V = r.Opt15V;
+                kit.Opt15V2 = r.Opt15V2;
             }
         }
 
@@ -526,6 +642,33 @@ namespace Liangshan.Sim
                     LordPctBase = c.LordPctBase,
                     LordCdBase = c.LordCdBase,
                     LordFirstCast = c.LordFirstCast,
+                    LordWaveSpeed = c.LordWaveSpeed,
+                    ProjPace = c.ProjPace,
+                    VfxPace = c.VfxPace,
+                    MinAtkInterval = c.MinAtkInterval,
+                    ArrowBase = c.ArrowBase,
+                    ArrowSpeed = c.ArrowSpeed,
+                    SpearBase = c.SpearBase,
+                    SpearSpeed = c.SpearSpeed,
+                    MeleeBase = c.MeleeBase,
+                    MeleeSpeed = c.MeleeSpeed,
+                    SlamBase = c.SlamBase,
+                    SlamSpeed = c.SlamSpeed,
+                    QiDur = c.QiDur,
+                    StoneBase = c.StoneBase,
+                    StoneSpeed = c.StoneSpeed,
+                    LightningDur = c.LightningDur,
+                    LightningChainGap = c.LightningChainGap,
+                    MageDropDur = c.MageDropDur,
+                    WindBase = c.WindBase,
+                    WindSpeed = c.WindSpeed,
+                    BeamFlowSpeed = c.BeamFlowSpeed,
+                    BombBase = c.BombBase,
+                    BombSpeed = c.BombSpeed,
+                    FireballBase = c.FireballBase,
+                    FireballSpeed = c.FireballSpeed,
+                    LassoBase = c.LassoBase,
+                    LassoSpeed = c.LassoSpeed,
                 },
                 WaveStage = new WaveStageBalance
                 {
@@ -545,6 +688,8 @@ namespace Liangshan.Sim
                     WallBaseHp = w.WallBaseHp,
                     StageBuffNormal = w.StageBuffNormal,
                     StageBuffBoss = w.StageBuffBoss,
+                    GlobalHpMul = w.GlobalHpMul,
+                    GlobalAtkMul = w.GlobalAtkMul,
                     HpTuneStages = CopyArr(w.HpTuneStages),
                     HpTuneValues = CopyArr(w.HpTuneValues),
                     StageMinStep1To5 = w.StageMinStep1To5,
@@ -567,6 +712,9 @@ namespace Liangshan.Sim
                         Dot = h.Dot, Chan = h.Chan, Tick = h.Tick, BuffV = h.BuffV, AuraV = h.AuraV,
                         UltCoef = h.UltCoef, UltCd = h.UltCd, UltRadius = h.UltRadius, UltStun = h.UltStun,
                         UltN = h.UltN, PassiveV = h.PassiveV,
+                        HasKit = h.HasKit, TraitV = h.TraitV, TraitN = h.TraitN,
+                        SigN = h.SigN, SigV = h.SigV, SigV2 = h.SigV2,
+                        Opt15V = h.Opt15V, Opt15V2 = h.Opt15V2,
                     };
                 }
             }

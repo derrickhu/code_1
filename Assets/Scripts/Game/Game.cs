@@ -187,11 +187,13 @@ namespace Liangshan
 
         void Clear()
         {
+            Ads.SyncCustomFloat(false);
             MuteForeignCameras();
             if (_battle) Destroy(_battle.gameObject);
             _battle = null;
             if (_home) Destroy(_home.gameObject);
             _home = null;
+            if (WorldFx.I != null) WorldFx.I.ClearAll();
             Time.timeScale = 1f;
         }
 
@@ -207,6 +209,7 @@ namespace Liangshan
             Sfx.PlayMusic(Bgm.Menu);
             RankService.TrySilentSyncWeChatProfile();
             RankService.SubmitIfChanged();
+            GameClubWatcher.EnsureBackgroundHook();
             if (_pendingReveal.HasValue && _autoSkill < 0)
             {
                 var h = _pendingReveal.Value;
@@ -297,8 +300,10 @@ namespace Liangshan
         {
             var s = Profile.S;
             bool auto = _autoSkill >= 0;
-            if (st.Mode == StageMode.Daily && s.DailyTries >= Meta.DailyTriesMax && !auto) { Ui.Toast("今日比武次数已用完", 200); return false; }
-            if (st.Mode == StageMode.Escort && s.EscortTries >= Meta.EscortTriesMax && !auto) { Ui.Toast("今日拦截次数已用完", 200); return false; }
+            int maxDaily = Meta.DailyTriesMax + s.AdDailyTries;
+            int maxEscort = Meta.EscortTriesMax + s.AdEscortTries;
+            if (st.Mode == StageMode.Daily && s.DailyTries >= maxDaily && !auto) { Ui.Toast("今日比武次数已用完", 200); return false; }
+            if (st.Mode == StageMode.Escort && s.EscortTries >= maxEscort && !auto) { Ui.Toast("今日拦截次数已用完", 200); return false; }
             if (!auto && !Meta.Spend(s, Cur.Stamina, Meta.BattleStamina))
             {
                 if (_home) MetaUi.StaminaShop(_home.Layer);
@@ -890,11 +895,17 @@ namespace Liangshan
             _battle.Speed = 3f;
             bool boss = false, elite = false;
             float last = 0;
-            int n = 0;
+            int n = 0, crowd = 14;
             while (true)
             {
                 var b = _battle.B;
                 var hud = _battle.Hud;
+                if (hud.ModalKind == null && b.Wave >= 6)
+                {
+                    int alive = 0;
+                    foreach (var e in b.Enemies) if (!e.Dead && e.Pos.Y < Layout.SpawnY - 0.5f) alive++;
+                    if (alive >= crowd + 4) { crowd = alive; Shot($"{prefix}_crowd{alive}_w{b.Wave}"); }
+                }
                 if (!elite && hud.ModalKind == null)
                     foreach (var e in b.Enemies)
                         if (e.Def.Rank == EnemyRank.Elite && e.Pos.Y < 4f) { elite = true; Shot(prefix + "_elite"); break; }
@@ -977,14 +988,83 @@ namespace Liangshan
                 Sfx.Music = false;
                 var s = Profile.S;
                 s.Cleared = 7;
-                s.Selected = 7;
+                s.Selected = 8;
+                if (s.Stars != null) for (int k = 0; k < 4 && k < s.Stars.Length; k++) s.Stars[k] = 2;
                 if (s.LevelChest == null || s.LevelChest.Length < Defs.LevelCount)
                     s.LevelChest = new int[Defs.LevelCount];
                 s.LevelChest[6] = 7;
                 ShowHome();
-                yield return WaitReal(1.2f);
-                Shot("ui_home_chests");
+                yield return WaitReal(0.9f);
+                s.Cleared = 7;
+                s.Selected = 8;
+                if (s.Stars != null) for (int k = 0; k < 4 && k < s.Stars.Length; k++) s.Stars[k] = 2;
+                Profile.Save();
+                yield return null;
+                while (true)
+                {
+                    float c = Time.unscaledTime % 3.4f;
+                    if (c >= 0.36f && c <= 0.52f) break;
+                    yield return null;
+                }
+                Shot("ui_home_frontier");
+                s.Selected = 7;
+                Profile.Save();
+                yield return WaitReal(0.5f);
+                Shot("ui_home_shimmer");
+                MetaUi.BondTip(_home.Layer, Meta.Lineup(s));
+                yield return WaitReal(0.55f);
+                Shot("ui_home_bonds");
+                yield return WaitReal(0.25f);
+                Application.Quit(0);
+                yield break;
+            }
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-sprintshot") >= 0)
+            {
+                Sfx.On = false;
+                Sfx.Music = false;
+                ShowHome();
+                yield return WaitReal(0.8f);
+                var s = Profile.S;
+                s.SprintRound = Meta.SprintRoundOf(s, Profile.Today) + 1;
+                s.SprintAct[(int)Act.Recruit] = 40;
+                s.SprintTier = 1 | 2;
+                MetaUi.Sprint(_home.Layer);
+                yield return WaitReal(0.7f);
+                Shot("ui_sprint_claimed");
                 yield return WaitReal(0.35f);
+                Application.Quit(0);
+                yield break;
+            }
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-upshot") >= 0)
+            {
+                Sfx.On = false;
+                Sfx.Music = false;
+                var s = Profile.S;
+                var h = Meta.Starters[0];
+                s.HeroLv[(int)h] = Mathf.Max(1, s.HeroLv[(int)h]);
+                s.Shards[(int)h] = 99;
+                s.Copper = 50000;
+                ShowHome(HomeScreen.TabHero);
+                yield return WaitReal(1.0f);
+                Shot("ui_up_heroes");
+                MetaUi.HeroDetail(_home.Layer, h);
+                yield return WaitReal(0.7f);
+                Shot("ui_up_detail");
+                yield return WaitReal(0.3f);
+                Application.Quit(0);
+                yield break;
+            }
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-setshot") >= 0)
+            {
+                Sfx.On = false;
+                Sfx.Music = false;
+                ShowHome();
+                yield return WaitReal(0.8f);
+                Shot("ui_home_avatar");
+                MetaUi.Settings(_home.Layer);
+                yield return WaitReal(0.7f);
+                Shot("ui_settings");
+                yield return WaitReal(0.3f);
                 Application.Quit(0);
                 yield break;
             }
@@ -1094,7 +1174,11 @@ namespace Liangshan
                 Shot("ui_wuyong_landed");
                 yield return WaitReal(0.7f);
                 Shot("ui_wuyong_badge");
-                yield return WaitReal(0.25f);
+                // 验证切换新关卡后绝无残留 UI / 环绕特效！
+                Play(Defs.Level(5));
+                yield return WaitReal(0.45f);
+                Shot("ui_wuyong_reenter_clean");
+                yield return WaitReal(0.20f);
                 Application.Quit(0);
                 yield break;
             }
@@ -1156,39 +1240,186 @@ namespace Liangshan
                 Application.Quit(0);
                 yield break;
             }
-            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-weaponshot") >= 0)
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-ubershot") >= 0)
             {
                 Sfx.On = false;
                 Sfx.Music = false;
                 var s = Meta.NewSave(20261117);
                 s.TutorialDone = 1;
                 s.HeroLv[(int)HeroId.LiKui] = 5;
-                s.HeroLv[(int)HeroId.HuaRong] = 5;
-                s.HeroLv[(int)HeroId.LinChong] = 5;
-                s.HeroLv[(int)HeroId.XieZhen] = 5;
-                s.Lineup = new[] { (int)HeroId.LiKui, (int)HeroId.HuaRong, (int)HeroId.LinChong, (int)HeroId.XieZhen };
+                s.HeroLv[(int)HeroId.LingZhen] = 5;
+                s.HeroLv[(int)HeroId.GongSun] = 5;
+                s.HeroLv[(int)HeroId.QiaoDaoqing] = 5;
+                s.HeroLv[(int)HeroId.WuYong] = 5;
+                s.Lineup = new[] { (int)HeroId.LiKui, (int)HeroId.LingZhen, (int)HeroId.GongSun, (int)HeroId.QiaoDaoqing };
                 Profile.Use(s);
                 Play(Defs.Level(1));
                 while (_battle == null) yield return null;
                 var b = _battle.B;
                 var soldier = Defs.Enemy(EnemyKind.Soldier);
-                b.Enemies.Add(new Enemy { Id = 901, Def = soldier, Hp = 5000, MaxHp = 5000, Pos = new V2(b.Slots[1].Pos.X, -0.4f) });
-                b.Enemies.Add(new Enemy { Id = 902, Def = soldier, Hp = 5000, MaxHp = 5000, Pos = new V2(b.Slots[3].Pos.X, 1.4f) });
-                b.Enemies.Add(new Enemy { Id = 903, Def = soldier, Hp = 5000, MaxHp = 5000, Pos = new V2(b.Slots[3].Pos.X + 0.08f, 3.2f) });
-                b.Enemies.Add(new Enemy { Id = 904, Def = soldier, Hp = 5000, MaxHp = 5000, Pos = new V2(b.Slots[5].Pos.X, 0.4f) });
-                b.Slots[1].Unit = new Unit { Id = 701, Hero = HeroId.LiKui, Star = 2, Cd = 0.05f };
-                b.Slots[3].Unit = new Unit { Id = 702, Hero = HeroId.HuaRong, Star = 2, Cd = 0.05f };
-                b.Slots[5].Unit = new Unit { Id = 703, Hero = HeroId.LinChong, Star = 2, Cd = 0.05f };
-                yield return WaitReal(0.22f);
+                // 真实战斗比例验证：左=李逵刀斧斩，中左=凌振炸弹爆炸，中右=公孙胜落雷，右=乔道清细束火焰射线 + 头顶美化小Buff条
+                b.Enemies.Add(new Enemy { Id = 951, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(-2.6f, -0.4f) });
+                b.Enemies.Add(new Enemy { Id = 952, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(-0.8f, 0.8f) });
+                b.Enemies.Add(new Enemy { Id = 953, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(1.1f, 1.4f) });
+                b.Enemies.Add(new Enemy { Id = 954, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(2.7f, 0.8f) });
+                b.Slots[1].Unit = new Unit { Id = 851, Hero = HeroId.LiKui, Star = 1, Cd = 0.05f, BlessN = 3, BlessMul = 2f, BlessWait = 0f };
+                b.Slots[2].Unit = new Unit { Id = 852, Hero = HeroId.LingZhen, Star = 2, Cd = 0.05f };
+                b.Slots[4].Unit = new Unit { Id = 853, Hero = HeroId.GongSun, Star = 1, Cd = 0.28f };
+                b.Slots[5].Unit = new Unit { Id = 854, Hero = HeroId.QiaoDaoqing, Star = 2, Cd = 0.05f, BlessN = 4, BlessMul = 2f, BlessWait = 0f };
+                for (int i = 0; i < 12; i++)
+                {
+                    yield return WaitReal(0.08f);
+                    Shot("ui_uber_prop_" + i);
+                }
+                // 切关验证美化小Buff条绝不残留
+                Play(Defs.Level(5));
+                yield return WaitReal(0.35f);
+                Shot("ui_uber_clean");
+                yield return WaitReal(0.2f);
+                Application.Quit(0);
+                yield break;
+            }
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-pierceshot") >= 0)
+            {
+                Sfx.On = false;
+                Sfx.Music = false;
+                var s = Meta.NewSave(20261117);
+                s.TutorialDone = 1;
+                s.HeroLv[(int)HeroId.HuaRong] = 5;
+                s.HeroLv[(int)HeroId.XieBao] = 5;
+                s.HeroLv[(int)HeroId.ShiXiu] = 5;
+                s.HeroLv[(int)HeroId.KongLiang] = 5;
+                s.Lineup = new[] { (int)HeroId.HuaRong, (int)HeroId.XieBao, (int)HeroId.ShiXiu, (int)HeroId.KongLiang };
+                Profile.Use(s);
+                Play(Defs.Level(5));
+                while (_battle == null) yield return null;
+                var b = _battle.B;
+                var soldier = Defs.Enemy(EnemyKind.Soldier);
+
+                // 1) 左列花荣穿云箭（穿透+2，串联3名敌人），右列解宝倒钩毒叉（穿透+2，串联3名敌人），逐帧连拍验证沿途逐个受击染红爆火花！
+                b.Perks["huarong_3"] = 1;
+                b.Perks["xiebao_2"] = 1;
+                b.Choices = new[] { Defs.Perk("huarong_0") };
+                b.Phase = Phase.Choosing;
+                b.Pick(0);
+
+                float lx = b.Slots[2].Pos.X, rx = b.Slots[4].Pos.X;
+                b.Enemies.Add(new Enemy { Id = 971, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(lx, -1.6f) });
+                b.Enemies.Add(new Enemy { Id = 972, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(lx + 0.05f, 0.2f) });
+                b.Enemies.Add(new Enemy { Id = 973, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(lx - 0.04f, 2.0f) });
+                b.Enemies.Add(new Enemy { Id = 974, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(rx, -1.2f) });
+                b.Enemies.Add(new Enemy { Id = 975, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(rx - 0.05f, 0.6f) });
+                b.Enemies.Add(new Enemy { Id = 976, Def = soldier, Hp = 99999, MaxHp = 99999, Pos = new V2(rx + 0.04f, 2.4f) });
+                b.Slots[2].Unit = new Unit { Id = 871, Hero = HeroId.HuaRong, Star = 2, Cd = 0.04f };
+                b.Slots[4].Unit = new Unit { Id = 872, Hero = HeroId.XieBao, Star = 2, Cd = 0.04f };
+
+                for (int i = 0; i < 8; i++)
+                {
+                    yield return WaitReal(0.065f);
+                    Shot("ui_pierce_" + i);
+                }
+
+                // 2) 验证 5 格首领关摇奖机触发「超爽!!!」时净空完全不遮挡！
+                b.Wave = 7;
+                b.PendingReels = 1;
+                b.JackpotReels = 1;
+                yield return WaitReal(2.5f);
+                Shot("ui_reel_jackpot_clean");
+                yield return WaitReal(0.2f);
+                Application.Quit(0);
+                yield break;
+            }
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-weaponshot") >= 0)
+            {
+                Sfx.On = false;
+                Sfx.Music = false;
+                var s = Meta.NewSave(20261117);
+                s.TutorialDone = 1;
+                s.HeroLv[(int)HeroId.YanQing] = 5;
+                s.HeroLv[(int)HeroId.LinChong] = 5;
+                s.HeroLv[(int)HeroId.GuanSheng] = 5;
+                s.HeroLv[(int)HeroId.HuaRong] = 5;
+                s.Lineup = new[] { (int)HeroId.YanQing, (int)HeroId.LinChong, (int)HeroId.GuanSheng, (int)HeroId.HuaRong };
+                Profile.Use(s);
+                Play(Defs.Level(5));
+                while (_battle == null) yield return null;
+                var b = _battle.B;
+                var soldier = Defs.Enemy(EnemyKind.Soldier);
+                b.Enemies.Add(new Enemy { Id = 900, Def = soldier, Hp = 50000, MaxHp = 50000, Pos = new V2(b.Slots[0].Pos.X, 1.5f) });
+                b.Enemies.Add(new Enemy { Id = 901, Def = soldier, Hp = 50000, MaxHp = 50000, Pos = new V2(b.Slots[1].Pos.X, 1.2f) });
+                b.Enemies.Add(new Enemy { Id = 902, Def = soldier, Hp = 50000, MaxHp = 50000, Pos = new V2(b.Slots[2].Pos.X, 0.8f) });
+                b.Enemies.Add(new Enemy { Id = 906, Def = soldier, Hp = 50000, MaxHp = 50000, Pos = new V2(b.Slots[3].Pos.X, 1.6f) });
+                b.Enemies.Add(new Enemy { Id = 903, Def = soldier, Hp = 50000, MaxHp = 50000, Pos = new V2(b.Slots[4].Pos.X, 0.6f) });
+                b.Enemies.Add(new Enemy { Id = 904, Def = soldier, Hp = 50000, MaxHp = 50000, Pos = new V2(b.Slots[5].Pos.X, 1.4f) });
+                b.Enemies.Add(new Enemy { Id = 905, Def = soldier, Hp = 50000, MaxHp = 50000, Pos = new V2(b.Slots[5].Pos.X + 0.06f, 3.0f) });
+                b.Enemies.Add(new Enemy { Id = 907, Def = soldier, Hp = 50000, MaxHp = 50000, Pos = new V2(b.Slots[6].Pos.X, 1.3f) });
+                b.Slots[0].Unit = new Unit { Id = 700, Hero = HeroId.XieZhen, Star = 3, Cd = 0.05f };
+                b.Slots[1].Unit = new Unit { Id = 701, Hero = HeroId.YanQing, Star = 2, Cd = 0.05f };
+                b.Slots[2].Unit = new Unit { Id = 702, Hero = HeroId.LinChong, Star = 2, Cd = 0.05f };
+                b.Slots[3].Unit = new Unit { Id = 705, Hero = HeroId.LingZhen, Star = 3, Cd = 0.05f };
+                b.Slots[4].Unit = new Unit { Id = 703, Hero = HeroId.MaLing, Star = 3, Cd = 0.05f };
+                b.Slots[5].Unit = new Unit { Id = 704, Hero = HeroId.HuaRong, Star = 2, Cd = 0.05f };
+                b.Slots[6].Unit = new Unit { Id = 706, Hero = HeroId.GuanSheng, Star = 2, Cd = 0.05f };
+                b.Perks["xiezhen_surge"] = 5;
+                b.Perks["xiezhen_top"] = 1;
+                b.Perks["lingzhen_surge"] = 5;
+                b.Perks["maling_surge"] = 5;
+                b.Perks["huarong_morph"] = 1;
+                b.RebuildStats();
+                yield return WaitReal(0.24f);
                 Shot("ui_weapon_midflight");
                 yield return WaitReal(0.18f);
                 Shot("ui_weapon_impact");
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < 4; i++)
                 {
-                    yield return WaitReal(0.07f);
+                    yield return WaitReal(0.10f);
                     Shot("ui_weapon_impact" + i);
                 }
                 yield return WaitReal(0.25f);
+                Application.Quit(0);
+                yield break;
+            }
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-giantshot") >= 0)
+            {
+                Sfx.On = false;
+                Sfx.Music = false;
+                var s = Meta.NewSave(20261125);
+                s.TutorialDone = 1;
+                s.HeroLv[(int)HeroId.XieZhen] = 15;
+                s.HeroLv[(int)HeroId.HuaRong] = 15;
+                s.HeroLv[(int)HeroId.LingZhen] = 15;
+                s.HeroLv[(int)HeroId.MaLing] = 15;
+                s.Lineup = new[] { (int)HeroId.XieZhen, (int)HeroId.HuaRong, (int)HeroId.LingZhen, (int)HeroId.MaLing };
+                Profile.Use(s);
+                Play(Defs.Level(5));
+                while (_battle == null) yield return null;
+                var b = _battle.B;
+                var soldier = Defs.Enemy(EnemyKind.Soldier);
+                var shield = Defs.Enemy(EnemyKind.Shield);
+                b.Enemies.Clear();
+                for (int i = 0; i < 14; i++)
+                {
+                    float ex = -1.55f + (i % 5) * 0.78f + (i / 5) * 0.12f;
+                    float ey = 2.0f + (i / 5) * 0.58f;
+                    b.Enemies.Add(new Enemy { Id = 950 + i, Def = i % 3 == 0 ? shield : soldier, Hp = 80000, MaxHp = 80000, Pos = new V2(ex, ey) });
+                }
+                // 还原用户截图布局：左一、左二、右三双侧边缘解珍射出连发巨箭，右侧凌振投炸弹，检验所有巨箭起点在弓弦、轨迹走路面、受击火花100%落在怪胸口！
+                b.Slots[1].Unit = new Unit { Id = 710, Hero = HeroId.XieZhen, Star = 3, Cd = 0.04f };
+                b.Slots[4].Unit = new Unit { Id = 711, Hero = HeroId.XieZhen, Star = 2, Cd = 0.06f };
+                b.Slots[5].Unit = new Unit { Id = 712, Hero = HeroId.HuaRong, Star = 2, Cd = 0.08f };
+                b.Slots[2].Unit = new Unit { Id = 713, Hero = HeroId.LingZhen, Star = 2, Cd = 0.05f };
+                b.Perks["xiezhen_surge"] = 5;
+                b.Perks["xiezhen_top"] = 1;
+                b.Perks["xiezhen_count"] = 2;
+                b.Perks["huarong_surge"] = 5;
+                b.RebuildStats();
+                yield return WaitReal(0.08f);
+                Shot("giant_arrow_launch");
+                yield return WaitReal(0.16f);
+                Shot("giant_arrow_midflight");
+                yield return WaitReal(0.18f);
+                Shot("giant_arrow_impact");
+                yield return WaitReal(0.15f);
                 Application.Quit(0);
                 yield break;
             }
@@ -1207,13 +1438,17 @@ namespace Liangshan
                 s.Totems.Clear();
                 var rng = new Rng(7);
                 var a = Meta.RollTotem(s, 2, rng, 0);
+                a.Beast = 0;
                 a.Kind = 0;
                 var b = Meta.RollTotem(s, 3, rng, 0);
+                b.Beast = 2;
                 b.Kind = 8;
                 Meta.ToggleInlayTotem(s, a.Id);
                 Meta.ToggleInlayTotem(s, b.Id);
                 ShowHome(HomeScreen.TabForge);
                 yield return WaitReal(0.8f);
+                Shot("ui_lord");
+                yield return WaitReal(0.2f);
                 MetaUi.EquipSheet(_home.Layer, 0);
                 yield return WaitReal(0.7f);
                 Shot("ui_equip_sheet");
@@ -1250,6 +1485,15 @@ namespace Liangshan
                 yield return WaitReal(0.7f);
                 Shot("ui_roster");
                 yield return WaitReal(0.35f);
+                Application.Quit(0);
+                yield break;
+            }
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-crowdshot") >= 0)
+            {
+                Sfx.On = false;
+                Sfx.Music = false;
+                yield return AutoBattle(12, "crowd_L12");
+                yield return AutoBattle(28, "crowd_L28");
                 Application.Quit(0);
                 yield break;
             }

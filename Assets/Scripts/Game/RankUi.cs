@@ -690,16 +690,7 @@ namespace Liangshan
                 gold ? Pal.Hex("2C4E72") : Pal.Hex("24486A"), Art.White, "bg");
 
             var d = Defs.Hero(h);
-            var ic = Ui.Icon(mask, d.Art, innerH * 1.48f, new Vector2(0, -innerH * 0.22f));
-            if (Art.Animated(d.Art))
-            {
-                string key = d.Art;
-                Art.Late(ic, key, () =>
-                {
-                    var fr = Art.Frames(key);
-                    if (fr != null && fr.Length > 0 && ic) ic.sprite = fr[0];
-                });
-            }
+            var ic = Ui.Icon(mask, d.Art, innerH * 0.98f, new Vector2(0, -innerH * 0.01f));
 
             if (!string.IsNullOrEmpty(avatarUrl))
             {
@@ -839,8 +830,12 @@ namespace Liangshan
                 int idx = i;
                 if (got)
                 {
-                    MetaUi.Check(r, new Vector2(284f, 0f), 34f);
-                    Ui.Label(r, "已领取", 26, Pal.Hex("6E86A6"), new Vector2(348f, 0f), new Vector2(120, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    const float mark = 40f, gap = 16f, wordW = 112f;
+                    float left = 326f - (mark + gap + wordW) * 0.5f;
+                    MetaUi.Check(r, new Vector2(left + mark * 0.5f, 0f), mark - 6f);
+                    var done = Ui.Label(r, "已领取", 26, Pal.Hex("6E86A6"),
+                        new Vector2(left + mark + gap + wordW * 0.5f, 0f), new Vector2(wordW, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    done.horizontalOverflow = HorizontalWrapMode.Overflow;
                 }
                 else if (can)
                 {
@@ -906,16 +901,7 @@ namespace Liangshan
                 mask.sizeDelta = new Vector2(146, 146);
                 mask.anchoredPosition = new Vector2(0, 18f);
                 mask.gameObject.AddComponent<RectMask2D>();
-                var ic = Ui.Icon(mask, hd.Art, 156, new Vector2(0, -6f));
-                if (Art.Animated(hd.Art))
-                {
-                    string key = hd.Art;
-                    Art.Late(ic, key, () =>
-                    {
-                        var fr = Art.Frames(key);
-                        if (fr != null && fr.Length > 0 && ic) ic.sprite = fr[0];
-                    });
-                }
+                Ui.Icon(mask, hd.Art, 134, new Vector2(0, 4f));
                 Ui.Outlined(cell, $"Lv.{hlv}", 21, Pal.Hex("FFE684"), new Vector2(0, -48f), new Vector2(140, 30), Pal.Ink, 1.6f);
                 Ui.Label(cell, hd.Name, 25, Pal.Hex("EAF2FF"), new Vector2(0, -92f), new Vector2(170, 34), TextAnchor.MiddleCenter, Fonts.Heavy);
             }
@@ -938,6 +924,8 @@ namespace Liangshan
         }
 
         // ---------------- 玩家微信头像昵称同步与自定义榜上名号 ----------------
+
+        public static void OpenRename(Transform layer, Action refresh) => ShowRenameModal(layer, refresh);
 
         static void ShowRenameModal(Transform layer, Action refresh)
         {

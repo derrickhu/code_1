@@ -27,9 +27,11 @@ async function handleLogin(req) {
   }
 
   let platformUid = '';
+  let wxSessionKey = '';
   if (platform === 'wx') {
     const wxSession = await wxCode2Session(body.code);
     platformUid = wxSession.openid;
+    wxSessionKey = wxSession.session_key || '';
   } else if (platform === 'dy') {
     platformUid = await ttCode2Openid(body.code, body.anonymousCode, body.anonId);
   } else if (platform === 'tap') {
@@ -45,6 +47,14 @@ async function handleLogin(req) {
   }
 
   const userId = `${platform}:${platformUid}`;
+  if (platform === 'wx' && wxSessionKey) {
+    try {
+      const { upsertWxSession } = require('./game-club');
+      await upsertWxSession(userId, wxSessionKey);
+    } catch (err) {
+      console.warn('[cunkou-api] upsertWxSession warn:', err && err.message);
+    }
+  }
   const ttlSec = getTtlSec();
   const scopedGameKey = getScopedGameKey(platform);
   const now = Math.floor(Date.now() / 1000);

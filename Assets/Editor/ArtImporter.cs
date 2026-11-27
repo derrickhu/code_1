@@ -8,7 +8,30 @@ namespace Liangshan.EditorTools
     /// </summary>
     public sealed class ArtImporter : AssetPostprocessor
     {
-        public override uint GetVersion() => 6;
+        public override uint GetVersion() => 8;
+
+        void OnPreprocessAudio()
+        {
+            if (!assetPath.Contains("/Resources/Sfx/")) return;
+            var ai = (AudioImporter)assetImporter;
+            ai.forceToMono = true;
+            ai.ambisonic = false;
+            ai.loadInBackground = false;
+            var so = new SerializedObject(ai);
+            var norm = so.FindProperty("m_Normalize");
+            if (norm != null) norm.boolValue = false;
+            var td = so.FindProperty("m_3D");
+            if (td != null) td.boolValue = false;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            var def = ai.defaultSampleSettings;
+            def.loadType = UnityEngine.AudioClipLoadType.DecompressOnLoad;
+            def.compressionFormat = UnityEngine.AudioCompressionFormat.Vorbis;
+            def.quality = 0.85f;
+            def.sampleRateSetting = AudioSampleRateSetting.PreserveSampleRate;
+            def.preloadAudioData = true;
+            ai.defaultSampleSettings = def;
+        }
 
         void OnPreprocessTexture()
         {
@@ -20,7 +43,9 @@ namespace Liangshan.EditorTools
             ti.alphaIsTransparency = true;
             ti.npotScale = TextureImporterNPOTScale.None;
             ti.textureCompression = TextureImporterCompression.Uncompressed;
-            ti.wrapMode = UnityEngine.TextureWrapMode.Clamp;
+            ti.wrapMode = assetPath.EndsWith("fx_noise_tile.png") || assetPath.EndsWith("fx_chain_rope.png")
+                ? UnityEngine.TextureWrapMode.Repeat
+                : UnityEngine.TextureWrapMode.Clamp;
             ti.maxTextureSize = 2048;
             var s = new TextureImporterSettings();
             ti.ReadTextureSettings(s);

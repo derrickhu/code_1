@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Liangshan.Sim
 {
@@ -301,6 +302,8 @@ namespace Liangshan.Sim
 
         public static bool CanWelfare(SaveData s, int today) => s.WelfareDay != today + 1;
 
+        public static bool CanAdWelfare(SaveData s, int today) => !CanWelfare(s, today) && s.AdWelfareDay != today + 1;
+
         public static Item[] ClaimWelfare(SaveData s, int today)
         {
             if (!CanWelfare(s, today)) return null;
@@ -309,6 +312,192 @@ namespace Liangshan.Sim
             foreach (var it in r) Give(s, it);
             return r;
         }
+
+        public static Item[] ClaimAdWelfare(SaveData s, int today)
+        {
+            if (!CanAdWelfare(s, today)) return null;
+            var r = WelfareReward(s);
+            s.AdWelfareDay = today + 1;
+            foreach (var it in r) Give(s, it);
+            return r;
+        }
+
+        // ---------------- 微信游戏圈（入圈领奖 + 累计链式解锁 + 今日互动日常，全部对齐 wx.getGameClubData 官方可查字段） ----------------
+
+        public enum ClubMetric { Join, TotalLikes, TotalComments, DayLikes, DayComments, DayPosts }
+
+        public sealed class ClubTaskDef
+        {
+            public int Id;
+            public string Name;
+            public ClubMetric Metric;
+            public int Need;
+            public bool Daily;
+            public int PreId;
+            public Item[] Rewards;
+        }
+
+        public static readonly ClubTaskDef[] ClubTasks =
+        {
+            new ClubTaskDef
+            {
+                Id = 0, Name = "加入微信游戏圈", Metric = ClubMetric.Join, Need = 1, Daily = false, PreId = -1,
+                Rewards = new[] { Ig(200), Tk(3), new Item(Cur.GearBox, 1) },
+            },
+            new ClubTaskDef
+            {
+                Id = 1, Name = "累计点赞帖子 1 次", Metric = ClubMetric.TotalLikes, Need = 1, Daily = false, PreId = -1,
+                Rewards = new[] { Tk(1), new Item(Cur.Page, 20), new Item(Cur.Stamina, 20) },
+            },
+            new ClubTaskDef
+            {
+                Id = 2, Name = "累计评论帖子 1 次", Metric = ClubMetric.TotalComments, Need = 1, Daily = false, PreId = -1,
+                Rewards = new[] { Tk(1), new Item(Cur.Silk, 240), new Item(Cur.Iron, 25) },
+            },
+            new ClubTaskDef
+            {
+                Id = 3, Name = "累计点赞帖子 3 次", Metric = ClubMetric.TotalLikes, Need = 3, Daily = false, PreId = 1,
+                Rewards = new[] { new Item(Cur.Hammer, 2), new Item(Cur.Page, 35), new Item(Cur.Iron, 30) },
+            },
+            new ClubTaskDef
+            {
+                Id = 4, Name = "累计点赞帖子 5 次", Metric = ClubMetric.TotalLikes, Need = 5, Daily = false, PreId = 3,
+                Rewards = new[] { Tk(3), new Item(Cur.GearBox, 2), new Item(Cur.Meteor, 3) },
+            },
+            new ClubTaskDef
+            {
+                Id = 5, Name = "累计评论帖子 3 次", Metric = ClubMetric.TotalComments, Need = 3, Daily = false, PreId = 2,
+                Rewards = new[] { new Item(Cur.Hammer, 2), new Item(Cur.Refine, 3), new Item(Cur.Silk, 360) },
+            },
+            new ClubTaskDef
+            {
+                Id = 6, Name = "累计评论帖子 5 次", Metric = ClubMetric.TotalComments, Need = 5, Daily = false, PreId = 5,
+                Rewards = new[] { new Item(Cur.Tome, 2), Tk(5), new Item(Cur.Hammer, 3) },
+            },
+            new ClubTaskDef
+            {
+                Id = 7, Name = "今日点赞帖子 1 次", Metric = ClubMetric.DayLikes, Need = 1, Daily = true, PreId = 0,
+                Rewards = new[] { new Item(Cur.Stamina, 20), Ig(30), new Item(Cur.Page, 10) },
+            },
+            new ClubTaskDef
+            {
+                Id = 8, Name = "今日评论帖子 1 次", Metric = ClubMetric.DayComments, Need = 1, Daily = true, PreId = 0,
+                Rewards = new[] { new Item(Cur.Stamina, 20), Ig(40), new Item(Cur.Silk, 120) },
+            },
+            new ClubTaskDef
+            {
+                Id = 9, Name = "今日发表帖子 1 次", Metric = ClubMetric.DayPosts, Need = 1, Daily = true, PreId = 0,
+                Rewards = new[] { Tk(1), new Item(Cur.Hammer, 1), new Item(Cur.Iron, 20) },
+            },
+        };
+
+        public static void EnsureClubDay(SaveData s, int today)
+        {
+            if (s.ClubSyncDay == today + 1) return;
+            s.ClubSyncDay = today + 1;
+            s.ClubDayLikes = s.ClubDayComments = s.ClubDayPosts = 0;
+            s.ClubDailyGot = 0;
+        }
+
+        public static bool SyncClubData(SaveData s, int today, bool joined, int dayLikes, int dayComments, int dayPosts)
+        {
+            EnsureClubDay(s, today);
+            bool changed = false;
+            if ((joined || dayLikes > 0 || dayComments > 0 || dayPosts > 0) && s.ClubJoined == 0)
+            {
+                s.ClubJoined = 1;
+                changed = true;
+            }
+            if (dayLikes > s.ClubDayLikes)
+            {
+                s.ClubTotalLikes += dayLikes - s.ClubDayLikes;
+                s.ClubDayLikes = dayLikes;
+                changed = true;
+            }
+            if (dayComments > s.ClubDayComments)
+            {
+                s.ClubTotalComments += dayComments - s.ClubDayComments;
+                s.ClubDayComments = dayComments;
+                changed = true;
+            }
+            if (dayPosts > s.ClubDayPosts)
+            {
+                s.ClubTotalPosts += dayPosts - s.ClubDayPosts;
+                s.ClubDayPosts = dayPosts;
+                changed = true;
+            }
+            return changed;
+        }
+
+        /// <summary>仅限编辑器与微信开发者工具调试验收：模拟一次游戏圈真实数据返回（加圈 + 当日点赞/评论/发帖各 +1）。</summary>
+        public static void SimulateClubStep(SaveData s, int today)
+        {
+            EnsureClubDay(s, today);
+            SyncClubData(s, today, true, s.ClubDayLikes + 1, s.ClubDayComments + 1, s.ClubDayPosts + 1);
+        }
+
+        public static bool ClubOnceTaken(SaveData s, int id) => (s.ClubOnceGot & (1 << id)) != 0;
+
+        public static bool ClubTaskTaken(SaveData s, int today, int i)
+        {
+            EnsureClubDay(s, today);
+            var t = ClubTasks[i];
+            return t.Daily ? (s.ClubDailyGot & (1 << t.Id)) != 0 : ClubOnceTaken(s, t.Id);
+        }
+
+        public static bool ClubTaskUnlocked(SaveData s, int i)
+        {
+            var t = ClubTasks[i];
+            return t.PreId < 0 || ClubOnceTaken(s, t.PreId);
+        }
+
+        public static int ClubTaskValue(SaveData s, int today, int i)
+        {
+            EnsureClubDay(s, today);
+            switch (ClubTasks[i].Metric)
+            {
+                case ClubMetric.Join: return s.ClubJoined != 0 ? 1 : 0;
+                case ClubMetric.TotalLikes: return s.ClubTotalLikes;
+                case ClubMetric.TotalComments: return s.ClubTotalComments;
+                case ClubMetric.DayLikes: return s.ClubDayLikes;
+                case ClubMetric.DayComments: return s.ClubDayComments;
+                case ClubMetric.DayPosts: return s.ClubDayPosts;
+                default: return 0;
+            }
+        }
+
+        public static bool CanClaimClubTask(SaveData s, int today, int i) =>
+            i >= 0 && i < ClubTasks.Length
+            && ClubTaskUnlocked(s, i)
+            && !ClubTaskTaken(s, today, i)
+            && ClubTaskValue(s, today, i) >= ClubTasks[i].Need;
+
+        public static List<Item> ClaimClubTask(SaveData s, int today, int i)
+        {
+            if (!CanClaimClubTask(s, today, i)) return null;
+            var t = ClubTasks[i];
+            if (t.Daily) s.ClubDailyGot |= 1 << t.Id;
+            else s.ClubOnceGot |= 1 << t.Id;
+            var got = new List<Item>(t.Rewards.Length);
+            foreach (var it in t.Rewards)
+            {
+                Give(s, it);
+                got.Add(it);
+            }
+            return got;
+        }
+
+        public static int ClubClaimableCount(SaveData s, int today)
+        {
+            EnsureClubDay(s, today);
+            int n = 0;
+            for (int i = 0; i < ClubTasks.Length; i++)
+                if (CanClaimClubTask(s, today, i)) n++;
+            return n;
+        }
+
+        public static bool ClubBadge(SaveData s, int today) =>
+            ClubClaimableCount(s, today) > 0 || (s.ClubJoined == 0 && s.ClubSeen == 0);
 
         // ---------------- 抖音侧边栏复访与桌面快捷有礼 ----------------
 

@@ -305,18 +305,19 @@ namespace Liangshan
             return s;
         }
 
-        /// <summary>等级里程碑：5、20 级往局内卡池加选项，用「解锁选项」；其余是「永久强化」。分区排版杜绝任何多行重叠。</summary>
+        /// <summary>等级里程碑：5、15、20 级往局内卡池加选项，用「解锁选项」；10 级获得绝技及 25、30 级用「永久强化」。</summary>
         public static void Perma(Transform layer, HeroId h, int unlockIdx, Action done = null)
         {
             var d = Defs.Hero(h);
+            var kit = HeroKits.Of(h);
             RectTransform root = null;
             root = Overlay(layer, "perma", 0.86f, () => { Dismiss(root); done?.Invoke(); }, 0.6f);
             Sfx.Play(Snd.Unlock, 0.9f);
-            var opt = unlockIdx == 1 ? Meta.OptPerk(h, 1) : unlockIdx == 4 ? Meta.OptPerk(h, 2) : null;
+            var opt = unlockIdx == 1 ? Meta.OptPerk(h, 1) : unlockIdx == 3 ? Meta.OptPerk(h, 3) : unlockIdx == 4 ? Meta.OptPerk(h, 2) : null;
             int lvNeed = unlockIdx >= 0 && unlockIdx < Meta.UnlockLv.Length ? Meta.UnlockLv[unlockIdx] : 5;
 
-            // 传说好汉升至 5 级：同时解锁「天罡大招」与「爆发强化选项」，采用双横卡宽敞分栏展示！
-            if (unlockIdx == 1 && d.HasUlt && opt != null)
+            // 全员好汉升至 5 级：同时解锁「镇村大招 / 本命奥义」与「爆发强化选项」，采用双横卡宽敞分栏展示！
+            if (unlockIdx == 1 && opt != null)
             {
                 Band(root, 68, 564);
                 var dualWord = BigWord(root, "解锁选项", new Vector2(0, 366), 86);
@@ -350,8 +351,16 @@ namespace Liangshan
                     Tween.Pop(card, 0.24f, delay * 0.6f);
                 }
 
-                string ultRaw = !string.IsNullOrEmpty(d.UltTip) ? d.UltTip : HeroText.Ult(d);
-                BuildUnlockRow(new Vector2(0, 112), d.UltIcon, "镇村大招", Pal.Red, d.UltName, ultRaw, 0.10f);
+                if (d.HasUlt)
+                {
+                    string ultRaw = !string.IsNullOrEmpty(d.UltTip) ? d.UltTip : HeroText.Ult(d);
+                    BuildUnlockRow(new Vector2(0, 112), d.UltIcon, "镇村大招", Pal.Red, d.UltName, ultRaw, 0.10f);
+                }
+                else
+                {
+                    BuildUnlockRow(new Vector2(0, 112), kit.FinisherIcon, "本命奥义", Pal.Hex("C48A14"), kit.FinisherName, kit.FinisherDesc, 0.10f);
+                }
+
                 BuildUnlockRow(new Vector2(0, -82), d.AtkIcon, "爆发选项", Pal.Hex("D67A12"), opt.Name, opt.Desc, 0.20f);
 
                 Hint(root, -278);
@@ -367,16 +376,16 @@ namespace Liangshan
             const float bandTop = 342f;
             Band(root, (bandTop + bandBot) * 0.5f, bandTop - bandBot);
 
-            var word = BigWord(root, opt != null ? "解锁选项" : "永久强化", new Vector2(0, 358), 86);
+            var word = BigWord(root, unlockIdx == 2 ? "获得绝技" : opt != null ? "解锁选项" : "永久强化", new Vector2(0, 358), 86);
             Burst(root, new Vector2(0, 358), 18, 460);
 
-            string icon = opt != null ? (opt.Opt == 2 ? "ic_star" : d.AtkIcon) : unlockIdx == 2 ? "ic_star" : unlockIdx == 6 ? "ic_fast" : d.AtkIcon;
+            string icon = unlockIdx == 2 || unlockIdx == 3 ? kit.SigIcon : unlockIdx == 4 ? kit.TraitIcon : unlockIdx == 6 ? "ic_fast" : d.AtkIcon;
             Ui.Box(root, Vector2.one * 240f, new Vector2(0, 184), MetaUi.RarityColor(d.Rarity).A(0.32f), Art.SoftDot, "hexGlow");
             var hex = Hex(root, icon, 148, new Vector2(0, 184), false, d.Rarity);
             Tween.Pop(hex, 0.35f, 0.12f);
 
-            string name = opt != null ? opt.Name : unlockIdx == 2 ? d.PassiveName : unlockIdx == 3 ? Meta.OptPerk(h, 1).Name + "·精通" :
-                unlockIdx == 5 ? d.AtkName + "·极意" : "疾风";
+            string name = opt != null ? opt.Name : unlockIdx == 2 ? kit.SigName :
+                unlockIdx == 5 ? d.AtkName + "·极意" : "神速突破";
             Ui.Outlined(root, name, 46, Pal.Hex("FFE7A0"), new Vector2(0, 30), new Vector2(840, 58), Pal.Ink, 3f);
 
             var subPill = Ui.Rect(root, "subPill");
@@ -385,7 +394,7 @@ namespace Liangshan
             Ui.Box(subPill, new Vector2(640, 44), Vector2.zero, new Color(0.03f, 0.09f, 0.18f, 0.78f), Art.Pill);
             string subText = opt != null
                 ? $"{d.Name} Lv.{lvNeed} 解锁 · 上阵时局内强化可抽到"
-                : $"{d.Name} Lv.{lvNeed} 突破 · 属性与技能永久生效";
+                : $"{d.Name} Lv.{lvNeed} 突破 · 属性与绝技永久生效";
             Ui.Outlined(subPill, subText, 25, opt != null ? Pal.Hex("9EE2FF") : Pal.Hex("A8F5BE"),
                 new Vector2(0, 1), new Vector2(616, 40), Pal.Ink, 1.7f);
 
@@ -398,15 +407,13 @@ namespace Liangshan
             string mainLine;
             if (opt != null)
             {
-                mainLine = FormatMilestoneDesc(opt.Desc);
+                mainLine = FormatMilestoneDesc(opt.Desc) + (unlockIdx == 3 ? $"，主技能冷却 {HeroText.O("-10%")}" : "");
             }
             else if (unlockIdx == 2)
             {
-                string pas = FormatMilestoneDesc(HeroText.Passive(d));
-                string dmgNote = h == HeroId.YanQing
-                    ? $"满{HeroText.O("4位")}钢钉{HeroText.O("+1")}，伤害 {HeroText.O("+20%")}"
-                    : $"普攻与技能伤害 {HeroText.O("+20%")}";
-                mainLine = $"{pas}，{dmgNote}";
+                string pas = FormatMilestoneDesc(kit.SigDesc);
+                mainLine = $"{pas}，普攻伤害 {HeroText.O("+20%")}";
+
             }
             else
             {
@@ -417,8 +424,8 @@ namespace Liangshan
             {
                 MetaUi.Fit(Ui.Outlined(descBox, mainLine, 29, Color.white, new Vector2(0, 32), new Vector2(832, 48), Pal.Ink, 1.9f), 22);
                 Ui.Box(descBox, new Vector2(780, 2), new Vector2(0, -1), Color.white.A(0.10f), Art.White);
-                MetaUi.Fit(Ui.Outlined(descBox, "额外突破：所有取舍强化不再降低属性", 26, Pal.Hex("9CFF6A"),
-                    new Vector2(0, -34), new Vector2(832, 44), Pal.Hex("143E18"), 1.7f), 21);
+                MetaUi.Fit(Ui.Outlined(descBox, $"专武质变：{FormatMilestoneDesc(kit.Lv20Desc)}（且取舍强化无负面）", 24, Pal.Hex("9CFF6A"),
+                    new Vector2(0, -34), new Vector2(832, 44), Pal.Hex("143E18"), 1.7f), 19);
             }
             else
             {
@@ -528,7 +535,24 @@ namespace Liangshan
             card.anchoredPosition = new Vector2(0, 40);
             card.sizeDelta = new Vector2(440, 560);
             MetaUi.Card(card, MetaUi.RarityCard(d.Rarity), new Vector2(440, 560), Vector2.zero);
-            var art = Ui.Icon(card, d.Art, 400, new Vector2(0, 52));
+            float fxDraw = 320f;
+            float fxBaseY = -126f;
+            if (Art.Animated(d.Art) && AnimMeta.Info.TryGetValue(d.Art, out var fxMeta))
+            {
+                fxDraw = 280f / Mathf.Max(0.28f, fxMeta.Body);
+                fxBaseY = -124f - fxDraw * fxMeta.Foot;
+            }
+            var art = Ui.Icon(card, d.Art, fxDraw, new Vector2(0, fxBaseY));
+            art.rectTransform.pivot = new Vector2(0.5f, 0f);
+            if (Art.Animated(d.Art))
+            {
+                string fxKey = d.Art;
+                Art.Late(art, fxKey, () =>
+                {
+                    var fr = Art.Frames(fxKey);
+                    if (fr != null && fr.Length > 0 && art) art.sprite = fr[0];
+                });
+            }
             var namePlaque = Ui.Box(card, new Vector2(340, 74), new Vector2(0, -206), new Color(0.06f, 0.10f, 0.16f, 0.68f), Art.Pill);
             Ui.Box(namePlaque.transform, new Vector2(332, 66), Vector2.zero, MetaUi.QualGlow(MetaUi.HeroTier(d.Rarity)).A(0.28f), Art.Pill);
             Ui.Outlined(card, d.Name, 54, d.Rarity >= 4 ? Pal.Hex("FFF1B4") : Color.white, new Vector2(0, -205), new Vector2(330, 72), Pal.Ink, 3f);

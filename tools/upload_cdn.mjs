@@ -48,7 +48,7 @@ function loadSecret() {
   const shared = path.join(ROOT, '..', 'xiaochu2', 'scripts', '.cdn_secret');
   const file = fs.existsSync(own) ? own : shared;
   const env = { ...readEnvFile(file), ...process.env };
-  return { id: env.TENCENTCLOUD_SECRET_ID || '', key: env.TENCENTCLOUD_SECRET_KEY || '', region: env.TENCENTCLOUD_REGION || 'ap-shanghai', file };
+  return { id: env.TENCENTCLOUD_SECRET_ID || '', key: env.TENCENTCLOUD_SECRET_KEY || '', region: env.TENCENTCLOUD_REGION || '', file };
 }
 
 const secret = loadSecret();
@@ -58,7 +58,7 @@ const sha1Hex = (s) => crypto.createHash('sha1').update(s).digest('hex');
 const hmacSha1Hex = (k, s) => crypto.createHmac('sha1', k).update(s).digest('hex');
 const encodePathname = (p) => p.split('/').map(encodeURIComponent).join('/');
 
-function requestOnce({ method = 'GET', hostname, path: reqPath = '/', headers = {}, body = null, timeoutMs = 60000 }) {
+function request({ method = 'GET', hostname, path: reqPath = '/', headers = {}, body = null, timeoutMs = 60000 }) {
   return new Promise((resolve, reject) => {
     const data = body == null ? null : Buffer.isBuffer(body) ? body : Buffer.from(String(body));
     const req = https.request({ hostname, path: reqPath, method, headers: { ...headers, ...(data ? { 'Content-Length': data.length } : {}) } }, (res) => {
@@ -71,19 +71,6 @@ function requestOnce({ method = 'GET', hostname, path: reqPath = '/', headers = 
     if (data) req.write(data);
     req.end();
   });
-}
-
-async function request(opts) {
-  let lastErr;
-  for (let i = 0; i < 4; i++) {
-    try {
-      return await requestOnce(opts);
-    } catch (e) {
-      lastErr = e;
-      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
-    }
-  }
-  throw lastErr;
 }
 
 function cosAuth(method, host, uri) {
@@ -109,9 +96,19 @@ async function inferRegion() {
 async function cos(method, objectPath, body = null, headers = {}, timeoutMs = 60000) {
   const host = `${BUCKET}.cos.${REGION}.myqcloud.com`;
   const uri = `/${encodePathname(objectPath)}`;
-  const res = await request({ method, hostname: host, path: uri, headers: { Host: host, Authorization: cosAuth(method, host, uri), ...headers }, body, timeoutMs });
-  if (res.statusCode < 200 || (res.statusCode >= 300 && !(method === 'DELETE' && res.statusCode === 404)))
-    throw new Error(`${method} ${objectPath} 返回 ${res.statusCode}: ${res.body.toString('utf-8').slice(0, 200)}`);
+  let lastErr;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const res = await request({ method, hostname: host, path: uri, headers: { Host: host, Authorization: cosAuth(method, host, uri), ...headers }, body, timeoutMs });
+      if (res.statusCode < 200 || (res.statusCode >= 300 && !(method === 'DELETE' && res.statusCode === 404)))
+        throw new Error(`${method} ${objectPath} 返回 ${res.statusCode}: ${res.body.toString('utf-8').slice(0, 200)}`);
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 4) await new Promise((r) => setTimeout(r, attempt * 1200));
+    }
+  }
+  throw lastErr;
 }
 
 function contentType(file) {

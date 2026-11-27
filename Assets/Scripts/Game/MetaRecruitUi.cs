@@ -363,14 +363,17 @@ namespace Liangshan
                 }
                 else
                 {
-                    skillCard.sizeDelta = new Vector2(820, 118);
-                    Ui.Skin(skillCard, r == 3 ? "gacha_dock_purple" : "gacha_tray", new Vector2(820, 118), Vector2.zero, 0.68f);
-                    var aSlot = Slot(skillCard, RaritySlot(r), 86, new Vector2(-336, 0));
-                    if (!string.IsNullOrEmpty(d.AtkIcon)) Ui.Icon(aSlot.transform, d.AtkIcon, 62, Vector2.zero);
-                    Ui.SingleLine(Ui.Outlined(skillCard, $"招牌绝技 · 【{d.AtkName}】", 26, Pal.Hex("FFE89E"),
-                        new Vector2(36, 18), new Vector2(620, 36), Pal.Ink, 1.8f, TextAnchor.MiddleLeft), 20);
-                    Ui.SingleLine(Ui.Outlined(skillCard, d.Desc, 22, Pal.Hex("DCEEFF"),
-                        new Vector2(36, -20), new Vector2(620, 34), Pal.Ink, 1.5f, TextAnchor.MiddleLeft), 17);
+                    var kit = HeroKits.Of(d.Id);
+                    skillCard.sizeDelta = new Vector2(840, 144);
+                    Ui.Skin(skillCard, r == 3 ? "gacha_dock_purple" : "gacha_tray", new Vector2(840, 144), Vector2.zero, 0.70f);
+                    var aSlot = Slot(skillCard, RaritySlot(r), 96, new Vector2(-340, 0));
+                    Ui.Icon(aSlot.transform, kit.FinisherIcon, 74, Vector2.zero);
+                    Badge(skillCard, "本命奥义", Pal.Hex("C48A14"), new Vector2(108, 30), new Vector2(-340, 50), 17);
+                    Ui.Outlined(skillCard, $"【{kit.FinisherName}】 <size=21><color=#FFE6A0>绝技：{kit.SigName}</color></size>",
+                        27, Pal.Hex("FFE89E"), new Vector2(40, 22), new Vector2(630, 40), Pal.Ink, 1.9f, TextAnchor.MiddleLeft);
+                    Ui.Outlined(skillCard, kit.TraitDesc, 22, Pal.Hex("DCEEFF"),
+                        new Vector2(40, -22), new Vector2(630, 36), Pal.Ink, 1.5f, TextAnchor.MiddleLeft);
+
                 }
                 Tween.Pop(skillCard, 0.24f, 0.06f);
 
@@ -1323,18 +1326,25 @@ namespace Liangshan
 
             var idle = Art.Frames(d.Art);
             Sprite sp0 = idle != null && idle.Length > 0 ? idle[0] : null;
-            Vector2[] rimOffsets = { new Vector2(-4.5f, 0f), new Vector2(4.5f, 0f), new Vector2(0f, -4.5f), new Vector2(0f, 4.5f) };
+            float silDraw = 368f;
+            float silOffY = 0f;
+            if (sp0 != null && AnimMeta.Info.TryGetValue(d.Art, out var silMeta))
+            {
+                silDraw = 236f / Mathf.Max(0.28f, silMeta.Body);
+                silOffY = (0.5f - silMeta.Foot) * silDraw - 168f;
+            }
+            Vector2[] rimOffsets = { new Vector2(-4.5f, silOffY), new Vector2(4.5f, silOffY), new Vector2(0f, silOffY - 4.5f), new Vector2(0f, silOffY + 4.5f) };
             fx.Rims = new Image[rimOffsets.Length];
             Color rimCol = Color.Lerp(col, Color.white, 0.52f).A(0.92f);
             for (int r = 0; r < rimOffsets.Length; r++)
             {
-                var rm = Ui.Icon(silWrap, d.Art, 368, rimOffsets[r], "rim" + r);
+                var rm = Ui.Icon(silWrap, d.Art, silDraw, rimOffsets[r], "rim" + r);
                 if (sp0) rm.sprite = sp0;
                 rm.color = rimCol;
                 fx.Rims[r] = rm;
             }
 
-            fx.Sil = Ui.Icon(silWrap, d.Art, 368, Vector2.zero, "sil");
+            fx.Sil = Ui.Icon(silWrap, d.Art, silDraw, new Vector2(0f, silOffY), "sil");
             if (sp0) fx.Sil.sprite = sp0;
             fx.Sil.color = new Color(0.05f, 0.06f, 0.14f, 0.96f);
 
@@ -1463,10 +1473,17 @@ namespace Liangshan
             heroHolder.sizeDelta = new Vector2(368, 368);
 
             var idleFrames = Art.Frames(d.Art);
-            var heroImg = Ui.Icon(heroHolder, d.Art, 368, Vector2.zero, "heroArt");
+            float revDraw = 368f;
+            Vector2 revPos = Vector2.zero;
+            if (idleFrames != null && idleFrames.Length > 0 && AnimMeta.Info.TryGetValue(d.Art, out var revMeta))
+            {
+                revDraw = 236f / Mathf.Max(0.28f, revMeta.Body);
+                revPos = new Vector2(0f, (0.5f - revMeta.Foot) * revDraw - 168f);
+            }
+            var heroImg = Ui.Icon(heroHolder, d.Art, revDraw, revPos, "heroArt");
             if (idleFrames != null && idleFrames.Length > 0) heroImg.sprite = idleFrames[0];
 
-            var flashCopy = Ui.Icon(heroHolder, d.Art, 368, Vector2.zero, "flash");
+            var flashCopy = Ui.Icon(heroHolder, d.Art, revDraw, revPos, "flash");
             if (idleFrames != null && idleFrames.Length > 0) flashCopy.sprite = idleFrames[0];
             flashCopy.color = Color.white.A(0.90f);
             Tween.Run(flashCopy, 0.20f, k =>
@@ -1622,7 +1639,9 @@ namespace Liangshan
                 miniHalo.color = Color.Lerp(cGlow, Color.white, 0.55f).A(tier >= 3 ? 0.62f : 0.34f);
             }
             Ui.Box(mask, new Vector2(sz.x * 0.56f, sz.y * 0.10f), new Vector2(0f, -sz.y * 0.22f), new Color(0.05f, 0.05f, 0.10f, 0.36f), Art.GroundShadow);
-            Ui.Icon(mask, d.Art, sz.x * 0.88f, new Vector2(0f, -sz.y * 0.02f));
+            var miniArt = Ui.Icon(mask, d.Art, sz.y * 0.58f, Vector2.zero);
+            miniArt.rectTransform.pivot = new Vector2(0.5f, 0f);
+            miniArt.rectTransform.anchoredPosition = new Vector2(0f, -sz.y * 0.23f);
 
             float rSz = sz.x * 0.22f;
             Vector2 rPos = new Vector2(-sz.x * 0.35f, sz.y * 0.36f);
@@ -1961,7 +1980,9 @@ namespace Liangshan
                 inHalo.color = Color.Lerp(cCol, Color.white, 0.55f).A(tier >= 3 ? 0.68f : 0.36f);
             }
             Ui.Box(artMask, new Vector2(128, 24), new Vector2(0, -46), new Color(0.05f, 0.05f, 0.10f, 0.36f), Art.GroundShadow);
-            Ui.Icon(artMask, d.Art, 198, new Vector2(0, -2));
+            var sumArt = Ui.Icon(artMask, d.Art, 152, Vector2.zero);
+            sumArt.rectTransform.pivot = new Vector2(0.5f, 0f);
+            sumArt.rectTransform.anchoredPosition = new Vector2(0, -48);
 
             SweepCardShine(artMask, new Vector2(204, 188), tier >= 2 ? 0.88f : 0.55f, animDelay + 0.14f);
 
@@ -2008,8 +2029,7 @@ namespace Liangshan
 
             if (can)
             {
-                var up = Ui.Box(c, new Vector2(34, 34), new Vector2(barX + barW * 0.5f + 16f, rowY + 2f), Color.white, Art.UpArrow, "up");
-                Ui.Breathe(up, 4f);
+                Ui.Breathe(Ui.UpgradeMark(c, 34, new Vector2(barX + barW * 0.5f + 16f, rowY + 2f)), 4f);
             }
 
             Ui.Outlined(c, d.Name, 28, tier >= 3 ? Pal.Hex("FFF1B4") : Color.white,

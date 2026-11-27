@@ -90,11 +90,11 @@ namespace Liangshan
             Track(_mainLevel ? "level_fail" : "mode_fail", LevelParams(string.IsNullOrEmpty(reason) ? "lose" : reason, wave, kills));
         }
 
-        public static void AdRequest(string scene, string unitOverride = null) => Ad("ad_request", scene, null, null, null, unitOverride);
-        public static void AdShow(string scene, string unitOverride = null) => Ad("ad_show", scene, null, null, null, unitOverride);
-        public static void AdClose(string scene, bool ended, string unitOverride = null) => Ad("ad_close", scene, ended, null, null, unitOverride);
-        public static void AdError(string scene, string errCode = "", string errMsg = "", string unitOverride = null) =>
-            Ad("ad_error", scene, null, errCode ?? "", string.IsNullOrEmpty(errMsg) ? "ad_error" : errMsg, unitOverride);
+        public static void AdRequest(string scene, string unitOverride = null, string adType = "reward") => Ad("ad_request", scene, null, null, null, unitOverride, adType);
+        public static void AdShow(string scene, string unitOverride = null, string adType = "reward") => Ad("ad_show", scene, null, null, null, unitOverride, adType);
+        public static void AdClose(string scene, bool ended, string unitOverride = null, string adType = "reward") => Ad("ad_close", scene, ended, null, null, unitOverride, adType);
+        public static void AdError(string scene, string errCode = "", string errMsg = "", string unitOverride = null, string adType = "reward") =>
+            Ad("ad_error", scene, null, errCode ?? "", string.IsNullOrEmpty(errMsg) ? "ad_error" : errMsg, unitOverride, adType);
 
         public static void SubscribeMessage(string scene, bool accepted, string detail = "")
         {
@@ -114,12 +114,12 @@ namespace Liangshan
             return string.IsNullOrEmpty(unitId) ? "reward" : unitId;
         }
 
-        static void Ad(string name, string scene, bool? ended, string errCode, string errMsg, string unitOverride)
+        static void Ad(string name, string scene, bool? ended, string errCode, string errMsg, string unitOverride, string adType = "reward")
         {
             if (!_sessionStarted) return;
             string unitId = ResolveAdUnitId(scene, unitOverride);
             Param p = Param.Of("ad_unit_id", unitId)
-                .Str("ad_type", "reward")
+                .Str("ad_type", string.IsNullOrEmpty(adType) ? "reward" : adType)
                 .Str("scene", string.IsNullOrEmpty(scene) ? "unknown" : scene);
             if (_levelOpen) p.Num("level_id", _levelId).Str("mode", _mode);
             if (ended.HasValue)

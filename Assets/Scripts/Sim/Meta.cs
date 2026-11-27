@@ -110,6 +110,8 @@ namespace Liangshan.Sim
         public int NextTotemId = 1, TotemPity;
         /// <summary>聚义信物已消耗点数、每周半价碎片计数、跳过招募动画、整日2倍速日期、今日无损撤退与广告计数、首次出橙标记。</summary>
         public int CreditSpent, ShardWeek, SkipRecruitAnim, Speed2Day, FreeRetreats, AdStart2Star, AdTakeAll, LegendPulled;
+        /// <summary>每日广告扩展计数：徽章免费寻宝、装备箱免费开启、日常挑战加次、补给拦截加次、每日福利加赠日期、插屏展示次数。</summary>
+        public int AdTotem, AdGearBox, AdDailyTries, AdEscortTries, AdWelfareDay, AdInterstitial;
         /// <summary>最近一次主线战败的关卡号。援军开局只在这一关还没打过时出现。</summary>
         public int LostStage;
         public int[] WeeklyShardBought = new int[0];
@@ -118,6 +120,11 @@ namespace Liangshan.Sim
         public string Nick = "", Avatar = "";
         /// <summary>敌军图鉴三大分类（小怪/精英/首领）收集宝箱已领取位。</summary>
         public int CodexBox;
+        /// <summary>微信游戏圈：是否已入圈、跨天同步日期+1、是否已浏览面板、当日与累计互动计数、一次性与日常任务领取位。</summary>
+        public int ClubJoined, ClubSyncDay, ClubSeen;
+        public int ClubDayLikes, ClubDayComments, ClubDayPosts;
+        public int ClubTotalLikes, ClubTotalComments, ClubTotalPosts;
+        public int ClubOnceGot, ClubDailyGot;
         /// <summary>抖音专属福利：上次领取侧边栏复访奖励的日期序号 + 1；桌面快捷方式一次性奖励标记。</summary>
         public int DySidebarDay, DyShortcutGot;
         /// <summary>抖音订阅消息记录：巡村满仓提醒订阅日 + 1、签到提醒订阅日 + 1、累计授权次数（仅服务状态标记，无物质奖励诱导）。</summary>
@@ -194,6 +201,7 @@ namespace Liangshan.Sim
         public const int StaminaSec = 300;
         public const int BattleStamina = 5;
         public const int AdIngotsMax = 5, AdStaminaMax = 3, AdRecruitMax = 3, AdIdleMax = 3, DailyTriesMax = 2, EscortTriesMax = 2, ShopStaminaMax = 2;
+        public const int AdTotemMax = 2, AdGearBoxMax = 2, AdDailyTriesMax = 2, AdEscortTriesMax = 2, InterstitialDailyMax = 6;
         public const int TalentStep = 5;
         public const float BaseAtk = 50f, BaseCrit = 0.05f, BaseCritDmg = 1.5f;
         /// <summary>任意好汉每升一级，全军暴击伤害 +1%。</summary>
@@ -292,6 +300,8 @@ namespace Liangshan.Sim
             s.ActBox = 0;
             s.AdIngots = s.AdStamina = s.AdRecruit = s.AdIdle = s.DailyTries = s.EscortTries = s.ShopStamina = s.Meals = 0;
             s.FreeRetreats = s.AdStart2Star = s.AdTakeAll = s.RankLikes = 0;
+            s.AdTotem = s.AdGearBox = s.AdDailyTries = s.AdEscortTries = s.AdInterstitial = 0;
+            EnsureClubDay(s, day);
             Progress(s, Act.Login);
         }
 
@@ -466,42 +476,46 @@ namespace Liangshan.Sim
         }
 
         /// <summary>
-        /// 好汉等级解锁表（对标《永远的蔚蓝星球》）：1 级基础技能，5 级解锁「爆发」（传说好汉同步解锁大招进卡池），
-        /// 10 级被动质变，15 级「爆发」必暴且减冷却，20 级解锁「最强」且抹除所有取舍卡负面减伤代价，25、30 级突破。
+        /// 乡亲四技能等级突破表（对标《永远的蔚蓝星球》）：
+        /// 1 级普攻 + 个人特性，5 级解锁终结技（传说为大招、史诗/稀有为奥义）进强化池，
+        /// 10 级自动获得本命绝技，15 级解锁独门强化选项且冷却 -10%，20 级专属机制质变且免除取舍卡负面代价，25、30 级突破。
         /// </summary>
         public static readonly int[] UnlockLv = { 1, 5, 10, 15, 20, 25, 30 };
-        public const int UltLv = 5, SurgeLv = 5, PassiveLv = 10, SurgePlusLv = 15, TopLv = 20, NoPenaltyLv = 20;
+        public const int UltLv = 5, SurgeLv = 5, PassiveLv = 10, SurgePlusLv = 15, Opt15Lv = 15, TopLv = 20, NoPenaltyLv = 20;
 
-        /// <summary>被动从几级开始生效。名字和 5 级选项撞车的，跟 5 级走，图标也在这一级点亮。</summary>
-        public static int PassiveUnlock(HeroId h)
-        {
-            var surge = OptPerk(h, 1);
-            return surge != null && surge.Name == Defs.Hero(h).PassiveName ? SurgeLv : PassiveLv;
-        }
+        /// <summary>10 级自动解锁本命绝技（四技能无重名，固定 10 级激活）。</summary>
+        public static int PassiveUnlock(HeroId h) => PassiveLv;
 
-        /// <summary>里程碑里点到的技能。同一行可能有两个名字，同一个名字也可能出现在不同级。</summary>
-        public enum TalentSkill { Attack, Ult, Passive, Surge, SurgePlus, Top, Other }
+        /// <summary>里程碑或技能徽章对应的技能槽类别。</summary>
+        public enum TalentSkill { Attack, Trait, Ult, Finisher, Passive, Opt15, Surge, SurgePlus, Top, Rewrite, Other }
 
-        /// <summary>
-        /// 按这一行认技能，不能只按名字。吴用 5 级选项和 10 级被动都叫「锦囊妙计」，
-        /// 15 级又提一次这个名字，说的是强化效果，不是被动。
-        /// </summary>
+        /// <summary>按所在等级行与技能名精准识别技能类别。</summary>
         public static TalentSkill TalentSkillOf(HeroId h, int row, string name)
         {
             var d = Defs.Hero(h);
+            var kit = HeroKits.Of(h);
             switch (row)
             {
-                case 0: return TalentSkill.Attack;
-                case 1: return !string.IsNullOrEmpty(d.UltName) && name == d.UltName ? TalentSkill.Ult : TalentSkill.Surge;
+                case 0: return name == kit.TraitName ? TalentSkill.Trait : TalentSkill.Attack;
+                case 1:
+                    if (d.HasUlt && name == d.UltName) return TalentSkill.Ult;
+                    if (!d.HasUlt && name == kit.FinisherName) return TalentSkill.Finisher;
+                    return TalentSkill.Surge;
                 case 2: return TalentSkill.Passive;
-                case 3: return TalentSkill.SurgePlus;
-                case 4: return TalentSkill.Top;
-                default:
-                    if (name == d.AtkName) return TalentSkill.Attack;
-                    if (!string.IsNullOrEmpty(d.UltName) && name == d.UltName) return TalentSkill.Ult;
-                    if (name == d.PassiveName) return TalentSkill.Passive;
+                case 3: return name == kit.Opt15Name ? TalentSkill.Opt15 : TalentSkill.SurgePlus;
+                case 4:
                     var top = OptPerk(h, 2);
                     if (top != null && name == top.Name) return TalentSkill.Top;
+                    return TalentSkill.Rewrite;
+                default:
+                    if (name == d.AtkName) return TalentSkill.Attack;
+                    if (name == kit.TraitName) return TalentSkill.Trait;
+                    if (d.HasUlt && name == d.UltName) return TalentSkill.Ult;
+                    if (!d.HasUlt && name == kit.FinisherName) return TalentSkill.Finisher;
+                    if (name == kit.SigName || name == d.PassiveName) return TalentSkill.Passive;
+                    if (name == kit.Opt15Name) return TalentSkill.Opt15;
+                    var top2 = OptPerk(h, 2);
+                    if (top2 != null && name == top2.Name) return TalentSkill.Top;
                     return TalentSkill.Other;
             }
         }
@@ -515,23 +529,20 @@ namespace Liangshan.Sim
         public static string Talent(HeroId h, int i)
         {
             var d = Defs.Hero(h);
+            var kit = HeroKits.Of(h);
             switch (i)
             {
-                case 0: return $"解锁战斗技能「{d.AtkName}」";
+                case 0: return $"解锁「{d.AtkName}」与特性「{kit.TraitName}」";
                 case 1: return d.HasUlt
-                    ? $"解锁大招「{d.UltName}」与「{OptPerk(h, 1).Name}」（局内强化可抽到）"
-                    : $"解锁「{OptPerk(h, 1).Name}」选项（局内强化可抽到）";
-                case 2: return h == HeroId.YanQing
-                    ? $"获得被动「{d.PassiveName}」，场上满4位时钢钉+1，伤害 +20%"
-                    : PassiveUnlock(h) < PassiveLv
-                        ? $"「{d.PassiveName}」伤害 +20%"
-                        : $"获得被动「{d.PassiveName}」，伤害 +20%";
-                case 3: return h == HeroId.HuaRong
-                    ? $"场上满4位{d.Name}穿透+1，「{OptPerk(h, 1).Name}」必暴，冷却 -10%"
-                    : d.Buff.HasValue ? $"「{OptPerk(h, 1).Name}」效果翻倍，技能冷却 -10%" : $"「{OptPerk(h, 1).Name}」必定暴击、几率 +10%，技能冷却 -10%";
-                case 4: return $"解锁「{OptPerk(h, 2).Name}」选项，且取舍强化不再降低属性";
-                case 5: return d.Buff.HasValue ? "技能效果 +15%，奥义增幅 +35%" : (d.HasUlt ? "技能伤害 +15%，大招冷却 -15%" : "技能伤害 +15%，三合一奥义伤害 +35%");
-                default: return "攻击速度 +20%";
+                    ? $"解锁大招「{d.UltName}」与「{OptPerk(h, 1).Name}」选项"
+                    : $"解锁奥义「{kit.FinisherName}」与「{OptPerk(h, 1).Name}」选项";
+                case 2: return d.Kind == Role.Support
+                    ? $"获得绝技「{kit.SigName}」，加持效力 +20%"
+                    : $"获得绝技「{kit.SigName}」，伤害 +20%";
+                case 3: return $"解锁「{kit.Opt15Name}」选项，技能冷却 -10%";
+                case 4: return $"{kit.Lv20Desc}（解锁「{OptPerk(h, 2).Name}」且取舍卡无负面）";
+                case 5: return kit.Lv25Desc;
+                default: return kit.Lv30Desc;
             }
         }
 

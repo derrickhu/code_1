@@ -8,7 +8,7 @@ using Object = UnityEngine.Object;
 
 namespace Liangshan
 {
-    /// <summary>局外通用部件和弹窗：奖励格、红点、弹窗框，签到/任务/巡山/图鉴/设置/挑战/补给/招募结果/好汉详情/锻造。</summary>
+    /// <summary>局外通用部件和弹窗：奖励格、红点、弹窗框，签到/任务/巡山/图鉴/设置/挑战/补给/招募结果/乡亲详情/锻造。</summary>
     public static partial class MetaUi
     {
         static SaveData S => Profile.S;
@@ -164,7 +164,7 @@ namespace Liangshan
             if (tipLayer != null) Ui.Tap(face, () => ItemTip(tipLayer, it, t), t);
             if (it.Cur == Cur.Shard)
             {
-                // 好汉碎片采用半身胸像裁切入框（不把全身小人缩成蚂蚁），辨识度与清晰度倍增
+                // 乡亲碎片框内完整居中呈现 Q 版全身与专属兵器（头顶不空、下半身与武器不裁切）
                 var mask = Ui.Rect(t, "bustMask");
                 float mSz = size - 16f;
                 mask.sizeDelta = Vector2.one * mSz;
@@ -245,7 +245,7 @@ namespace Liangshan
             return fillRt;
         }
 
-        /// <summary>好汉碎片条配色：攒碎片翠绿，够升级冰蓝（和任务可领同色），满级鎏金。</summary>
+        /// <summary>乡亲碎片条配色：攒碎片翠绿，够升级冰蓝（和任务可领同色），满级鎏金。</summary>
         public static Color ShardFill(bool max, bool can) => max ? Pal.Gold : can ? Pal.Hex("00E5FF") : Pal.Hex("00F57A");
 
         /// <summary>胶囊已按终值画好。立刻收成 f0，再涨到终值。宽度和 Bar 同一套。</summary>
@@ -260,7 +260,7 @@ namespace Liangshan
         // ---------------- 弹窗框 ----------------
 
         /// <summary>同名弹窗再开时直接替换（数值刷新不重播弹出动画）。自动避让微信顶部安全区与胶囊。</summary>
-        /// <summary>title 为 null 时不挂绶带（好汉详情这类自带抬头的弹窗）。</summary>
+        /// <summary>title 为 null 时不挂绶带（乡亲详情这类自带抬头的弹窗）。</summary>
         public static RectTransform Modal(Transform layer, string key, string title, Vector2 size, out RectTransform panel, Color? ribbon = null, float y = -20)
         {
             var old = layer.Find("modal_" + key);
@@ -321,7 +321,7 @@ namespace Liangshan
 
         // ---------------- 奖励弹窗 ----------------
 
-        /// <summary>恭喜获得：有新好汉先全屏揭晓，再弹道具。</summary>
+        /// <summary>恭喜获得：有新乡亲先全屏揭晓，再弹道具。</summary>
         public static void ShowRewards(Transform layer, string title, List<Item> items, HeroId? unlock = null, Action done = null)
         {
             void Items()
@@ -443,10 +443,12 @@ namespace Liangshan
                 bool today = i == S.SignDays && can;
                 string cardSkin = today ? "row_claim" : taken ? "row_done" : last ? "tab_on" : "row";
                 var face = Ui.Skin(c, cardSkin, size, Vector2.zero, 1f);
+                float headY = size.y * 0.5f - (last ? 22f : 28f);
+                var headBox = new Vector2(last ? 320f : 240f, last ? 34f : 38f);
                 if (today)
-                    Ui.Outlined(c, $"第 {i + 1} 天 · 可领", 26, Color.white, new Vector2(0, size.y * 0.5f - 28), new Vector2(240, 38), Pal.Hex("7C4408"), 1.8f);
+                    Ui.Outlined(c, $"第 {i + 1} 天 · 可领", 26, Color.white, new Vector2(0, headY), headBox, Pal.Hex("7C4408"), 1.8f);
                 else
-                    Ui.Label(c, $"第 {i + 1} 天", 26, taken ? WarmSub : WarmTitle, new Vector2(0, size.y * 0.5f - 28), new Vector2(240, 38), TextAnchor.MiddleCenter, Fonts.Heavy);
+                    Ui.Label(c, $"第 {i + 1} 天", 26, taken ? WarmSub : WarmTitle, new Vector2(0, headY), headBox, TextAnchor.MiddleCenter, Fonts.Heavy);
 
                 var it = Meta.SignRewards[i];
                 if (last)
@@ -458,17 +460,27 @@ namespace Liangshan
                     mask7.anchoredPosition = new Vector2(-280, -7);
                     mask7.gameObject.AddComponent<RectMask2D>();
                     Ui.Icon(mask7, sd.Art, 108, new Vector2(0, -1));
-                    Ui.SingleLine(Ui.GradOutlined(c, $"{sd.RarityName} · {sd.Nick} {sd.Name}", 36, Color.white, Pal.Hex("FFE27A"),
-                        new Vector2(68, 18), new Vector2(500, 52), Pal.Hex("4E2C08"), 2.4f, TextAnchor.MiddleLeft), 24);
-                    Ui.SingleLine(Ui.Label(c, "第七天大奖：未结识直接上阵，已结识转化 20 碎片", 24, WarmTitle,
-                        new Vector2(taken ? 48 : 88, -34), new Vector2(taken ? 484 : 564, 40), TextAnchor.MiddleLeft, Fonts.Heavy), 18);
+                    // 头像右缘约 -207，右侧留给已领取勾（勾左缘约 324）。
+                    const float textLeft = -188f, textRight = 308f;
+                    float textW = textRight - textLeft;
+                    float textX = (textLeft + textRight) * 0.5f;
+                    var name = Ui.GradOutlined(c, $"{sd.RarityName} · {sd.Nick} {sd.Name}", 32, Color.white, Pal.Hex("FFE27A"),
+                        new Vector2(textX, 32), new Vector2(textW, 34), Pal.Hex("4E2C08"), 2.2f, TextAnchor.MiddleLeft);
+                    name.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    var own = Ui.Label(c, "未结识直接上阵", 24, WarmTitle,
+                        new Vector2(textX, -8), new Vector2(textW, 28), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    own.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    var shard = Ui.Label(c, "已结识转化为 20 碎片", 24, WarmTitle,
+                        new Vector2(textX, -44), new Vector2(textW, 28), TextAnchor.MiddleLeft, Fonts.Heavy);
+                    shard.horizontalOverflow = HorizontalWrapMode.Overflow;
                 }
-                else ItemTile(c, it, new Vector2(0, -14), 116, false, layer);
+                else ItemTile(c, it, new Vector2(-12, -6), 108, false, layer);
 
                 if (taken)
                 {
                     foreach (var img in c.GetComponentsInChildren<Image>())
                         if (img != face) img.color = img.color.Mul(0.80f);
+                    // 勾放在卡片右下角空位：小格图标右缘约 48，第 7 天文案右缘 308。
                     Ui.Icon(c, "ic_check", last ? 52 : 46, last ? new Vector2(352, 8) : new Vector2(90, -76));
                 }
                 else if (today)
@@ -836,7 +848,7 @@ namespace Liangshan
             return img;
         }
 
-        /// <summary>复刻参考图 2 的「怪物/精英/首领详情」二级弹窗：贴框丝带角标 + 纹章立绘舞台 + 空心双菱花线 + 像素级对齐机制框与推荐好汉 + 单方块清爽领奖。</summary>
+        /// <summary>复刻参考图 2 的「怪物/精英/首领详情」二级弹窗：贴框丝带角标 + 纹章立绘舞台 + 空心双菱花线 + 像素级对齐机制框与推荐乡亲 + 单方块清爽领奖。</summary>
         public static void CodexDetail(Transform layer, EnemyKind kind, int fromTab = 0)
         {
             var d = Defs.Enemy(kind);
@@ -938,7 +950,7 @@ namespace Liangshan
             var descLbl = Ui.Label(p, bodyRich, 28, WarmTitle, new Vector2(18f, descY - 6f), new Vector2(684f, 128f), TextAnchor.UpperLeft, Fonts.Heavy, "descText");
             descLbl.lineSpacing = 1.28f;
 
-            // 克制推荐好汉横条（与上方说明框等宽左对齐，左缘严格同在 x=-356；4位Q版好汉全部按脚底对齐在同一基准线！）
+            // 克制推荐乡亲横条（与上方说明框等宽左对齐，左缘严格同在 x=-356；4位Q版乡亲全部按脚底对齐在同一基准线！）
             float recY = top - 734f;
             const float recH = 144f;
             Ui.Skin(p, "modal_well", new Vector2(boxW, recH), new Vector2(0, recY), 1f, null, "recBox");
@@ -955,7 +967,7 @@ namespace Liangshan
                 hSlot.anchoredPosition = new Vector2(hx, recY);
                 hSlot.sizeDelta = new Vector2(128, 130);
 
-                // 统一视觉身高 104px + 脚底踩齐 y=-46，四位Q版好汉头顶与脚底严丝合缝成一条直线！
+                // 统一视觉身高 104px + 脚底踩齐 y=-46，四位Q版乡亲头顶与脚底严丝合缝成一条直线！
                 Ui.Box(hSlot, new Vector2(84, 18), new Vector2(0, -46f), new Color(0.20f, 0.15f, 0.10f, 0.30f), Art.GroundShadow, "sh");
                 var hArt = StandByHeight(hSlot, hd.Art, 104f, -46f, "art");
                 if (!owned) hArt.color = new Color(0.62f, 0.62f, 0.66f, 0.92f);
@@ -1028,28 +1040,68 @@ namespace Liangshan
         public static void Settings(Transform layer)
         {
             bool showDySub = DouyinBridge.IsDouyin;
-            Modal(layer, "settings", "系统设置", new Vector2(840, showDySub ? 980 : 840), out var p, Pal.Hex("56677A"));
-            Ui.Skin(p, "modal_well", new Vector2(748, showDySub ? 424 : 288), new Vector2(0, 156), 1f);
-            Toggle(p, showDySub ? 292 : 224, "游戏音效", S.Sound == 1, on => { S.Sound = on ? 1 : 0; Sfx.On = on; Save(); Settings(layer); });
-            Toggle(p, showDySub ? 156 : 88, "背景音乐", S.Music == 1, on =>
+            Modal(layer, "settings", "设置", new Vector2(900, showDySub ? 1160 : 1040), out var p, Pal.Hex("3A6E98"));
+            float yOff = showDySub ? 60f : 0f;
+            var card = Ui.Skin(p, "modal_well", new Vector2(820, 250), new Vector2(0, 360 + yOff), 1f);
+
+            var av = Ui.Rect(card.transform, "av");
+            av.sizeDelta = new Vector2(148, 148);
+            av.anchoredPosition = new Vector2(-300, 2);
+            Ui.Icon(av, "ui/h_avatar", 148, Vector2.zero, "frame");
+            var avMask = Ui.Rect(av, "avMask");
+            avMask.sizeDelta = new Vector2(118, 118);
+            avMask.anchoredPosition = new Vector2(0, 1);
+            avMask.gameObject.AddComponent<RectMask2D>();
+            Ui.Icon(avMask, "lord_songjiang", 280, new Vector2(4f, -8f));
+            int lv = Meta.LordLevel(S, out _);
+            Ui.Icon(av, "ui/h_round", 52, new Vector2(-50, -50), "lvBadge");
+            Ui.Outlined(av, lv.ToString(), 24, Color.white, new Vector2(-50, -49), new Vector2(48, 40), Pal.Ink, 1.4f);
+
+            Ui.Label(card.transform, RankService.MyName, 40, WarmTitle, new Vector2(28, 42), new Vector2(400, 58), TextAnchor.MiddleLeft, Fonts.Heavy);
+            string fullId = PlayerCode(out string shownId);
+            Ui.Label(card.transform, "ID: " + shownId, 28, WarmSub, new Vector2(28, -36), new Vector2(400, 44), TextAnchor.MiddleLeft, Fonts.Bold);
+            Ui.Btn(card.transform, "改名", new Vector2(132, 68), new Vector2(310, 42), Pal.Azure, () =>
+                RankUi.OpenRename(layer, () => Settings(layer)), 30);
+            Ui.Btn(card.transform, "复制", new Vector2(132, 68), new Vector2(310, -40), Pal.Hex("3A6E98"), () =>
             {
+                GUIUtility.systemCopyBuffer = fullId;
+                Ui.Toast("已复制 ID", 180f);
+            }, 30);
+
+            var stage = Defs.Level(S.Selected);
+            StatCol(p, -270, "关卡进度", $"第{stage.No}关", stage.Name, 80 + yOff);
+            StatCol(p, 0, "战力", Ui.Num(Meta.TeamPower(S)), $"通关 {S.Cleared}", 80 + yOff);
+            StatCol(p, 270, "胜场", S.Wins.ToString(), $"共战 {S.Battles}", 80 + yOff);
+
+            Ui.Label(p, "声音", 32, WarmTitle, new Vector2(-360, -90 + yOff), new Vector2(140, 44), TextAnchor.MiddleLeft, Fonts.Heavy);
+            SoundRow(p, "音乐", S.Music == 1, -185 + yOff, () =>
+            {
+                bool on = S.Music == 0;
+                S.Sound = S.Sound;
                 S.Music = on ? 1 : 0;
                 Sfx.Music = on;
                 Save();
-                if (on) Sfx.PlayMusic(Bgm.Menu);
-                else Sfx.PlayMusic(Bgm.None);
+                Sfx.PlayMusic(on ? Bgm.Menu : Bgm.None);
+                Settings(layer);
+            });
+            SoundRow(p, "音效", S.Sound == 1, -300 + yOff, () =>
+            {
+                bool on = S.Sound == 0;
+                S.Sound = on ? 1 : 0;
+                Sfx.On = on;
+                Save();
                 Settings(layer);
             });
             if (showDySub)
             {
                 var r = Ui.Rect(p, "sub_notify");
-                r.anchoredPosition = new Vector2(0, 20);
-                r.sizeDelta = new Vector2(720, 118);
-                Ui.Skin(r, "row", new Vector2(720, 118), Vector2.zero);
-                Ui.SingleLine(Ui.Label(r, "消息订阅提醒", 32, WarmTitle, new Vector2(-150, 18), new Vector2(340, 44), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
-                Ui.SingleLine(Ui.Label(r, "巡村收益满仓与每日签到通知", 22, WarmSub, new Vector2(-150, -22), new Vector2(340, 34), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
+                r.anchoredPosition = new Vector2(0, -365);
+                r.sizeDelta = new Vector2(780, 108);
+                Ui.Skin(r, "row", new Vector2(780, 108), Vector2.zero);
+                Ui.SingleLine(Ui.Label(r, "消息订阅提醒", 32, WarmTitle, new Vector2(-170, 18), new Vector2(340, 44), TextAnchor.MiddleLeft, Fonts.Heavy), 22);
+                Ui.SingleLine(Ui.Label(r, "巡村收益满仓与每日签到通知", 22, WarmSub, new Vector2(-170, -22), new Vector2(340, 34), TextAnchor.MiddleLeft, Fonts.Heavy), 17);
                 bool subToday = Meta.HasDySubPatrolToday(S, Profile.Today) && Meta.HasDySubSignToday(S, Profile.Today);
-                var subBtn = Ui.Btn(r, subToday ? "继续订阅" : "订阅通知", new Vector2(184, 78), new Vector2(236, 0), Pal.Azure, () =>
+                var subBtn = Ui.Btn(r, subToday ? "继续订阅" : "订阅通知", new Vector2(184, 74), new Vector2(266, 0), Pal.Azure, () =>
                 {
                     DouyinBridge.RequestSubscribe("all", (ok, info) =>
                     {
@@ -1069,24 +1121,46 @@ namespace Liangshan
                     if (layer != null && layer.Find("modal_settings") != null) Settings(layer);
                 });
             }
-            Ui.Label(p, $"当前通关 {S.Cleared}/{Defs.LevelCount}  ·  战绩 {S.Wins} 胜 / {S.Battles} 战  ·  累计摇人 {S.Pulls} 次",
-                25, WarmTitle, new Vector2(0, showDySub ? -118 : -48), new Vector2(760, 44), TextAnchor.MiddleCenter, Fonts.Heavy);
-            Ui.Btn(p, "重置存档", new Vector2(310, 96), new Vector2(0, showDySub ? -252 : -186), Pal.Red, () => Confirm(layer, "确定清空全部游戏进度？\n此操作不可恢复。", () =>
-            {
-                Profile.Reset();
-                Game.I.ShowHome();
-            }), 36);
-            Ui.Label(p, "村口大战外星人 v1.0 · 幸福村保卫版", 22, WarmSub, new Vector2(0, showDySub ? -390 : -324), new Vector2(740, 36), TextAnchor.MiddleCenter, Fonts.Bold);
+
+            Ui.Label(p, "村口大战外星人 v1.0 · 幸福村保卫版", 24, WarmSub, new Vector2(0, showDySub ? -480 : -420), new Vector2(740, 36));
         }
 
-        static void Toggle(Transform p, float y, string name, bool on, Action<bool> set)
+        /// <summary>没有云端账号时用设备号压成稳定短号，方便展示和复制。</summary>
+        static string PlayerCode(out string shown)
         {
-            var r = Ui.Rect(p, "toggle_" + name);
-            r.anchoredPosition = new Vector2(0, y);
-            r.sizeDelta = new Vector2(720, 118);
-            Ui.Skin(r, "row", new Vector2(720, 118), Vector2.zero);
-            Ui.Label(r, name, 34, WarmTitle, new Vector2(-170, 0), new Vector2(300, 56), TextAnchor.MiddleLeft, Fonts.Heavy);
-            Ui.Btn(r, on ? "已开启" : "已关闭", new Vector2(184, 78), new Vector2(236, 0), on ? Pal.Green : Pal.Slate, () => set(!on), 30);
+            string full = Backend.UserId;
+            if (string.IsNullOrEmpty(full))
+            {
+                string raw = SystemInfo.deviceUniqueIdentifier;
+                if (string.IsNullOrEmpty(raw)) raw = "cunkou";
+                uint h = 2166136261;
+                foreach (var ch in raw) h = (h ^ ch) * 16777619;
+                full = (10000000u + h % 90000000u).ToString();
+            }
+            shown = full.Length <= 12 ? full : full.Substring(0, 12);
+            return full;
+        }
+
+        static void StatCol(Transform p, float x, string cap, string value, string sub, float y = 80f)
+        {
+            var col = Ui.Skin(p, "modal_well", new Vector2(250, 176), new Vector2(x, y), 1f);
+            Ui.Label(col.transform, cap, 26, WarmSub, new Vector2(0, 48), new Vector2(230, 40));
+            Ui.Label(col.transform, value, 34, WarmTitle, new Vector2(0, 2), new Vector2(230, 48), TextAnchor.MiddleCenter, Fonts.Heavy);
+            Ui.Label(col.transform, sub, 24, WarmSub, new Vector2(0, -46), new Vector2(230, 36));
+        }
+
+        /// <summary>声音开关。点按只缩放滑槽，命中区留在原处，避免按下时命中框跟着缩、进出闪烁。</summary>
+        static void SoundRow(Transform p, string label, bool on, float y, Action flip)
+        {
+            var row = Ui.Rect(p, "snd_" + label);
+            row.sizeDelta = new Vector2(780, 100);
+            row.anchoredPosition = new Vector2(0, y);
+            Ui.Skin(row, "row", new Vector2(780, 100), Vector2.zero);
+            Ui.Label(row, label, 34, WarmTitle, new Vector2(-230, 0), new Vector2(220, 70), TextAnchor.MiddleLeft, Fonts.Heavy);
+            var track = Ui.Box(row, new Vector2(128, 56), new Vector2(268, 0), on ? Pal.Hex("3DDC6A") : Pal.Hex("C8C2B4"), null, "track");
+            Ui.Box(row, new Vector2(44, 44), new Vector2(on ? 300 : 236, 0), Color.white, null, "knob");
+            var hit = Ui.Box(row, new Vector2(780, 100), Vector2.zero, new Color(1f, 1f, 1f, 0f), null, "hit");
+            Ui.Tap(hit, flip, track.transform);
         }
 
         public static void Confirm(Transform layer, string text, Action yes)
@@ -1116,12 +1190,24 @@ namespace Liangshan
             var r = Meta.BattleRewards(S, st, true, st.Waves, 1, 0, new Rng(1));
             ItemRow(p, r.Items, new Vector2(0, -160), 130);
             Ui.Label(p, "失败也按坚持的波数给部分奖励", 24, Pal.Muted, new Vector2(0, -300), new Vector2(700, 40));
-            int left = Meta.DailyTriesMax - S.DailyTries;
-            Ui.Btn(p, left > 0 ? $"挑战（剩 {left} 次）" : "今日已用完", new Vector2(460, 120), new Vector2(0, -420), left > 0 ? Pal.Gold : Pal.Slate, () =>
+            int maxDaily = Meta.DailyTriesMax + S.AdDailyTries;
+            int left = maxDaily - S.DailyTries;
+            int adLeft = Meta.AdDailyTriesMax - S.AdDailyTries;
+            bool canAd = left <= 0 && adLeft > 0;
+            string btnTxt = left > 0 ? $"挑战（剩 {left} 次）" : canAd ? $"免费加次 ({adLeft}/{Meta.AdDailyTriesMax})" : "今日已用完";
+            Color btnCol = left > 0 ? Pal.Gold : canAd ? Pal.Green : Pal.Slate;
+            Ui.Btn(p, btnTxt, new Vector2(480, 120), new Vector2(0, -420), btnCol, () =>
             {
-                if (left <= 0) return;
-                Game.I.StartDaily();
-            }, 42);
+                if (left > 0) { Game.I.StartDaily(); return; }
+                if (!canAd) return;
+                if (S.Stamina < Meta.BattleStamina) { Sfx.Play(Snd.Deny); StaminaShop(layer); return; }
+                Ads.Show("daily_extra", () =>
+                {
+                    S.AdDailyTries++;
+                    Save();
+                    Game.I.StartDaily();
+                });
+            }, canAd ? 36 : 42, canAd ? "ic_ad" : null);
             Ui.Label(p, $"消耗体力 {Meta.BattleStamina}", 24, Pal.SubInk, new Vector2(0, -500), new Vector2(400, 36));
         }
 
@@ -1138,12 +1224,24 @@ namespace Liangshan
             r.Items.RemoveAll(x => x.N <= 0);
             ItemRow(p, r.Items, new Vector2(0, -140), 120);
             Ui.Label(p, "每 3 箱额外得合金钢 1", 24, Pal.Muted, new Vector2(0, -240), new Vector2(600, 40));
-            int left = Meta.EscortTriesMax - S.EscortTries;
-            Ui.Btn(p, left > 0 ? $"出发（剩 {left} 次）" : "今日已用完", new Vector2(460, 120), new Vector2(0, -390), left > 0 ? Pal.Gold : Pal.Slate, () =>
+            int maxEscort = Meta.EscortTriesMax + S.AdEscortTries;
+            int left = maxEscort - S.EscortTries;
+            int adLeft = Meta.AdEscortTriesMax - S.AdEscortTries;
+            bool canAd = left <= 0 && adLeft > 0;
+            string btnTxt = left > 0 ? $"出发（剩 {left} 次）" : canAd ? $"免费加次 ({adLeft}/{Meta.AdEscortTriesMax})" : "今日已用完";
+            Color btnCol = left > 0 ? Pal.Gold : canAd ? Pal.Green : Pal.Slate;
+            Ui.Btn(p, btnTxt, new Vector2(480, 120), new Vector2(0, -390), btnCol, () =>
             {
-                if (left <= 0) return;
-                Game.I.StartEscort();
-            }, 42);
+                if (left > 0) { Game.I.StartEscort(); return; }
+                if (!canAd) return;
+                if (S.Stamina < Meta.BattleStamina) { Sfx.Play(Snd.Deny); StaminaShop(layer); return; }
+                Ads.Show("escort_extra", () =>
+                {
+                    S.AdEscortTries++;
+                    Save();
+                    Game.I.StartEscort();
+                });
+            }, canAd ? 36 : 42, canAd ? "ic_ad" : null);
             Ui.Label(p, $"消耗体力 {Meta.BattleStamina}", 24, Pal.SubInk, new Vector2(0, -470), new Vector2(400, 36));
         }
 
@@ -1168,9 +1266,13 @@ namespace Liangshan
 
         // ---------------- 招募结果（已升级迁移至 MetaRecruitUi.cs） ----------------
 
-        // ---------------- 好汉详情 ----------------
+        // ---------------- 乡亲详情 ----------------
 
-        static string SkillIcon(HeroDef d, int i) => i == 0 ? d.AtkIcon : i == 1 ? d.UltIcon ?? "ic_lock" : "ic_star";
+        static string SkillIcon(HeroDef d, int i)
+        {
+            var kit = HeroKits.Of(d.Id);
+            return i == 0 ? d.AtkIcon : i == 1 ? kit.TraitIcon : i == 2 ? kit.SigIcon : kit.FinisherIcon;
+        }
 
         /// <summary>职业小图标。</summary>
         public static string RoleArt(Role r) =>
@@ -1193,11 +1295,12 @@ namespace Liangshan
         static void ShowSkill(RectTransform anchor, HeroId h, int row, string name, bool on)
         {
             var d = Defs.Hero(h);
+            var kit = HeroKits.Of(h);
             int lv = Mathf.Max(1, S.HeroLv[(int)h]);
             int need = row >= 0 && row < Meta.UnlockLv.Length ? Meta.UnlockLv[row] : 1;
             var kind = Meta.TalentSkillOf(h, row, name);
             string icon = d.AtkIcon;
-            string tag = "技能";
+            string tag = "普攻";
             var tagCol = Pal.Hex("2B88C4");
             string cd = null;
             string body;
@@ -1205,11 +1308,20 @@ namespace Liangshan
             string AtkCd() => (d.Interval * (lv >= Meta.SurgePlusLv ? 0.9f : 1f)).ToString("0.00") + "s";
             var surge = Meta.OptPerk(h, 1);
             var top = Meta.OptPerk(h, 2);
+            var opt15 = Meta.OptPerk(h, 3);
             if (kind == Meta.TalentSkill.Attack)
             {
                 cd = AtkCd();
                 body = Plain(HeroText.Atk(d, null, Mathf.Max(0, Meta.HeroDisplayAtk(S, h))));
-                if (!on) foot = "尚未解锁";
+                foot = on ? "开战自动施放" : "尚未解锁";
+            }
+            else if (kind == Meta.TalentSkill.Trait)
+            {
+                icon = kit.TraitIcon;
+                tag = "特性";
+                tagCol = Pal.Hex("2FA58A");
+                body = Plain(kit.TraitDesc);
+                foot = on ? "1级天生常驻生效" : "尚未解锁";
             }
             else if (kind == Meta.TalentSkill.Ult)
             {
@@ -1217,40 +1329,46 @@ namespace Liangshan
                 tag = "大招";
                 tagCol = Pal.Hex("E07A2E");
                 cd = d.UltCd.ToString("0.00") + "s";
-                body = Plain(HeroText.Ult(d));
-                foot = on ? "局内强化抽到后释放" : $"{need}级解锁后，局内强化可抽到";
+                body = $"战斗中可以激活{d.Name}的天罡大招选项\n\n【{d.UltName}】" + Plain(HeroText.Ult(d));
+                foot = on ? "已解锁，战中会出现大招选项" : $"解锁后，战中会出现大招选项（{need}级解锁）";
+            }
+            else if (kind == Meta.TalentSkill.Finisher)
+            {
+                icon = kit.FinisherIcon;
+                tag = "奥义";
+                tagCol = Pal.Hex("C48A14");
+                body = $"战斗中可以激活{d.Name}的本命奥义选项\n\n【{kit.FinisherName}】" + Plain(kit.FinisherDesc);
+                foot = on ? "已解锁，战中可抽到或集齐3词条觉醒" : $"解锁后，战中会出现奥义选项（{need}级解锁）";
             }
             else if (kind == Meta.TalentSkill.Passive)
             {
                 int unlock = Meta.PassiveUnlock(h);
                 bool lit = S.HeroLv[(int)h] >= unlock;
-                icon = "ic_star";
-                tag = "被动";
+                icon = kit.SigIcon;
+                tag = "绝技";
                 tagCol = Pal.Hex("8E5CE0");
-                body = Plain(HeroText.Passive(d));
-                foot = lit ? "解锁后永久生效" : $"{unlock}级解锁";
+                body = Plain(kit.SigDesc);
+                foot = lit ? "已拥有 · 战场自动生效（无需抽卡）" : $"{unlock}级自动获得，无需局内抽卡";
                 Ui.SkillCard(anchor, icon, d.Rarity, !lit, name, tag, tagCol, cd, body, foot);
                 return;
             }
-            else if (kind == Meta.TalentSkill.SurgePlus)
+            else if (kind == Meta.TalentSkill.Opt15 && opt15 != null)
             {
-                tag = "强化";
+                icon = kit.SigIcon;
+                tag = "专属";
                 tagCol = Pal.Hex("C48A14");
-                body = h == HeroId.HuaRong
-                    ? "场上满 4 位时穿透 +1。此招必定暴击，技能冷却 -10%"
-                    : d.Buff.HasValue
-                        ? "此招效果翻倍，技能冷却 -10%"
-                        : "此招必定暴击，触发几率 +10%，技能冷却 -10%";
-                foot = on ? "解锁后永久生效" : $"{need}级解锁";
+                body = Plain(opt15.Desc) + "\n（且主技能冷却永久 -10%）";
+                foot = on ? "局内强化可抽到" : $"{need}级解锁后，局内强化可抽到";
             }
             else if (kind == Meta.TalentSkill.Top && top != null)
             {
+                icon = kit.TraitIcon;
                 tag = "强化";
                 tagCol = Pal.Hex("C48A14");
-                body = Plain(top.Desc);
-                foot = on ? "局内强化可抽到" : $"{need}级解锁后，局内强化可抽到";
+                body = Plain(top.Desc) + "\n" + kit.Lv20Desc;
+                foot = on ? "局内强化可抽到 · 永久质变已激活" : $"{need}级解锁后生效";
             }
-            else if (surge != null)
+            else if (surge != null && kind == Meta.TalentSkill.Surge)
             {
                 tag = "强化";
                 tagCol = Pal.Hex("C48A14");
@@ -1259,26 +1377,22 @@ namespace Liangshan
             }
             else
             {
-                tag = "强化";
+                tag = "突破";
                 tagCol = Pal.Hex("C48A14");
-                body = on ? "已解锁" : "尚未解锁";
-                foot = on ? "局内强化可抽到" : $"{need}级解锁";
+                body = Plain(Meta.Talent(h, row));
+                foot = on ? "永久生效" : $"{need}级解锁";
             }
             Ui.SkillCard(anchor, icon, d.Rarity, !on, name, tag, tagCol, cd, body, foot);
         }
 
-        /// <summary>点六边形技能：弹出说明卡。没有大招的好汉单独说明。</summary>
+        /// <summary>点四个六边形技能徽章：普攻(0) / 特性(1) / 绝技(2) / 大招或奥义(3)，全员满编无空槽！</summary>
         static void OpenHexSkill(RectTransform anchor, HeroId h, int i, int ulv)
         {
             var d = Defs.Hero(h);
-            if (i == 1 && !d.HasUlt)
-            {
-                Ui.SkillCard(anchor, "ic_lock", d.Rarity, true, "无", "大招", Pal.Hex("E07A2E"), null, "仅传说乡亲拥有大招", null);
-                return;
-            }
-            string name = i == 0 ? d.AtkName : i == 1 ? d.UltName : d.PassiveName;
-            int row = i == 0 ? 0 : i == 1 ? 1 : 2;
-            bool on = i == 0 || (i == 1 ? ulv >= Meta.UltLv : ulv >= Meta.PassiveUnlock(h));
+            var kit = HeroKits.Of(h);
+            string name = i == 0 ? d.AtkName : i == 1 ? kit.TraitName : i == 2 ? kit.SigName : kit.FinisherName;
+            int row = i <= 1 ? 0 : i == 2 ? 2 : 1;
+            bool on = i <= 1 || (i == 2 ? ulv >= Meta.PassiveUnlock(h) : ulv >= Meta.UltLv);
             ShowSkill(anchor, h, row, name, on);
         }
 
@@ -1388,7 +1502,7 @@ namespace Liangshan
             return face;
         }
 
-        /// <summary>参考视频的好汉详情：头像压在框顶，伤害/职业两格，三个六边形技能（点选看说明），等级里程碑，底部碎片、铜钱和大号升级键。</summary>
+        /// <summary>参考视频的乡亲详情：头像压在框顶，伤害/职业两格，三个六边形技能（点选看说明），等级里程碑，底部碎片、金币和大号升级键。</summary>
         public static void HeroDetail(Transform layer, HeroId h)
         {
             var d = Defs.Hero(h);
@@ -1455,16 +1569,20 @@ namespace Liangshan
             StatBox(p, new Vector2(-226, 460), "ic_sword", "攻击力", Ui.Num(atk), next > 0 ? $"+{next}" : null);
             StatBox(p, new Vector2(226, 460), RoleArt(d.Kind), "职业", d.Role, HeroText.Tip(d).Split('：')[0], RoleColor(d.Kind));
 
-            string[] tags = { "技能", "大招", "被动" };
-            string[] names = { d.AtkName, d.UltName ?? "无", d.PassiveName };
-            for (int i = 0; i < 3; i++)
+            var kit = HeroKits.Of(h);
+            string[] tags = { "普攻", "特性", "绝技", d.HasUlt ? "大招" : "奥义" };
+            string[] tagCols = { "2B88C4", "2FA58A", "8E5CE0", d.HasUlt ? "E07A2E" : "C48A14" };
+            string[] names = { d.AtkName, kit.TraitName, kit.SigName, kit.FinisherName };
+            for (int i = 0; i < 4; i++)
             {
-                bool locked = (i == 2 && ulv < Meta.PassiveUnlock(h)) || (i == 1 && (!d.HasUlt || ulv < Meta.UltLv));
-                float x = (i - 1) * 240;
-                var hx = MetaFx.Hex(p, SkillIcon(d, i), 128, new Vector2(x, 304), locked, d.Rarity);
-                var cap = Ui.SingleLine(Ui.Outlined(p, $"{tags[i]}·{names[i]}", 28, Color.white, new Vector2(x, 210), new Vector2(236, 42), Pal.Ink, 2f), 20);
+                bool locked = (i == 2 && ulv < Meta.PassiveUnlock(h)) || (i == 3 && ulv < Meta.UltLv);
+                float x = -318f + i * 212f;
+                var hx = MetaFx.Hex(p, SkillIcon(d, i), 116, new Vector2(x, 308), locked, d.Rarity);
+                var pill = Ui.Box(p, new Vector2(76, 28), new Vector2(x, 244), Pal.Hex(tagCols[i]), Art.Pill, "skTag" + i);
+                Ui.Outlined(pill.transform, tags[i], 18, Color.white, new Vector2(0, 1), new Vector2(76, 28), Pal.Ink, 1.4f);
+                var cap = Ui.Outlined(p, names[i], 25, locked ? Pal.Hex("C8C2B4") : Color.white, new Vector2(x, 208), new Vector2(204, 38), Pal.Ink, 2f);
                 int si = i;
-                var hit = Ui.Box(hx, new Vector2(170, 180), Vector2.zero, new Color(0, 0, 0, 0.001f), Art.White, "hit");
+                var hit = Ui.Box(hx, new Vector2(160, 176), Vector2.zero, new Color(0, 0, 0, 0.001f), Art.White, "hit");
                 void Open() => OpenHexSkill(hx, h, si, ulv);
                 Ui.Tap(hit, Open, hx);
                 Ui.Tap(cap, Open, hx);
@@ -1552,7 +1670,7 @@ namespace Liangshan
             });
         }
 
-        /// <summary>好汉页在前台就进页内换人模式（顶上四位头顶出箭头），否则弹选择框。</summary>
+        /// <summary>乡亲页在前台就进页内换人模式（顶上四位头顶出箭头），否则弹选择框。</summary>
         static void BeginSwap(Transform layer, HeroId h)
         {
             var home = Game.I.Home;
@@ -1560,7 +1678,7 @@ namespace Liangshan
             else PickSwap(layer, h);
         }
 
-        /// <summary>获取途径：hero 为空时是铜钱。</summary>
+        /// <summary>获取途径：hero 为空时是金币。</summary>
         public static void GetPaths(Transform layer, HeroId? hero)
         {
             var m = Modal(layer, "paths", "获取途径", new Vector2(860, hero.HasValue ? 860 : 900), out var p, Pal.Hex("3A6A8A"));
@@ -1614,7 +1732,7 @@ namespace Liangshan
             }
         }
 
-        /// <summary>选一个已上阵的好汉换下（不在好汉页时用）。</summary>
+        /// <summary>选一个已上阵的乡亲换下（不在乡亲页时用）。</summary>
         public static void PickSwap(Transform layer, HeroId h)
         {
             var m = Modal(layer, "swap", "替换谁？", new Vector2(960, 560), out var p);
@@ -1926,7 +2044,7 @@ namespace Liangshan
             scene.sprite = Art.Img("forge_scene");
             scene.raycastTarget = false;
 
-            // 顶部紧凑资源胶囊条（避开右侧微信小游戏胶囊位，铜钱与材料均可点 + 查看获取途径）
+            // 顶部紧凑资源胶囊条（避开右侧微信小游戏胶囊位，金币与材料均可点 + 查看获取途径）
             float topBarY = Ui.SafeTop + 46f;
             void ForgeCurPill(float px, string icon, string val, Action onPlus)
             {

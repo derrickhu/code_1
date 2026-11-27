@@ -118,15 +118,34 @@ namespace Liangshan
             var hit = dim.gameObject.AddComponent<Button>();
             hit.transition = Selectable.Transition.None;
             hit.onClick.AddListener(CloseBattleGm);
-            var card = Ui.Panel(layer, new Vector2(820, 760), new Vector2(0, 40));
-            Ui.Ribbon(card, "GM", new Vector2(0, 386), 420, Pal.Red);
-            var x = Ui.Icon(card, "ui/close", 100, new Vector2(370, 340), "close");
+            var card = Ui.Panel(layer, new Vector2(820, 960), new Vector2(0, 40));
+            Ui.Ribbon(card, "GM", new Vector2(0, 486), 420, Pal.Red);
+            var x = Ui.Icon(card, "ui/close", 100, new Vector2(370, 440), "close");
             Ui.Tap(x, CloseBattleGm, null, false);
-            Ui.Label(card, "直接结束这一局，走真正的结算。\n胜利按满血三星，失败按防线失守，守到第几波就按第几波算。", 32, Pal.SubInk, new Vector2(0, 160), new Vector2(700, 140));
-            Ui.Btn(card, "跳过本关", new Vector2(560, 120), new Vector2(0, -20), Pal.Red, GmWin, 48);
-            Ui.Btn(card, "失败结算", new Vector2(560, 120), new Vector2(0, -180), Pal.Slate, GmLose, 48);
+            var statusLbl = Ui.Label(card, $"当前测试难度：怪血 ×{Balance.Current.WaveStage.GlobalHpMul:0.00} · 拆墙 ×{Balance.Current.WaveStage.GlobalAtkMul:0.00}\n调整难度对本局后续刷出的外星军与之后各关即时生效。", 28, Pal.SubInk, new Vector2(0, 300), new Vector2(720, 110));
+            Ui.Btn(card, "难度 -10%", new Vector2(224, 80), new Vector2(-240, 175), Pal.Green, () => GmBattleDiff(-0.10f, statusLbl), 28);
+            Ui.Btn(card, "标准 1.0x", new Vector2(224, 80), new Vector2(0, 175), Pal.Slate, () => GmBattleDiff(0f, statusLbl), 28);
+            Ui.Btn(card, "难度 +10%", new Vector2(224, 80), new Vector2(240, 175), Pal.Red, () => GmBattleDiff(0.10f, statusLbl), 28);
+            Ui.Btn(card, "局内能量币 +500", new Vector2(560, 96), new Vector2(0, 50), Pal.Gold, () => { B.Coins += 500; Ui.Toast("局内能量币 +500", 880); }, 38);
+            Ui.Btn(card, "跳过本关", new Vector2(560, 108), new Vector2(0, -85), Pal.Red, GmWin, 44);
+            Ui.Btn(card, "失败结算", new Vector2(560, 108), new Vector2(0, -220), Pal.Slate, GmLose, 44);
             layer.SetAsLastSibling();
             Tween.Pop(card, 0.25f);
+        }
+
+        void GmBattleDiff(float delta, Text statusLbl)
+        {
+            if (Mathf.Abs(delta) < 0.001f) Gm.ResetDifficulty();
+            else Gm.NudgeDifficulty(delta);
+            if (B.Stage.Mode == StageMode.Main)
+            {
+                B.Stage.HpMul = Defs.StageHp(B.Stage.No);
+                B.Stage.AtkMul = Defs.StageAtk(B.Stage.No);
+            }
+            float hpM = Balance.Current.WaveStage.GlobalHpMul;
+            float atkM = Balance.Current.WaveStage.GlobalAtkMul;
+            if (statusLbl) statusLbl.text = $"当前测试难度：怪血 ×{hpM:0.00} · 拆墙 ×{atkM:0.00}\n调整难度对本局后续刷出的外星军与之后各关即时生效。";
+            Ui.Toast($"测试难度：怪血 ×{hpM:0.00}", 880);
         }
 
         void CloseBattleGm()
@@ -712,25 +731,45 @@ namespace Liangshan
         void ShowBanner(string title, string sub, Color accent, string icon, bool small)
         {
             _bannerBusy = 1.5f;
+            float h = small ? 200f : 228f;
+            float w = 1040f;
             var band = Ui.Rect(_announce, "banner");
             band.anchorMin = band.anchorMax = new Vector2(0.5f, 1f);
-            band.sizeDelta = new Vector2(1080, small ? 170 : 220);
+            band.sizeDelta = new Vector2(w, h);
             band.anchoredPosition = new Vector2(0, -(_st + 640));
             var group = band.gameObject.AddComponent<CanvasGroup>();
             group.blocksRaycasts = false;
-            Ui.Box(band, new Vector2(1200, small ? 170 : 220), Vector2.zero, Pal.Hex("0F1C2A").A(0.84f), Art.White);
-            Ui.Box(band, new Vector2(1200, 6), new Vector2(0, (small ? 85 : 110) - 3), accent, Art.White);
-            Ui.Box(band, new Vector2(1200, 6), new Vector2(0, -(small ? 85 : 110) + 3), accent, Art.White);
+            Ui.Box(band, new Vector2(w, h), Vector2.zero, Pal.Hex("0F1C2A").A(0.92f), Art.White);
+            Ui.Box(band, new Vector2(w, 5), new Vector2(0, h * 0.5f - 2.5f), accent, Art.White);
+            Ui.Box(band, new Vector2(w, 5), new Vector2(0, -h * 0.5f + 2.5f), accent, Art.White);
             var content = Ui.Rect(band, "content");
             content.sizeDelta = band.sizeDelta;
-            float tx = 0;
+            float iconSize = small ? 136f : 176f;
+            float textLeft = -w * 0.5f + 28f;
             if (icon != null)
             {
-                Ui.Icon(content, icon, small ? 150 : 200, new Vector2(-330, 6));
-                tx = 70;
+                float iconX = -w * 0.5f + 20f + iconSize * 0.5f;
+                Ui.Icon(content, icon, iconSize, new Vector2(iconX, 0));
+                textLeft = iconX + iconSize * 0.5f + 16f;
             }
-            Ui.Outlined(content, title, small ? 76 : 100, accent == Pal.TealDeep ? Pal.Hex("FFE9A8") : Pal.Hex("FFE08A"), new Vector2(tx, small ? 18 : 26), new Vector2(800, 130), accent.Mul(0.5f), 4.5f);
-            Ui.Label(content, sub, small ? 32 : 36, Pal.Cream, new Vector2(tx, small ? -46 : -62), new Vector2(800, 50));
+            float textRight = w * 0.5f - 28f;
+            float textW = Mathf.Max(240f, textRight - textLeft);
+            float textCx = (textLeft + textRight) * 0.5f;
+            string[] lines = string.IsNullOrEmpty(sub) ? new string[0] : sub.Split('\n');
+            int titleSize = small ? 46 : 64;
+            int subSize = small ? 30 : 32;
+            float titleY = lines.Length > 1 ? 46f : 22f;
+            var titleTx = Ui.Outlined(content, title, titleSize, accent == Pal.TealDeep ? Pal.Hex("FFE9A8") : Pal.Hex("FFE08A"), new Vector2(textCx, titleY), new Vector2(textW, 72f), accent.Mul(0.45f), 3.2f);
+            titleTx.horizontalOverflow = HorizontalWrapMode.Overflow;
+            titleTx.verticalOverflow = VerticalWrapMode.Overflow;
+            float lineH = 40f;
+            float subY = lines.Length > 1 ? -6f : -36f;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = Ui.Label(content, lines[i], subSize, Pal.Cream, new Vector2(textCx, subY - i * lineH), new Vector2(textW, lineH), TextAnchor.MiddleCenter);
+                line.horizontalOverflow = HorizontalWrapMode.Overflow;
+                line.verticalOverflow = VerticalWrapMode.Overflow;
+            }
             Tween.Run(band, 1.5f, k =>
             {
                 float x = k < 0.18f ? Mathf.Lerp(1100, 0, Tween.OutCubic(k / 0.18f)) : k > 0.85f ? Mathf.Lerp(0, -1100, Tween.InCubic((k - 0.85f) / 0.15f)) : 0;
@@ -894,12 +933,15 @@ namespace Liangshan
                 : $"冷却：<color=#FFB648>{sk.Cd:0.0#}s</color>";
             Ui.Label(_info, cd, 26, Pal.Hex("D7E6F5"), blk + new Vector2(196, 58), new Vector2(320, 42), TextAnchor.MiddleRight, Fonts.Heavy);
             Ui.Box(_info, new Vector2(712, 2), blk + new Vector2(0, 34), Pal.Hex("6D92B6").A(0.24f), Art.White);
-            var descTxt = Ui.Label(_info, sk.Desc, tab == 4 ? 23 : 26, Pal.Hex("DCE8F4"), blk + new Vector2(0, -24), new Vector2(710, 106), TextAnchor.UpperLeft);
+            string descClean = tab == 4 ? sk.Desc : System.Text.RegularExpressions.Regex.Replace(sk.Desc ?? "", @"(?<!<color)[ \t]+", "");
+            var descTxt = Ui.Label(_info, descClean, tab == 4 ? 23 : 26, Pal.Hex("DCE8F4"), blk + new Vector2(0, -24), new Vector2(710, 106), TextAnchor.UpperLeft);
+            descTxt.lineSpacing = 1.18f;
             MetaUi.Fit(descTxt, 20);
 
-            // 第三层（独立底部六边形切换栏，含中文短签，零遮挡）
-            string[] icons = { d.AtkIcon, d.UltIcon ?? "ic_lock", "ic_star", "ic_scroll", "fx_star" };
-            string[] tabNames = { "普攻", "大招", "被动", "词条", "升星" };
+            // 第三层（独立底部六边形切换栏：普攻 / 特性 / 绝技 / 大招或奥义 / 成长，全员满编无空槽！）
+            var kit = HeroKits.Of(d.Id);
+            string[] icons = { d.AtkIcon, kit.TraitIcon, kit.SigIcon, kit.FinisherIcon, "ic_scroll" };
+            string[] tabNames = { "普攻", "特性", "绝技", d.HasUlt ? "大招" : "奥义", "成长" };
             for (int i = 0; i < icons.Length; i++)
             {
                 var info = Skill(u, i, atk);
@@ -1254,72 +1296,84 @@ namespace Liangshan
         {
             var d = u.Def;
             var h = d.Id;
+            var kit = HeroKits.Of(h);
             var t = new SkillText();
             float spd = B.HeroSpeedMul(h);
             if (tab == 0)
             {
                 float s = spd * Defs.StarSpeed[u.Star - 1] * (1f + B.ChargeAura);
+                float rawCd = B.SkillCd(h) * (1f - StarTraits.Fx(d, u.Star).Cd) / Mathf.Max(0.01f, s);
+                float effCd = d.Buff.HasValue || d.Chan > 0f ? rawCd : Mathf.Max(Defs.MinAtkInterval, rawCd);
+                float overMul = !d.Buff.HasValue && d.Chan <= 0f && rawCd < Defs.MinAtkInterval ? Defs.MinAtkInterval / Mathf.Max(0.05f, rawCd) : 1f;
                 t.Name = d.AtkName;
                 t.Cd = d.Interval;
-                t.Cut = d.Interval - B.SkillCd(h) * (1f - StarTraits.Fx(d, u.Star).Cd) / s;
+                t.Cut = Mathf.Max(0f, d.Interval - effCd);
                 t.Lv = u.Star;
-                t.Desc = HeroText.Atk(d, B, panelAtk, u.Star) + "\n<color=#8E9BAC>" + HeroText.Tip(d) + "</color>";
+                t.Desc = HeroText.Atk(d, B, panelAtk * overMul, u.Star) + "\n<color=#8E9BAC>" + HeroText.Tip(d) + "</color>";
             }
             else if (tab == 1)
             {
-                t.Locked = !B.HasUlt(h);
-                t.Lv = t.Locked ? 0 : 1;
-                if (!d.HasUlt)
+                t.Name = kit.TraitName;
+                t.Locked = false;
+                t.Desc = HeroText.Trait(d) + "\n<color=#7DE35A>天生常驻生效</color>";
+            }
+            else if (tab == 2)
+            {
+                int pNeed = Meta.PassiveUnlock(h);
+                t.Name = kit.SigName;
+                t.Locked = !B.HasSig(h);
+                string live = B.SigLiveNote(h);
+                t.Desc = kit.SigDesc + (t.Locked
+                    ? $"\n<color=#8E9BAC>乡亲升到 {pNeed} 级自动拥有（无需抽卡）</color>"
+                    : !string.IsNullOrEmpty(live) ? $"\n<color=#7DE35A>{live}</color>" : "");
+            }
+            else if (tab == 3)
+            {
+                if (d.HasUlt)
                 {
-                    t.Name = "大招";
-                    t.Desc = "<color=#8E9BAC>仅传说乡亲拥有大招</color>";
-                }
-                else
-                {
+                    t.Locked = !B.HasUlt(h);
+                    t.Lv = t.Locked ? 0 : 1;
                     t.Name = d.UltName;
                     t.Cd = d.UltCd;
                     t.Cut = d.UltCd - B.UltCd(h) / (spd * (1f + B.ChargeAura));
                     t.Desc = HeroText.Ult(d, 1f + B.Stat(h, Eff.UltPow))
                         + (B.Lo.Lv[(int)h] < Meta.UltLv ? $"\n<color=#FFB648>乡亲升至 {Meta.UltLv} 级后大招进入改装池</color>"
-                        : t.Locked ? "\n<color=#8E9BAC>强化三选一抽到「大招」卡后解锁</color>" : "");
+                        : t.Locked ? "\n<color=#8E9BAC>改装三选一抽到大招卡后当场释放</color>" : "");
                 }
-            }
-            else if (tab == 2)
-            {
-                int pNeed = Meta.PassiveUnlock(h);
-                t.Name = d.PassiveName;
-                t.Locked = B.Lo.Lv[(int)h] < pNeed && !B.Lo.Passive[(int)h];
-                t.Desc = HeroText.Passive(d) + (t.Locked ? $"\n<color=#8E9BAC>乡亲升到 {pNeed} 级解锁</color>" : "");
-            }
-            else if (tab == 4)
-            {
-                t.Name = "升星质变";
-                t.Lv = u.Star - 1;
-                t.Locked = u.Star < 2;
-                var sb = new System.Text.StringBuilder();
-                foreach (var tr in StarTraits.Of(d))
+                else
                 {
-                    if (sb.Length > 0) sb.Append('\n');
-                    bool on = u.Star >= tr.Star;
-                    if (on) sb.Append($"<color=#FFD24A>{tr.Star}星「{tr.Name}」</color>{tr.Desc}");
-                    else sb.Append($"<color=#8E9BAC>{tr.Star}星「{tr.Name}」{tr.Desc}</color>");
+                    t.Locked = !B.IsAwakened(h);
+                    t.Lv = t.Locked ? 0 : 1;
+                    t.Name = kit.FinisherName;
+                    t.Desc = kit.FinisherDesc
+                        + (B.Lo.Lv[(int)h] < Meta.UltLv ? $"\n<color=#FFB648>乡亲升至 {Meta.UltLv} 级解锁奥义卡（集齐3词条亦可觉醒）</color>"
+                        : t.Locked ? "\n<color=#8E9BAC>改装抽到「奥义」卡或集齐3张专属词条后当场觉醒</color>"
+                        : "\n<color=#FFE066>本命奥义已觉醒生效！</color>");
                 }
-                t.Desc = sb.ToString();
             }
             else
             {
-                t.Name = "专属强化";
+                t.Name = "本局成长";
                 var sb = new System.Text.StringBuilder();
+                foreach (var tr in StarTraits.Of(d))
+                {
+                    if (u.Star < tr.Star) continue;
+                    if (sb.Length > 0) sb.Append("  ");
+                    sb.Append($"<color=#FFD24A>{tr.Star}★{tr.Name}</color>");
+                }
+                if (sb.Length > 0) sb.Append('\n');
+                int pCnt = 0;
                 foreach (var p in Defs.Perks)
                 {
                     int lv = B.Level(p.Id);
                     if (lv <= 0 || p.Hero != h) continue;
-                    if (sb.Length > 0) sb.Append("  ");
+                    if (pCnt > 0) sb.Append("  ");
                     sb.Append(p.Star ? "<color=#FFD24A>★</color>" : "").Append(p.Name).Append(O(" Lv" + lv));
                     t.Lv += lv;
+                    pCnt++;
                 }
-                t.Locked = t.Lv == 0;
-                t.Desc = t.Locked ? "<color=#8E9BAC>强化三选一中选到他的专属强化后，在这里查看；合成满星可额外选一个满星技能</color>" : sb.ToString();
+                t.Locked = t.Lv == 0 && u.Star < 2;
+                t.Desc = t.Locked ? "<color=#8E9BAC>合体升星解锁 2/3/4 星攻击质变；选到的专属词条在此汇总</color>" : sb.ToString();
             }
             return t;
         }
@@ -1496,24 +1550,22 @@ namespace Liangshan
                 Ui.Box(card, new Vector2(cw - 6, 20), new Vector2(0, ch * 0.5f - headH + 6), head.Mul(0.68f), Art.White);
                 Ui.Box(card, new Vector2(cw - 20, ch - headH - 22), new Vector2(0, -headH * 0.5f + 2), Pal.Hex("182A4A"), Art.RoundedSmall);
                 Ui.Box(card, new Vector2(cw - 24, ch - headH - 26), new Vector2(0, -headH * 0.5f + 2), Pal.Hex("091022"), Art.RoundedSmall);
-                bool stamp = p.Ult || p.Star;
+                bool stamp = p.Ult || p.Finisher || p.Star;
                 Ui.SingleLine(Ui.Outlined(card, p.Name, nameSize, Color.white, new Vector2(stamp ? -26 : 0, ch * 0.5f - headH * 0.5f - 2), new Vector2(cw - (stamp ? 106 : 28), headH), Pal.Hex("060C18"), 2f), 19);
                 Ui.Box(card, new Vector2(icon * 1.15f, icon * 1.05f), new Vector2(0, ch * 0.08f), head.A(0.24f), Art.SoftDot);
                 Ui.Box(card, new Vector2(icon * 0.85f, icon * 0.24f), new Vector2(0, ch * 0.04f - icon * 0.34f), new Color(0.02f, 0.04f, 0.10f, 0.45f), Art.GroundShadow);
                 Ui.Icon(card, d.Art, icon, new Vector2(0, ch * 0.08f));
                 if (stamp)
                 {
-                    var tag = Ui.Box(card, new Vector2(76, 34), new Vector2(cw * 0.5f - 50, ch * 0.5f - headH * 0.5f - 2), p.Ult ? Pal.Hex("FF3B30") : Pal.Hex("FFB800"), Art.Pill);
-                    Ui.Outlined(tag.transform, p.Ult ? "大招" : "满星", 21, Color.white, Vector2.zero, new Vector2(76, 34), Pal.Ink, 1.4f);
+                    var tag = Ui.Box(card, new Vector2(76, 34), new Vector2(cw * 0.5f - 50, ch * 0.5f - headH * 0.5f - 2), p.Ult ? Pal.Hex("FF3B30") : p.Finisher ? Pal.Hex("D88A14") : Pal.Hex("FFB800"), Art.Pill);
+                    Ui.Outlined(tag.transform, p.Ult ? "大招" : p.Finisher ? "奥义" : "满星", 21, Color.white, Vector2.zero, new Vector2(76, 34), Pal.Ink, 1.4f);
                 }
                 int lv = B.Level(p.Id);
-                float descY = -ch * 0.29f;
+                int heroLv = B.Lo.Lv[(int)h];
+                float bodyCenterY = -ch * 0.27f + (lv > 1 ? 10f : 0f);
                 if (lv > 1)
-                {
-                    Ui.Label(card, "Lv." + lv, 22, Pal.Hex("00E5FF"), new Vector2(0, -ch * 0.5f + 28), new Vector2(cw - 36, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
-                    descY += 8;
-                }
-                Ui.Label(card, Colorize(p.Desc), descSize, Pal.Hex("EAF2FF"), new Vector2(0, descY), new Vector2(cw - 36, ch * 0.34f), TextAnchor.UpperCenter);
+                    Ui.Label(card, "Lv." + lv, 21, Pal.Hex("00E5FF"), new Vector2(0, -ch * 0.5f + 26), new Vector2(cw - 36, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
+                RenderPerkRows(card, Defs.PerkDesc(p, heroLv), bodyCenterY, cw - 28f, ch * 0.34f, descSize, false);
             }
             var btn = _perkDock != null ? _perkDock.Find("perk" + (int)h) as RectTransform : null;
             if (btn != null)
@@ -1545,6 +1597,30 @@ namespace Liangshan
             ? $"<color=#FF5E54>{m.Value}</color>"
             : $"<color=#00F57A>{m.Value}</color>");
 
+        static void RenderPerkRows(RectTransform card, string rawDesc, float centerY, float rowW, float zoneH, int baseFont, bool showDividers)
+        {
+            if (string.IsNullOrEmpty(rawDesc)) return;
+            string[] lines = rawDesc.Split('\n');
+            int n = lines.Length;
+            int font = n <= 1 ? baseFont + 2 : n == 2 ? baseFont : Mathf.Max(19, baseFont - 2);
+            int minFont = Mathf.Max(16, font - 7);
+            float step = n <= 1 ? 0f : Mathf.Min(zoneH / n, n == 2 ? font * 1.84f : font * 1.56f);
+            float rowH = n <= 1 ? font * 1.48f : Mathf.Min(step - 2f, font * 1.36f);
+            for (int i = 0; i < n; i++)
+            {
+                float y = centerY + ((n - 1) * 0.5f - i) * step;
+                var row = Ui.Label(card, Colorize(lines[i].Trim()), font, Pal.Hex("F0F6FF"), new Vector2(0, y), new Vector2(rowW, rowH), TextAnchor.MiddleCenter);
+                row.fontSize = font;
+                row.resizeTextForBestFit = true;
+                row.resizeTextMinSize = minFont;
+                row.resizeTextMaxSize = font;
+                row.horizontalOverflow = HorizontalWrapMode.Wrap;
+                row.verticalOverflow = VerticalWrapMode.Truncate;
+                if (showDividers && i < n - 1)
+                    Ui.Box(card, new Vector2(Mathf.Min(148f, rowW * 0.52f), 1.5f), new Vector2(0, y - step * 0.5f), Pal.Hex("2A4668"), Art.White);
+            }
+        }
+
         static string PerkIcon(PerkDef p) => Defs.Hero(p.Hero).Art;
 
         static Color KindColor(PerkKind k) => Pal.Hex(k == PerkKind.Trade ? "FFB800" : k == PerkKind.Morph ? "D488FF" : k == PerkKind.Adv ? "FF5E54" : "00E5FF");
@@ -1552,10 +1628,13 @@ namespace Liangshan
         /// <summary>词条顶栏一律用这名好汉的品质色，和名册、卡框同一套，不按词条种类另配色。</summary>
         static Color CardHeadColor(PerkDef p) => MetaUi.RarityColor(Defs.Hero(p.Hero).Rarity);
 
-        /// <summary>卡底一行：进阶写它从哪张来。取舍互斥只在发牌里生效，卡上不提。</summary>
-        static string PerkNote(PerkDef p)
+        /// <summary>卡底一行：流派质变提示终阶解锁、取舍卡提示20级免负面、进阶卡标注前置来源。</summary>
+        static string PerkNote(PerkDef p, int heroLv)
         {
             if (p.Req != null) return $"进阶自「{Defs.Perk(p.Req)?.Name}」";
+            if (p.Kind == PerkKind.Morph) return "流派质变 · 解锁终阶形态";
+            if (p.Kind == PerkKind.Trade && p.Has2 && p.V2 < 0f)
+                return heroLv >= Meta.NoPenaltyLv ? "满20级 · 已免负面代价" : "重装取舍 · 20级免负面";
             return null;
         }
 
@@ -1569,10 +1648,11 @@ namespace Liangshan
                 float s = 1;
                 foreach (var sl in B.Slots)
                     if (sl.Unit != null && sl.Unit.Hero == p.Hero) s += sl.Unit.Star;
-                if (p.Eff == Eff.Dmg || p.Eff == Eff.Count || p.Eff == Eff.UltPow) s += 0.5f;
-                if (p.Kind == PerkKind.Morph) s += 1.2f;
-                if (p.Kind == PerkKind.Adv) s += 2f;
+                if (p.Eff == Eff.Dmg || p.Eff == Eff.Count || p.Eff == Eff.UltPow || p.Eff == Eff.Conduct || p.Eff == Eff.Refract) s += 0.7f;
+                if (p.Kind == PerkKind.Morph) s += 1.4f;
+                if (p.Kind == PerkKind.Adv) s += 2.2f;
                 if (p.Ult) s += 6f;
+                if (p.Finisher) s += 5f;
                 if (s > bs) { bs = s; best = i; }
             }
             return best;
@@ -1671,9 +1751,9 @@ namespace Liangshan
 
         static (string skin, Color rim, string tagText, Color tagBg) PerkPosterTheme(PerkDef p, HeroDef hd, int slotIdx, int recIdx, HashSet<string> usedSkins)
         {
-            bool special = p.Ult || p.Star;
+            bool special = p.Ult || p.Finisher || p.Star;
             if (special)
-                return ("ui/perk_card_red", Pal.Hex("FFB800"), p.Ult ? "大招" : "满星", Pal.Hex(p.Ult ? "E8262E" : "F09808"));
+                return ("ui/perk_card_red", Pal.Hex("FFB800"), p.Ult ? "大招" : p.Finisher ? "奥义" : "满星", Pal.Hex(p.Ult ? "E8262E" : p.Finisher ? "D87E0C" : "F09808"));
 
             string pick;
             if (slotIdx == recIdx)
@@ -1734,7 +1814,7 @@ namespace Liangshan
                 seenHeroCount[p.Hero] = sameHeroIdx + 1;
 
                 bool isCenterFocus = choices.Length == 3 && i == 1;
-                bool special = p.Ult || p.Star || i == rec;
+                bool special = p.Ult || p.Finisher || p.Star || i == rec;
                 float x = (i - (choices.Length - 1) * 0.5f) * (cw + gap);
                 float liftY = isCenterFocus ? 28f : 10f;
 
@@ -1749,7 +1829,7 @@ namespace Liangshan
                 if (special || isCenterFocus)
                 {
                     var bigHalo = Ui.Box(card, new Vector2(cw + 54, chh + 54), Vector2.zero,
-                        theme.rim.A(p.Ult ? 0.42f : 0.30f), Art.SoftDot, "halo");
+                        theme.rim.A((p.Ult || p.Finisher) ? 0.42f : 0.30f), Art.SoftDot, "halo");
                     bigHalo.raycastTarget = false;
                 }
 
@@ -1761,25 +1841,31 @@ namespace Liangshan
                 stageMask.anchoredPosition = new Vector2(0, top - 16f - 147f);
                 stageMask.gameObject.AddComponent<RectMask2D>();
 
-                string wpKey = !string.IsNullOrEmpty(hd.Proj) && hd.Proj != "wp_slash" ? hd.Proj : "wp_broadsword";
-                if (sameHeroIdx > 0 || p.Kind == PerkKind.Morph || p.Ult)
+                string wpKey = !string.IsNullOrEmpty(hd.Proj) && hd.Proj != "wp_slash" ? hd.Proj : (!string.IsNullOrEmpty(hd.AtkIcon) ? hd.AtkIcon : "fx_zap");
+                if (sameHeroIdx > 0 || p.Kind == PerkKind.Morph || p.Ult || p.Finisher)
                 {
                     var wpGlow = Ui.Box(stageMask, new Vector2(240, 240), new Vector2(-12, 12), Color.white.A(0.32f), Art.SoftDot, "wpGlow");
                     wpGlow.raycastTarget = false;
-                    var wpBig = Ui.Icon(stageMask, wpKey, 232, new Vector2(-18, 10), "wpHeroic");
+                    var wpBig = Ui.Icon(stageMask, wpKey, 216, new Vector2(-18, 12), "wpHeroic");
                     wpBig.rectTransform.localRotation = Quaternion.Euler(0, 0, i % 2 == 0 ? -24f : 22f);
-                    var heroSub = Ui.Icon(stageMask, PerkIcon(p), 178, new Vector2(54, -36), "heroSub");
+                    var heroSub = Ui.Icon(stageMask, PerkIcon(p), 182, new Vector2(52, -32), "heroSub");
                     heroSub.raycastTarget = false;
                 }
                 else
                 {
-                    var wpBack = Ui.Icon(stageMask, wpKey, 198, new Vector2(56, 28), "wpBack");
+                    var wpBack = Ui.Icon(stageMask, wpKey, 186, new Vector2(56, 30), "wpBack");
                     wpBack.rectTransform.localRotation = Quaternion.Euler(0, 0, -28f);
                     wpBack.color = new Color(1f, 1f, 1f, 0.85f);
                     wpBack.raycastTarget = false;
-                    Ui.Box(stageMask, new Vector2(168, 30), new Vector2(-10, -108), new Color(0.01f, 0.03f, 0.09f, 0.52f), Art.GroundShadow);
-                    var heroMain = Ui.Icon(stageMask, PerkIcon(p), 226, new Vector2(-10, -8), "heroMain");
+                    Ui.Box(stageMask, new Vector2(168, 30), new Vector2(-10, -106), new Color(0.01f, 0.03f, 0.09f, 0.52f), Art.GroundShadow);
+                    var heroMain = Ui.Icon(stageMask, PerkIcon(p), 226, new Vector2(-10, -6), "heroMain");
                     heroMain.raycastTarget = false;
+                }
+                if (p.Ult || p.Finisher)
+                {
+                    var kit = HeroKits.Of(p.Hero);
+                    string skIc = p.Ult ? (hd.UltIcon ?? hd.AtkIcon) : kit.FinisherIcon;
+                    MetaFx.Hex(card, skIc, 52, new Vector2(-cw * 0.5f + 50f, top - 44f), false, hd.Rarity);
                 }
 
                 var tagRt = Ui.Box(card, new Vector2(88, 34), new Vector2(cw * 0.5f - 60f, top - 34f), Pal.Hex("050914"), Art.Pill, "tagRim");
@@ -1788,33 +1874,30 @@ namespace Liangshan
                 tagIn.raycastTarget = false;
                 Ui.Outlined(tagIn.transform, theme.tagText, 20, Color.white, new Vector2(0, 0.5f), new Vector2(80, 28), Pal.Hex("091020"), 1.4f);
 
-                Ui.SingleLine(Ui.GradOutlined(card, p.Name, 39, Pal.Hex("FFFFFF"),
-                    (p.Ult || theme.skin.EndsWith("gold")) ? Pal.Hex("FFE058") : Pal.Hex("D8F6FF"),
-                    new Vector2(0, -96f), new Vector2(cw - 36, 54), Pal.Hex("040812"), 2.8f), 24);
+                Ui.SingleLine(Ui.GradOutlined(card, p.Name, 38, Pal.Hex("FFFFFF"),
+                    (p.Ult || p.Finisher || theme.skin.EndsWith("gold")) ? Pal.Hex("FFE058") : Pal.Hex("D8F6FF"),
+                    new Vector2(0, -85f), new Vector2(cw - 36, 52), Pal.Hex("040812"), 2.8f), 24);
 
-                Ui.Label(card, $"{hd.Name} · {hd.Role}", 22, theme.rim, new Vector2(0, -138f), new Vector2(cw - 44, 30), TextAnchor.MiddleCenter, Fonts.Heavy);
-                Ui.Box(card, new Vector2(cw - 76, 2f), new Vector2(0, -158f), theme.rim.A(0.32f), Art.White);
+                Ui.Label(card, $"{hd.Name} · {hd.Role}", 22, theme.rim, new Vector2(0, -124f), new Vector2(cw - 44, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
+                Ui.Box(card, new Vector2(cw - 76, 2f), new Vector2(0, -142f), theme.rim.A(0.32f), Art.White);
 
-                string note = PerkNote(p);
-                var desc = Ui.Label(card, Colorize(p.Desc), 25, Pal.Hex("F0F6FF"), new Vector2(0, -198f), new Vector2(cw - 48, 80));
-                desc.lineSpacing = 1.10f;
-                desc.resizeTextForBestFit = true;
-                desc.resizeTextMinSize = 18;
-                desc.resizeTextMaxSize = 25;
-                desc.verticalOverflow = VerticalWrapMode.Truncate;
+                int heroLv = B.Lo.Lv[(int)p.Hero];
+                string note = PerkNote(p, heroLv);
+                bool hasFoot = note != null || p.Max > 1;
+                RenderPerkRows(card, Defs.PerkDesc(p, heroLv), hasFoot ? -182f : -194f, cw - 38f, hasFoot ? 72f : 94f, 22, true);
 
-                float foot = -top + 48f;
+                float foot = -top + 64f;
                 if (note != null)
                 {
-                    var nt = Ui.Label(card, note, 20, KindColor(p.Kind), new Vector2(0, foot), new Vector2(cw - 44, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
+                    var nt = Ui.Label(card, note, 19, KindColor(p.Kind), new Vector2(0, foot), new Vector2(cw - 44, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
                     nt.resizeTextForBestFit = true;
-                    nt.resizeTextMinSize = 16;
-                    nt.resizeTextMaxSize = 20;
+                    nt.resizeTextMinSize = 15;
+                    nt.resizeTextMaxSize = 19;
                     nt.horizontalOverflow = HorizontalWrapMode.Wrap;
                     nt.verticalOverflow = VerticalWrapMode.Truncate;
                 }
                 else if (p.Max > 1)
-                    Ui.Label(card, $"等级 {B.Level(p.Id)}→{B.Level(p.Id) + 1}", 20, Pal.Hex("48F0FF"), new Vector2(0, foot), new Vector2(cw - 48, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
+                    Ui.Label(card, $"等级 {B.Level(p.Id)} → {B.Level(p.Id) + 1}", 20, Pal.Hex("48F0FF"), new Vector2(0, foot), new Vector2(cw - 48, 28), TextAnchor.MiddleCenter, Fonts.Heavy);
 
                 int idx = i;
                 float targetScale = isCenterFocus ? 1.035f : 1f;
@@ -1848,7 +1931,7 @@ namespace Liangshan
             {
                 CloseModal();
                 B.Pick(i);
-                Ui.Toast((p.Ult ? "解锁大招：" : p.Star ? "满星技能：" : "获得：") + p.Name, -200);
+                Ui.Toast((p.Ult ? "解锁大招：" : p.Finisher ? "觉醒奥义：" : p.Star ? "满星技能：" : "获得：") + p.Name, -200);
             });
         }
 
@@ -2039,8 +2122,8 @@ namespace Liangshan
             foreach (var p in B.ReelPerks)
             {
                 var hd = Defs.Hero(p.Hero);
-                string tag = p.Ult ? "（大招）" : "";
-                string cleanDesc = Colorize(p.Desc.Replace("\n", "，"));
+                string tag = p.Ult ? "（大招）" : p.Finisher ? "（奥义）" : "";
+                string cleanDesc = Colorize(Defs.PerkDesc(p, B.Lo.Lv[(int)p.Hero]).Replace("\n", "，"));
                 rows.Add((hd.Art, 114f, $"{hd.Name} · {p.Name}{tag}", cleanDesc));
             }
             int silver = B.ReelSilverOf(r);
@@ -2394,7 +2477,12 @@ namespace Liangshan
                         Sfx.Play(Snd.Jackpot, 0.6f);
                     });
                 }, 40, "ic_ad");
-                Ui.Btn(c, "返回", new Vector2(340, 124), new Vector2(190, btnY), Pal.Slate, () => { CloseModal(); Game.I.ShowHome(); }, 46);
+                Ui.Btn(c, "返回", new Vector2(340, 124), new Vector2(190, btnY), Pal.Slate, () =>
+                {
+                    CloseModal();
+                    Game.I.ShowHome();
+                    if (!doubled) Ads.TryInterstitial("win_return");
+                }, 46);
                 if (_v.Auto != null) Tween.Run(c, 3f, k => { }, () => Game.I.OnAutoDone(true));
             }
             else
@@ -2412,8 +2500,11 @@ namespace Liangshan
                     Game.I.Settle(B, false);
                     CloseModal();
                     Game.I.ShowHome(tab);
+                    Ads.TryInterstitial("lose_return");
                 }
+                bool canLoseDouble = B.RevivedOnce && pre.Items.Count > 0;
                 if (!B.RevivedOnce)
+                {
                     Ui.Btn(c, "复活再战", new Vector2(340, 124), new Vector2(-340, -640), Pal.Teal, () =>
                     {
                         FakeAd("revive", () =>
@@ -2423,8 +2514,24 @@ namespace Liangshan
                             Sfx.PlayMusic(Bgm.Battle);
                         });
                     }, 44, "ic_ad");
-                Ui.Btn(c, "去养成", new Vector2(280, 124), new Vector2(B.RevivedOnce ? -170 : 0, -640), Pal.Hex("F2B632"), () => Leave(1), 44);
-                Ui.Btn(c, "返回", new Vector2(260, 124), new Vector2(B.RevivedOnce ? 170 : 330, -640), Pal.Slate, () => Leave(2), 44);
+                }
+                else if (canLoseDouble)
+                {
+                    Ui.Btn(c, "双倍抚恤", new Vector2(340, 124), new Vector2(-340, -640), Pal.Teal, () =>
+                    {
+                        FakeAd("lose_double", () =>
+                        {
+                            var settled = Game.I.Settle(B, false);
+                            Game.I.GiveAgain(settled);
+                            CloseModal();
+                            Game.I.ShowHome(2);
+                            Ui.Toast("战败补贴已翻倍领取", 200);
+                        });
+                    }, 40, "ic_ad");
+                }
+                bool threeBtns = !B.RevivedOnce || canLoseDouble;
+                Ui.Btn(c, "去养成", new Vector2(280, 124), new Vector2(threeBtns ? 0 : -170, -640), Pal.Hex("F2B632"), () => Leave(1), 44);
+                Ui.Btn(c, "返回", new Vector2(260, 124), new Vector2(threeBtns ? 330 : 170, -640), Pal.Slate, () => Leave(2), 44);
                 if (_v.Auto != null) Tween.Run(c, 3f, k => { }, () => { Game.I.Settle(B, false); Game.I.OnAutoDone(false); });
             }
             Tween.Pop(band, 0.3f);
