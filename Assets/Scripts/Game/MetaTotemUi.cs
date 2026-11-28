@@ -55,18 +55,17 @@ namespace Liangshan
             Ui.Box(left, new Vector2(lw - 6, 24), new Vector2(0, lh * 0.5f - 166), Pal.Hex("0D1528"), Art.White);
             Ui.Box(left, new Vector2(lw - 6, 3), new Vector2(0, lh * 0.5f - 156), QualGlow(t.Rarity).A(0.88f), Art.White);
 
-            // 兽首大图标（嵌于对应品质雕花方框内）+ 品质角标
+            // 兽首大图标（嵌于对应品质雕花方框内）+ 品质切角铆钉角标
             Slot(left, TotemSlot(t.Rarity), 112, new Vector2(-164, lh * 0.5f - 74));
             Ui.Icon(left, Meta.TotemIcon(t), 82, new Vector2(-164, lh * 0.5f - 72));
-            var rTag = Ui.Box(left, new Vector2(94, 34), new Vector2(-164, lh * 0.5f - 132), rStroke.A(0.88f), Art.Pill);
-            Ui.SingleLine(Ui.Outlined(rTag.transform, Meta.TotemRarityNames[t.Rarity], 22, QualGlow(t.Rarity), new Vector2(0, 1), new Vector2(90, 34), Pal.Ink, 1.4f), 16);
+            Ui.TagChip(left, Meta.TotemRarityNames[t.Rarity], new Vector2(100, 36), new Vector2(-164, lh * 0.5f - 132), QualColor(t.Rarity), 20);
 
             Ui.SingleLine(Ui.Outlined(left, Meta.TotemFullName(t), 23, Color.white,
                 new Vector2(42, lh * 0.5f - 44), new Vector2(276, 42), rStroke, 2.0f, TextAnchor.MiddleLeft), 17);
 
             // 锁头按钮
-            var lockBg = Ui.Box(left, new Vector2(46, 46), new Vector2(lw * 0.5f - 32, lh * 0.5f - 44), new Color(0, 0, 0, 0.22f), Art.Circle, "lock");
-            var lockIc = Ui.Icon(lockBg.transform, "ic_lock", 32, Vector2.zero);
+            var lockBg = Ui.Icon(left, "ui/lv", 48, new Vector2(lw * 0.5f - 32, lh * 0.5f - 44), "lock");
+            var lockIc = Ui.Icon(lockBg.transform, "ic_lock", 30, Vector2.zero);
             lockIc.color = t.Locked ? Pal.Gold : new Color(1, 1, 1, 0.45f);
             Ui.Tap(lockBg, () =>
             {
@@ -78,7 +77,7 @@ namespace Liangshan
 
             // 部位 + 基础攻击条
             var subBar = new Vector2(60, lh * 0.5f - 104);
-            Ui.Box(left, new Vector2(308, 40), subBar, new Color(0, 0, 0, 0.22f), Art.Pill);
+            Ui.Skin(left, "pill", new Vector2(308, 40), subBar, -1f);
             Ui.Icon(left, Meta.Equips[t.Slot].Icon, 30, subBar + new Vector2(-130, 0));
             Ui.SingleLine(Ui.Outlined(left, $"{Meta.Equips[t.Slot].Name}  攻击 +{Meta.TotemAtk(t)}", 20, Color.white,
                 subBar + new Vector2(18, 1), new Vector2(258, 38), Pal.Ink, 1.5f, TextAnchor.MiddleLeft), 16);

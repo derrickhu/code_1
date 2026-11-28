@@ -60,6 +60,24 @@ namespace Liangshan
             if (f != null) DirtyFonts.Add(f);
         }
 
+        public static void FlushDirtyFonts()
+        {
+            if (DirtyFonts.Count == 0 || Root == null) return;
+            var texts = Root.GetComponentsInChildren<Text>(true);
+            for (int i = 0; i < texts.Length; i++)
+            {
+                var tx = texts[i];
+                if (tx != null && tx.font != null && DirtyFonts.Contains(tx.font))
+                {
+                    tx.cachedTextGenerator.Invalidate();
+                    tx.cachedTextGeneratorForLayout.Invalidate();
+                    tx.FontTextureChanged();
+                    tx.SetVerticesDirty();
+                }
+            }
+            DirtyFonts.Clear();
+        }
+
         public static void Fit()
         {
             float match = Tall ? 0f : 1f;
@@ -387,6 +405,73 @@ namespace Liangshan
             if (scale <= 0f) scale = size.y / sp.rect.height;
             img.pixelsPerUnitMultiplier = 1f / Mathf.Max(0.05f, scale);
             return img;
+        }
+
+        /// <summary>按面色挑最匹配的 04 切角铆钉战术标签皮肤（橙/翠绿/冰蓝/霓虹紫/赤金/亮金/石板灰 7 色）。</summary>
+        public static string TagSkin(Color c)
+        {
+            Color.RGBToHSV(c, out float h, out float s, out _);
+            if (s < 0.30f) return "tag_chip_grey";
+            if (h < 0.04f || h > 0.90f) return "tag_chip_red";
+            if (h < 0.11f) return "tag_chip_orange";
+            if (h < 0.19f) return "tag_chip_gold";
+            if (h < 0.46f) return "tag_chip_emerald";
+            if (h < 0.69f) return "tag_chip_blue";
+            return "tag_chip_purple";
+        }
+
+        static Color TagStroke(string chipSkin)
+        {
+            switch (chipSkin)
+            {
+                case "tag_chip_gold": return Pal.Hex("422204");
+                case "tag_chip_orange": return Pal.Hex("4A1804");
+                case "tag_chip_emerald": return Pal.Hex("05381E");
+                case "tag_chip_blue": return Pal.Hex("06224C");
+                case "tag_chip_purple": return Pal.Hex("260A54");
+                case "tag_chip_red": return Pal.Hex("48080E");
+                default: return Pal.Hex("0A1220");
+            }
+        }
+
+        static float EstimateTagTextWidth(string s, int fontSize)
+        {
+            if (string.IsNullOrEmpty(s)) return 0f;
+            float w = 0f;
+            bool inTag = false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char ch = s[i];
+                if (ch == '<') { inTag = true; continue; }
+                if (ch == '>') { inTag = false; continue; }
+                if (inTag) continue;
+                w += ch > 0x7F ? fontSize * 1.02f : fontSize * 0.62f;
+            }
+            return w;
+        }
+
+        /// <summary>04 暗黑切角铆钉战术小铭牌：左右 45° 切角与菱形铆钉按高度等比锁定，自动避让两端铆钉，彻底取代代码椭圆胶囊。</summary>
+        public static Image TagChip(Transform parent, string text, Vector2 size, Vector2 pos, string chipSkin, int fontSize = 20, string name = "tagChip")
+        {
+            float minW = Mathf.Ceil(size.y * 1.14f + 14f + EstimateTagTextWidth(text, fontSize));
+            var actualSize = new Vector2(Mathf.Max(size.x, minW), size.y);
+            var img = Skin(parent, chipSkin, actualSize, pos, -1f, null, name);
+            img.raycastTarget = false;
+            var lbl = SingleLine(Outlined(img.transform, text, fontSize, Color.white, new Vector2(0, 0.5f),
+                new Vector2(Mathf.Max(24f, actualSize.x - actualSize.y * 1.10f), actualSize.y), TagStroke(chipSkin), 1.5f, TextAnchor.MiddleCenter, "tagText"), 12);
+            if (lbl) lbl.raycastTarget = false;
+            return img;
+        }
+
+        public static Image TagChip(Transform parent, string text, Vector2 size, Vector2 pos, Color c, int fontSize = 20, string name = "tagChip") =>
+            TagChip(parent, text, size, pos, TagSkin(c), fontSize, name);
+
+        /// <summary>04 切角八边形翠绿加号徽章（取代三层同心圆代码拼贴）。</summary>
+        public static Image PlusBadge(Transform parent, float size, Vector2 pos, Action onTap = null, Transform punch = null, string name = "plus")
+        {
+            var ic = Icon(parent, "ui/plus_oct", size, pos, name);
+            if (onTap != null) Tap(ic, onTap, punch ?? parent);
+            return ic;
         }
 
         /// <summary>按面色挑最匹配的高清 3D 亮泽圆角按钮皮肤（含金/天蓝/青玉/翠绿/星愿紫/暖橙/朱红/石板灰 8 色）。</summary>
@@ -813,12 +898,8 @@ namespace Liangshan
                 Pal.Hex("0C1622"), 2.0f, TextAnchor.MiddleLeft, "name");
             if (!string.IsNullOrEmpty(tag))
             {
-                float tagW = Mathf.Max(80f, 22f * tag.Length + 34f);
-                var pill = Box(card, new Vector2(tagW, 34f), new Vector2(textLeft + tagW * 0.5f, headerY - 23f), tagColor, Art.Pill, "tag");
-                pill.raycastTarget = false;
-                var tagText = Outlined(pill.transform, tag, 19, Color.white, new Vector2(0, 1f), new Vector2(tagW, 34f),
-                    Pal.Ink.A(0.65f), 1.4f, TextAnchor.MiddleCenter, "tagText");
-                tagText.raycastTarget = false;
+                float tagW = Mathf.Max(92f, 22f * tag.Length + 42f);
+                TagChip(card, tag, new Vector2(tagW, 36f), new Vector2(textLeft + tagW * 0.5f, headerY - 23f), tagColor, 19, "tag");
             }
             if (hasCd)
             {
@@ -1020,13 +1101,12 @@ namespace Liangshan
             Color ink;
             if (bg.HasValue)
             {
-                plate = Box(Root, size, new Vector2(0, y), bg.Value, Art.Pill, "toast");
-                float lum = bg.Value.r * 0.299f + bg.Value.g * 0.587f + bg.Value.b * 0.114f;
-                ink = lum > 0.55f ? Pal.Hex("1E1002") : Pal.Hex("EAF2FF");
+                plate = Skin(Root, "h_plaque", size, new Vector2(0, y), -1f, Color.Lerp(Color.white, bg.Value, 0.35f), "toast");
+                ink = Pal.Hex("EAF2FF");
             }
             else
             {
-                plate = Skin(Root, "pill", size, new Vector2(0, y), -1f, null, "toast");
+                plate = Skin(Root, "h_plaque", size, new Vector2(0, y), -1f, null, "toast");
                 ink = Pal.Hex("EAF2FF");
             }
             Label(plate.transform, s, 42, ink, Vector2.zero, new Vector2(960, 96));
@@ -1073,21 +1153,7 @@ namespace Liangshan
         public static void Run(UnityEngine.Object owner, float dur, Action<float> step, Action done = null, float delay = 0)
             => _i._add.Add(new Job { Owner = owner, Dur = Mathf.Max(0.0001f, dur), Delay = delay, Done = done, Step = step });
 
-        void LateUpdate()
-        {
-            if (Ui.DirtyFonts.Count == 0 || Ui.Root == null) return;
-            var texts = Ui.Root.GetComponentsInChildren<Text>(true);
-            for (int i = 0; i < texts.Length; i++)
-            {
-                var tx = texts[i];
-                if (tx != null && tx.font != null && Ui.DirtyFonts.Contains(tx.font))
-                {
-                    tx.cachedTextGenerator.Invalidate();
-                    tx.SetVerticesDirty();
-                }
-            }
-            Ui.DirtyFonts.Clear();
-        }
+        void LateUpdate() => Ui.FlushDirtyFonts();
 
         void Update()
         {

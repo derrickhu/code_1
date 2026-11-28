@@ -101,11 +101,12 @@ namespace Liangshan
     {
         static readonly Dictionary<string, Sprite> Cache = new Dictionary<string, Sprite>();
 
-        public static Sprite Rounded => Get("rounded", () => RoundRect(256, 64, 0));
-        public static Sprite RoundedSmall => Get("rounded_s", () => RoundRect(256, 36, 0));
+        public static Sprite Rounded => Get("rounded", () => RoundRect(128, 14, 0));
+        public static Sprite RoundedSmall => Get("rounded_s", () => RoundRect(64, 7, 0));
         /// <summary>怪物头顶利落微圆角扁框（对标参考图紧致直角感矩形条，杜绝肥厚大圆胶囊）。</summary>
-        public static Sprite HpBarRect => Get("hpbar_rect", () => RoundRect(128, 12, 0));
-        public static Sprite Pill => Get("pill", () => RoundRect(256, 126, 0));
+        public static Sprite HpBarRect => Get("hpbar_rect", () => RoundRect(64, 4, 0));
+        /// <summary>04 切角八边形战术底板（100 PPU 九宫格切角框，彻底杜绝椭圆胶囊变形）。</summary>
+        public static Sprite Pill => Get("pill", () => ChamferRect(160, 48, 12));
         public static Sprite Circle => Get("circle", () => Disc(256, 0.02f));
         public static Sprite SoftDot => Get("softdot", () => Disc(128, 1f));
         /// <summary>上实下透的竖向渐变，用来做窄边的柔和过渡。</summary>
@@ -539,11 +540,13 @@ namespace Liangshan
             if (n.StartsWith("banner")) return new Vector4(148, 0, 148, 0);
             if (n.StartsWith("rank_badge_")) return new Vector4(76, 0, 76, 0);
             if (n.StartsWith("vtab_")) return new Vector4(36, 36, 36, 36);
+            if (n.StartsWith("tag_chip_")) return new Vector4(56, 0, 56, 0);
             if (n.StartsWith("codex_card")) return new Vector4(60, 60, 60, 60);
             if (n.StartsWith("codex_btab_")) return new Vector4(36, 36, 36, 24);
             if (n == "codex_tag_edge") return new Vector4(22, 16, 32, 12);
             switch (n)
             {
+                case "h_bond_pill": return new Vector4(30, 0, 30, 0);
                 case "rank_well": return new Vector4(48, 48, 48, 48);
                 case "rank_row":
                 case "rank_row_me": return new Vector4(44, 44, 44, 44);
@@ -589,10 +592,11 @@ namespace Liangshan
         static Texture2D NewTex(int w, int h) =>
             new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
 
-        static Sprite Make(Texture2D t, Vector4 border = default)
+        static Sprite Make(Texture2D t, Vector4 border = default, float ppu = 0f)
         {
             t.Apply(false, true);
-            return Sprite.Create(t, new Rect(0, 0, t.width, t.height), new Vector2(0.5f, 0.5f), Mathf.Max(t.width, t.height), 0, SpriteMeshType.FullRect, border);
+            float u = ppu > 0f ? ppu : Mathf.Max(t.width, t.height);
+            return Sprite.Create(t, new Rect(0, 0, t.width, t.height), new Vector2(0.5f, 0.5f), u, 0, SpriteMeshType.FullRect, border);
         }
 
         static Sprite Solid(int n)
@@ -620,7 +624,34 @@ namespace Liangshan
                 }
             t.SetPixels(px);
             float b = radius + 2;
-            return Make(t, new Vector4(b, b, b, b));
+            return Make(t, new Vector4(b, b, b, b), 100f);
+        }
+
+        /// <summary>45 度切角八边形底板（100 PPU 九宫格），任何长宽比均保持利落 45° 切角与微亮内脊线，永不拉成椭圆。</summary>
+        static Sprite ChamferRect(int w, int h, float cut)
+        {
+            var t = NewTex(w, h);
+            var px = new Color[w * h];
+            float hw = w * 0.5f - 1f, hh = h * 0.5f - 1f;
+            const float invSqrt2 = 0.70710678f;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    float dx = Mathf.Abs(x + 0.5f - w * 0.5f);
+                    float dy = Mathf.Abs(y + 0.5f - h * 0.5f);
+                    float dChamfer = (dx + dy - (hw + hh - cut)) * invSqrt2;
+                    float sd = Mathf.Max(Mathf.Max(dx - hw, dy - hh), dChamfer);
+                    float a = Mathf.Clamp01(0.5f - sd);
+                    if (a <= 0f) continue;
+                    // 内侧 1.5~3px 微亮倒角细线，摆脱纯平色块代码感
+                    float rimBand = 1f - Mathf.Clamp01(Mathf.Abs(-sd - 2.0f) / 1.1f);
+                    float topGloss = y > h * 0.52f ? 1.0f : 0.90f;
+                    float shade = Mathf.Clamp01(topGloss + rimBand * 0.14f);
+                    px[y * w + x] = new Color(shade, shade, shade, a);
+                }
+            t.SetPixels(px);
+            float bx = cut + 4f, by = cut + 2f;
+            return Make(t, new Vector4(bx, by, bx, by), 100f);
         }
 
         static Sprite FadeVertical(int w, int h)

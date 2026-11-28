@@ -701,10 +701,9 @@ namespace Liangshan
                 float tagLeft = textLeft + nameW + 10f;
                 foreach (var (text, color) in tags)
                 {
-                    float tw = 24f * text.Length + 24f;
+                    float tw = Mathf.Max(66f, 22f * text.Length + 32f);
                     if (tagLeft + tw > 400f) break;
-                    var tg = Ui.Box(r, new Vector2(tw, 32), new Vector2(tagLeft + tw * 0.5f, 28), color, Art.RoundedSmall);
-                    Ui.Outlined(tg.transform, text, 18, Color.white, new Vector2(0, 1), new Vector2(tw, 32), color.Mul(0.45f), 1.2f);
+                    Ui.TagChip(r, text, new Vector2(tw, 32), new Vector2(tagLeft + tw * 0.5f, 28), color, 17);
                     tagLeft += tw + 6f;
                 }
                 var body = Ui.Label(r, EnemyText.SheetBody(d), 22, Pal.SubInk, new Vector2(textLeft + 340f, -36), new Vector2(680, 76), TextAnchor.UpperLeft, Fonts.Heavy);

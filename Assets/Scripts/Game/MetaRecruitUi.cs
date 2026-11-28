@@ -1528,10 +1528,8 @@ namespace Liangshan
 
             var tagPill = Ui.Rect(plaque, "qTag");
             tagPill.anchoredPosition = new Vector2(0, 44);
-            tagPill.sizeDelta = new Vector2(168, 34);
-            Ui.Box(tagPill, new Vector2(168, 32), Vector2.zero, QualBanner(tier), Art.Pill);
-            Ui.Box(tagPill, new Vector2(164, 28), Vector2.zero, Color.white.A(0.16f), Art.Pill);
-            Ui.Outlined(tagPill, $"{RarityName(d.Rarity)} · {d.Role}", 20, Color.white, Vector2.zero, new Vector2(162, 32), QualStroke(tier), 1.6f);
+            tagPill.sizeDelta = new Vector2(176, 36);
+            Ui.TagChip(tagPill, $"{RarityName(d.Rarity)} · {d.Role}", new Vector2(176, 36), Vector2.zero, RarityColor(d.Rarity), 19);
 
             string fullTitle = !string.IsNullOrEmpty(d.Nick) ? $"<color=#FFE28A>「{d.Nick}」</color>{d.Name}" : d.Name;
             Ui.SingleLine(Ui.Outlined(plaque, fullTitle, 31, Color.white, new Vector2(0, -3), new Vector2(396, 52), Pal.Ink, 2.3f), 20);
@@ -1643,11 +1641,10 @@ namespace Liangshan
             miniArt.rectTransform.pivot = new Vector2(0.5f, 0f);
             miniArt.rectTransform.anchoredPosition = new Vector2(0f, -sz.y * 0.23f);
 
-            float rSz = sz.x * 0.22f;
+            float rSz = sz.x * 0.23f;
             Vector2 rPos = new Vector2(-sz.x * 0.35f, sz.y * 0.36f);
-            Ui.Box(front, Vector2.one * (rSz + 5f), rPos, Color.white, Art.Circle);
-            Ui.Box(front, Vector2.one * rSz, rPos, RoleColor(d.Kind), Art.Circle);
-            Ui.Icon(front, RoleArt(d.Kind), rSz * 0.76f, rPos);
+            Ui.Icon(front, "ui/h_round", rSz + 6f, rPos);
+            Ui.Icon(front, RoleArt(d.Kind), rSz * 0.68f, rPos);
 
             Ui.Box(front, new Vector2(sz.x * 0.84f, sz.y * 0.20f), new Vector2(0f, -sz.y * 0.34f), new Color(0.05f, 0.10f, 0.18f, 0.84f), Art.RoundedSmall);
             Ui.Outlined(front, d.Name, Mathf.RoundToInt(sz.x * 0.135f), tier >= 3 ? Pal.Hex("FFF1B4") : (tier == 2 ? Pal.Hex("F6DCFF") : Color.white),
@@ -1655,14 +1652,14 @@ namespace Liangshan
 
             if (pl.New)
             {
-                Badge(front, "新!", Pal.Red, new Vector2(sz.x * 0.40f, sz.y * 0.15f), new Vector2(sz.x * 0.26f, sz.y * 0.38f), Mathf.RoundToInt(sz.x * 0.115f));
+                Badge(front, "新!", Pal.Red, new Vector2(sz.x * 0.42f, sz.y * 0.15f), new Vector2(sz.x * 0.26f, sz.y * 0.38f), Mathf.RoundToInt(sz.x * 0.115f));
             }
             else
             {
                 var spPill = Ui.Rect(front, "sp");
                 spPill.anchoredPosition = new Vector2(sz.x * 0.22f, sz.y * 0.37f);
                 spPill.sizeDelta = new Vector2(sz.x * 0.48f, sz.y * 0.14f);
-                Ui.Box(spPill, spPill.sizeDelta, Vector2.zero, new Color(0.06f, 0.13f, 0.22f, 0.88f), Art.Pill);
+                Ui.Skin(spPill, "h_capsule", spPill.sizeDelta, Vector2.zero, -1f);
                 Ui.Icon(spPill, "ic_shard", sz.x * 0.14f, new Vector2(-sz.x * 0.14f, 0f));
                 Ui.Outlined(spPill, $"+{pl.Shards}", Mathf.RoundToInt(sz.x * 0.11f), Pal.Hex("FFE682"),
                     new Vector2(sz.x * 0.06f, 0f), new Vector2(sz.x * 0.34f, sz.y * 0.14f), Pal.Ink, 1.6f);
@@ -1986,24 +1983,23 @@ namespace Liangshan
 
             SweepCardShine(artMask, new Vector2(204, 188), tier >= 2 ? 0.88f : 0.55f, animDelay + 0.14f);
 
-            Ui.Box(c, Vector2.one * 54, new Vector2(-84, 115), Color.white, Art.Circle);
-            Ui.Box(c, Vector2.one * 44, new Vector2(-84, 115), RoleColor(d.Kind), Art.Circle);
+            Ui.Icon(c, "ui/h_round", 54, new Vector2(-84, 115));
             Ui.Icon(c, RoleArt(d.Kind), 34, new Vector2(-84, 116));
 
             if (mp.AnyNew && mp.GainShards == 0)
             {
-                Badge(c, "新乡亲!", Pal.Red, new Vector2(108, 38), new Vector2(56, 118), 21);
+                Badge(c, "新乡亲!", Pal.Red, new Vector2(114, 38), new Vector2(56, 118), 20);
             }
             else
             {
                 var gainPill = Ui.Rect(c, "gainPill");
                 gainPill.anchoredPosition = new Vector2(50, 116);
                 gainPill.sizeDelta = new Vector2(118, 38);
-                Ui.Box(gainPill, new Vector2(118, 36), Vector2.zero, new Color(0.07f, 0.14f, 0.24f, 0.90f), Art.Pill);
+                Ui.Skin(gainPill, "h_capsule", new Vector2(118, 36), Vector2.zero, -1f);
                 Ui.Icon(gainPill, "ic_shard", 30, new Vector2(-36, 1));
                 Ui.Outlined(gainPill, $"+{mp.GainShards}", 22, Pal.Hex("FFE680"), new Vector2(14, 1), new Vector2(80, 34), Pal.Ink, 1.8f);
                 if (mp.AnyNew)
-                    Badge(c, "新!", Pal.Red, new Vector2(66, 32), new Vector2(74, 80), 19);
+                    Badge(c, "新!", Pal.Red, new Vector2(72, 32), new Vector2(74, 80), 18);
             }
 
             int need = Meta.ShardCost(lv);
@@ -2022,9 +2018,7 @@ namespace Liangshan
             MetaUi.GrowBar(fillRt, frac0, frac1, barW, barH, 0.48f, animDelay + 0.12f);
 
             var lvPos = new Vector2(barX - barW * 0.5f - 18f, rowY);
-            Ui.Box(c, Vector2.one * 40, lvPos, Pal.Hex("14202C"), Art.Circle);
-            Ui.Box(c, Vector2.one * 34, lvPos, tier >= 3 ? Pal.Hex("FFE288") : Color.white, Art.Circle);
-            Ui.Box(c, Vector2.one * 27, lvPos, Pal.Hex("27394C"), Art.Circle);
+            Ui.Icon(c, tier >= 3 ? "ui/h_round" : "ui/lv", 40, lvPos);
             Ui.Outlined(c, lv.ToString(), 18, Color.white, lvPos + new Vector2(0, 1), new Vector2(36, 28), Pal.Hex("101A24"), 1.3f);
 
             if (can)
